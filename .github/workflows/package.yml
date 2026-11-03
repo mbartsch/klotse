@@ -1,0 +1,83 @@
+# Builds the Windows and macOS packages. Run it by hand (Actions -> Package -> Run workflow) to get the files as
+# downloadable artifacts, or push a version tag (git tag v0.1.0 && git push origin v0.1.0) to also create a DRAFT
+# release with the files attached. A draft is not public until you publish it.
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(python -c "import sys; sys.path.insert(0, 'src'); import klotse; print(klotse.__version__)")
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match klotse.__version__ ($version)"; exit 1; }
+      - name: Install Inno Setup if the runner image lacks it
+        shell: powershell
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+      - name: Build (zip + installer, self-tested)
+        shell: powershell
+        run: ./packaging/windows/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/Klotse-*-setup.exe
+            dist/Klotse-*-portable.zip
+          if-no-files-found: error
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, arch: arm64 }          # Apple Silicon
+          - { os: macos-15-intel, arch: x86_64 }   # Intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build (app + dmg, self-tested)
+        # Without signing secrets the app is ad-hoc signed only; see packaging/README.md for Developer ID and notarization.
+        run: ./packaging/macos/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/Klotse-*.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd artifacts && sha256sum */* > SHA256SUMS.txt)
+          gh release create "$GITHUB_REF_NAME" artifacts/*/* artifacts/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "Klotse ${GITHUB_REF_NAME#v}"

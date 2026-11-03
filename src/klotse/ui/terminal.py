@@ -60,6 +60,9 @@ def node_shell_args(context, node, namespace="default", image=NODE_SHELL_IMAGE, 
 
 
 def _mac_session_command(argv, mac_terminal):
+    if getattr(sys, "frozen", False):
+        # Packaged app: there is no separate Python or script file, so the app binary itself runs the session.
+        return "exec " + shlex.join([sys.executable, "--terminal-session", mac_terminal, json.dumps(argv)])
     # Replace the login shell; the standalone runner closes only its own session.
     runner = str(Path(__file__).with_name("terminal_session.py").resolve())
     return "exec " + shlex.join([sys.executable, runner, mac_terminal, json.dumps(argv)])

@@ -4,12 +4,17 @@ from threading import Timer
 
 from PySide6.QtWidgets import QApplication
 
+from . import cli
 from .k8s.client import KubeService
-from .ui import branding, theme
+from .ui import branding, environment, theme
 from .ui.main_window import MainWindow
 
 
-def main():
+def main(argv=None):
+    status = cli.handle(sys.argv[1:] if argv is None else list(argv))  # --version, --self-test, --terminal-session
+    if status is not None:
+        sys.exit(status)
+    environment.prepare_environment()  # macOS: make kubectl and auth helpers findable when started from Finder
     branding.set_windows_app_id()
     app = QApplication(sys.argv)
     theme.apply(app)

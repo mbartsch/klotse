@@ -74,6 +74,11 @@ def run_session(command, app, target):
     return status
 
 
+def main(argv):
+    """argv: APP COMMAND_JSON [TARGET...]. Also reached through `klotse --terminal-session` in a packaged app."""
+    app, command_json, *target = argv
+    return run_session(json.loads(command_json), app, target)
+
+
 if __name__ == "__main__":
-    app, command_json, *target = sys.argv[1:]
-    sys.exit(run_session(json.loads(command_json), app, target))
+    sys.exit(main(sys.argv[1:]))

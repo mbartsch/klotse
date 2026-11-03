@@ -1,0 +1,97 @@
+"""Command-line entry points handled before the GUI starts. No Qt is imported at module level.
+
+    klotse --version                      print the version and exit
+    klotse --self-test [REPORT_FILE]      check that this installation works (used to verify packaged builds)
+    klotse --terminal-session APP JSON    run one macOS shell session (used by the packaged app, see ui/terminal.py)
+
+Anything else is left to the GUI. A packaged Windows app has no console, so --self-test can write its report to a
+file; --version prints to stdout as usual.
+"""
+import os
+import shutil
+import sys
+
+from . import __version__
+
+
+def _self_test_checks():
+    """Yield (name, callable) pairs; each callable returns a short detail string or raises."""
+    def frozen():
+        return "packaged app" if getattr(sys, "frozen", False) else "running from source"
+
+    def imports():
+        import kubernetes
+        import yaml
+
+        from .ui import main_window  # noqa: F401
+        return f"kubernetes {kubernetes.__version__}, PyYAML {yaml.__version__}"
+
+    def qt():
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # no window: this only proves Qt and its plugins load
+        from PySide6.QtCore import qVersion
+        from PySide6.QtGui import QImageReader
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])
+        formats = {bytes(f).decode() for f in QImageReader.supportedImageFormats()}
+        if "png" not in formats:
+            raise RuntimeError("the Qt PNG image plugin is missing")
+        return f"Qt {qVersion()}, platform '{app.platformName()}', image formats {', '.join(sorted(formats)[:6])}, ..."
+
+    def logo():
+        from .ui import branding
+        pixmap = branding.square_logo(64)
+        path = branding.logo_path()
+        if path is None or pixmap.isNull():
+            raise RuntimeError("the logo file is missing from the installation")
+        return f"{path.name} ({pixmap.width()}x{pixmap.height()})"
+
+    def dialog():
+        from .ui.about import AboutDialog
+        dialog = AboutDialog()
+        title = dialog.windowTitle()
+        dialog.deleteLater()
+        return title
+
+    def kubectl():
+        found = shutil.which("kubectl")
+        return found or "not found on PATH (needed for shells, attach and drain)"
+
+    return [("version", lambda: __version__), ("mode", frozen), ("imports", imports), ("qt", qt), ("logo", logo),
+            ("about dialog", dialog), ("kubectl", kubectl)]
+
+
+def self_test(report_file=None):
+    """Run the checks; returns 0 when every required one passed. kubectl is informational only."""
+    lines, ok = [f"Klotse {__version__} self-test"], True
+    for name, check in _self_test_checks():
+        try:
+            lines.append(f"ok    {name}: {check()}")
+        except Exception as error:  # report every failure, not just the first
+            ok = False
+            lines.append(f"FAIL  {name}: {type(error).__name__}: {error}")
+    lines.append("RESULT: " + ("OK" if ok else "FAILED"))
+    report = "\n".join(lines) + "\n"
+    if report_file:
+        with open(report_file, "w", encoding="utf-8") as handle:
+            handle.write(report)
+    elif sys.stdout:  # a packaged Windows app has no console: sys.stdout is None
+        sys.stdout.write(report.encode("ascii", "replace").decode("ascii"))  # never fail on a legacy console encoding
+    return 0 if ok else 1
+
+
+def handle(argv):
+    """Run a command-line action and return its exit status, or None when the GUI should start."""
+    if not argv:
+        return None
+    if argv[0] in ("--version", "-V"):
+        print(f"Klotse {__version__}")
+        return 0
+    if argv[0] == "--self-test":
+        return self_test(argv[1] if len(argv) > 1 else None)
+    if argv[0] == "--terminal-session":
+        if len(argv) < 3:
+            print("usage: klotse --terminal-session APP COMMAND_JSON [TARGET...]", file=sys.stderr)
+            return 2
+        from .ui import terminal_session
+        return terminal_session.main(argv[1:])
+    return None

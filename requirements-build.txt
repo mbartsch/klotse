@@ -1,0 +1,5 @@
+# Extra tools to build the Windows and macOS packages (see packaging/README.md).
+# PyInstaller freezes the app; Pillow turns assets/klotse_logo.png into the .ico and .icns icons.
+-r requirements.txt
+pyinstaller>=6.10
+pillow>=10

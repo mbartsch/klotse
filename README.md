@@ -46,6 +46,16 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
 - [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH`, for drain, shells and attach
 - Python dependencies (installed by the launchers): `PySide6-Essentials`, `kubernetes`, `PyYAML`
 
+## Install
+
+Native installers for Windows and macOS are being set up (see [`packaging/README.md`](packaging/README.md)); none
+has been published yet. Until then, run it from source as described below.
+
+Once they are published the files will be on the project's
+[Releases](https://github.com/mbartsch/klotse/releases) page. They are not signed yet, so expect a warning on first
+start: on Windows choose **More info → Run anyway**, on macOS right-click the app and choose **Open**.
+`kubectl` still has to be installed separately.
+
 ## Run
 
 macOS / Linux:
