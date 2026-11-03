@@ -7,8 +7,8 @@ This file applies to the repository rooted here. It records the current implemen
 - Kubeman is a native Kubernetes desktop manager built with Python and PySide6/Qt Widgets, using the Kubernetes Python client and `kubectl`.
 - Package: `kubeman`, version `0.1.0`, Python `>=3.10`, setuptools with a `src/` layout.
 - Runtime dependencies: `PySide6-Essentials>=6.6`, `kubernetes>=29`, and `PyYAML>=6`. Development dependencies add `pytest` and `pytest-qt`.
-- This checkout is on `mbartsch/resource-management`, renamed from `mbartsch/configmap`. This is session context, not a required name for future branches.
-- The current resource-management work includes modified tracked files and new untracked modules/tests. Preserve existing work; do not reset, discard, or assume it has been committed or pushed.
+- Work lands on `master` through pull requests (squash-merged on GitHub, `mbartsch/kubeman`). Start new work on a branch from an up-to-date `master` and open a PR; do not commit to `master` directly. The `gh` CLI is used for PRs (installed with scoop on the Windows dev machine; it needs `gh auth login` once).
+- Preserve uncommitted work in the tree; do not reset or discard it, and do not assume it has been committed or pushed.
 - There is no separate web frontend, database, or application server.
 
 ## Run and install
@@ -56,16 +56,16 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | --- | --- |
 | `src/kubeman/__main__.py` | QApplication startup, theme, main window, bounded process shutdown. |
 | `src/kubeman/workers.py` | QRunnable worker and Qt result/error signals for blocking service calls. |
-| `src/kubeman/k8s/client.py` | KubeService, context-specific API clients, pagination, resource loading, mutations, overview aggregation, and node-specific pod queries. |
-| `src/kubeman/k8s/models.py` | Dataclass rows for namespaces, pods, nodes, and core workloads. |
-| `src/kubeman/k8s/resources.py` | Generic Row, resource mappers, secret masking, and SPECS registry for additional resource views. |
+| `src/kubeman/k8s/client.py` | KubeService, context-specific API clients, pagination, resource loading, mutations, overview aggregation, node-specific pod queries and per-node pod counts, change watches (`watch_targets`/`watch_changes`), optional metrics-server usage, and custom resource listing. |
+| `src/kubeman/k8s/models.py` | Dataclass rows for namespaces, pods, nodes, and core workloads. Pod/Node rows carry usage fields (`cpu_used`, `mem_used`, `-1` = unknown); Node rows also carry `pods` (`-1` = not counted). |
+| `src/kubeman/k8s/resources.py` | Generic Row, resource mappers (including CRDs and custom objects), secret masking, and SPECS registry for additional resource views. |
 | `src/kubeman/k8s/util.py` | Age formatting and Kubernetes model serialization. |
-| `src/kubeman/ui/main_window.py` | Cluster navigator/workspace shell, visible Exit button, menus, and shared customization settings. |
-| `src/kubeman/ui/workspace.py` | One cluster's resource tabs, namespace scope, detail/activity docks, asynchronous loading, and resource actions. |
-| `src/kubeman/ui/navigator.py` | Context connection states and grouped view navigation. |
-| `src/kubeman/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, selection, context menus, and pod double-click actions. |
-| `src/kubeman/ui/table_model.py` | Display/sort/search roles, numeric age sorting, label lookups, and condition/header tooltips. |
-| `src/kubeman/ui/overview.py` | Cluster/workload cards and bounded pod/event drill-down tables. |
+| `src/kubeman/ui/main_window.py` | Cluster navigator/workspace shell, visible Exit button, menus, and shared customization settings. The Customizations menu offers Pod or Node label columns only while a list of that kind is in front. |
+| `src/kubeman/ui/workspace.py` | One cluster's resource tabs (including per-node pods, per-pod, and per-CRD tabs), namespace scope, detail/activity docks, asynchronous loading, auto-refresh and watches, node pod counts, and single and bulk resource actions. |
+| `src/kubeman/ui/navigator.py` | Context connection states and grouped view navigation (including the Custom Resources group). |
+| `src/kubeman/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, extended selection with bulk menus, context menus, per-kind double-click actions, a header-widget slot, and a debounced `visible_changed` signal with `visible_rows()`. |
+| `src/kubeman/ui/table_model.py` | Display/sort/search roles, numeric age sorting, label lookups, condition/header tooltips, and in-place `refresh_column`. |
+| `src/kubeman/ui/overview.py` | Cluster/workload cards, bounded pod/event drill-down tables, and CPU/memory usage bars (hidden without metrics). |
 | `src/kubeman/ui/detail_panel.py` | Read-only YAML and searchable multi-key secret decoding. |
 | `src/kubeman/ui/manifest.py` | Shared readable, round-trip-safe YAML dumping. |
 | `src/kubeman/ui/edit_dialog.py` | YAML resource editor using the shared manifest dumper. |
@@ -82,20 +82,33 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/kubeman/ui/theme.py` | Application palette and Qt stylesheet. |
 | `scripts/benchmark_large_cluster.py` | Offline synthetic pod-mapping/table-load benchmark. |
 
-Auto-refresh and watches (`workspace.py`): only the foreground tab of a visible cluster reloads, every `AUTO_REFRESH_MS` (toolbar toggle and interval) and whenever a change watch fires (debounced 800 ms). Background tabs reload when they come to the front; Refresh and namespace changes also touch only the foreground tab. Views without `watch_targets` (node-pods, custom resources) are polled only. Metrics (`node_usage`/`pod_usage`) and CRD browsing (`list_custom_objects`) degrade to blank/empty when metrics-server or the API is unavailable; usage fields are `-1` when unknown. Double-click: Pod opens its own tab, Node opens its pods tab, Container opens its logs, Namespace scopes the toolbar and opens Pods, CRD opens its instances.
-
-Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, and StatefulSets. The SPECS registry adds DaemonSets, Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, and Events. Secrets and Events have no Edit action.
+Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, and StatefulSets. The SPECS registry adds DaemonSets, Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, CustomResourceDefinitions, and Events. Secrets and Events have no Edit action. Custom resource instances (`cr:<plural>.<group>` tabs) are read-only.
 
 ## UI and behavior to preserve
 
 ### Workspaces and loading
 
 - Each open cluster has an independent KubeService and workspace. The shell uses a service factory, not one shared client for all contexts.
-- Open views load asynchronously. Namespace changes reload namespace-scoped open views; Refresh reloads open tabs plus the namespace list.
+- Open views load asynchronously. Refresh and namespace changes reload the foreground tab (plus the namespace list for Refresh); other tabs reload when they come to the front (see auto-refresh below).
 - Keep loading/error states visible and prevent stale callbacks from updating disconnected workspaces. Coalesce repeated refreshes rather than starting duplicate loads for a view.
 - The shared API pagination helper requests pages of 500, preserves selectors/scope, and uses a 30-second request timeout. Connections request gzip and use a short initial discovery timeout.
 - Preserve bounded overview lists, deferred serialization where used, and the inexpensive `include_raw=False` summary paths. Do not eagerly serialize all event or pod manifests just to count them.
 - Tables initially preserve API order. Column sizing samples at most 100 rows; filtering is debounced by 200 ms. Avoid introducing unbounded GUI-thread sizing or rendering work.
+
+### Auto-refresh, watches, and metrics
+
+- Only the foreground tab of a visible, non-minimized cluster reloads: every `AUTO_REFRESH_MS` (default 10 s; toolbar toggle and 5/10/30/60 s interval), when a tab or cluster comes to the front, and when a change watch fires (debounced 800 ms). Hidden tabs, hidden clusters, views still loading, and clusters not yet connected are skipped. With the toggle off nothing reloads automatically; the Refresh button still works. These settings are per workspace and not persisted.
+- Watches: `KubeService.watch_targets(key, namespace)` lists what to watch for a view; `watch_changes` starts from the current list version, resumes after each 20 s server-side timeout, restarts from a fresh list after 410/ERROR, and backs off on other errors. `ChangeWatcher` (QThread) runs it; `stop()` only sets a flag. Never wait for a watcher on the GUI thread, and keep running QThreads referenced until they finish. Views without targets (node-pods, pod tabs, custom resources) are polled only. Services without `watch_targets` are simply polled.
+- The namespace selector is shown only for namespaced views; it is hidden on the cluster Overview, Nodes, Namespaces, PVs, StorageClasses, CRDs, pod tabs, and node-pods tabs, which ignore it.
+- Metrics are optional: `node_usage`/`pod_usage` read `metrics.k8s.io` and return nothing when metrics-server is missing or not permitted. Unknown usage is `-1` and displays blank; the Overview usage bars appear only when usage exists. Metrics calls must never fail a list load.
+- Nodes' Pods column: every node is counted once on first load (`all_node_pod_counts`, one pass over unfinished pods, nothing serialized); rows coming into sight are recounted when older than `NODE_PODS_TTL_S` (20 s) with `node_pod_counts` (one small query per node); all nodes are recounted every `NODE_PODS_REFRESH_MS` (60 s) while auto-refresh is on and the cluster is showing. Routine reloads keep the previous numbers.
+- CRDs: Custom Resources → Definitions lists CRDs; double-click or "Browse instances" opens a read-only instance tab through the CustomObjects API.
+
+### Bulk actions
+
+- Tables use extended selection (Ctrl/Shift/Ctrl-A). Right-clicking an unselected row selects only that row; with two or more rows selected the menu shows only bulk actions, per kind: Scale (Deployments, ReplicaSets, StatefulSets), Terminate/Force terminate (Pods), Cordon/Uncordon/Delete/Force delete (Nodes). Edit and the other single-row actions are not offered.
+- A bulk action confirms once for the whole group and runs in one worker; one failing row does not stop the others, and failures are listed at the end. Node deletion asks Yes/No (default No) and still sends each node's UID precondition.
+- Bulk Scale asks for text: a number, or an operation relative to each workload's own count (`*2`, `/2` rounds up, `+1`, `-1`; `x`/`×` also multiply). Results clamp to 0–10000. Each scaled workload gets its own scale monitor.
 
 ### Tables, ages, and labels
 
@@ -144,7 +157,8 @@ example.com/team = Team
 - Drain uses explicit-context `kubectl drain` and streams output in Logs & activity. Default timeout is 10 minutes; DaemonSet pods are skipped by default. Force/unmanaged-pod and emptyDir-data options are opt-in. Do not silently add `--disable-eviction` or bypass PodDisruptionBudgets.
 - Avoid duplicate concurrent drains for the same node. Stopping/closing a drain kills the local kubectl process; already admitted evictions are not rolled back and the node can remain cordoned.
 - nsenter uses an interactive privileged `kubectl debug node/... --profile=sysadmin` pod, default namespace `default` and image `ubuntu:24.04`. Namespace/image are configurable. The image needs nsenter; this action requires a Linux node. The user is told to delete the debug pod afterward.
-- List pods on this node opens/reuses `node-pods:<node>` with a server-side `spec.nodeName=<node>` selector across all namespaces. The workspace namespace filter intentionally does not restrict these tabs. They retain normal pod actions and label customization.
+- List pods on this node (or double-clicking a node) opens/reuses `node-pods:<node>` with a server-side `spec.nodeName=<node>` selector across all namespaces. The workspace namespace filter intentionally does not restrict these tabs. They retain normal pod actions and label customization.
+- That tab has an action bar (`node_bar.py`): Cordon/Uncordon, Drain, Shell (nsenter), Delete node, Force delete, using the same confirmations as the Nodes menu. After a node action the Nodes list is reloaded even in the background so the bar follows the node's state; if the node disappears the bar's actions are disabled.
 
 ### Pod/container actions and terminals
 
@@ -177,38 +191,34 @@ Useful focused commands:
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_customizations.py tests/test_age_sort.py tests/test_node_filter.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_containers.py tests/test_node_actions.py tests/test_exit.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_manifest.py tests/test_secret_decode.py
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_bulk.py tests/test_auto_refresh.py tests/test_watch.py tests/test_metrics.py
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_node_pods.py tests/test_node_bar.py tests/test_pod_tab.py tests/test_customization_menu.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_performance.py::test_large_table_initial_load_and_filter
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python scripts/benchmark_large_cluster.py --pods 10000
 git diff --check
 ```
 
-- `test_app.py` covers the app shell, navigation, views, resource mapping/actions, logs, scaling, and numeric formatting. New feature tests are split by the filenames above.
+- `test_app.py` covers the app shell, navigation, views, resource mapping/actions, logs, scaling, CRDs, and numeric formatting. New feature tests are split by the filenames above (bulk actions, auto-refresh/namespace selector, watches, metrics, node pod counts, node action bar, pod tabs, customization menu).
 - Use fake services, synthetic Kubernetes objects, monkeypatched terminals, and local child processes. Local validation must not mutate a real cluster merely to exercise UI code.
 - Wait for asynchronous callbacks/loading to finish before tearing down fixtures. Keep owning windows alive; QWidget/QObject ownership and pending events matter with PySide6.
 - Qt enum comparisons should use the class enum, e.g. `QDialog.Accepted`, not `dialog.Accepted`. The latter caused an actual DrainDialog/NodeShellDialog traceback and was fixed.
 - For popup-menu tests, a QTimer can select/close the menu inside its nested event loop; simply patching QMenu.exec did not reliably prevent a blocked popup in this environment.
 - Keep display-role, edit/sort-role, and search-role behavior distinct. Cover both age sort directions and label aliases without changing label lookup keys.
+- pytest-qt pitfalls seen here: `qtbot.waitUntil` callbacks must return a real bool (wrap lists in `bool(...)`); `QAction` has no `isVisibleTo` (use `isVisible()`); stub `ws.load_view` before `open_view` when a test feeds rows itself, otherwise a real worker starts.
+- On Windows, multi-line Python or heredocs passed through the Bash tool get mangled; write scripts to files (or use the file tools) instead.
 - Automated checks use the offscreen Qt platform and mocked infrastructure. They do not prove live RBAC, drain success, nsenter permissions/image execution, cloud termination, or end-to-end terminal integration.
 
 ### Validation snapshot
 
-The latest focused verification before this guide was 54 passing tests covering customization headings, age sorting, node filtering, and the app tests. The earlier broader feature run passed 95 targeted tests before the three heading-specific tests were added. Counts are historical snapshots; rerun the relevant tests after edits.
+At the last check the full offline suite reported **168 passed** (counts are snapshots; rerun after edits). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
 
-Full-suite verification on 2026-11-03 reported **105 passed, 5 failed**. All five failures are in `tests/test_performance.py` and were also observed earlier in this session:
+Known, unresolved: after all tests pass the pytest process can still exit non-zero (139 segfault, or 127) when a test that builds a `ClusterWorkspace` is followed by a test that runs a background worker. It also happens on `master` from before these features; it is intermittent and did not go away with deferred worker cleanup, parenting `QSettings`, or draining the thread pool. Single test files usually exit 0 (not reliably; `test_bulk.py` and `test_performance.py` have crashed on their own), while the full run exited 127 at the last check. Do not report a passing count as proof of a clean exit, and check the process exit status separately.
 
-- `test_overview_only_serializes_recent_events`
-- `test_overview_pods_skips_manifest_serialization`
-- `test_workload_overview_counts_pages_without_mapping_manifests[None]`
-- `test_workload_overview_counts_pages_without_mapping_manifests[team]`
-- `test_cluster_overview_uses_numeric_node_units_without_serializing`
-
-These tests/fixtures expect older overview return shapes. Current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`. Update assertions and fake return values deliberately if fixing these tests; do not remove the current drill-down data to satisfy stale expectations.
-
-After the full-suite summary, Qt emitted `QObject: shared QObject was deleted directly. The program is malformed and may crash.` and the process exited with status 139. This full-suite cleanup problem remains unresolved. Focused feature runs have exited normally; do not present that as proof the full-suite cleanup issue is fixed.
+Live checks against a real cluster were read-only (listing, a watch, metrics when present). Watch events arriving, real metrics-server numbers, CRD instances, and the cordon/drain/delete actions from the new bars and tabs have not been exercised against a live cluster.
 
 ## Change conventions
 
-- Keep changes scoped to the requested behavior and preserve existing uncommitted work.
+- Keep changes scoped to the requested behavior and preserve existing uncommitted work. Update this guide when behavior or the file map changes.
 - Put shared table behavior in ResourceTable/TableModel, shared formatting in manifest.py, and service mutations in KubeService rather than duplicating UI-specific mechanisms.
 - Keep blocking network/terminal-opening work off the GUI thread. Use existing Worker or QProcess patterns and respect workspace shutdown guards.
 - Maintain Windows, macOS, and Linux launch/terminal paths when editing shared code; distinguish mocked coverage from actual OS verification.
