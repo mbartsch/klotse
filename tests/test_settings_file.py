@@ -17,11 +17,12 @@ def test_file_is_plain_readable_sections_one_entry_per_line(tmp_path):
     s.set_layout("Pod", ["name", "status"], ["cpu_req", "cpu_lim"])
     lines = path.read_text().splitlines()
     assert "[columns.Pod]" in lines
-    assert "labels.0=app.kubernetes.io/name -> App" in lines and "labels.1=example.com/team" in lines
+    assert "labels.0=app.kubernetes.io/name" in lines and "labels_name.0=App" in lines
+    assert "labels.1=example.com/team" in lines and not any(line.startswith("labels_name.1") for line in lines)
     assert "hidden.0=cpu_req" in lines and "hidden.1=cpu_lim" in lines
     assert "order.0=name" in lines and "order.1=status" in lines
     text = path.read_text()
-    assert "|" not in text and "{" not in text and '"' not in text  # no packed lists, no JSON, no quoting
+    assert "|" not in text and "{" not in text and "->" not in text and '"' not in text  # one value per line
     again = fresh(path)
     assert again.labels("Pod") == ["app.kubernetes.io/name", "example.com/team"]
     assert again.headers("Pod") == {"app.kubernetes.io/name": "App"}
@@ -61,7 +62,8 @@ def test_previous_single_line_format_is_read_and_rewritten(tmp_path):
     assert config.labels("Pod") == ["app.kubernetes.io/name", "example.com/team"]
     assert config.headers("Pod") == {"app.kubernetes.io/name": "App"}
     text = path.read_text()
-    assert "|" not in text and "order.2=age" in text and "labels.0=app.kubernetes.io/name -> App" in text
+    assert "|" not in text and "->" not in text and "order.2=age" in text
+    assert "labels.0=app.kubernetes.io/name" in text and "labels_name.0=App" in text
 
 
 def test_empty_means_none_and_absent_means_default(tmp_path):
@@ -138,7 +140,7 @@ def test_old_file_is_rewritten_readably_on_first_load_without_any_save(tmp_path)
     first = fresh(path)  # just starting the app: nothing is saved by the user
     text = path.read_text()
     assert "{" not in text and "\\\"" not in text  # no JSON left, no escaped quotes
-    assert "[columns.Node]" in text and "labels.0=karpenter.sh/nodepool" in text and "labels.1=beta.kubernetes.io/os -> OS" in text
+    assert "[columns.Node]" in text and "labels.0=karpenter.sh/nodepool" in text and "labels.1=beta.kubernetes.io/os" in text and "labels_name.1=OS" in text
     assert "[columns.ConfigMap]" in text and "order.0=name" in text and "order.1=age" in text and "|" not in text
     assert "iTerm2" in text  # unrelated settings survive
     assert first.labels("Node") == ["karpenter.sh/nodepool", "beta.kubernetes.io/os"]
@@ -157,3 +159,47 @@ def test_unwritable_old_settings_still_load(tmp_path, monkeypatch):
     monkeypatch.setattr(QSettings, "status", lambda self: QSettings.AccessError)  # every save looks like it failed
     config = LabelSettings(store)  # must not raise
     assert config.labels("Node") == ["karpenter.sh/nodepool", "beta.kubernetes.io/os"]
+
+
+def test_headings_are_paired_with_labels_by_number_not_position(tmp_path):
+    path = tmp_path / "k.ini"
+    hand = QSettings(str(path), QSettings.IniFormat)
+    hand.beginGroup("columns.Pod")
+    for key, value in (("labels.0", "example.com/a"), ("labels.2", "example.com/c"), ("labels.1", "example.com/b"),
+                       ("labels_name.2", "See"), ("labels_name.0", "Aye"), ("labels_name.7", "orphan heading")):
+        hand.setValue(key, value)
+    hand.endGroup()
+    hand.sync()
+    config = fresh(path)
+    assert config.labels("Pod") == ["example.com/a", "example.com/b", "example.com/c"]
+    assert config.headers("Pod") == {"example.com/a": "Aye", "example.com/c": "See"}  # b has none; 7 matches nothing
+
+
+def test_previous_arrow_format_is_read_and_rewritten_as_labels_name(tmp_path):
+    path = tmp_path / "k.ini"
+    old = QSettings(str(path), QSettings.IniFormat)
+    old.beginGroup("columns.Node")
+    old.setValue("labels.0", "karpenter.sh/nodepool -> TSET")
+    old.setValue("labels.1", "beta.kubernetes.io/os -> OS")
+    old.setValue("labels.2", "example.com/plain")
+    old.endGroup()
+    old.sync()
+    config = fresh(path)
+    assert config.labels("Node") == ["karpenter.sh/nodepool", "beta.kubernetes.io/os", "example.com/plain"]
+    assert config.headers("Node") == {"karpenter.sh/nodepool": "TSET", "beta.kubernetes.io/os": "OS"}
+    lines = path.read_text().splitlines()
+    assert "labels.0=karpenter.sh/nodepool" in lines and "labels_name.0=TSET" in lines
+    assert "labels_name.1=OS" in lines and "->" not in path.read_text()
+    assert not any(line.startswith("labels_name.2") for line in lines)
+
+
+def test_removing_a_heading_removes_its_labels_name_line(tmp_path):
+    path = tmp_path / "k.ini"
+    config = fresh(path)
+    config.set_labels("Pod", ["app", "team"], {"app": "App", "team": "Team"})
+    assert "labels_name.0=App" in path.read_text() and "labels_name.1=Team" in path.read_text()
+    config.set_labels("Pod", ["team", "app"], {"team": "Team"})  # reordered, and app lost its heading
+    text = path.read_text()
+    assert "labels.0=team" in text and "labels_name.0=Team" in text and "labels.1=app" in text
+    assert "labels_name.1" not in text and "App" not in text
+    assert fresh(path).headers("Pod") == {"team": "Team"}

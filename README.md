@@ -83,12 +83,13 @@ order.1=namespace
 order.2=ready
 hidden.0=cpu_req
 hidden.1=cpu_lim
-labels.0=app.kubernetes.io/name -> App
+labels.0=app.kubernetes.io/name
+labels_name.0=App
 labels.1=example.com/team
 ```
 
 `order` is the order of the built-in columns, `hidden` lists the ones that are hidden, and `labels` the label
-columns (`key -> heading` to give one a short heading). A key that is missing means the default; an empty key
+columns; `labels_name.N` gives `labels.N` a short heading. A key that is missing means the default; an empty key
 (`hidden=`) means none. You can edit the file by hand while Klotse is closed.
 
 Open its folder from **Edit → Preferences… → Open config folder**. The same file holds the custom kubeconfig path

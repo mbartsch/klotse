@@ -46,8 +46,20 @@ def parse_label_columns(lines):
 
 
 SECTION = "columns."  # one INI section per resource kind, e.g. [columns.Pod]
-ARROW = "->"  # label key -> heading inside the file (the dialog still uses "key = heading")
+ARROW = "->"  # the previous format wrote a heading as `key -> heading` (the dialog uses "key = heading")
 LEGACY_SEP = "|"  # the previous file format kept a whole list on one line: `hidden=a | b | c`
+
+
+def _numbered(store, name):
+    """{index: value} for the keys `name.0`, `name.1`, ... in the current group (empty values are skipped)."""
+    found = {}
+    for key in store.childKeys():
+        match = re.fullmatch(re.escape(name) + r"\.(\d+)", key)
+        if match:
+            value = str(store.value(key, "")).strip()
+            if value:
+                found[int(match[1])] = value
+    return found
 
 
 def _read_list(store, name):
@@ -56,13 +68,9 @@ def _read_list(store, name):
     Returns (found, items, old_format). A bare empty `name=` is an explicit empty list; the older single-line
     `name=a | b | c` form is still understood (old_format=True) so the file can be rewritten.
     """
-    numbered = []
-    for key in store.childKeys():
-        match = re.fullmatch(re.escape(name) + r"\.(\d+)", key)
-        if match:
-            numbered.append((int(match[1]), str(store.value(key, "")).strip()))
+    numbered = _numbered(store, name)
     if numbered:
-        return True, [value for _, value in sorted(numbered) if value], False
+        return True, [value for _, value in sorted(numbered.items())], False
     bare = store.value(name, None)
     if bare is None:
         return False, [], False
@@ -70,6 +78,27 @@ def _read_list(store, name):
     if not text:
         return True, [], False
     return True, [part.strip() for part in text.split(LEGACY_SEP) if part.strip()], True
+
+
+def _read_labels(store):
+    """Read the label columns as (found, lines, old_format), with lines in the dialog's `key = heading` syntax.
+
+    `labels.N` holds the label key and `labels_name.N` (same N) its optional heading. The previous formats, a
+    heading written as `key -> heading` in the value or a whole list on one line, are still read.
+    """
+    numbered = sorted(_numbered(store, "labels").items())
+    if numbered:
+        names = _numbered(store, "labels_name")
+        lines, old = [], False
+        for index, value in numbered:
+            if ARROW in value:
+                value, old = value.replace(ARROW, "=", 1), True
+            elif index in names:
+                value = f"{value} = {names[index]}"
+            lines.append(value)
+        return True, lines, old
+    found, items, old = _read_list(store, "labels")
+    return found, [item.replace(ARROW, "=", 1) for item in items], old
 
 
 def _write_list(store, name, items, keep_empty=True):
@@ -88,12 +117,13 @@ class LabelSettings(QObject):
         order.1=namespace
         hidden.0=cpu_req                        built-in columns that are hidden (omitted = the default set)
         hidden.1=cpu_lim
-        labels.0=app.kubernetes.io/name -> App  label columns, optionally `key -> heading` (omitted = default)
+        labels.0=app.kubernetes.io/name         label columns (omitted = the default labels)
+        labels_name.0=App                       optional heading for labels.0
         labels.1=example.com/team
 
     A bare empty key (`hidden=`, `labels=`) means "none"; a key that is absent means "use the default".
     Older files are still read and are rewritten in this format when the app starts: the JSON values under
-    columns/labels and columns/layout, and the `a | b | c` single-line lists.
+    columns/labels and columns/layout, the `a | b | c` single-line lists and `key -> heading` values.
     """
 
     changed = Signal()
@@ -123,17 +153,17 @@ class LabelSettings(QObject):
             try:
                 order_found, order, order_old = _read_list(self.store, "order")
                 hidden_found, hidden, hidden_old = _read_list(self.store, "hidden")
-                labels_found, labels, labels_old = _read_list(self.store, "labels")
+                labels_found, labels, labels_old = _read_labels(self.store)
             finally:
                 self.store.endGroup()
             if order_old or hidden_old or labels_old:
-                self._legacy = True  # single-line lists: rewrite as numbered keys
+                self._legacy = True  # an older layout: rewrite it in the current one
             if order_found or hidden_found:
                 self._layout[kind] = {"order": order,
                                       "hidden": hidden if hidden_found else list(DEFAULT_HIDDEN.get(kind, []))}
             if labels_found:
                 try:
-                    keys, headers = parse_label_columns([entry.replace(ARROW, "=", 1) for entry in labels])
+                    keys, headers = parse_label_columns(labels)
                 except ValueError:
                     continue
                 self._labels[kind], self._headers[kind] = keys, headers
@@ -226,8 +256,11 @@ class LabelSettings(QObject):
                 _write_list(self.store, "hidden", layout[kind].get("hidden", []))
             if kind in explicit:
                 titles = headers.get(kind, {})
-                _write_list(self.store, "labels", [
-                    f"{key} {ARROW} {titles[key]}" if key in titles else key for key in labels.get(kind, [])])
+                keys = labels.get(kind, [])
+                _write_list(self.store, "labels", keys)
+                for index, key in enumerate(keys):
+                    if key in titles:
+                        self.store.setValue(f"labels_name.{index}", titles[key])
             self.store.endGroup()
         self.store.sync()
         if self.store.status() != QSettings.NoError:
