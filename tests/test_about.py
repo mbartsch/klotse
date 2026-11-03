@@ -75,6 +75,9 @@ def test_dialog_shows_the_logo_from_assets_when_present(qtbot, tmp_path, monkeyp
     qtbot.addWidget(dialog)
     (label,) = logo_labels(dialog)
     assert (label.pixmap().width(), label.pixmap().height()) == (about.LOGO_SIZE, about.LOGO_SIZE)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    assert label.height() >= about.LOGO_SIZE and label.width() >= about.LOGO_SIZE  # the logo is never clipped
 
 
 def test_copy_button_puts_the_details_on_the_clipboard(qtbot):

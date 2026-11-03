@@ -62,6 +62,7 @@ class AboutDialog(QDialog):
         if not pixmap.isNull():
             logo = QLabel()
             logo.setPixmap(pixmap)
+            logo.setFixedSize(pixmap.size())  # wrapped text beside it must not squeeze the row below the logo's height
             logo.setAlignment(Qt.AlignTop)
             top.addWidget(logo)
         title = QLabel(f"<h2 style='margin:0'>{NAME}</h2><b>Version {__version__}</b><br>{TAGLINE}")

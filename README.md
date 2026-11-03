@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/klotse/assets/klotse_logo.jpg" alt="Klotse logo" width="220">
+  <img src="src/klotse/assets/klotse_logo.png" alt="Klotse logo" width="200">
 </p>
 
 # Klotse
@@ -74,14 +74,22 @@ PYTHONPATH=src python -m klotse
 
 ## Configuration
 
-Settings are stored as a plain INI file, one section per resource kind:
+Settings are stored as a plain INI file, one section per resource kind and one entry per line:
 
 ```ini
 [columns.Pod]
-order=name | namespace | ready
-hidden=cpu_req | cpu_lim
-labels=app.kubernetes.io/name -> App | example.com/team
+order.0=name
+order.1=namespace
+order.2=ready
+hidden.0=cpu_req
+hidden.1=cpu_lim
+labels.0=app.kubernetes.io/name -> App
+labels.1=example.com/team
 ```
+
+`order` is the order of the built-in columns, `hidden` lists the ones that are hidden, and `labels` the label
+columns (`key -> heading` to give one a short heading). A key that is missing means the default; an empty key
+(`hidden=`) means none. You can edit the file by hand while Klotse is closed.
 
 Open its folder from **Edit → Preferences… → Open config folder**. The same file holds the custom kubeconfig path
 and the macOS terminal choice. A custom kubeconfig is passed both to the Kubernetes client and, as `--kubeconfig`,
@@ -104,6 +112,11 @@ This is a known, unresolved issue that predates recent work, so check the pass c
 
 [`AGENTS.md`](AGENTS.md) documents the architecture, file map and behavior to preserve; read it before larger
 changes. Work goes through pull requests from a branch; do not commit to `master` directly.
+
+## Roadmap
+
+Klotse is written in Python with PySide6 today. The idea is to move to Qt/C++ (or a similar language) at some
+point. Nothing is decided and there is no timeline; the Python version is the one being developed in the meantime.
 
 ## License
 
