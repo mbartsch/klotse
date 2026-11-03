@@ -244,7 +244,7 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 - `Klotse --self-test [FILE]` is the packaged-app smoke test: add a check there when the app starts depending on something that could go missing from a bundle (a plugin, a data file, a hidden import). The build scripts run it and fail on a non-zero exit.
 - The version has one source, `klotse.__version__`; it feeds pyproject, About, the Windows version resource, the macOS `Info.plist` and the installer. A `v*` tag must equal it.
 - The Windows `AppId` GUID in `packaging/windows/klotse.iss` must never change once a release exists (it lets installers upgrade and uninstall).
-- Verified so far: the Windows one-folder build and its self-test, and a headless launch of the packaged exe, on this machine. Not verified: the Inno Setup installer (not compiled yet), everything macOS (`build.sh`, entitlements, DMG, the Terminal/iTerm2 prompt, the Finder `PATH` fix) and the CI workflow. Say so when reporting packaging status; do not call them tested.
+- Verified so far, on a Windows machine: the one-folder build and its self-test, a headless launch of the packaged exe, and the Inno Setup installer (silent per-user install, installed app self-test, clean uninstall). Not verified: the installer's interactive wizard, all-users mode and upgrades; everything macOS (`build.sh`, entitlements, DMG, the Terminal/iTerm2 prompt, the Finder `PATH` fix); and the CI workflow. Say so when reporting packaging status; do not call them tested.
 - Packages are unsigned; see `packaging/README.md` for what signing and notarization still need (a Windows Authenticode certificate and an Apple Developer ID).
 
 ## Change conventions

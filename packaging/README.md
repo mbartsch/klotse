@@ -21,7 +21,7 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 ```
 
 The zip is always made. The installer also needs [Inno Setup 6](https://jrsoftware.org/isinfo.php)
-(`winget install JRSoftware.InnoSetup`); without it the script says so and stops after the zip.
+(`winget install JRSoftware.InnoSetup` or `choco install innosetup`); without it the script says so and stops after the zip.
 
 macOS:
 
@@ -83,7 +83,9 @@ not written yet, because it cannot be tested without the certificate.
 
 ## Not done yet
 
-- Windows installer has not been compiled here (Inno Setup was not installed); the script is written but untested.
+- Windows installer: compiled and tested with a silent per-user install, the installed app's self-test and a clean
+  uninstall (folder, Start Menu entry and uninstall registration all removed). Not tested: the interactive wizard,
+  the "all users" mode (needs administrator rights), upgrading over an older version, and SmartScreen behaviour.
 - Everything macOS (`build.sh`, the spec's macOS branch, entitlements, the DMG) is untested until CI runs it.
 - No automatic update check, no Linux package, no Windows ARM64 build (the x64 app runs under emulation).
 - No CI exists yet for the test suite itself.
