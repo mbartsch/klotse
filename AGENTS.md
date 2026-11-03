@@ -7,7 +7,7 @@ This file applies to the repository rooted here. It records the current implemen
 - Klotse is a native Kubernetes desktop manager built with Python and PySide6/Qt Widgets, using the Kubernetes Python client and `kubectl`.
 - Package: `klotse`, version `0.1.0` (single source: `klotse.__version__`, read by pyproject and the About dialog), Python `>=3.10`, setuptools with a `src/` layout.
 - Runtime dependencies: `PySide6-Essentials>=6.6`, `kubernetes>=29`, and `PyYAML>=6`. Development dependencies add `pytest` and `pytest-qt`.
-- Work lands on `master` through pull requests (squash-merged on GitHub, `mbartsch/kubeman`). Start new work on a branch from an up-to-date `master` and open a PR; do not commit to `master` directly. The `gh` CLI is used for PRs (installed with scoop on the Windows dev machine; it needs `gh auth login` once).
+- Work lands on `master` through pull requests (squash-merged on GitHub, `mbartsch/klotse`). Start new work on a branch from an up-to-date `master` and open a PR; do not commit to `master` directly. The `gh` CLI is used for PRs (installed with scoop on the Windows dev machine; it needs `gh auth login` once).
 - Preserve uncommitted work in the tree; do not reset or discard it, and do not assume it has been committed or pushed.
 - The project is licensed under Apache-2.0 (`LICENSE`, `license` in pyproject.toml, `about.LICENSE`; keep the three in step). The README and About carry the Linux Foundation trademark disclaimer; the Kubernetes name and logo are theirs, so do not use the Kubernetes logo or put the mark in the product name. The logo was redesigned (circle badge, teal/amber, no heptagon) to stay clear of the Kubernetes mark; keep it that way.
 - There is no separate web frontend, database, or application server.
@@ -143,7 +143,7 @@ example.com/team = Team
 
 ### Settings persistence
 
-- `LabelSettings`, `TerminalSettings` and `KubeconfigSettings` share `settings_store.default_store()`: `QSettings(IniFormat, UserScope, "Klotse", "Klotse")`. The project was renamed from Kubeman to Klotse; the GitHub repository is still `mbartsch/kubeman` until it is renamed there.
+- `LabelSettings`, `TerminalSettings` and `KubeconfigSettings` share `settings_store.default_store()`: `QSettings(IniFormat, UserScope, "Klotse", "Klotse")`. The project was renamed from Kubeman to Klotse; the GitHub repository is still `mbartsch/klotse` until it is renamed there.
 - Column preferences are plain INI, one section per resource kind and one entry per line: `[columns.Pod]` with `order.0=name`, `order.1=namespace`, `hidden.0=cpu_req`, `labels.0=app.kubernetes.io/name`, `labels_name.0=App` (the optional heading of `labels.0`, paired by number), `labels.1=example.com/team`. Lists are numbered keys (read in numeric order, so `labels.10` follows `labels.9`); a bare empty key (`hidden=`, `labels=`) means none and an absent key means the default; only kinds the user changed are written; headings may contain any single-line text. Older files are rewritten in this format when the app starts (`LabelSettings.__init__`): the JSON values (`columns/labels`, `columns/layout`) the previous single-line `a | b | c` lists and `key -> heading` values. QSettings decides the order of keys and sections in the file; do not rely on it. Keys avoid `,`, `;` and `=` in values because QSettings quotes those.
 - Invalid saved configuration falls back to defaults. Default Node labels contain `karpenter.sh/nodepool`; Pod labels are empty.
 - Heading changes are display-only and must never patch Kubernetes labels.

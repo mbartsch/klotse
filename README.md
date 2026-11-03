@@ -128,4 +128,4 @@ affiliated with or endorsed by The Linux Foundation or the Kubernetes project.
 
 ## Author
 
-Marcelo H. Bartsch · https://github.com/mbartsch/kubeman
+Marcelo H. Bartsch · https://github.com/mbartsch/klotse

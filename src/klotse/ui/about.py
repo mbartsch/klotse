@@ -14,8 +14,7 @@ DESCRIPTION = ("Browse and manage clusters, workloads, nodes and custom resource
                "drain and scale actions. Built with Python, PySide6/Qt and the Kubernetes client; "
                "uses kubectl for shells and drain.")
 AUTHOR = "Marcelo H. Bartsch"
-# The repository has not been renamed on GitHub yet; change this when it is.
-REPO_URL = "https://github.com/mbartsch/kubeman"
+REPO_URL = "https://github.com/mbartsch/klotse"
 LOGO_SIZE = 128
 LICENSE = "Apache License 2.0"  # keep in step with the LICENSE file and pyproject.toml
 LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
