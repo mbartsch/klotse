@@ -75,6 +75,8 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/kubeman/ui/node_dialogs.py` | Drain options and privileged nsenter debug-shell options. |
 | `src/kubeman/ui/command_view.py` | QProcess-backed drain output, completion/error reporting, and local process cancellation. |
 | `src/kubeman/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
+| `src/kubeman/ui/terminal_settings.py` | Saved macOS terminal preference and its settings dialog. |
+| `src/kubeman/ui/terminal_session.py` | Standalone macOS session runner and targeted cleanup after successful commands. |
 | `src/kubeman/ui/customizations.py` | Persistent Node/Pod label-column lists, custom headings, and settings dialog. |
 | `src/kubeman/ui/scale_monitor.py` | Polling scale progress, readiness/failure evaluation, timeouts, and activity display. |
 | `src/kubeman/ui/watcher.py` | `ChangeWatcher` QThread: runs `KubeService.watch_changes` and emits `changed`; `stop()` only sets a flag and never blocks the GUI thread. |
@@ -138,6 +140,7 @@ example.com/team = Team
 - Support earlier saved key lists without headings. Invalid saved configuration falls back to defaults. Default Node labels contain `karpenter.sh/nodepool`; Pod labels are empty.
 - Heading changes are display-only and must never patch Kubernetes labels.
 - Sync settings before updating in-memory preferences/emitting changes. Surface save errors to the user.
+- On macOS, Settings → Terminal… selects Terminal (default) or iTerm2 for all pod shell/attach and node shell actions. `terminal/macos` is saved in the same QSettings store; invalid values fall back to Terminal. Open and subsequently created workspaces share the preference. The menu is macOS-only; iTerm2 must be installed separately.
 - The physical settings path is platform-specific; use `LabelSettings.store.fileName()` rather than hardcoding it.
 - Tests must inject a QSettings instance backed by `tmp_path`; do not overwrite the user's actual preferences.
 
@@ -158,7 +161,7 @@ example.com/team = Team
 - Node deletion removes the Kubernetes Node object; it does not terminate a cloud VM. A running kubelet can register again. Force uses zero grace period and does not remove finalizers.
 - Drain uses explicit-context `kubectl drain` and streams output in Logs & activity. Default timeout is 10 minutes; DaemonSet pods are skipped by default. Force/unmanaged-pod and emptyDir-data options are opt-in. Do not silently add `--disable-eviction` or bypass PodDisruptionBudgets.
 - Avoid duplicate concurrent drains for the same node. Stopping/closing a drain kills the local kubectl process; already admitted evictions are not rolled back and the node can remain cordoned.
-- nsenter uses an interactive privileged `kubectl debug node/... --profile=sysadmin` pod, default namespace `default` and image `ubuntu:24.04`. Namespace/image are configurable. The image needs nsenter; this action requires a Linux node. The user is told to delete the debug pod afterward.
+- nsenter follows the Linux defaults from the installed kubectl-node-shell v1.11.0 script (verified with stubbed kubectl): `kubectl run` creates a uniquely named privileged pod pinned with `nodeName`, sharing host PID/IPC/network namespaces and tolerating CriticalAddonsOnly/NoExecute taints. It runs `nsenter --target 1 --mount --uts --ipc --net --pid bash -l`, defaults to namespace `default` and image `docker.io/library/alpine`, and requires a Linux host with bash. Namespace/image are configurable; the image needs nsenter. `--restart=Never --rm -it` attaches and removes the pod when the session exits; abrupt terminal termination or connection loss may require manual pod cleanup. The plugin does not need to be installed. Source: https://github.com/kvaps/kubectl-node-shell/blob/master/kubectl-node_shell. Optional plugin modes (Windows HostProcess, X-mode, PVC mounts, quota probing) are not implemented.
 - List pods on this node (or double-clicking a node) opens/reuses `node-pods:<node>` with a server-side `spec.nodeName=<node>` selector across all namespaces. The workspace namespace filter intentionally does not restrict these tabs. They retain normal pod actions and label customization.
 - That tab has an action bar (`node_bar.py`): Cordon/Uncordon, Drain, Shell (nsenter), Delete node, Force delete, using the same confirmations as the Nodes menu. After a node action the Nodes list is reloaded even in the background so the bar follows the node's state; if the node disappears the bar's actions are disabled.
 
@@ -168,7 +171,8 @@ example.com/team = Team
 - Double-clicking a pod opens its own tab (`pod:<ns>/<name>`) listing its containers, including regular, init, and ephemeral containers, with state, readiness, restart count, and image; double-clicking a container opens its logs. The tab refreshes like any foreground tab and disables its actions if the pod disappears. Double-clicking a node opens its pods tab, which carries the node actions.
 - Logs, Shell, and Attach must target the selected container, cluster context, namespace, and pod. Container-specific log tabs preserve the initial container selection.
 - Commands use explicit `--context`; do not rely on the shell's active kubeconfig context.
-- Windows terminals use `cmd /k` in a new console. macOS uses Terminal via osascript. Linux searches x-terminal-emulator, gnome-terminal, konsole, then xterm.
+- Windows terminals use `cmd /k` in a new console. macOS uses Terminal by default or the saved iTerm2 choice via osascript; both pass the quoted command as an AppleScript argument. Linux searches x-terminal-emulator, gnome-terminal, konsole, then xterm. All terminal opening runs in a worker; macOS automation errors are surfaced with their stderr.
+- Successful macOS commands exit the local shell and close their session using a detached closer, even if the terminal profile keeps exited sessions open. iTerm2 cleanup matches the created window ID and unique session ID; moving the session into another window leaves it open. Terminal cleanup matches window ID and TTY, waits for the local process to finish, and only closes a window that still has one tab; adding tabs to that window keeps it open to preserve them (Terminal does not support AppleScript closing individual tabs). Nonzero exits display the status and wait for Enter before closing. The runner uses an absolute script/interpreter path and does not import Qt; no background pool worker is held for the session lifetime.
 - Keep argv structured. Where a shell command is required, quote with `shlex.join`; on macOS pass it as an AppleScript argument rather than interpolating it into script source.
 
 ### Shutdown

@@ -53,7 +53,8 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
-    assert [a.text() for a in win.menuBar().actions()] == ["File"]
+    expected_menus = ["File", "Settings"] if main_module.sys.platform == "darwin" else ["File"]
+    assert [a.text() for a in win.menuBar().actions()] == expected_menus
     assert not hasattr(win, "customizations_button")
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: ws._ready, timeout=5000)

@@ -1,6 +1,8 @@
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout,
                                QLabel, QLineEdit, QSpinBox)
 
+from .terminal import NODE_SHELL_IMAGE
+
 
 class DrainDialog(QDialog):
     def __init__(self, context, node, parent=None):
@@ -47,11 +49,13 @@ class NodeShellDialog(QDialog):
         form = QFormLayout(self)
         info = QLabel(f"Cluster: {context}\nNode: {node}\n\n"
                       "Create a privileged debug pod and enter the Linux host namespaces with nsenter.\n"
-                      "Delete the debug pod after the session (its name appears in the terminal).")
+                      "Uses the kubectl node-shell Linux setup and starts the host's bash login shell.\n"
+                      "The pod is removed when the session exits. If the terminal is killed or the connection\n"
+                      "is lost, delete the nsenter pod manually (its name appears in the terminal).")
         info.setWordWrap(True)
         form.addRow(info)
         self.namespace = QLineEdit("default")
-        self.image = QLineEdit("ubuntu:24.04")
+        self.image = QLineEdit(NODE_SHELL_IMAGE)
         form.addRow("Debug pod namespace", self.namespace)
         form.addRow("Debug image (must include nsenter)", self.image)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)

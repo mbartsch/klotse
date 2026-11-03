@@ -92,7 +92,7 @@ def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: bool(logs))
     assert logs[0][:3] == ("team-a", "web", "sidecar")
     assert ws.log_tabs.currentWidget().container.currentText() == "sidecar"
-    monkeypatch.setattr(module, "open_terminal", opened.append)
+    monkeypatch.setattr(module, "open_terminal", lambda argv, terminal: opened.append(argv))
     ws._container_action("shell", row, "app")
     qtbot.waitUntil(lambda: bool(opened))
     assert opened[0][-4:] == ["-c", "app", "--", "sh"]

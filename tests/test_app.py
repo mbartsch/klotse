@@ -242,7 +242,7 @@ def test_pod_terminate_and_connect(qtbot, monkeypatch):
     svc = FakeService()
     svc.delete_pod = lambda *a: deleted.append(a)
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
-    monkeypatch.setattr(mw, "open_terminal", opened.append)
+    monkeypatch.setattr(mw, "open_terminal", lambda argv, terminal: opened.append(argv))
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
     ws = win.workspace("ctx")
@@ -253,6 +253,7 @@ def test_pod_terminate_and_connect(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: bool(deleted), timeout=5000)
     assert deleted[0] == ("web", "default")
     ws.pod_table.action_requested.emit("shell", row)
+    qtbot.waitUntil(lambda: bool(opened))
     assert opened[0][:6] == ["kubectl", "--context", "ctx", "-n", "default", "exec"]
 
 

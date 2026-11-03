@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
+import json
 import shlex
 import sys
 
@@ -152,18 +153,46 @@ def test_command_view_stop_and_missing_kubectl(qtbot):
 
 def test_node_shell_targets_context_and_host_namespaces(qtbot, monkeypatch, workspaces):
     import kubeman.ui.workspace as module
+    import kubeman.ui.terminal as terminal
+    monkeypatch.setattr(terminal.uuid, "uuid4", lambda: SimpleNamespace(hex="a" * 32))
     opened = []
     ws = workspaces(SimpleNamespace(), "cluster-a")
     monkeypatch.setattr(NodeShellDialog, "exec", lambda d: QDialog.Accepted)
-    monkeypatch.setattr(module, "open_terminal", opened.append)
+    monkeypatch.setattr(module, "open_terminal", lambda argv, terminal: opened.append(argv))
     monkeypatch.setattr(ClusterWorkspace, "_run", lambda self, fn, cb, *args: cb(fn(*args)))
     ws.node_table.action_requested.emit("node-shell", node_row())
     assert opened == [node_shell_args("cluster-a", "node-a")]
     command = opened[0]
-    assert command[:8] == ["kubectl", "--context", "cluster-a", "--namespace", "default", "debug", "node/node-a", "-it"]
-    assert "--profile=sysadmin" in command
-    assert command[command.index("nsenter"):] == ["nsenter", "--target", "1", "--mount", "--uts", "--ipc",
-                                                 "--net", "--pid", "--root=/proc/1/root", "--wd=/", "--", "/bin/sh"]
+    assert command[:7] == ["kubectl", "--context", "cluster-a", "--namespace", "default", "run", "nsenter-aaaaaaaaaaaa"]
+    assert {"--restart=Never", "--rm", "-it", "--pod-running-timeout=1m"} <= set(command)
+    spec = json.loads(command[command.index("--overrides") + 1])["spec"]
+    assert spec["nodeName"] == "node-a"
+    assert spec["hostPID"] is spec["hostIPC"] is spec["hostNetwork"] is True
+    assert spec["containers"] == [{
+        "name": "nsenter", "image": "docker.io/library/alpine",
+        "securityContext": {"privileged": True},
+        "stdin": True, "stdinOnce": True, "tty": True,
+        "command": ["nsenter", "--target", "1", "--mount", "--uts", "--ipc",
+                    "--net", "--pid", "bash", "-l"],
+        "resources": {}, "volumeMounts": [],
+    }]
+    assert spec["imagePullSecrets"] is None
+    assert spec["volumes"] == []
+    assert spec["tolerations"] == [
+        {"key": "CriticalAddonsOnly", "operator": "Exists"},
+        {"effect": "NoExecute", "operator": "Exists"},
+    ]
+
+
+def test_node_shell_custom_options_and_unique_pods():
+    node = 'node-with-"quotes'
+    argv = node_shell_args("other-context", node, "ops", "registry.example/nsenter:custom")
+    assert argv[:6] == ["kubectl", "--context", "other-context", "--namespace", "ops", "run"]
+    assert argv[6] != node_shell_args("other-context", node)[6]
+    assert argv[argv.index("--image") + 1] == "registry.example/nsenter:custom"
+    spec = json.loads(argv[argv.index("--overrides") + 1])["spec"]
+    assert spec["nodeName"] == node
+    assert spec["containers"][0]["image"] == "registry.example/nsenter:custom"
 
 
 def test_macos_terminal_command_is_quoted(monkeypatch):
@@ -174,7 +203,9 @@ def test_macos_terminal_command_is_quoted(monkeypatch):
     argv = node_shell_args("context with spaces;echo nope", "node-a")
     terminal.open_terminal(argv)
     assert calls[0][0] == "osascript"
-    assert shlex.split(calls[0][-1]) == argv
+    wrapper = shlex.split(calls[0][-1])
+    assert wrapper[:2] == ["exec", sys.executable]
+    assert json.loads(wrapper[4]) == argv
     assert argv[2] not in calls[0][2]  # command data never becomes AppleScript source
 
 

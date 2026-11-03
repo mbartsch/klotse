@@ -22,6 +22,7 @@ from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, 
 from .resource_table import ResourceTable
 from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
+from .terminal_settings import TerminalSettings
 from .watcher import ChangeWatcher
 
 ALL_NS = "All namespaces"
@@ -67,11 +68,12 @@ class ClusterWorkspace(QMainWindow):
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
 
-    def __init__(self, service, context, parent=None, label_settings=None):
+    def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None):
         super().__init__(parent)
         self.service = service
         self.context = context
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
+        self.terminal_settings = terminal_settings if terminal_settings is not None else TerminalSettings(parent=self)
         self.pool = QThreadPool.globalInstance()
         self._workers = set()
         self._loads = {}  # view -> latest requested namespace
@@ -709,7 +711,7 @@ class ClusterWorkspace(QMainWindow):
             if dialog.exec() != QDialog.Accepted:
                 return
             argv = node_shell_args(self.context, row.name, dialog.namespace.text().strip(), dialog.image.text().strip())
-            self._run(open_terminal, lambda _: self.message.emit(f"Opened node shell: {row.name}"), argv)
+            self._launch_terminal(argv, f"Opened node shell: {row.name}")
 
     def _node_changed(self, name, message):
         if self._closed:
@@ -782,10 +784,11 @@ class ClusterWorkspace(QMainWindow):
             if not ok:
                 return
         argv = kubectl_args(action, self.context, row.namespace, row.name, container)
-        try:
-            open_terminal(argv)
-        except Exception as e:
-            self._on_error(f"{type(e).__name__}: {e}")
+        self._launch_terminal(argv, f"Opened {action}: {row.name}")
+
+    def _launch_terminal(self, argv, message):
+        self._run(open_terminal, lambda _: self.message.emit(message), argv,
+                  self.terminal_settings.mac_terminal)
 
     def open_pod_tab(self, row):
         """Open (or focus) a tab for one pod: its containers, with Logs / Shell / Attach per container."""
@@ -839,7 +842,7 @@ class ClusterWorkspace(QMainWindow):
             self.open_logs(row, [c[0] for c in pod_containers(row.raw)], container)
         else:
             argv = kubectl_args(action, self.context, row.namespace, row.name, container)
-            self._run(open_terminal, lambda _: self.message.emit(f"Opened {action}: {row.name}/{container}"), argv)
+            self._launch_terminal(argv, f"Opened {action}: {row.name}/{container}")
 
     def new_namespace(self):
         dlg = NamespaceDialog(self)

@@ -1,3 +1,5 @@
+import sys
+
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
@@ -6,6 +8,7 @@ from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolic
 from .customizations import LabelColumnsDialog, LabelSettings
 from .log_view import shutdown_all
 from .navigator import Navigator
+from .terminal_settings import TerminalSettings, TerminalSettingsDialog
 from .workspace import ClusterWorkspace
 
 
@@ -22,6 +25,7 @@ class MainWindow(QMainWindow):
         self.factory = service_factory
         self.workspaces = {}  # context name -> ClusterWorkspace
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
+        self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         self.setWindowTitle("Kubeman")
         self.resize(1500, 850)
         self._shutting_down = False
@@ -30,6 +34,10 @@ class MainWindow(QMainWindow):
         self.exit_action.setMenuRole(QAction.QuitRole)
         self.exit_action.triggered.connect(self.close)
         self.menuBar().addMenu("File").addAction(self.exit_action)
+        if sys.platform == "darwin":
+            self.terminal_settings_action = QAction("Terminal…", self)
+            self.terminal_settings_action.triggered.connect(self.configure_terminal)
+            self.menuBar().addMenu("Settings").addAction(self.terminal_settings_action)
         self.exit_toolbar = QToolBar("Application", self)
         self.exit_toolbar.setMovable(False)
         self.exit_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
@@ -75,7 +83,8 @@ class MainWindow(QMainWindow):
         if ctx in self.workspaces:
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
-        ws = ClusterWorkspace(self.factory(), ctx, label_settings=self.label_settings)
+        ws = ClusterWorkspace(self.factory(), ctx, label_settings=self.label_settings,
+                              terminal_settings=self.terminal_settings)
         self.workspaces[ctx] = ws
         ws.message.connect(self.status.showMessage)
         ws.state.connect(lambda s, c=ctx: self._on_state(c, s))
@@ -95,6 +104,11 @@ class MainWindow(QMainWindow):
                         metadata = (row.raw or {}).get("metadata") or {}
                         available.update((metadata.get("labels") or {}).keys())
         dialog = LabelColumnsDialog(kind, self.label_settings, available, builtin, self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def configure_terminal(self):
+        dialog = TerminalSettingsDialog(self.terminal_settings, self)
         dialog.exec()
         dialog.deleteLater()
 
