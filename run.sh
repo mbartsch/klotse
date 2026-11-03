@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch Kubeman. Creates .venv and installs requirements.txt on first run.
+# Launch Klotse. Creates .venv and installs requirements.txt on first run.
 #   ./run.sh             start the app
 #   ./run.sh --install   (re)install dependencies, then start
 #   ./run.sh --check     verify the dependencies import, then exit
@@ -49,6 +49,6 @@ fi
 
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 if [ "$CHECK" = 1 ]; then
-  exec "$PY" -c "import kubeman.ui.main_window, kubernetes, yaml; print('Kubeman dependencies OK')"
+  exec "$PY" -c "import klotse.ui.main_window, kubernetes, yaml; print('Klotse dependencies OK')"
 fi
-exec "$PY" -m kubeman
+exec "$PY" -m klotse

@@ -8,13 +8,13 @@ from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QThread, Qt
 
-from kubeman.k8s.client import KubeService
-from kubeman.ui.resource_table import ResourceTable
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.client import KubeService
+from klotse.ui.resource_table import ResourceTable
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def test_connection_requests_compressed_responses(monkeypatch):
-    from kubeman.k8s import client as module
+    from klotse.k8s import client as module
 
     monkeypatch.setattr(module.config, 'load_kube_config', lambda **kw: None)
     clients = []
@@ -75,7 +75,7 @@ def test_expired_page_fails_instead_of_returning_partial_snapshot():
 
 
 def test_overview_only_serializes_recent_events(monkeypatch):
-    from kubeman.k8s import resources
+    from klotse.k8s import resources
 
     now = datetime.now(timezone.utc)
     events = [client.CoreV1Event(metadata=client.V1ObjectMeta(name=str(i), creation_timestamp=now + timedelta(seconds=i)),
@@ -96,7 +96,7 @@ def test_overview_only_serializes_recent_events(monkeypatch):
 
 
 def test_overview_pods_skips_manifest_serialization(monkeypatch):
-    from kubeman.k8s import client as module
+    from klotse.k8s import client as module
 
     pod = client.V1Pod(metadata=client.V1ObjectMeta(name='p'),
                        spec=client.V1PodSpec(containers=[]), status=client.V1PodStatus(phase='Running'))
@@ -110,7 +110,7 @@ def test_overview_pods_skips_manifest_serialization(monkeypatch):
 
 
 def test_large_table_initial_load_and_filter(qtbot):
-    from kubeman.k8s.models import PodRow
+    from klotse.k8s.models import PodRow
 
     table = ResourceTable([('Name', 'name'), ('Restarts', 'restarts')], 'Pod')
     qtbot.addWidget(table)
@@ -174,7 +174,7 @@ def test_load_after_error_can_retry_and_closed_workspace_skips_result(qtbot):
 
 @pytest.mark.parametrize('namespace', [None, 'team'])
 def test_workload_overview_counts_pages_without_mapping_manifests(namespace, monkeypatch):
-    from kubeman.k8s import client as module
+    from klotse.k8s import client as module
 
     calls = []
 
@@ -221,7 +221,7 @@ def test_repeated_refresh_still_displays_completed_same_scope_load(qtbot):
 
 
 def test_cluster_overview_uses_numeric_node_units_without_serializing(monkeypatch):
-    from kubeman.k8s import client as module
+    from klotse.k8s import client as module
 
     node = client.V1Node(metadata=client.V1ObjectMeta(name='n'),
                          status=client.V1NodeStatus(allocatable={'cpu': '1500m', 'memory': '8Gi'}))

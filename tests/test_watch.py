@@ -2,9 +2,9 @@
 from threading import Event
 from types import SimpleNamespace as NS
 
-from kubeman.k8s import client as module
-from kubeman.k8s.client import KubeService
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s import client as module
+from klotse.k8s.client import KubeService
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def obj(version):

@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDialogButtonBox,
                                QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
                                QPushButton, QVBoxLayout)
 
+from .settings_store import default_store
+
 
 DEFAULT_LABELS = {"Node": ["karpenter.sh/nodepool"], "Pod": []}
 # built-in columns hidden until the user ticks them (used when no layout was saved for the kind)
@@ -72,8 +74,7 @@ class LabelSettings(QObject):
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
-        self.store = settings if settings is not None else QSettings(
-            QSettings.IniFormat, QSettings.UserScope, "Kubeman", "Kubeman")
+        self.store = settings if settings is not None else default_store()
         self._labels = {kind: list(keys) for kind, keys in DEFAULT_LABELS.items()}
         self._headers = {}
         self._layout = {}

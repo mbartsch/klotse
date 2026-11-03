@@ -5,13 +5,16 @@ from threading import Timer
 from PySide6.QtWidgets import QApplication
 
 from .k8s.client import KubeService
-from .ui import theme
+from .ui import branding, theme
 from .ui.main_window import MainWindow
 
 
 def main():
+    branding.set_windows_app_id()
     app = QApplication(sys.argv)
     theme.apply(app)
+    app.setApplicationName("Klotse")
+    app.setWindowIcon(branding.app_icon())
     win = MainWindow(KubeService)  # a factory: each open cluster gets its own connection
     exit_timer = None
 

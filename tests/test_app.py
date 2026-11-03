@@ -2,11 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 from kubernetes import client
 
-from kubeman.k8s.client import format_age, map_node, map_pod, pod_buckets
-from kubeman.k8s.resources import Row
-from kubeman.k8s.models import (DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
+from klotse.k8s.client import format_age, map_node, map_pod, pod_buckets
+from klotse.k8s.resources import Row
+from klotse.k8s.models import (DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
                                 StatefulSetRow)
-from kubeman.ui.main_window import MainWindow
+from klotse.ui.main_window import MainWindow
 
 NOW = datetime.now(timezone.utc)
 
@@ -100,7 +100,7 @@ class FakeService:
         return FakeStream()
 
     def list_resource(self, key, namespace=None):
-        from kubeman.k8s.resources import SPEC_BY_KEY
+        from klotse.k8s.resources import SPEC_BY_KEY
 
         self.requested.append((key, namespace))
         cols = {attr: "" for _, attr in SPEC_BY_KEY[key].columns if attr not in ("name", "namespace")}
@@ -150,7 +150,7 @@ def test_window_populates_tables(qtbot):
 
 
 def test_edit_flow_calls_replace(qtbot, monkeypatch):
-    from kubeman.ui import workspace as mw
+    from klotse.ui import workspace as mw
 
     calls = []
     svc = FakeService()
@@ -178,7 +178,7 @@ def test_edit_flow_calls_replace(qtbot, monkeypatch):
 
 
 def test_parse_pairs_and_build_namespace():
-    from kubeman.ui.namespace_dialog import build_namespace, parse_pairs
+    from klotse.ui.namespace_dialog import build_namespace, parse_pairs
 
     assert parse_pairs("a=1\n\n b = x=y \n") == {"a": "1", "b": "x=y"}
     for bad in ("novalue", "=v"):
@@ -194,7 +194,7 @@ def test_parse_pairs_and_build_namespace():
 def test_namespace_dialog_validates_name(qtbot, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
 
-    from kubeman.ui.namespace_dialog import NamespaceDialog
+    from klotse.ui.namespace_dialog import NamespaceDialog
 
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     dlg = NamespaceDialog()
@@ -226,7 +226,7 @@ def test_scale_flow_calls_service(qtbot, monkeypatch):
 
 
 def test_kubectl_args():
-    from kubeman.ui.terminal import kubectl_args
+    from klotse.ui.terminal import kubectl_args
 
     assert kubectl_args("shell", "c", "ns", "p") == ["kubectl", "--context", "c", "-n", "ns", "exec", "-it", "p", "--", "sh"]
     assert kubectl_args("attach", "c", "ns", "p", "app")[-3:] == ["attach", "-it", "p", "-c", "app"][-3:]
@@ -236,7 +236,7 @@ def test_kubectl_args():
 def test_pod_terminate_and_connect(qtbot, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
 
-    from kubeman.ui import workspace as mw
+    from klotse.ui import workspace as mw
 
     deleted, opened = [], []
     svc = FakeService()
@@ -258,7 +258,7 @@ def test_pod_terminate_and_connect(qtbot, monkeypatch):
 
 
 def test_navigator_and_logs(qtbot):
-    from kubeman.ui.navigator import Navigator
+    from klotse.ui.navigator import Navigator
 
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
@@ -310,7 +310,7 @@ def test_overview_cards_and_events(qtbot):
 
 
 def test_generic_views_lazy_and_namespace_scoped(qtbot):
-    from kubeman.k8s.resources import SPECS
+    from klotse.k8s.resources import SPECS
 
     svc = FakeService()
     win = MainWindow(lambda: svc)
@@ -340,7 +340,7 @@ def test_generic_views_lazy_and_namespace_scoped(qtbot):
 
 
 def test_secret_mapper_masks_values():
-    from kubeman.k8s.resources import map_secret
+    from klotse.k8s.resources import map_secret
 
     s = client.V1Secret(
         metadata=client.V1ObjectMeta(name="s", namespace="ns", creation_timestamp=NOW, annotations={
@@ -355,7 +355,7 @@ def test_secret_mapper_masks_values():
 
 
 def test_pod_buckets():
-    from kubeman.k8s.models import PodRow
+    from klotse.k8s.models import PodRow
 
     def pod(status):
         return PodRow("p", "n", "1/1", status, 0, "", "1d")
@@ -365,7 +365,7 @@ def test_pod_buckets():
 
 
 def test_job_cronjob_and_pvc_mappers():
-    from kubeman.k8s.resources import map_cronjob, map_job, map_pvc
+    from klotse.k8s.resources import map_cronjob, map_job, map_pvc
 
     meta = client.V1ObjectMeta(name="j", namespace="ns", creation_timestamp=NOW)
     job = client.V1Job(metadata=meta, spec=client.V1JobSpec(completions=3, template=client.V1PodTemplateSpec()),
@@ -473,7 +473,7 @@ def _st(ready, pods, observed=True, deadline=False, warnings=()):
 
 
 def test_evaluate_scale_states():
-    from kubeman.ui.scale_monitor import evaluate
+    from klotse.ui.scale_monitor import evaluate
 
     ok = [_pod("a"), _pod("b"), _pod("c")]
     assert evaluate(3, _st(3, ok), 12, 300) == ("complete", "Complete: 3/3 ready in 12s")
@@ -506,7 +506,7 @@ def _sync_run(fn, on_result, *args, on_error=None):
 
 
 def test_scale_monitor_progress_failure_and_completion(qtbot):
-    from kubeman.ui.scale_monitor import ScaleMonitor
+    from klotse.ui.scale_monitor import ScaleMonitor
 
     svc = FakeService()
     bad = _pod("b", "ErrImagePull", "0/1", "ErrImagePull")
@@ -527,7 +527,7 @@ def test_scale_monitor_progress_failure_and_completion(qtbot):
 
 
 def test_scale_monitor_timeout_and_poll_errors(qtbot):
-    from kubeman.ui.scale_monitor import ScaleMonitor
+    from klotse.ui.scale_monitor import ScaleMonitor
 
     svc = FakeService()
     svc.scale_status = lambda *a: (_ for _ in ()).throw(RuntimeError("api down"))
@@ -540,7 +540,7 @@ def test_scale_monitor_timeout_and_poll_errors(qtbot):
 
 
 def test_scale_monitor_restart_ignores_stale_results(qtbot):
-    from kubeman.ui.scale_monitor import ScaleMonitor
+    from klotse.ui.scale_monitor import ScaleMonitor
 
     svc = FakeService()
     svc.scale_script = [_st(0, [])]
@@ -558,7 +558,7 @@ def test_scale_monitor_restart_ignores_stale_results(qtbot):
 def test_workspace_scale_opens_monitor_and_tracks_to_completion(qtbot, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
 
-    from kubeman.ui import scale_monitor as sm
+    from klotse.ui import scale_monitor as sm
 
     monkeypatch.setattr(sm, "POLL_MS", 20)
     monkeypatch.setattr(QInputDialog, "getInt", lambda *a, **k: (2, True))
@@ -589,7 +589,7 @@ def test_workspace_scale_opens_monitor_and_tracks_to_completion(qtbot, monkeypat
 
 
 def test_scale_down_monitor_counts_pods_actually_removed(qtbot):
-    from kubeman.ui.scale_monitor import ScaleMonitor
+    from klotse.ui.scale_monitor import ScaleMonitor
 
     svc = FakeService()
     three = [_pod("a"), _pod("b"), _pod("c")]
@@ -636,7 +636,7 @@ def test_nodes_table_displays_formatted_but_sorts_numerically(qtbot):
 
 
 def test_navigator_sections_and_state_moves(qtbot):
-    from kubeman.ui.navigator import Navigator
+    from klotse.ui.navigator import Navigator
 
     nav = Navigator()
     qtbot.addWidget(nav)
@@ -665,7 +665,7 @@ def test_navigator_sections_and_state_moves(qtbot):
 def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     from PySide6.QtCore import Qt
 
-    from kubeman.ui.navigator import Navigator
+    from klotse.ui.navigator import Navigator
 
     nav = Navigator()
     qtbot.addWidget(nav)
@@ -732,7 +732,7 @@ def test_disconnect_while_connecting_drops_late_result(qtbot):
 
 
 def test_network_policy_mapper_and_registry():
-    from kubeman.k8s.resources import SPEC_BY_KEY, SPEC_BY_KIND, map_networkpolicy
+    from klotse.k8s.resources import SPEC_BY_KEY, SPEC_BY_KIND, map_networkpolicy
 
     meta = client.V1ObjectMeta(name="np", namespace="ns", creation_timestamp=NOW)
     sel = client.V1LabelSelector(match_labels={"app": "web"}, match_expressions=[
@@ -773,7 +773,7 @@ def _overview_data(pending=0, failed=2, warnings=3):
 def test_overview_cards_drill_down_on_click(qtbot):
     from PySide6.QtCore import Qt
 
-    from kubeman.ui.overview import CLUSTER_CARDS, OverviewView
+    from klotse.ui.overview import CLUSTER_CARDS, OverviewView
 
     view = OverviewView(CLUSTER_CARDS)
     qtbot.addWidget(view)
@@ -808,7 +808,7 @@ def test_overview_cards_drill_down_on_click(qtbot):
 def test_overview_drill_down_follows_refreshes_and_clears_when_resolved(qtbot):
     from PySide6.QtCore import Qt
 
-    from kubeman.ui.overview import CLUSTER_CARDS, OverviewView
+    from klotse.ui.overview import CLUSTER_CARDS, OverviewView
 
     view = OverviewView(CLUSTER_CARDS)
     qtbot.addWidget(view)
@@ -842,7 +842,7 @@ def test_workspace_overview_drill_down_pods_have_pod_actions(qtbot):
 
 
 def test_pod_bucket_and_keep_newest_helpers():
-    from kubeman.k8s.client import keep_newest, pod_bucket
+    from klotse.k8s.client import keep_newest, pod_bucket
 
     assert [pod_bucket(s) for s in ("Running", "Succeeded", "Completed", "Pending", "ContainerCreating", "Init:0/2",
                                     "Terminating", "CrashLoopBackOff", "ImagePullBackOff", "Failed", "Evicted")] == [
@@ -857,8 +857,8 @@ def test_pod_bucket_and_keep_newest_helpers():
 def test_crd_mapping_and_instances():
     from kubernetes import client as k
 
-    from kubeman.k8s.client import KubeService
-    from kubeman.k8s.resources import SPEC_BY_KEY, crd_version, map_custom_object
+    from klotse.k8s.client import KubeService
+    from klotse.k8s.resources import SPEC_BY_KEY, crd_version, map_custom_object
 
     crd = k.V1CustomResourceDefinition(
         metadata=k.V1ObjectMeta(name="widgets.example.com"),
@@ -891,7 +891,7 @@ def test_crd_mapping_and_instances():
 
 
 def test_workspace_browses_crd_instances(qtbot):
-    from kubeman.k8s.resources import Row
+    from klotse.k8s.resources import Row
 
     svc = FakeService()
     asked = []

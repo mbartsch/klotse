@@ -5,8 +5,8 @@ import yaml
 from kubernetes import client
 from PySide6.QtCore import Qt
 
-from kubeman.k8s.resources import Row, map_secret
-from kubeman.ui.detail_panel import DetailPanel
+from klotse.k8s.resources import Row, map_secret
+from klotse.ui.detail_panel import DetailPanel
 
 
 def secret_row(name="credentials", data=None):

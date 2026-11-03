@@ -3,10 +3,10 @@ from types import SimpleNamespace as NS
 
 from kubernetes import client as k
 
-from kubeman.k8s.client import KubeService
-from kubeman.k8s.models import NodeRow
-from kubeman.ui.overview import CLUSTER_CARDS, OverviewView, UsageBar
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.client import KubeService
+from klotse.k8s.models import NodeRow
+from klotse.ui.overview import CLUSTER_CARDS, OverviewView, UsageBar
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def test_usage_attached_and_degrades_without_metrics_server():

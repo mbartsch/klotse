@@ -6,7 +6,7 @@ import sys
 import pytest
 from PySide6.QtCore import Qt
 
-from kubeman.ui.main_window import MainWindow
+from klotse.ui.main_window import MainWindow
 
 
 class EmptyService:
@@ -15,7 +15,7 @@ class EmptyService:
 
 
 def test_exit_action_closes_window_and_shutdown_is_idempotent(qtbot, monkeypatch):
-    import kubeman.ui.main_window as module
+    import klotse.ui.main_window as module
 
     stopped = []
     monkeypatch.setattr(module, "shutdown_all", lambda: stopped.append(True))
@@ -42,8 +42,8 @@ def test_process_exits_with_stuck_worker(quit_method):
 import threading
 from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtWidgets import QApplication
-import kubeman.__main__ as entry
-from kubeman.workers import Worker
+import klotse.__main__ as entry
+from klotse.workers import Worker
 
 class EmptyService:
     def load_contexts(self):

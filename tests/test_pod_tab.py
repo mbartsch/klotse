@@ -4,8 +4,8 @@ from types import SimpleNamespace as NS
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtWidgets import QMessageBox
 
-from kubeman.k8s.models import PodRow
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.models import PodRow
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def pod(name="web", status="Running", restarts=0):
@@ -40,7 +40,7 @@ def test_double_click_pod_opens_tab_not_dialog(qtbot):
 
 
 def test_container_row_actions_target_that_container(qtbot, monkeypatch):
-    from kubeman.ui import workspace as module
+    from klotse.ui import workspace as module
 
     ws = make_ws(qtbot)
     seen = []
@@ -113,7 +113,7 @@ def test_other_errors_are_not_treated_as_deleted(qtbot):
 def test_read_pod_service_maps_one_pod():
     from kubernetes import client as k
 
-    from kubeman.k8s.client import KubeService
+    from klotse.k8s.client import KubeService
 
     obj = k.V1Pod(metadata=k.V1ObjectMeta(name="web", namespace="team"), spec=k.V1PodSpec(containers=[]),
                   status=k.V1PodStatus(phase="Running"))

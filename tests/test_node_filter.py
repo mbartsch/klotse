@@ -1,7 +1,7 @@
 from PySide6.QtCore import Qt
 
-from kubeman.k8s.models import NodeRow
-from kubeman.ui.resource_table import ResourceTable
+from klotse.k8s.models import NodeRow
+from klotse.ui.resource_table import ResourceTable
 
 
 def test_node_filter_searches_columns_labels_annotations_and_refresh(qtbot):

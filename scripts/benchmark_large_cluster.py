@@ -6,8 +6,8 @@ from time import perf_counter
 from kubernetes import client
 from PySide6.QtWidgets import QApplication
 
-from kubeman.k8s.client import map_pod, pod_buckets
-from kubeman.ui.resource_table import ResourceTable
+from klotse.k8s.client import map_pod, pod_buckets
+from klotse.ui.resource_table import ResourceTable
 
 
 def main():

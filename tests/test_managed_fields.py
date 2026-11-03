@@ -1,8 +1,8 @@
 import base64
 from types import SimpleNamespace as NS
 
-from kubeman.ui.detail_panel import DetailPanel
-from kubeman.ui.main_window import MainWindow
+from klotse.ui.detail_panel import DetailPanel
+from klotse.ui.main_window import MainWindow
 
 from test_app import FakeService
 

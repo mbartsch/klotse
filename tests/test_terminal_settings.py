@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QDialog, QMessageBox
 
-from kubeman.ui.terminal_settings import TerminalSettings, TerminalSettingsDialog
+from klotse.ui.terminal_settings import TerminalSettings, TerminalSettingsDialog
 
 
 def test_terminal_preference_default_persistence_and_invalid_value(tmp_path):
@@ -52,7 +52,7 @@ def test_terminal_dialog_save_cancel_and_save_failure(qtbot, tmp_path, monkeypat
 
 @pytest.mark.parametrize("app", ["Terminal", "iTerm2"])
 def test_macos_terminal_quoting_and_failure(monkeypatch, app):
-    from kubeman.ui import terminal
+    from klotse.ui import terminal
     monkeypatch.setattr(terminal.sys, "platform", "darwin")
     calls = []
     monkeypatch.setattr(terminal.subprocess, "run", lambda *a, **kw: calls.append((a, kw)))
@@ -78,7 +78,7 @@ def test_macos_terminal_quoting_and_failure(monkeypatch, app):
 
 @pytest.mark.parametrize("status", [0, 7])
 def test_mac_session_success_closes_and_failure_waits_for_acknowledgement(monkeypatch, capsys, status):
-    from kubeman.ui import terminal_session
+    from klotse.ui import terminal_session
     calls = []
     monkeypatch.setattr(terminal_session.subprocess, "Popen", lambda *a, **kw: calls.append((a, kw)))
     monkeypatch.setattr(terminal_session.subprocess, "call", lambda argv: status)
@@ -100,8 +100,8 @@ def test_mac_session_success_closes_and_failure_waits_for_acknowledgement(monkey
 
 def test_preference_shared_with_existing_and_future_workspaces(qtbot, tmp_path, monkeypatch):
     from test_app import FakeService
-    from kubeman.ui import main_window, workspace
-    from kubeman.ui.customizations import LabelSettings
+    from klotse.ui import main_window, workspace
+    from klotse.ui.customizations import LabelSettings
 
     monkeypatch.setattr(main_window.sys, "platform", "darwin")
     store = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)

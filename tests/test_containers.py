@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 
-from kubeman.k8s.client import KubeService
-from kubeman.k8s.models import PodRow
-from kubeman.ui.pod_view import container_rows, pod_containers
-from kubeman.ui.main_window import MainWindow
-from kubeman.ui.resource_table import ResourceTable
+from klotse.k8s.client import KubeService
+from klotse.k8s.models import PodRow
+from klotse.ui.pod_view import container_rows, pod_containers
+from klotse.ui.main_window import MainWindow
+from klotse.ui.resource_table import ResourceTable
 
 from test_app import FakeService, FakeStream
 
@@ -64,7 +64,7 @@ def test_force_delete_api_options_keep_node_uid():
 
 def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
-    from kubeman.ui import workspace as module
+    from klotse.ui import workspace as module
     calls, opened, logs = [], [], []
     service = FakeService()
     service.delete_pod = lambda *a: calls.append(("pod", *a))

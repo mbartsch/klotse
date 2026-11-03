@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtWidgets import QAbstractItemView, QInputDialog, QMenu, QMessageBox
 
-from kubeman.k8s.models import DeploymentRow, NodeRow, PodRow
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.models import DeploymentRow, NodeRow, PodRow
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def make_ws(qtbot, **service):
@@ -118,7 +118,7 @@ def test_bulk_cordon_nodes(qtbot, monkeypatch):
 def test_parse_scale_expressions():
     import pytest
 
-    from kubeman.ui.workspace import parse_scale
+    from klotse.ui.workspace import parse_scale
 
     assert [parse_scale(t, 3) for t in ("5", "*2", "x2", "×2", "+1", "-1", "/2", " + 2 ")] == [5, 6, 6, 6, 4, 2, 2, 5]
     assert parse_scale("-1", 0) == 0 and parse_scale("/2", 1) == 1 and parse_scale("*2", 0) == 0  # never below zero

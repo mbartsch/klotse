@@ -5,23 +5,23 @@ from PySide6.QtCore import QSettings
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QDialog, QLineEdit, QMessageBox, QPlainTextEdit
 
-from kubeman.k8s import client as client_module
-from kubeman.k8s.client import KubeService
-from kubeman.k8s.models import PodRow
-from kubeman.ui import edit_menu, main_window as main_module, preferences as preferences_module
-from kubeman.ui.customizations import LabelSettings
-from kubeman.ui.main_window import MainWindow
-from kubeman.ui.node_dialogs import DrainDialog
-from kubeman.ui.overview import POD_COLUMNS_BASIC
-from kubeman.ui.preferences import KubeconfigSettings, PreferencesDialog
-from kubeman.ui.resource_table import ResourceTable
-from kubeman.ui.terminal import kubectl_args, node_shell_args
+from klotse.k8s import client as client_module
+from klotse.k8s.client import KubeService
+from klotse.k8s.models import PodRow
+from klotse.ui import edit_menu, main_window as main_module, preferences as preferences_module
+from klotse.ui.customizations import LabelSettings
+from klotse.ui.main_window import MainWindow
+from klotse.ui.node_dialogs import DrainDialog
+from klotse.ui.overview import POD_COLUMNS_BASIC
+from klotse.ui.preferences import KubeconfigSettings, PreferencesDialog
+from klotse.ui.resource_table import ResourceTable
+from klotse.ui.terminal import kubectl_args, node_shell_args
 
 from test_app import FakeService
 
 
 def store(tmp_path):
-    return QSettings(str(tmp_path / "nested" / "Kubeman.ini"), QSettings.IniFormat)
+    return QSettings(str(tmp_path / "nested" / "Klotse.ini"), QSettings.IniFormat)
 
 
 def window(qtbot, tmp_path):

@@ -1,5 +1,5 @@
 @echo off
-rem Launch Kubeman. Creates .venv and installs requirements.txt on first run.
+rem Launch Klotse. Creates .venv and installs requirements.txt on first run.
 rem   run.bat              start the app (no console window)
 rem   run.bat --console    start in this console so errors/tracebacks are visible
 rem   run.bat --install    (re)install dependencies, then start
@@ -43,13 +43,13 @@ echo installed> "%MARKER%"
 set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
 if "%CHECK%"=="1" goto check
 if "%CONSOLE%"=="1" goto console
-start "" "%VENV%\Scripts\pythonw.exe" -m kubeman
+start "" "%VENV%\Scripts\pythonw.exe" -m klotse
 exit /b 0
 
 :console
-"%PY%" -m kubeman
+"%PY%" -m klotse
 exit /b %errorlevel%
 
 :check
-"%PY%" -c "import kubeman.ui.main_window, kubernetes, yaml; print('Kubeman dependencies OK')"
+"%PY%" -c "import klotse.ui.main_window, kubernetes, yaml; print('Klotse dependencies OK')"
 exit /b %errorlevel%

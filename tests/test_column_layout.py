@@ -1,8 +1,8 @@
 from PySide6.QtCore import QSettings, Qt
 
-from kubeman.ui.customizations import DEFAULT_HIDDEN, LabelColumnsDialog, LabelSettings
-from kubeman.ui.overview import POD_COLUMNS
-from kubeman.ui.resource_table import ResourceTable
+from klotse.ui.customizations import DEFAULT_HIDDEN, LabelColumnsDialog, LabelSettings
+from klotse.ui.overview import POD_COLUMNS
+from klotse.ui.resource_table import ResourceTable
 
 
 def settings(tmp_path):
@@ -33,7 +33,7 @@ def test_labels_follow_name_when_anchor_hidden(qtbot):
 
 
 def test_other_kinds_can_be_customized_and_persist(qtbot, tmp_path):
-    from kubeman.k8s.resources import SPEC_BY_KEY
+    from klotse.k8s.resources import SPEC_BY_KEY
     spec = SPEC_BY_KEY["daemonsets"]
     store = settings(tmp_path)
     store.set_layout(spec.kind, ["age"], ["namespace"])

@@ -5,17 +5,18 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMessageBox, QPushButton, QWidget)
 
+from .settings_store import default_store
+
 
 class KubeconfigSettings(QObject):
-    """The kubeconfig Kubeman reads contexts from: a custom file, or None for KUBECONFIG / ~/.kube/config.
+    """The kubeconfig Klotse reads contexts from: a custom file, or None for KUBECONFIG / ~/.kube/config.
 
     Saved as `kubeconfig/path` in the shared settings store. A saved file that no longer exists is ignored.
     """
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
-        self.store = settings if settings is not None else QSettings(
-            QSettings.IniFormat, QSettings.UserScope, "Kubeman", "Kubeman")
+        self.store = settings if settings is not None else default_store()
         saved = str(self.store.value("kubeconfig/path", "") or "")
         self.path = saved if saved and Path(saved).is_file() else None
         self.missing = saved if saved and self.path is None else None  # remembered so the UI can say why it is ignored
@@ -75,7 +76,7 @@ class PreferencesDialog(QDialog):
         form.addRow(self.note)
 
         self.open_button = QPushButton("Open config folder")
-        self.open_button.setToolTip("Show Kubeman's settings file in Explorer / Finder / the file manager (debug)")
+        self.open_button.setToolTip("Show Klotse's settings file in Explorer / Finder / the file manager (debug)")
         self.open_button.clicked.connect(self._open_folder)
         form.addRow("Settings", self.open_button)
         form.addRow("", QLabel(str(self.config_folder)))

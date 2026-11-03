@@ -3,7 +3,7 @@ import json
 import pytest
 from PySide6.QtCore import QSettings
 
-from kubeman.ui.customizations import DEFAULT_HIDDEN, LabelSettings
+from klotse.ui.customizations import DEFAULT_HIDDEN, LabelSettings
 
 
 def fresh(path):

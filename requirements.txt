@@ -1,4 +1,4 @@
-# Runtime dependencies for Kubeman (also declared in pyproject.toml).
+# Runtime dependencies for Klotse (also declared in pyproject.toml).
 # Lower bounds are the oldest versions the code relies on; the app was developed and tested with
 # PySide6 6.12 (Essentials: QtCore/QtGui/QtWidgets are all it uses), kubernetes 37 and PyYAML 6.0.
 PySide6-Essentials>=6.6

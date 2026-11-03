@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QSortFilterProxyModel, Qt
 
-from kubeman.ui.table_model import TableModel, age_sort_value
+from klotse.ui.table_model import TableModel, age_sort_value
 
 
 @pytest.mark.parametrize("age, seconds", [

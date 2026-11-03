@@ -2,12 +2,13 @@ from PySide6.QtCore import QObject, QSettings
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                                QLabel, QMessageBox)
 
+from .settings_store import default_store
+
 
 class TerminalSettings(QObject):
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
-        self.store = settings if settings is not None else QSettings(
-            QSettings.IniFormat, QSettings.UserScope, "Kubeman", "Kubeman")
+        self.store = settings if settings is not None else default_store()
         saved = self.store.value("terminal/macos", "Terminal")
         self.mac_terminal = saved if saved in ("Terminal", "iTerm2") else "Terminal"
 

@@ -4,15 +4,15 @@ import pytest
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QDialog
 
-from kubeman.ui.customizations import DEFAULT_LABELS, LabelColumnsDialog, LabelSettings
-from kubeman.ui.main_window import MainWindow
-from kubeman.ui.resource_table import ResourceTable
+from klotse.ui.customizations import DEFAULT_LABELS, LabelColumnsDialog, LabelSettings
+from klotse.ui.main_window import MainWindow
+from klotse.ui.resource_table import ResourceTable
 
 from test_app import FakeService
 
 
 def preferences(tmp_path):
-    return LabelSettings(QSettings(str(tmp_path / "kubeman.ini"), QSettings.IniFormat))
+    return LabelSettings(QSettings(str(tmp_path / "klotse.ini"), QSettings.IniFormat))
 
 
 def test_preferences_persist_separate_ordered_label_lists(tmp_path):
@@ -31,7 +31,7 @@ def test_preferences_persist_separate_ordered_label_lists(tmp_path):
 
 @pytest.mark.parametrize("saved", ['not json', '[]', '{"Node": "wrong"}', '{"Node": ["team=value"]}'])
 def test_invalid_saved_preferences_fall_back_to_defaults(tmp_path, saved):
-    store = QSettings(str(tmp_path / "kubeman.ini"), QSettings.IniFormat)
+    store = QSettings(str(tmp_path / "klotse.ini"), QSettings.IniFormat)
     store.setValue("columns/labels", saved)
     assert LabelSettings(store).labels("Node") == DEFAULT_LABELS["Node"]
 

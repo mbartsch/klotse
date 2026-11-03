@@ -1,10 +1,10 @@
 """Pods per node: all nodes counted on first load, rows on screen refreshed on sight, everything every minute."""
 from types import SimpleNamespace as NS
 
-from kubeman.k8s.client import KubeService
-from kubeman.k8s.models import NodeRow
-from kubeman.ui import workspace as workspace_module
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.client import KubeService
+from klotse.k8s.models import NodeRow
+from klotse.ui import workspace as workspace_module
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def node(name):

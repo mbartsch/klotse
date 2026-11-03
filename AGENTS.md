@@ -1,14 +1,15 @@
-# Kubeman project guide
+# Klotse project guide
 
 This file applies to the repository rooted here. It records the current implementation and working conventions; verify details against source when changing them.
 
 ## Project and local state
 
-- Kubeman is a native Kubernetes desktop manager built with Python and PySide6/Qt Widgets, using the Kubernetes Python client and `kubectl`.
-- Package: `kubeman`, version `0.1.0`, Python `>=3.10`, setuptools with a `src/` layout.
+- Klotse is a native Kubernetes desktop manager built with Python and PySide6/Qt Widgets, using the Kubernetes Python client and `kubectl`.
+- Package: `klotse`, version `0.1.0` (single source: `klotse.__version__`, read by pyproject and the About dialog), Python `>=3.10`, setuptools with a `src/` layout.
 - Runtime dependencies: `PySide6-Essentials>=6.6`, `kubernetes>=29`, and `PyYAML>=6`. Development dependencies add `pytest` and `pytest-qt`.
 - Work lands on `master` through pull requests (squash-merged on GitHub, `mbartsch/kubeman`). Start new work on a branch from an up-to-date `master` and open a PR; do not commit to `master` directly. The `gh` CLI is used for PRs (installed with scoop on the Windows dev machine; it needs `gh auth login` once).
 - Preserve uncommitted work in the tree; do not reset or discard it, and do not assume it has been committed or pushed.
+- There is no LICENSE file yet and the GitHub repo reports no license; About shows "Not specified yet" until `about.LICENSE` is set.
 - There is no separate web frontend, database, or application server.
 
 ## Run and install
@@ -21,7 +22,7 @@ From the repository root on macOS/Linux:
 ./run.sh --install
 ```
 
-`run.sh` creates `.venv` if needed, installs `requirements.txt` on first run or with `--install`, exports `PYTHONPATH` for `src/`, and launches `python -m kubeman`. `--check` checks imports without opening the UI.
+`run.sh` creates `.venv` if needed, installs `requirements.txt` on first run or with `--install`, exports `PYTHONPATH` for `src/`, and launches `python -m klotse`. `--check` checks imports without opening the UI.
 
 Windows equivalents:
 
@@ -37,7 +38,7 @@ The default Windows launcher uses `pythonw.exe`; `--console` keeps tracebacks vi
 For an existing environment, direct execution is:
 
 ```sh
-PYTHONPATH=src .venv/bin/python -m kubeman
+PYTHONPATH=src .venv/bin/python -m klotse
 ```
 
 Install development requirements when needed:
@@ -46,7 +47,7 @@ Install development requirements when needed:
 .venv/bin/python -m pip install -r requirements-dev.txt
 ```
 
-The package also declares a `kubeman` GUI entry point. Use `PYTHONPATH=src` for repository tests unless an editable installation is confirmed; the local virtualenv previously could import dependencies but could not import `kubeman` without it.
+The package also declares a `klotse` GUI entry point. Use `PYTHONPATH=src` for repository tests unless an editable installation is confirmed; the local virtualenv previously could import dependencies but could not import `klotse` without it.
 
 Cluster access comes from kubeconfig and its existing authentication helpers. `kubectl` must be available on PATH for drain and terminal operations. Shell/debug actions also need suitable cluster permissions and a supported local terminal. Local unit tests do not require a live cluster.
 
@@ -54,36 +55,39 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 
 | File | Responsibility |
 | --- | --- |
-| `src/kubeman/__main__.py` | QApplication startup, theme, main window, bounded process shutdown. |
-| `src/kubeman/workers.py` | QRunnable worker and Qt result/error signals for blocking service calls. |
-| `src/kubeman/k8s/client.py` | KubeService, context-specific API clients, pagination, resource loading, mutations, overview aggregation, node-specific pod queries and per-node pod counts, change watches (`watch_targets`/`watch_changes`), optional metrics-server usage, and custom resource listing. |
-| `src/kubeman/k8s/models.py` | Dataclass rows for namespaces, pods, nodes, and core workloads. Pod/Node rows carry usage fields (`cpu_used`, `mem_used`, `-1` = unknown); Node rows also carry `pods` (`-1` = not counted). |
-| `src/kubeman/k8s/resources.py` | Generic Row, resource mappers (including CRDs and custom objects), secret masking, and SPECS registry for additional resource views. |
-| `src/kubeman/k8s/util.py` | Age formatting and Kubernetes model serialization. |
-| `src/kubeman/ui/main_window.py` | Cluster navigator/workspace shell, visible Exit button, menus, and shared customization settings. Label-column customization is opened from the tabs (see `resource_table.py`). |
-| `src/kubeman/ui/workspace.py` | One cluster's resource tabs (including per-node pods, per-pod, and per-CRD tabs), namespace scope, detail/activity docks, asynchronous loading, auto-refresh and watches, node pod counts, and single and bulk resource actions. |
-| `src/kubeman/ui/navigator.py` | Context connection states and grouped view navigation (including the Custom Resources group). |
-| `src/kubeman/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, extended selection with bulk menus, an optional Columns… button (Nodes, Pods, pods-on-node tabs), context menus, per-kind double-click actions, a header-widget slot, and a debounced `visible_changed` signal with `visible_rows()`. |
-| `src/kubeman/ui/table_model.py` | Display/sort/search roles, numeric age sorting, label lookups, condition/header tooltips, and in-place `refresh_column`. |
-| `src/kubeman/ui/overview.py` | Cluster/workload cards, bounded pod/event drill-down tables, and CPU/memory usage bars (hidden without metrics). |
-| `src/kubeman/ui/detail_panel.py` | Read-only YAML and searchable multi-key secret decoding. |
-| `src/kubeman/ui/manifest.py` | Shared readable, round-trip-safe YAML dumping. |
-| `src/kubeman/ui/edit_dialog.py` | YAML resource editor using the shared manifest dumper. |
-| `src/kubeman/ui/log_view.py` | Background log streaming, container selection, search/follow, and stream shutdown. |
-| `src/kubeman/ui/pod_view.py` | A pod's own tab: regular/init/ephemeral container rows, pod action bar, and container-specific Logs/Shell/Attach. |
-| `src/kubeman/ui/node_bar.py` | Node action bar (cordon, drain, shell, delete) shown above a node's pods tab. |
-| `src/kubeman/ui/node_dialogs.py` | Drain options and privileged nsenter debug-shell options. |
-| `src/kubeman/ui/command_view.py` | QProcess-backed drain output, completion/error reporting, and local process cancellation. |
-| `src/kubeman/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
-| `src/kubeman/ui/terminal_settings.py` | Saved macOS terminal preference and its settings dialog. |
-| `src/kubeman/ui/terminal_session.py` | Standalone macOS session runner and targeted cleanup after successful commands. |
-| `src/kubeman/ui/customizations.py` | Persistent per-kind column layout and label columns (readable INI sections), custom headings, and the Columns… dialog. |
-| `src/kubeman/ui/edit_menu.py` | Edit menu actions (undo/redo/cut/copy/paste/select all) for the focused text box or table. |
-| `src/kubeman/ui/preferences.py` | Custom kubeconfig setting and the Preferences dialog (kubeconfig picker, open config folder). |
-| `src/kubeman/ui/scale_monitor.py` | Polling scale progress, readiness/failure evaluation, timeouts, and activity display. |
-| `src/kubeman/ui/watcher.py` | `ChangeWatcher` QThread: runs `KubeService.watch_changes` and emits `changed`; `stop()` only sets a flag and never blocks the GUI thread. |
-| `src/kubeman/ui/namespace_dialog.py` | Namespace creation form. |
-| `src/kubeman/ui/theme.py` | Application palette and Qt stylesheet. |
+| `src/klotse/__main__.py` | QApplication startup, theme, main window, bounded process shutdown. |
+| `src/klotse/workers.py` | QRunnable worker and Qt result/error signals for blocking service calls. |
+| `src/klotse/k8s/client.py` | KubeService, context-specific API clients, pagination, resource loading, mutations, overview aggregation, node-specific pod queries and per-node pod counts, change watches (`watch_targets`/`watch_changes`), optional metrics-server usage, and custom resource listing. |
+| `src/klotse/k8s/models.py` | Dataclass rows for namespaces, pods, nodes, and core workloads. Pod/Node rows carry usage fields (`cpu_used`, `mem_used`, `-1` = unknown); Node rows also carry `pods` (`-1` = not counted). |
+| `src/klotse/k8s/resources.py` | Generic Row, resource mappers (including CRDs and custom objects), secret masking, and SPECS registry for additional resource views. |
+| `src/klotse/k8s/util.py` | Age formatting and Kubernetes model serialization. |
+| `src/klotse/ui/main_window.py` | Cluster navigator/workspace shell, visible Exit button, menus, and shared customization settings. Label-column customization is opened from the tabs (see `resource_table.py`). |
+| `src/klotse/ui/workspace.py` | One cluster's resource tabs (including per-node pods, per-pod, and per-CRD tabs), namespace scope, detail/activity docks, asynchronous loading, auto-refresh and watches, node pod counts, and single and bulk resource actions. |
+| `src/klotse/ui/navigator.py` | Context connection states and grouped view navigation (including the Custom Resources group). |
+| `src/klotse/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, extended selection with bulk menus, an optional Columns… button (Nodes, Pods, pods-on-node tabs), context menus, per-kind double-click actions, a header-widget slot, and a debounced `visible_changed` signal with `visible_rows()`. |
+| `src/klotse/ui/table_model.py` | Display/sort/search roles, numeric age sorting, label lookups, condition/header tooltips, and in-place `refresh_column`. |
+| `src/klotse/ui/overview.py` | Cluster/workload cards, bounded pod/event drill-down tables, and CPU/memory usage bars (hidden without metrics). |
+| `src/klotse/ui/detail_panel.py` | Read-only YAML and searchable multi-key secret decoding. |
+| `src/klotse/ui/manifest.py` | Shared readable, round-trip-safe YAML dumping. |
+| `src/klotse/ui/edit_dialog.py` | YAML resource editor using the shared manifest dumper. |
+| `src/klotse/ui/log_view.py` | Background log streaming, container selection, search/follow, and stream shutdown. |
+| `src/klotse/ui/pod_view.py` | A pod's own tab: regular/init/ephemeral container rows, pod action bar, and container-specific Logs/Shell/Attach. |
+| `src/klotse/ui/node_bar.py` | Node action bar (cordon, drain, shell, delete) shown above a node's pods tab. |
+| `src/klotse/ui/node_dialogs.py` | Drain options and privileged nsenter debug-shell options. |
+| `src/klotse/ui/command_view.py` | QProcess-backed drain output, completion/error reporting, and local process cancellation. |
+| `src/klotse/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
+| `src/klotse/ui/about.py` | Help → About Klotse dialog: logo, version, project/GitHub link, author, license, Python/Qt/kubernetes versions, and a Copy details button. Metadata constants (`REPO_URL`, `LICENSE`, ...) live at the top of the module. |
+| `src/klotse/ui/branding.py` | Logo from `src/klotse/assets/` (`klotse_logo.png`/`.jpg`, or `logo.png`/`.jpg`; PNG preferred), center-cropped to a square because the artwork sits in the middle of a wide canvas: window/taskbar icon and the About dialog logo (128 px). Without a logo, or with an unreadable one, the app starts normally with no icon. There is deliberately no startup splash screen. Also sets the Windows taskbar app id. |
+| `src/klotse/ui/settings_store.py` | The user's settings file (`Klotse/Klotse.ini`); on first start it copies the old `Kubeman/Kubeman.ini` across (the old file is left in place). |
+| `src/klotse/ui/terminal_settings.py` | Saved macOS terminal preference and its settings dialog. |
+| `src/klotse/ui/terminal_session.py` | Standalone macOS session runner and targeted cleanup after successful commands. |
+| `src/klotse/ui/customizations.py` | Persistent per-kind column layout and label columns (readable INI sections), custom headings, and the Columns… dialog. |
+| `src/klotse/ui/edit_menu.py` | Edit menu actions (undo/redo/cut/copy/paste/select all) for the focused text box or table. |
+| `src/klotse/ui/preferences.py` | Custom kubeconfig setting and the Preferences dialog (kubeconfig picker, open config folder). |
+| `src/klotse/ui/scale_monitor.py` | Polling scale progress, readiness/failure evaluation, timeouts, and activity display. |
+| `src/klotse/ui/watcher.py` | `ChangeWatcher` QThread: runs `KubeService.watch_changes` and emits `changed`; `stop()` only sets a flag and never blocks the GUI thread. |
+| `src/klotse/ui/namespace_dialog.py` | Namespace creation form. |
+| `src/klotse/ui/theme.py` | Application palette and Qt stylesheet. |
 | `scripts/benchmark_large_cluster.py` | Offline synthetic pod-mapping/table-load benchmark. |
 
 Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, and StatefulSets. The SPECS registry adds DaemonSets, Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, CustomResourceDefinitions, and Events. Secrets and Events have no Edit action. Custom resource instances (`cr:<plural>.<group>` tabs) are read-only.
@@ -139,7 +143,7 @@ example.com/team = Team
 
 ### Settings persistence
 
-- `LabelSettings` uses `QSettings(IniFormat, UserScope, "Kubeman", "Kubeman")`.
+- `LabelSettings`, `TerminalSettings` and `KubeconfigSettings` share `settings_store.default_store()`: `QSettings(IniFormat, UserScope, "Klotse", "Klotse")`. The project was renamed from Kubeman to Klotse; the GitHub repository is still `mbartsch/kubeman` until it is renamed there.
 - Column preferences are plain INI, one section per resource kind: `[columns.Pod]` with `order=name | namespace | …`, `hidden=cpu_req | …` and `labels=app.kubernetes.io/name -> App | example.com/team`. Lists use `|` and headings use `->` because QSettings quotes values containing `,`, `;` or `=`; headings may not contain `|`. An empty value means none, an absent key means the default; only kinds the user changed are written. Earlier JSON values (`columns/labels`, `columns/layout`) are still read and are rewritten in the new format on the next save.
 - Invalid saved configuration falls back to defaults. Default Node labels contain `karpenter.sh/nodepool`; Pod labels are empty.
 - Heading changes are display-only and must never patch Kubernetes labels.
@@ -154,8 +158,8 @@ example.com/team = Team
 - Secret `raw` manifests mask `data`, `stringData`, and the last-applied-configuration annotation. Encoded `data` values are kept separately on `row.secret_data`.
 - Decode values is a bounded, scrollable, case-insensitive key picker tested with 200 entries. Checkboxes preserve selection across filters; Decode selected reveals only those keys in Details (YAML).
 - Details hide `metadata.managedFields` by default. **View → Show managedFields in details** (`MainWindow.managed_fields_action`, unchecked at start, not persisted) toggles it for all open and later-opened workspaces via `DetailPanel.set_show_managed_fields`, redrawing the shown resource (decoded secret keys and scroll position are kept). Only the display copy is filtered; `row.raw` and the Edit dialog still contain managedFields.
-- Menus: **File** (Exit), **Edit** (Undo, Redo, Cut, Copy, Paste, Select All, Preferences…), **View** (Show managedFields in details), plus **Settings → Terminal…** on macOS. Edit acts on the focused text box, or the last one used while a menu is open (`edit_menu.EditActions`); in tables, Copy puts the selected rows on the clipboard as tab-separated text. The actions stay enabled while the menu is closed so shortcuts work (text boxes still handle their own keys first).
-- **Edit → Preferences…** (`preferences.PreferencesDialog`): select a custom kubeconfig (Browse… / Use default) and **Open config folder**, which opens the folder of `LabelSettings.store.fileName()` (Kubeman's settings file) with `QDesktopServices.openUrl`, creating it if nothing was ever saved.
+- Menus (in order): **File** (Exit), **Edit** (Undo, Redo, Cut, Copy, Paste, Select All, Preferences…), **View** (Show managedFields in details), plus **Settings → Terminal…** on macOS, then **Help** (About Klotse). Edit acts on the focused text box, or the last one used while a menu is open (`edit_menu.EditActions`); in tables, Copy puts the selected rows on the clipboard as tab-separated text. The actions stay enabled while the menu is closed so shortcuts work (text boxes still handle their own keys first).
+- **Edit → Preferences…** (`preferences.PreferencesDialog`): select a custom kubeconfig (Browse… / Use default) and **Open config folder**, which opens the folder of `LabelSettings.store.fileName()` (Klotse's settings file) with `QDesktopServices.openUrl`, creating it if nothing was ever saved.
 - Custom kubeconfig: saved as `kubeconfig/path` (`KubeconfigSettings`; a saved file that no longer exists is ignored). `MainWindow.new_service()` sets `service.kubeconfig`; `KubeService` passes it as `config_file` to the Python client, and every kubectl command (shell, attach, node shell, drain) gets an explicit `--kubeconfig <path>` before `--context` (`terminal.kubectl_base`). Do not rely on the `KUBECONFIG` environment variable: the Python client reads it at import time and macOS terminals start fresh shells. Changing it asks first, closes all open clusters and reloads the context list.
 - Decode a copied display manifest; do not modify the masked row/raw object. Hide decoded values masks them again. Selecting another resource clears decoded state.
 - Invalid base64 displays an error string; non-UTF-8 bytes display hexadecimal. Do not log decoded values or put real secret material in fixtures, settings, or documentation.

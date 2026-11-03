@@ -1,0 +1,115 @@
+<p align="center">
+  <img src="src/klotse/assets/klotse_logo.jpg" alt="Klotse logo" width="220">
+</p>
+
+# Klotse
+
+A native Kubernetes desktop manager for Windows, macOS and Linux. Browse clusters, workloads, nodes and custom
+resources; read logs; open shells; scale, cordon and drain, all from one window.
+
+Built with Python, PySide6 (Qt Widgets) and the official Kubernetes Python client. It uses your existing
+kubeconfig and authentication helpers, so there is nothing to sign in to and no server component.
+
+> **Status:** early (version 0.1.0). Read-only use against real clusters has been tried; most of the
+> mutating actions (cordon, drain, delete, scale) are covered by automated tests with fake services, not yet by
+> live-cluster runs. Try them on a non-production cluster first.
+
+## Features
+
+- **Multiple clusters.** Every context in your kubeconfig is listed on the left; each open cluster gets its own
+  tab and its own connection.
+- **Resources.** Overview, Workloads, Nodes, Namespaces, Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets,
+  Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, Events,
+  CustomResourceDefinitions, and read-only browsing of custom resource instances.
+- **Always fresh.** The visible tab refreshes every 10 s (5/10/30/60 s selectable) and immediately when the
+  cluster reports a change. Hidden tabs and clusters are not polled.
+- **Details.** YAML view for any resource, with Secret values masked until you pick the keys to decode.
+  `managedFields` are hidden by default (View → Show managedFields in details).
+- **Pods and containers.** Logs (streaming, search, follow), Shell, Attach, terminate and force terminate.
+  Double-click a pod for its own tab with every regular, init and ephemeral container.
+- **Nodes.** Cordon/uncordon, drain (with the usual kubectl options), a privileged nsenter shell, delete. Double-click
+  a node for its pods, with the node actions in a bar above them. Pod counts per node.
+- **Bulk actions.** Select several rows (Ctrl/Shift) to scale, terminate, cordon or delete them in one confirmed
+  step. Scale accepts a number or a relative change such as `*2`, `/2`, `+1`, `-1`.
+- **Usage.** CPU and memory in use (from metrics-server, when present) on Nodes and Pods, plus optional request,
+  limit and percent-of-request/limit columns on Pods.
+- **Your columns.** The **Columns…** button on every list lets you hide and reorder built-in columns and add label
+  columns with short headings. Saved per resource kind.
+- **Edit menu and Preferences.** Undo/redo/cut/copy/paste/select all (Copy in a table copies the selected rows as
+  tab-separated text). Preferences lets you choose a custom kubeconfig and open the settings folder.
+- **macOS.** Choose Terminal or iTerm2 for shells (Settings → Terminal…).
+
+## Requirements
+
+- Python 3.10 or newer
+- A kubeconfig with at least one context (or pick one in Edit → Preferences)
+- [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH`, for drain, shells and attach
+- Python dependencies (installed by the launchers): `PySide6-Essentials`, `kubernetes`, `PyYAML`
+
+## Run
+
+macOS / Linux:
+
+```sh
+./run.sh              # creates .venv and installs dependencies on first run
+./run.sh --check      # check that the imports work, without opening the window
+./run.sh --install    # reinstall dependencies
+```
+
+Windows:
+
+```bat
+run.bat               # starts without a console window
+run.bat --console     # keeps tracebacks visible
+run.bat --check
+run.bat --install
+```
+
+Or, in an existing environment:
+
+```sh
+pip install -r requirements.txt
+PYTHONPATH=src python -m klotse
+```
+
+## Configuration
+
+Settings are stored as a plain INI file, one section per resource kind:
+
+```ini
+[columns.Pod]
+order=name | namespace | ready
+hidden=cpu_req | cpu_lim
+labels=app.kubernetes.io/name -> App | example.com/team
+```
+
+Open its folder from **Edit → Preferences… → Open config folder**. The same file holds the custom kubeconfig path
+and the macOS terminal choice. A custom kubeconfig is passed both to the Kubernetes client and, as `--kubeconfig`,
+to every `kubectl` command Klotse starts.
+
+Settings from the earlier name of the project (Kubeman) are copied over on the first start.
+
+## Development
+
+```sh
+pip install -r requirements-dev.txt
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m pytest -q
+```
+
+Tests run offscreen with fake services and synthetic Kubernetes objects; they never touch a real cluster or your
+real settings. `run_tests.sh` / `run_tests.bat` wrap the same command.
+
+After all tests pass the pytest process can still exit non-zero (a crash during Qt teardown in some test orders).
+This is a known, unresolved issue that predates recent work, so check the pass count and the exit status separately.
+
+[`AGENTS.md`](AGENTS.md) documents the architecture, file map and behavior to preserve; read it before larger
+changes. Work goes through pull requests from a branch; do not commit to `master` directly.
+
+## License
+
+No license has been chosen yet, so all rights are reserved by default. If you want to use or contribute to the
+code, please get in touch with the author first.
+
+## Author
+
+Marcelo H. Bartsch · https://github.com/mbartsch/kubeman

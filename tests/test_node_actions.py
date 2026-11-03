@@ -9,14 +9,14 @@ from kubernetes import client
 from PySide6.QtCore import QCoreApplication, QEvent, QProcess, QTimer, Qt
 from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox
 
-from kubeman.k8s.client import KubeService, map_node
-from kubeman.k8s.models import NodeRow, PodRow
-from kubeman.ui.command_view import CommandView
-from kubeman.ui.node_dialogs import DrainDialog, NodeShellDialog
-from kubeman.ui.main_window import MainWindow
-from kubeman.ui.resource_table import ResourceTable
-from kubeman.ui.terminal import node_shell_args
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.client import KubeService, map_node
+from klotse.k8s.models import NodeRow, PodRow
+from klotse.ui.command_view import CommandView
+from klotse.ui.node_dialogs import DrainDialog, NodeShellDialog
+from klotse.ui.main_window import MainWindow
+from klotse.ui.resource_table import ResourceTable
+from klotse.ui.terminal import node_shell_args
+from klotse.ui.workspace import ClusterWorkspace
 
 
 @pytest.fixture
@@ -152,8 +152,8 @@ def test_command_view_stop_and_missing_kubectl(qtbot):
 
 
 def test_node_shell_targets_context_and_host_namespaces(qtbot, monkeypatch, workspaces):
-    import kubeman.ui.workspace as module
-    import kubeman.ui.terminal as terminal
+    import klotse.ui.workspace as module
+    import klotse.ui.terminal as terminal
     monkeypatch.setattr(terminal.uuid, "uuid4", lambda: SimpleNamespace(hex="a" * 32))
     opened = []
     ws = workspaces(SimpleNamespace(), "cluster-a")
@@ -196,7 +196,7 @@ def test_node_shell_custom_options_and_unique_pods():
 
 
 def test_macos_terminal_command_is_quoted(monkeypatch):
-    import kubeman.ui.terminal as terminal
+    import klotse.ui.terminal as terminal
     calls = []
     monkeypatch.setattr(terminal.sys, "platform", "darwin")
     monkeypatch.setattr(terminal.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
@@ -210,7 +210,7 @@ def test_macos_terminal_command_is_quoted(monkeypatch):
 
 
 def test_list_node_pods_uses_server_side_selector_and_pagination(monkeypatch):
-    import kubeman.k8s.client as module
+    import klotse.k8s.client as module
     calls = []
     def listing(**kwargs):
         calls.append(kwargs)
@@ -268,7 +268,7 @@ def test_node_status_conditions(ready, cordoned, extra, expected):
     assert row.status == expected
     assert row.is_ready == (ready == "True")
     assert map_node(node, include_raw=False).status == expected
-    from kubeman.ui.table_model import TableModel
+    from klotse.ui.table_model import TableModel
     model = TableModel([("Status", "status")], search_metadata=True)
     model.set_rows([row])
     tooltip = model.data(model.index(0, 0), Qt.ToolTipRole)

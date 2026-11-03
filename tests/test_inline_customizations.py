@@ -3,11 +3,11 @@ from types import SimpleNamespace as NS
 
 from PySide6.QtWidgets import QMenuBar
 
-from kubeman.k8s.models import NodeRow
-from kubeman.ui import main_window as main_module
-from kubeman.ui.main_window import MainWindow
-from kubeman.ui.resource_table import ResourceTable
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.models import NodeRow
+from klotse.ui import main_window as main_module
+from klotse.ui.main_window import MainWindow
+from klotse.ui.resource_table import ResourceTable
+from klotse.ui.workspace import ClusterWorkspace
 
 from test_app import FakeService
 
@@ -53,7 +53,7 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
-    expected_menus = ["File", "Edit", "View", "Settings"] if main_module.sys.platform == "darwin" else ["File", "Edit", "View"]
+    expected_menus = ["File", "Edit", "View", "Settings", "Help"] if main_module.sys.platform == "darwin" else ["File", "Edit", "View", "Help"]
     assert [a.text() for a in win.menuBar().actions()] == expected_menus
     assert not hasattr(win, "customizations_button")
     ws = win.workspace("ctx")
@@ -64,7 +64,7 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
 
 
 def test_pod_dialog_lists_request_and_limit_columns_not_the_overview_subset(qtbot, monkeypatch):
-    from kubeman.ui.overview import POD_COLUMNS, RESOURCE_COLUMNS
+    from klotse.ui.overview import POD_COLUMNS, RESOURCE_COLUMNS
 
     got = []
 

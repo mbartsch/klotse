@@ -1,8 +1,8 @@
 """The "pods on this node" tab carries the node actions (cordon, drain, delete…)."""
 from types import SimpleNamespace as NS
 
-from kubeman.k8s.models import NodeRow
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.k8s.models import NodeRow
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def node(name, cordoned=False):
@@ -96,7 +96,7 @@ def test_double_click_node_opens_its_pods_tab_like_pod_opens_containers(qtbot):
     assert ws._node_bars["n2"][0].title.text() == "Node n2"
     opened = []
     ws.pod_action = lambda action, row: opened.append((action, row.name))
-    from kubeman.k8s.models import PodRow
+    from klotse.k8s.models import PodRow
 
     ws.pod_table.set_rows([PodRow("web", "ns", "1/1", "Running", 0, "n2", "1d", {})])
     ws.pod_table.action_requested.disconnect()

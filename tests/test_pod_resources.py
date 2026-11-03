@@ -1,10 +1,10 @@
 from PySide6.QtCore import Qt
 
-from kubeman.k8s.models import PodRow
-from kubeman.ui.overview import POD_COLUMNS, POD_COLUMNS_BASIC, RESOURCE_COLUMNS
-from kubeman.ui.customizations import DEFAULT_HIDDEN
-from kubeman.ui.resource_table import ResourceTable
-from kubeman.ui.table_model import TableModel
+from klotse.k8s.models import PodRow
+from klotse.ui.overview import POD_COLUMNS, POD_COLUMNS_BASIC, RESOURCE_COLUMNS
+from klotse.ui.customizations import DEFAULT_HIDDEN
+from klotse.ui.resource_table import ResourceTable
+from klotse.ui.table_model import TableModel
 
 
 def row(containers=(), **fields):
@@ -52,7 +52,7 @@ def test_columns_display_blank_when_unknown(qtbot):
 
 
 def test_hidden_by_default_so_nothing_is_read_unless_shown(qtbot):
-    from kubeman.ui.customizations import LabelSettings
+    from klotse.ui.customizations import LabelSettings
     from PySide6.QtCore import QSettings
     import tempfile, os
     assert set(DEFAULT_HIDDEN["Pod"]) == RESOURCE_COLUMNS == {c[1] for c in POD_COLUMNS} - {c[1] for c in POD_COLUMNS_BASIC}

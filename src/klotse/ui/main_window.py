@@ -6,6 +6,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
                                QTabWidget, QToolBar, QWidget)
 
+from .about import AboutDialog
 from .customizations import LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
@@ -30,7 +31,7 @@ class MainWindow(QMainWindow):
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
-        self.setWindowTitle("Kubeman")
+        self.setWindowTitle("Klotse")
         self.resize(1500, 850)
         self._shutting_down = False
         self.exit_action = QAction("Exit", self)
@@ -53,6 +54,10 @@ class MainWindow(QMainWindow):
             self.terminal_settings_action = QAction("Terminal…", self)
             self.terminal_settings_action.triggered.connect(self.configure_terminal)
             self.menuBar().addMenu("Settings").addAction(self.terminal_settings_action)
+        self.about_action = QAction("About Klotse", self)
+        self.about_action.setMenuRole(QAction.AboutRole)
+        self.about_action.triggered.connect(self.show_about)
+        self.menuBar().addMenu("Help").addAction(self.about_action)
         self.exit_toolbar = QToolBar("Application", self)
         self.exit_toolbar.setMovable(False)
         self.exit_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
@@ -123,8 +128,13 @@ class MainWindow(QMainWindow):
         ws.start()
 
     def config_folder(self):
-        """Folder holding Kubeman's settings file (see LabelSettings.store.fileName())."""
+        """Folder holding Klotse's settings file (see LabelSettings.store.fileName())."""
         return Path(self.label_settings.store.fileName()).parent
+
+    def show_about(self):
+        dialog = AboutDialog(self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def open_preferences(self):
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self)
@@ -215,7 +225,7 @@ class MainWindow(QMainWindow):
 
     def _on_cluster_changed(self, index):
         ws = self.clusters.widget(index)
-        self.setWindowTitle(f"Kubeman — {ws.context}" if ws else "Kubeman")
+        self.setWindowTitle(f"Klotse — {ws.context}" if ws else "Klotse")
         if ws is None:
             return
         if ws.tabs.count():

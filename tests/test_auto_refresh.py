@@ -1,7 +1,7 @@
 """The foreground list refreshes on a timer and when it comes to the front; background lists do not."""
 from types import SimpleNamespace
 
-from kubeman.ui.workspace import ClusterWorkspace
+from klotse.ui.workspace import ClusterWorkspace
 
 
 def make_ws(qtbot):
@@ -82,7 +82,7 @@ def test_interval_choice_changes_timer(qtbot):
 
 
 def test_namespace_double_click_scopes_toolbar_and_opens_pods(qtbot):
-    from kubeman.k8s.models import NamespaceRow
+    from klotse.k8s.models import NamespaceRow
 
     ws, loads = make_ws(qtbot)
     ws.ns_combo.addItems(["team"])

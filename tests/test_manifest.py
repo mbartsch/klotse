@@ -3,9 +3,9 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from kubeman.ui.detail_panel import DetailPanel
-from kubeman.ui.edit_dialog import EditDialog
-from kubeman.ui.manifest import dump_manifest
+from klotse.ui.detail_panel import DetailPanel
+from klotse.ui.edit_dialog import EditDialog
+from klotse.ui.manifest import dump_manifest
 
 
 @pytest.mark.parametrize("value", [
