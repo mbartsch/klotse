@@ -326,9 +326,13 @@ def test_generic_views_lazy_and_namespace_scoped(qtbot):
     ws.ns_combo.setCurrentText("default")  # present once the namespace list has loaded
     assert ws.ns_combo.currentText() == "default"
     svc.requested.clear()
-    ws.load_scoped()  # namespace changed: scoped tabs reload with the namespace, cluster-scoped do not
+    ws.load_scoped()  # foreground is cluster-scoped (PVs): a namespace change reloads nothing
+    qtbot.wait(100)
+    assert svc.requested == []
+    ws.open_view("services")  # a background tab reloads with the new namespace when it comes to the front
     qtbot.waitUntil(lambda: ("services", "default") in svc.requested, timeout=5000)
-    assert not any(k == "persistentvolumes" for k, _ in svc.requested)
+    ws.tabs.setCurrentWidget(ws.views["persistentvolumes"][0])  # switching by clicking a tab reloads it too
+    qtbot.waitUntil(lambda: ("persistentvolumes", None) in svc.requested, timeout=5000)
     # read-only kinds expose no Edit action
     assert not ws.views["secrets"][0].editable and not ws.views["events"][0].editable
     assert ws.views["services"][0].editable

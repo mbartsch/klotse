@@ -88,10 +88,10 @@ def test_cordon_delete_and_cancel(qtbot, monkeypatch, workspaces):
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
     ws.node_table.action_requested.emit("cordon", node_row())
     ws.node_table.action_requested.emit("uncordon", node_row())
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a: ("wrong-name", True))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.No)
     ws.node_table.action_requested.emit("delete-node", node_row())
     assert calls == [("cordon", "node-a", True), ("cordon", "node-a", False)]
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a: ("node-a", True))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
     ws.node_table.action_requested.emit("delete-node", node_row())
     assert calls[-1] == ("delete", "node-a", "uid-a")
 

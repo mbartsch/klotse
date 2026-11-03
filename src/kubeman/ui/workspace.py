@@ -1,6 +1,6 @@
 from time import perf_counter
 
-from PySide6.QtCore import QThreadPool, Qt, Signal
+from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
                                QTabWidget, QToolBar)
@@ -21,6 +21,7 @@ from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
 
 ALL_NS = "All namespaces"
+AUTO_REFRESH_MS = 10_000  # the foreground list reloads this often
 KIND_VIEW = {"Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
 
 
@@ -47,6 +48,10 @@ class ClusterWorkspace(QMainWindow):
         self._pending_loads = set()
         self._closed = False
         self._opened_default = False
+        self._ready = False  # set once connected
+        self._opening = False
+        self._auto_timer = QTimer(self, interval=AUTO_REFRESH_MS)
+        self._auto_timer.timeout.connect(self._auto_refresh)
         self.setWindowFlags(Qt.Widget)
         # side docks span the full height; the log dock sits under the central tabs only
         self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
@@ -87,7 +92,9 @@ class ClusterWorkspace(QMainWindow):
             if isinstance(widget, OverviewView):  # pending/failed pods listed on an overview behave like the Pods tab
                 widget.pods_table.edit_requested.connect(self.edit_resource)
                 widget.pods_table.action_requested.connect(self.pod_action)
+                widget.pods_table.bulk_requested.connect(self.bulk_action)
             if isinstance(widget, ResourceTable):
+                widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
                 widget.action_requested.connect(self.node_action if widget.kind == "Node" else self.pod_action)
@@ -174,10 +181,36 @@ class ClusterWorkspace(QMainWindow):
     def _on_tab_changed(self, index):
         if index >= 0:
             self.view_opened.emit(self.tabs.widget(index).view_key)
+            if not self._opening:  # a tab that comes to the front is stale, reload it
+                self.load_foreground()
 
     def open_view(self, key):
-        self._show_view(key)
+        self._opening = True  # open_view loads the view itself; don't also load from the tab-change signal
+        try:
+            self._show_view(key)
+        finally:
+            self._opening = False
         self.load_view(key)
+
+    def foreground_key(self):
+        widget = self.tabs.currentWidget()
+        return getattr(widget, "view_key", None)
+
+    def load_foreground(self):
+        """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads)."""
+        key = self.foreground_key()
+        if self._ready and not self._closed and key in self.loaders and key not in self._loading:
+            self.load_view(key)
+
+    def _auto_refresh(self):
+        # skip while this cluster's tab is hidden behind another one, or the window is minimized
+        if self.isVisible() and not self.window().isMinimized():
+            self.load_foreground()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._ready:  # this cluster's tab just came to the front
+            self.load_foreground()
 
     def open_keys(self):
         return [self.tabs.widget(i).view_key for i in range(self.tabs.count())]
@@ -244,6 +277,7 @@ class ClusterWorkspace(QMainWindow):
     def shutdown(self):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
+        self._auto_timer.stop()
         self._pending_loads.clear()
         for i in range(self.log_tabs.count()):
             self.log_tabs.widget(i).stop()
@@ -282,6 +316,86 @@ class ClusterWorkspace(QMainWindow):
             return
         self.message.emit(f"Scaling {kind} {row.name} to {n}…")
         self._run(self.service.scale, lambda _: self._scaled(kind, row, current, n), kind, row.name, row.namespace, n)
+
+    # ---- bulk actions (several rows selected) ---------------------------
+    @staticmethod
+    def _names(rows, limit=10):
+        shown = [f"{ns}/{r.name}" if (ns := getattr(r, "namespace", "")) else r.name for r in rows[:limit]]
+        if len(rows) > limit:
+            shown.append(f"…and {len(rows) - limit} more")
+        return "\n".join(shown)
+
+    def bulk_action(self, kind, action, rows):
+        """Apply one action to every selected row. Each row is confirmed once as a group and run in one worker;
+        a failure on one row does not stop the others."""
+        n = len(rows)
+        names = self._names(rows)
+        if action == "scale":
+            current = (rows[0].raw.get("spec") or {}).get("replicas", 1)
+            count, ok = QInputDialog.getInt(self, f"Scale {n} {kind}s", f"Replicas for all {n}:\n{names}", current, 0, 10000)
+            if not ok:
+                return
+            olds = {id(r): (r.raw.get("spec") or {}).get("replicas", 1) for r in rows}
+            self._bulk(f"Scaling {n} {kind}s to {count}", rows,
+                       lambda r: self.service.scale(kind, r.name, r.namespace, count),
+                       lambda r: self._scaled(kind, r, olds[id(r)], count), refresh=False)
+        elif action in ("terminate", "force-terminate"):
+            force = action == "force-terminate"
+            note = "\nForce uses zero grace period; finalizers still apply." if force else "\nController-managed pods will be recreated."
+            if QMessageBox.question(self, "Terminate pods", f"Cluster: {self.context}\n"
+                                    f"{'Force delete' if force else 'Delete'} {n} pods?{note}\n\n{names}",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._bulk(f"Terminating {n} pods", rows,
+                       lambda r: self.service.delete_pod(r.name, r.namespace, *((True,) if force else ())))
+        elif action in ("cordon", "uncordon"):
+            verb = action.capitalize()
+            if QMessageBox.question(self, f"{verb} nodes", f"Cluster: {self.context}\n{verb} {n} nodes?\n\n{names}",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._bulk(f"{verb} {n} nodes", rows, lambda r: self.service.cordon_node(r.name, action == "cordon"))
+        elif action in ("delete-node", "force-delete-node"):
+            force = action == "force-delete-node"
+            missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
+            if missing:
+                self._on_error("Node UID is missing for: " + ", ".join(missing) + ". Refresh the Nodes view first.")
+                return
+            if QMessageBox.question(self, "Delete nodes",
+                f"Cluster: {self.context}\n{'Force delete' if force else 'Delete'} {n} Kubernetes Nodes?\n\n{names}\n\n"
+                "Drain them first. This does not terminate the underlying machines; "
+                f"running kubelets may register them again.{chr(10) + 'Force uses zero grace period; finalizers still apply.' if force else ''}",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._bulk(f"Deleting {n} nodes", rows, lambda r: self.service.delete_node(
+                r.name, r.raw["metadata"]["uid"], *((True,) if force else ())))
+
+    def _bulk(self, title, rows, call, on_each=None, refresh=True):
+        """Run call(row) for every row in one background worker, then report successes and failures together."""
+        self.message.emit(f"{title}…")
+
+        def work():
+            failed = []
+            for r in rows:
+                try:
+                    call(r)
+                except Exception as e:  # keep going; report every failure at the end
+                    failed.append((r, f"{type(e).__name__}: {e}"))
+            return failed
+
+        def done(failed):
+            bad = {id(r) for r, _ in failed}
+            if on_each:
+                for r in rows:
+                    if id(r) not in bad:
+                        on_each(r)
+            self.message.emit(f"{self.context}: {title}: {len(rows) - len(failed)} succeeded, {len(failed)} failed")
+            if failed:
+                QMessageBox.warning(self, "Some actions failed", f"{self.context}\n\n" + "\n".join(
+                    f"{getattr(r, 'namespace', '') + '/' if getattr(r, 'namespace', '') else ''}{r.name}: {m}" for r, m in failed[:10]))
+            if refresh or failed:
+                self.refresh()
+
+        self._run(work, done)
 
     def _scaled(self, kind, row, old, new):
         self.message.emit(f"Scaling {kind} {row.name}: {old} → {new}")
@@ -334,11 +448,11 @@ class ClusterWorkspace(QMainWindow):
             force = action == "force-delete-node"
             verb = "Force delete" if force else "Delete"
             warning = "Force uses zero grace period; finalizers still apply.\n" if force else ""
-            name, ok = QInputDialog.getText(self, "Delete node",
+            if QMessageBox.question(self, "Delete node",
                 f"Cluster: {self.context}\n{verb} Kubernetes Node {row.name}?\n"
                 "Drain the node first. This does not terminate the underlying machine; "
-                f"a running kubelet may register it again.\n{warning}Type the node name to confirm:")
-            if not ok or name != row.name:
+                f"a running kubelet may register it again.\n{warning}",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             uid = (row.raw.get("metadata") or {}).get("uid")
             if not uid:
@@ -393,6 +507,7 @@ class ClusterWorkspace(QMainWindow):
             table.selected.connect(self.detail.show_row)
             table.edit_requested.connect(self.edit_resource)
             table.action_requested.connect(self.pod_action)
+            table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
             self.loaders[key] = (lambda _: self.service.list_node_pods(node), False, table.set_rows)
         self.open_view(key)
@@ -463,16 +578,20 @@ class ClusterWorkspace(QMainWindow):
             self._opened_default = True
             self._show_view("overview")  # refresh() below loads it
         self.refresh()
+        self._ready = True
+        self._auto_timer.start()
 
     def refresh(self):
-        """Reload every open tab, plus the namespace list that feeds the toolbar filter."""
-        for key in dict.fromkeys(["namespaces"] + self.open_keys()):
-            self.load_view(key)
+        """Reload the foreground tab plus the namespace list that feeds the toolbar filter.
+        Background tabs are not loaded; they reload when they come to the front."""
+        for key in dict.fromkeys(["namespaces", self.foreground_key()]):
+            if key in self.loaders:
+                self.load_view(key)
 
     def load_scoped(self):
-        for key in self.open_keys():
-            if self.loaders[key][1]:
-                self.load_view(key)
+        key = self.foreground_key()
+        if key in self.loaders and self.loaders[key][1]:
+            self.load_view(key)
 
     def _set_namespaces(self, rows):
         self.ns_table.set_rows(rows)

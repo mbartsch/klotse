@@ -13,6 +13,7 @@ class ResourceTable(QWidget):
     scale_requested = Signal(str, object)
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
+    bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
 
     def __init__(self, columns, kind, editable=True):
         super().__init__()
@@ -45,7 +46,7 @@ class ResourceTable(QWidget):
         # first load blocks the event loop. Header clicks still enable sorting.
         self.view.sortByColumn(-1, Qt.AscendingOrder)
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.view.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.view.setSelectionMode(QAbstractItemView.ExtendedSelection)  # Ctrl/Shift-click for bulk actions
         self.view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.view.horizontalHeader().setStretchLastSection(True)
         # Column sizing runs on the GUI thread. Sample a bounded number of rows.
@@ -100,11 +101,36 @@ class ResourceTable(QWidget):
         self.view.sortByColumn(new_sort, sort_order)
         self.view.resizeColumnsToContents()
 
+    def selected_rows(self):
+        return [self.model.rows[self.proxy.mapToSource(i).row()] for i in self.view.selectionModel().selectedRows()]
+
+    def _bulk_menu(self, menu, rows):
+        n = len(rows)
+        bulk = lambda action: (lambda: self.bulk_requested.emit(self.kind, action, rows))
+        if self.kind in SCALABLE:
+            menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
+        if self.kind == "Pod":
+            menu.addAction(f"Terminate {n} pods…", bulk("terminate"))
+            menu.addAction(f"Force terminate {n} pods…", bulk("force-terminate"))
+        if self.kind == "Node":
+            menu.addAction(f"Cordon {n} nodes…", bulk("cordon"))
+            menu.addAction(f"Uncordon {n} nodes…", bulk("uncordon"))
+            menu.addSeparator()
+            menu.addAction(f"Delete {n} nodes…", bulk("delete-node"))
+            menu.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
+
     def _context_menu(self, pos):
         idx = self.view.indexAt(pos)
         menu = QMenu(self)
         if idx.isValid():
-            self.view.selectRow(idx.row())
+            if not self.view.selectionModel().isRowSelected(idx.row(), idx.parent()):
+                self.view.selectRow(idx.row())  # right-click outside the selection acts on that row alone
+            rows = self.selected_rows()
+            if len(rows) > 1:
+                self._bulk_menu(menu, rows)
+                if not menu.isEmpty():
+                    menu.exec(self.view.viewport().mapToGlobal(pos))
+                return
             row = self.model.rows[self.proxy.mapToSource(idx).row()]
             if self.editable:
                 menu.addAction("Edit…", lambda: self.edit_requested.emit(self.kind, row))

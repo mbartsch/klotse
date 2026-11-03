@@ -83,7 +83,6 @@ def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: ws._opened_default and not ws._loading)
     row = pod()
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a: ("node-a", True))
     ws.pod_action("force-terminate", row)
     node = SimpleNamespace(name="node-a", raw={"metadata": {"uid": "uid-a"}})
     ws.node_action("force-delete-node", node)
