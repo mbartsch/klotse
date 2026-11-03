@@ -173,6 +173,11 @@ class ClusterWorkspace(QMainWindow):
         self.ns_combo.activated.connect(lambda _=None: self.load_scoped())
         self._sync_ns_selector()
 
+    @property
+    def kubeconfig(self):
+        """Custom kubeconfig path this cluster was opened with (None = default); kubectl commands must use it too."""
+        return getattr(self.service, "kubeconfig", None)
+
     def start(self):
         """Connect; called by the shell after it has hooked up the signals."""
         self.state.emit("connecting")
@@ -691,7 +696,7 @@ class ClusterWorkspace(QMainWindow):
                     self.log_tabs.setCurrentIndex(i)
                     self.log_dock.show()
                     return
-            dialog = DrainDialog(self.context, row.name, self)
+            dialog = DrainDialog(self.context, row.name, self, kubeconfig=self.kubeconfig)
             if dialog.exec() != QDialog.Accepted:
                 return
             view = CommandView(dialog.command())
@@ -710,7 +715,8 @@ class ClusterWorkspace(QMainWindow):
             dialog = NodeShellDialog(self.context, row.name, self)
             if dialog.exec() != QDialog.Accepted:
                 return
-            argv = node_shell_args(self.context, row.name, dialog.namespace.text().strip(), dialog.image.text().strip())
+            argv = node_shell_args(self.context, row.name, dialog.namespace.text().strip(), dialog.image.text().strip(),
+                                   kubeconfig=self.kubeconfig)
             self._launch_terminal(argv, f"Opened node shell: {row.name}")
 
     def _node_changed(self, name, message):
@@ -783,7 +789,7 @@ class ClusterWorkspace(QMainWindow):
             container, ok = QInputDialog.getItem(self, "Container", "Container:", containers, 0, False)
             if not ok:
                 return
-        argv = kubectl_args(action, self.context, row.namespace, row.name, container)
+        argv = kubectl_args(action, self.context, row.namespace, row.name, container, kubeconfig=self.kubeconfig)
         self._launch_terminal(argv, f"Opened {action}: {row.name}")
 
     def _launch_terminal(self, argv, message):
@@ -841,7 +847,7 @@ class ClusterWorkspace(QMainWindow):
         if action == "logs":
             self.open_logs(row, [c[0] for c in pod_containers(row.raw)], container)
         else:
-            argv = kubectl_args(action, self.context, row.namespace, row.name, container)
+            argv = kubectl_args(action, self.context, row.namespace, row.name, container, kubeconfig=self.kubeconfig)
             self._launch_terminal(argv, f"Opened {action}: {row.name}/{container}")
 
     def new_namespace(self):

@@ -121,23 +121,23 @@ def map_statefulset(s):
 class KubeService:
     """Thin wrapper over the kubernetes client; returns plain row objects the UI can render."""
 
-    def __init__(self):
+    def __init__(self, kubeconfig=None):
+        self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
         self._core = None
         self._apps = None
         self._custom = None
 
-    @staticmethod
-    def load_contexts():
+    def load_contexts(self):
         """Returns (context names, active context name or None)."""
         try:
-            contexts, active = config.list_kube_config_contexts()
+            contexts, active = config.list_kube_config_contexts(config_file=self.kubeconfig)
         except config.ConfigException:
             return [], None
         return [c["name"] for c in contexts], (active or {}).get("name")
 
     def connect(self, context):
         cfg = client.Configuration()
-        config.load_kube_config(context=context, client_configuration=cfg)
+        config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
         cfg.retries = 1  # the default (3 retries with backoff) makes a dead cluster take ~9s to report
         api = client.ApiClient(cfg)
         # Pod manifests (especially managedFields) can make list responses huge.
@@ -319,11 +319,15 @@ class KubeService:
         api = self._core
         items = (self._iter_list(api.list_namespaced_pod, namespace) if namespace
                  else self._iter_list(api.list_pod_for_all_namespaces))
-        rows = [map_pod(p) for p in items]
+        return self._with_usage([map_pod(p) for p in items], namespace)
+
+    def _with_usage(self, rows, namespace=None):
+        """Fill cpu_used/mem_used from metrics-server where it has data; rows it does not know stay -1."""
         usage = self.pod_usage(namespace)
-        for r in rows:
-            if (r.namespace, r.name) in usage:
-                r.cpu_used, r.mem_used = usage[(r.namespace, r.name)]
+        if usage:
+            for r in rows:
+                if (r.namespace, r.name) in usage:
+                    r.cpu_used, r.mem_used = usage[(r.namespace, r.name)]
         return rows
 
     def list_nodes(self):
@@ -358,11 +362,21 @@ class KubeService:
 
     def read_pod(self, name, namespace):
         """One pod, freshly read (for a pod's own tab)."""
-        return map_pod(self._core.read_namespaced_pod(name, namespace, _request_timeout=15))
+        row = map_pod(self._core.read_namespaced_pod(name, namespace, _request_timeout=15))
+        try:  # just this pod's metrics; any failure leaves usage unknown
+            item = self._custom.get_namespaced_custom_object(
+                "metrics.k8s.io", "v1beta1", namespace, "pods", name, _request_timeout=10)
+            containers = item.get("containers") or []
+            row.cpu_used = sum(float(parse_quantity(c["usage"].get("cpu", 0))) for c in containers)
+            row.mem_used = sum(float(parse_quantity(c["usage"].get("memory", 0))) for c in containers) / 2**20
+        except Exception:
+            pass
+        return row
 
     def list_node_pods(self, node):
-        return [map_pod(p) for p in self._iter_list(self._core.list_pod_for_all_namespaces,
-                                                 field_selector=f"spec.nodeName={node}")]
+        rows = [map_pod(p) for p in self._iter_list(self._core.list_pod_for_all_namespaces,
+                                                    field_selector=f"spec.nodeName={node}")]
+        return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
 
     def _list_apps(self, all_fn, ns_fn, mapper, namespace):
         items = self._iter_list(ns_fn, namespace) if namespace else self._iter_list(all_fn)

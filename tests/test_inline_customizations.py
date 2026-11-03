@@ -53,7 +53,7 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
-    expected_menus = ["File", "Settings"] if main_module.sys.platform == "darwin" else ["File"]
+    expected_menus = ["File", "Edit", "View", "Settings"] if main_module.sys.platform == "darwin" else ["File", "Edit", "View"]
     assert [a.text() for a in win.menuBar().actions()] == expected_menus
     assert not hasattr(win, "customizations_button")
     ws = win.workspace("ctx")
@@ -61,6 +61,29 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     ws.open_view("nodes")
     ws.node_table.customize_button.click()
     assert shown and shown[0][0] == "Node"
+
+
+def test_pod_dialog_lists_request_and_limit_columns_not_the_overview_subset(qtbot, monkeypatch):
+    from kubeman.ui.overview import POD_COLUMNS, RESOURCE_COLUMNS
+
+    got = []
+
+    class FakeDialog:
+        def __init__(self, kind, settings, available, builtin, parent):
+            got.append([c[1] for c in builtin])
+
+        def exec(self):
+            return 0
+
+        def deleteLater(self):
+            pass
+
+    monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    win.workspace("ctx")
+    win.customize_labels("Pod")
+    assert got == [[c[1] for c in POD_COLUMNS]] and RESOURCE_COLUMNS <= set(got[0])
 
 
 def test_uncounted_pods_show_unknown_then_the_number(qtbot):

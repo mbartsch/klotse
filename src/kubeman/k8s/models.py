@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from kubernetes.utils import parse_quantity
+
 
 @dataclass
 class NamespaceRow:
@@ -22,6 +24,54 @@ class PodRow:
     raw: dict = field(default_factory=dict, repr=False)
     cpu_used: float = -1.0  # cores in use now; -1 when metrics-server is unavailable
     mem_used: float = -1.0  # MiB in use now
+    _resources: tuple = field(default=None, repr=False, compare=False)
+
+    @property
+    def resources(self):
+        """(cpu_req, cpu_lim, mem_req, mem_lim): cores and MiB summed over regular containers, 0 = not set.
+
+        Parsed lazily from the manifest the first time a request/limit column is read, so hidden columns
+        cost nothing. A container without a value adds nothing; rows without a manifest give zeros.
+        """
+        if self._resources is None:
+            totals = {("requests", "cpu"): 0.0, ("limits", "cpu"): 0.0,
+                      ("requests", "memory"): 0.0, ("limits", "memory"): 0.0}
+            for container in ((self.raw or {}).get("spec") or {}).get("containers") or []:
+                for kind, name in totals:
+                    value = ((container.get("resources") or {}).get(kind) or {}).get(name)
+                    if value:
+                        try:
+                            amount = float(parse_quantity(value))
+                        except (ValueError, ArithmeticError):
+                            continue
+                        totals[(kind, name)] += amount / 2**20 if name == "memory" else amount
+            self._resources = tuple(totals.values())
+        return self._resources
+
+    cpu_req = property(lambda self: self.resources[0])
+    cpu_lim = property(lambda self: self.resources[1])
+    mem_req = property(lambda self: self.resources[2])
+    mem_lim = property(lambda self: self.resources[3])
+
+    @staticmethod
+    def _pct(used, total):
+        return used / total * 100 if used >= 0 and total > 0 else -1.0  # -1 = unknown, shown blank
+
+    @property
+    def cpu_req_pct(self):
+        return self._pct(self.cpu_used, self.cpu_req)
+
+    @property
+    def cpu_lim_pct(self):
+        return self._pct(self.cpu_used, self.cpu_lim)
+
+    @property
+    def mem_req_pct(self):
+        return self._pct(self.mem_used, self.mem_req)
+
+    @property
+    def mem_lim_pct(self):
+        return self._pct(self.mem_used, self.mem_lim)
 
 
 @dataclass

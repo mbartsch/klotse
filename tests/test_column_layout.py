@@ -1,6 +1,6 @@
 from PySide6.QtCore import QSettings, Qt
 
-from kubeman.ui.customizations import LabelColumnsDialog, LabelSettings
+from kubeman.ui.customizations import DEFAULT_HIDDEN, LabelColumnsDialog, LabelSettings
 from kubeman.ui.overview import POD_COLUMNS
 from kubeman.ui.resource_table import ResourceTable
 
@@ -65,7 +65,8 @@ def test_layout_persists_and_bad_data_falls_back(tmp_path):
     assert settings(tmp_path).layout("Pod") == {"order": ["status", "ready"], "hidden": ["age"]}
     bad = QSettings(str(tmp_path / "bad.ini"), QSettings.IniFormat)
     bad.setValue("columns/layout", '{"Pod": {"order": [1]}}')
-    assert LabelSettings(bad).layout("Pod") == {"order": [], "hidden": []}
+    assert LabelSettings(bad).layout("Pod") == {"order": [], "hidden": list(DEFAULT_HIDDEN["Pod"])}
+    assert LabelSettings(bad).layout("Node") == {"order": [], "hidden": []}
 
 
 def test_dialog_saves_order_and_hidden(qtbot, tmp_path):
@@ -81,6 +82,6 @@ def test_dialog_saves_order_and_hidden(qtbot, tmp_path):
     saved = store.layout("Pod")
     assert saved["order"][0] == "name"
     assert saved["order"][1] == POD_COLUMNS[2][1]
-    assert saved["hidden"] == [POD_COLUMNS[1][1]]
+    assert saved["hidden"] == [POD_COLUMNS[1][1]] + [a for a in DEFAULT_HIDDEN["Pod"] if a != POD_COLUMNS[1][1]]
     dialog._restore()
-    assert dialog.builtin_layout() == ([c[1] for c in POD_COLUMNS], [])
+    assert dialog.builtin_layout() == ([c[1] for c in POD_COLUMNS], list(DEFAULT_HIDDEN["Pod"]))

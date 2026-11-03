@@ -1,12 +1,13 @@
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout,
                                QLabel, QLineEdit, QSpinBox)
 
-from .terminal import NODE_SHELL_IMAGE
+from .terminal import NODE_SHELL_IMAGE, kubectl_base
 
 
 class DrainDialog(QDialog):
-    def __init__(self, context, node, parent=None):
+    def __init__(self, context, node, parent=None, kubeconfig=None):
         super().__init__(parent)
+        self.kubeconfig = kubeconfig
         self.setWindowTitle("Drain node")
         form = QFormLayout(self)
         info = QLabel(f"Cluster: {context}\nNode: {node}\n\n"
@@ -33,8 +34,8 @@ class DrainDialog(QDialog):
         self.context, self.node = context, node
 
     def command(self):
-        argv = ["kubectl", "--context", self.context, "--request-timeout=30s", "drain", self.node,
-                f"--timeout={self.timeout.value()}m"]
+        argv = kubectl_base(self.context, self.kubeconfig) + [
+            "--request-timeout=30s", "drain", self.node, f"--timeout={self.timeout.value()}m"]
         for field, flag in ((self.ignore_daemonsets, "--ignore-daemonsets"),
                             (self.delete_emptydir, "--delete-emptydir-data"), (self.force, "--force")):
             if field.isChecked():

@@ -39,6 +39,31 @@ def test_usage_attached_and_degrades_without_metrics_server():
     assert svc.node_usage() == {} and svc.pod_usage("ns") == {}
 
 
+def test_usage_reaches_pods_on_a_node_and_a_single_pod():
+    def pod(name, node):
+        return k.V1Pod(metadata=k.V1ObjectMeta(name=name, namespace="ns"),
+                       spec=k.V1PodSpec(containers=[], node_name=node), status=k.V1PodStatus(phase="Running"))
+
+    svc = KubeService()
+    svc._core = NS(list_pod_for_all_namespaces=lambda **kw: NS(items=[pod("a", "n1"), pod("b", "n1")], metadata=None),
+                   read_namespaced_pod=lambda name, ns, **kw: pod(name, "n1"))
+    metric = lambda name: {"metadata": {"name": name, "namespace": "ns"},
+                           "containers": [{"usage": {"cpu": "200m", "memory": "64Mi"}}]}
+    svc._custom = NS(
+        list_cluster_custom_object=lambda *a, **kw: {"items": [metric("a")]},  # b has no metrics yet
+        get_namespaced_custom_object=lambda group, version, ns, plural, name, **kw: metric(name))
+    a, b = svc.list_node_pods("n1")
+    assert (a.cpu_used, a.mem_used) == (0.2, 64.0) and (b.cpu_used, b.mem_used) == (-1.0, -1.0)
+    one = svc.read_pod("a", "ns")
+    assert (one.cpu_used, one.mem_used) == (0.2, 64.0)
+
+    def broken(*args, **kw):
+        raise k.ApiException(status=404)
+
+    svc._custom = NS(list_cluster_custom_object=broken, get_namespaced_custom_object=broken)
+    assert svc.read_pod("a", "ns").cpu_used == -1.0 and svc.list_node_pods("n1")[0].mem_used == -1.0
+
+
 def test_overview_usage_bars(qtbot):
     view = OverviewView(CLUSTER_CARDS)
     qtbot.addWidget(view)

@@ -10,9 +10,14 @@ import uuid
 NODE_SHELL_IMAGE = "docker.io/library/alpine"
 
 
-def kubectl_args(action, context, namespace, pod, container=None):
+def kubectl_base(context, kubeconfig=None):
+    """kubectl with an explicit context, and an explicit --kubeconfig when a custom one is selected."""
+    return ["kubectl"] + (["--kubeconfig", kubeconfig] if kubeconfig else []) + ["--context", context]
+
+
+def kubectl_args(action, context, namespace, pod, container=None, kubeconfig=None):
     """argv for an interactive kubectl session. action: 'shell' (exec) or 'attach'."""
-    base = ["kubectl", "--context", context, "-n", namespace]
+    base = kubectl_base(context, kubeconfig) + ["-n", namespace]
     if action == "shell":
         cmd = base + ["exec", "-it", pod] + (["-c", container] if container else []) + ["--", "sh"]
     elif action == "attach":
@@ -22,7 +27,7 @@ def kubectl_args(action, context, namespace, pod, container=None):
     return cmd
 
 
-def node_shell_args(context, node, namespace="default", image=NODE_SHELL_IMAGE):
+def node_shell_args(context, node, namespace="default", image=NODE_SHELL_IMAGE, kubeconfig=None):
     """Linux defaults from the installed kubectl-node-shell v1.11.0 script.
 
     Use kubectl's attached run/--rm lifecycle so this works on all local
@@ -49,7 +54,7 @@ def node_shell_args(context, node, namespace="default", image=NODE_SHELL_IMAGE):
         ],
         "volumes": [],
     }}
-    return ["kubectl", "--context", context, "--namespace", namespace,
+    return kubectl_base(context, kubeconfig) + ["--namespace", namespace,
             "run", pod, "--image", image, "--restart=Never", "--rm", "-it",
             "--pod-running-timeout=1m", "--overrides", json.dumps(overrides)]
 

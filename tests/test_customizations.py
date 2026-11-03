@@ -37,7 +37,9 @@ def test_invalid_saved_preferences_fall_back_to_defaults(tmp_path, saved):
 
 
 def test_failed_save_does_not_change_active_labels():
-    store = SimpleNamespace(value=lambda *a: "{}", setValue=lambda *a: None, sync=lambda: None,
+    nothing = lambda *a: None  # noqa: E731
+    store = SimpleNamespace(value=lambda *a: "{}", setValue=nothing, remove=nothing, childGroups=lambda: [],
+                            beginGroup=nothing, endGroup=nothing, sync=nothing,
                             status=lambda: QSettings.AccessError, fileName=lambda: "read-only.ini")
     config = LabelSettings(store)
     with pytest.raises(OSError, match="read-only.ini"):

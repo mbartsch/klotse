@@ -22,9 +22,30 @@ def metric_format(fmt):
     return lambda v: fmt(v) if v >= 0 else ""
 
 
+def set_format(fmt):
+    """Formatter for a request/limit column: blank when not set (stored as 0)."""
+    return lambda v: fmt(v) if v > 0 else ""
+
+
+_milli = lambda v: f"{v * 1000:.0f}"  # noqa: E731
+_mib = lambda v: f"{v:.0f}"  # noqa: E731
+_pct = lambda v: f"{v:.0f}%"  # noqa: E731
+
+RESOURCE_COLUMNS = {  # request/limit columns: hidden by default (see customizations.DEFAULT_HIDDEN)
+    "cpu_req", "cpu_lim", "cpu_req_pct", "cpu_lim_pct", "mem_req", "mem_lim", "mem_req_pct", "mem_lim_pct"}
+# the Overview drill-down tables keep the compact set
+POD_COLUMNS_BASIC = [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Status", "status"),
+                     ("Restarts", "restarts"), ("CPU (m)", "cpu_used", metric_format(_milli)),
+                     ("Mem (MiB)", "mem_used", metric_format(_mib)), ("Node", "node"), ("Age", "age")]
 POD_COLUMNS = [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Status", "status"),
-               ("Restarts", "restarts"), ("CPU (m)", "cpu_used", metric_format(lambda v: f"{v * 1000:.0f}")),
-               ("Mem (MiB)", "mem_used", metric_format(lambda v: f"{v:.0f}")), ("Node", "node"), ("Age", "age")]
+               ("Restarts", "restarts"),
+               ("CPU (m)", "cpu_used", metric_format(_milli)),
+               ("CPU req (m)", "cpu_req", set_format(_milli)), ("CPU lim (m)", "cpu_lim", set_format(_milli)),
+               ("CPU %req", "cpu_req_pct", metric_format(_pct)), ("CPU %lim", "cpu_lim_pct", metric_format(_pct)),
+               ("Mem (MiB)", "mem_used", metric_format(_mib)),
+               ("Mem req (MiB)", "mem_req", set_format(_mib)), ("Mem lim (MiB)", "mem_lim", set_format(_mib)),
+               ("Mem %req", "mem_req_pct", metric_format(_pct)), ("Mem %lim", "mem_lim_pct", metric_format(_pct)),
+               ("Node", "node"), ("Age", "age")]
 # cards that drill down when clicked: counts key -> (title, which table shows the rows)
 DRILL_DOWN = {"pending": ("Pending pods", "pods"), "failed": ("Failed pods", "pods"),
               "warnings": ("Warning events", "events")}
@@ -139,7 +160,7 @@ class OverviewView(QWidget):
         self.usage.setLayout(usage)
         self.usage.hide()  # only shown when metrics-server reports usage
         self.events_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
-        self.pods_table = ResourceTable(POD_COLUMNS, "Pod", customizable=False)
+        self.pods_table = ResourceTable(POD_COLUMNS_BASIC, "Pod", customizable=False)
         self.warnings_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
         self.stack = QStackedWidget()
         for t in self.tables():

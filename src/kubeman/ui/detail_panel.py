@@ -51,6 +51,7 @@ class DetailPanel(QWidget):
         self._secret_row = None
         self._secret_data = {}
         self._decoded_keys = set()
+        self.show_managed_fields = False  # metadata.managedFields is long and rarely useful; opt in from View
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.decode_button)
@@ -76,7 +77,29 @@ class DetailPanel(QWidget):
         self._filter_keys("")
         self.decode_menu.hide()
         self.decode_button.setVisible(bool(self._secret_data))
-        self.editor.setPlainText(dump_manifest(row.raw))
+        self.editor.setPlainText(dump_manifest(self._displayed(row.raw)))
+
+    def set_show_managed_fields(self, show):
+        """Include or hide metadata.managedFields in Details; the shown resource is redrawn, scroll kept."""
+        show = bool(show)
+        if show == self.show_managed_fields:
+            return
+        self.show_managed_fields = show
+        if self._secret_row is None:
+            return
+        scroll = self.editor.verticalScrollBar().value()
+        if self._decoded_keys:
+            self._render_secret()
+        else:
+            self.editor.setPlainText(dump_manifest(self._displayed(self._secret_row.raw)))
+        self.editor.verticalScrollBar().setValue(scroll)
+
+    def _displayed(self, body):
+        """The manifest as shown: without managedFields unless enabled. Never modifies the row's own raw."""
+        metadata = body.get("metadata") if isinstance(body, dict) else None
+        if self.show_managed_fields or not isinstance(metadata, dict) or "managedFields" not in metadata:
+            return body
+        return {**body, "metadata": {k: v for k, v in metadata.items() if k != "managedFields"}}
 
     def _open_picker(self):
         self.decode_filter.clear()
@@ -121,7 +144,7 @@ class DetailPanel(QWidget):
         body = deepcopy(self._secret_row.raw)
         for key in self._decoded_keys:
             body["data"][key] = self._decode_value(self._secret_data[key])
-        self.editor.setPlainText(dump_manifest(body))
+        self.editor.setPlainText(dump_manifest(self._displayed(body)))
         self.hide_values_button.setVisible(bool(self._decoded_keys))
 
     @staticmethod
