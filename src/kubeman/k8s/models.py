@@ -20,6 +20,8 @@ class PodRow:
     node: str
     age: str
     raw: dict = field(default_factory=dict, repr=False)
+    cpu_used: float = -1.0  # cores in use now; -1 when metrics-server is unavailable
+    mem_used: float = -1.0  # MiB in use now
 
 
 @dataclass
@@ -33,6 +35,9 @@ class NodeRow:
     memory: float  # allocatable GiB
     age: str
     raw: dict = field(default_factory=dict, repr=False)
+    cpu_used: float = -1.0  # cores in use now; -1 when metrics-server is unavailable
+    mem_used: float = -1.0  # GiB in use now
+    pods: int = -1  # running/pending pods on the node; -1 until counted (only visible rows are counted)
 
     @property
     def is_ready(self):

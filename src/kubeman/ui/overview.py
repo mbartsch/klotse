@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout,
                                QWidget)
 
@@ -16,8 +17,14 @@ WORKLOAD_CARDS = [("pods", "Pods", ""), ("running", "Running", ""), ("pending", 
                   ("deployments", "Deployments", ""), ("daemonsets", "DaemonSets", ""),
                   ("statefulsets", "StatefulSets", ""), ("replicasets", "ReplicaSets", ""),
                   ("jobs", "Jobs", ""), ("cronjobs", "CronJobs", "")]
+def metric_format(fmt):
+    """Formatter for a usage column: blank when metrics-server gave no value (stored as a negative number)."""
+    return lambda v: fmt(v) if v >= 0 else ""
+
+
 POD_COLUMNS = [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Status", "status"),
-               ("Restarts", "restarts"), ("Node", "node"), ("Age", "age")]
+               ("Restarts", "restarts"), ("CPU (m)", "cpu_used", metric_format(lambda v: f"{v * 1000:.0f}")),
+               ("Mem (MiB)", "mem_used", metric_format(lambda v: f"{v:.0f}")), ("Node", "node"), ("Age", "age")]
 # cards that drill down when clicked: counts key -> (title, which table shows the rows)
 DRILL_DOWN = {"pending": ("Pending pods", "pods"), "failed": ("Failed pods", "pods"),
               "warnings": ("Warning events", "events")}
@@ -67,6 +74,39 @@ class Card(QFrame):
         super().mousePressEvent(event)
 
 
+def bar_percent(used, total):
+    return round(100 * used / total) if total > 0 else 0
+
+
+class UsageBar(QWidget):
+    """One horizontal bar: how much of a capacity is in use (green, amber above 70%, red above 90%)."""
+
+    def __init__(self, caption):
+        super().__init__()
+        self.caption, self.used, self.total, self.text = caption, 0.0, 0.0, ""
+        self.setMinimumHeight(34)
+
+    @property
+    def fraction(self):
+        return min(self.used / self.total, 1.0) if self.total > 0 else 0.0
+
+    def set_usage(self, used, total, text):
+        self.used, self.total, self.text = used, total, text
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QColor(MUTED))
+        p.drawText(0, 12, f"{self.caption}  {self.text}")
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(BORDER))
+        p.drawRoundedRect(QRectF(0, 18, self.width(), 10), 5, 5)
+        fraction = self.fraction
+        p.setBrush(QColor("#e5484d" if fraction > 0.9 else "#f5a524" if fraction > 0.7 else "#30a46c"))
+        p.drawRoundedRect(QRectF(0, 18, self.width() * fraction, 10), 5, 5)
+
+
 class OverviewView(QWidget):
     """Summary cards over a table that shows recent events, or, after clicking the Pending / Failed /
     Warning cards, the pods or events behind that number (Lens-style Overview pages)."""
@@ -90,6 +130,14 @@ class OverviewView(QWidget):
         head.addWidget(self.title)
         head.addStretch(1)
         head.addWidget(self.back)
+        self.cpu_bar, self.mem_bar = UsageBar("CPU in use"), UsageBar("Memory in use")
+        usage = QHBoxLayout()
+        usage.addWidget(self.cpu_bar)
+        usage.addSpacing(16)
+        usage.addWidget(self.mem_bar)
+        self.usage = QWidget()
+        self.usage.setLayout(usage)
+        self.usage.hide()  # only shown when metrics-server reports usage
         self.events_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False)
         self.pods_table = ResourceTable(POD_COLUMNS, "Pod")
         self.warnings_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False)
@@ -98,6 +146,7 @@ class OverviewView(QWidget):
             self.stack.addWidget(t)
         lay = QVBoxLayout(self)
         lay.addLayout(grid)
+        lay.addWidget(self.usage)
         lay.addLayout(head)
         lay.addWidget(self.stack, 1)
 
@@ -110,6 +159,12 @@ class OverviewView(QWidget):
         for key, card in self.cards.items():
             card.set_value(data["counts"].get(key, "–"))
             card.set_clickable(key in DRILL_DOWN and bool(lists.get(key)))
+        usage = data["counts"].get("usage")
+        self.usage.setVisible(bool(usage))
+        if usage:
+            for bar, (used, total), unit, digits in ((self.cpu_bar, usage["cpu"], "cores", 1),
+                                                     (self.mem_bar, usage["memory"], "GiB", 2)):
+                bar.set_usage(used, total, f"{used:.{digits}f} / {total:.{digits}f} {unit} ({bar_percent(used, total)}%)")
         self.events_table.set_rows(data["events"])
         if self.focus and not lists.get(self.focus):
             self.focus = None  # the problem went away: fall back to recent events

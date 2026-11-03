@@ -265,7 +265,7 @@ def test_navigator_and_logs(qtbot):
     qtbot.waitUntil(lambda: win.nav.cluster_item("ctx").childCount() > 0, timeout=5000)
     top = win.nav.cluster_item("ctx")
     labels = [top.child(i).text(0) for i in range(top.childCount())]
-    assert labels == ["Overview", "Nodes", "Workloads", "Config", "Network", "Storage", "Namespaces", "Events"]
+    assert labels == ["Overview", "Nodes", "Workloads", "Config", "Network", "Storage", "Namespaces", "Events", "Custom Resources"]
     groups = {top.child(i).text(0): [top.child(i).child(j).text(0) for j in range(top.child(i).childCount())]
               for i in range(top.childCount()) if top.child(i).childCount()}
     assert groups["Workloads"] == ["Overview", "Pods", "Deployments", "DaemonSets", "StatefulSets",
@@ -851,3 +851,61 @@ def test_pod_bucket_and_keep_newest_helpers():
         keep_newest(heap, 3, ts, seq, object())
     assert sorted((t, s) for t, s, _ in heap) == [(7, 4), (9, 2), (9, 5)]  # the 3 newest survive; the bound holds
     assert len(heap) == 3
+
+
+def test_crd_mapping_and_instances():
+    from kubernetes import client as k
+
+    from kubeman.k8s.client import KubeService
+    from kubeman.k8s.resources import SPEC_BY_KEY, crd_version, map_custom_object
+
+    crd = k.V1CustomResourceDefinition(
+        metadata=k.V1ObjectMeta(name="widgets.example.com"),
+        spec=k.V1CustomResourceDefinitionSpec(
+            group="example.com", scope="Namespaced",
+            names=k.V1CustomResourceDefinitionNames(kind="Widget", plural="widgets"),
+            versions=[k.V1CustomResourceDefinitionVersion(name="v1alpha1", served=True, storage=False),
+                      k.V1CustomResourceDefinitionVersion(name="v1", served=True, storage=True),
+                      k.V1CustomResourceDefinitionVersion(name="v0", served=False, storage=False)]))
+    row = SPEC_BY_KEY["crds"].mapper(crd)
+    assert (row.group, row.kind, row.scope, row.plural, row.version) == ("example.com", "Widget", "Namespaced", "widgets", "v1")
+    assert row.versions == "v1alpha1,v1" and crd_version(crd) == "v1"
+    obj = map_custom_object({"metadata": {"name": "w1", "namespace": "ns", "creationTimestamp": "2020-01-01T00:00:00Z"}})
+    assert (obj.name, obj.namespace) == ("w1", "ns") and obj.age.endswith("d") and obj.raw["metadata"]["name"] == "w1"
+
+    calls = []
+
+    def fake(*args, **kw):
+        calls.append((args, kw["_continue"]))
+        return {"items": [{"metadata": {"name": str(len(calls))}}], "metadata": {"continue": None if kw["_continue"] else "n"}}
+
+    svc = KubeService()
+    svc._custom = type("C", (), {"list_cluster_custom_object": staticmethod(fake),
+                                 "list_namespaced_custom_object": staticmethod(fake)})()
+    assert [r.name for r in svc.list_custom_objects("example.com", "v1", "widgets", True)] == ["1", "2"]
+    assert calls[0][0] == ("example.com", "v1", "widgets")
+    calls.clear()
+    svc.list_custom_objects("example.com", "v1", "widgets", True, "team")
+    assert calls[0][0] == ("example.com", "v1", "team", "widgets")
+
+
+def test_workspace_browses_crd_instances(qtbot):
+    from kubeman.k8s.resources import Row
+
+    svc = FakeService()
+    asked = []
+    svc.list_custom_objects = lambda *a: asked.append(a) or [Row("w1", "default", {"kind": "Widget"}, age="1d")]
+    win = MainWindow(lambda: svc)
+    qtbot.addWidget(win)
+    ws = win.workspace("ctx")
+    qtbot.waitUntil(lambda: ws._ready and not ws._loading, timeout=5000)
+    crd = Row("widgets.example.com", "", {}, group="example.com", kind="Widget", scope="Namespaced",
+              plural="widgets", version="v1", versions="v1", age="1d")
+    ws.open_custom_resources(crd)
+    ws.open_custom_resources(crd)  # second open focuses the same tab
+    table = ws.views["cr:widgets.example.com"][0]
+    qtbot.waitUntil(lambda: table.model.rowCount() == 1, timeout=5000)
+    assert ws.tabs.tabText(ws.tabs.currentIndex()) == "Widget" and [c[1] for c in table.base_columns] == ["name", "namespace", "age"]
+    assert asked[0] == ("example.com", "v1", "widgets", True, None)
+    table.view.selectRow(0)
+    assert "kind: Widget" in ws.detail.toPlainText()

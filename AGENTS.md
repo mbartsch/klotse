@@ -76,9 +76,12 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/kubeman/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
 | `src/kubeman/ui/customizations.py` | Persistent Node/Pod label-column lists, custom headings, and settings dialog. |
 | `src/kubeman/ui/scale_monitor.py` | Polling scale progress, readiness/failure evaluation, timeouts, and activity display. |
+| `src/kubeman/ui/watcher.py` | `ChangeWatcher` QThread: runs `KubeService.watch_changes` and emits `changed`; `stop()` only sets a flag and never blocks the GUI thread. |
 | `src/kubeman/ui/namespace_dialog.py` | Namespace creation form. |
 | `src/kubeman/ui/theme.py` | Application palette and Qt stylesheet. |
 | `scripts/benchmark_large_cluster.py` | Offline synthetic pod-mapping/table-load benchmark. |
+
+Auto-refresh and watches (`workspace.py`): only the foreground tab of a visible cluster reloads, every `AUTO_REFRESH_MS` (toolbar toggle and interval) and whenever a change watch fires (debounced 800 ms). Background tabs reload when they come to the front; Refresh and namespace changes also touch only the foreground tab. Views without `watch_targets` (node-pods, custom resources) are polled only. Metrics (`node_usage`/`pod_usage`) and CRD browsing (`list_custom_objects`) degrade to blank/empty when metrics-server or the API is unavailable; usage fields are `-1` when unknown. Double-click: Pod opens containers, Namespace scopes the toolbar and opens Pods, CRD opens its instances.
 
 Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, and StatefulSets. The SPECS registry adds DaemonSets, Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, and Events. Secrets and Events have no Edit action.
 

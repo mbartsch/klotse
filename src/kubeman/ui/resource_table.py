@@ -13,6 +13,7 @@ class ResourceTable(QWidget):
     scale_requested = Signal(str, object)
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
+    visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
 
     def __init__(self, columns, kind, editable=True):
@@ -54,6 +55,11 @@ class ResourceTable(QWidget):
         self.view.verticalHeader().hide()
         self.view.verticalHeader().setDefaultSectionSize(26)  # dense rows
         self.view.setShowGrid(False)
+        self._visible_timer = QTimer(self, interval=250, singleShot=True)
+        self._visible_timer.timeout.connect(self.visible_changed.emit)
+        self.view.verticalScrollBar().valueChanged.connect(lambda _: self._visible_timer.start())
+        for signal in (self.proxy.modelReset, self.proxy.layoutChanged, self.proxy.rowsInserted, self.proxy.rowsRemoved):
+            signal.connect(lambda *_: self._visible_timer.start())
         self.view.selectionModel().currentRowChanged.connect(self._on_row)
         self.view.doubleClicked.connect(self._on_double_click)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -100,6 +106,22 @@ class ResourceTable(QWidget):
         new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
         self.view.sortByColumn(new_sort, sort_order)
         self.view.resizeColumnsToContents()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._visible_timer.start()
+
+    def visible_rows(self):
+        """Rows currently on screen (scrolled into the viewport, after filtering and sorting)."""
+        if not self.isVisible() or self.proxy.rowCount() == 0:
+            return []
+        first = self.view.rowAt(0)
+        if first < 0:
+            return []
+        last = self.view.rowAt(self.view.viewport().height() - 1)
+        if last < 0:
+            last = self.proxy.rowCount() - 1
+        return [self.model.rows[self.proxy.mapToSource(self.proxy.index(r, 0)).row()] for r in range(first, last + 1)]
 
     def selected_rows(self):
         return [self.model.rows[self.proxy.mapToSource(i).row()] for i in self.view.selectionModel().selectedRows()]
@@ -156,7 +178,11 @@ class ResourceTable(QWidget):
                 menu.addSeparator()
                 menu.addAction("Terminate…", lambda: self.action_requested.emit("terminate", row))
                 menu.addAction("Force terminate…", lambda: self.action_requested.emit("force-terminate", row))
+        if self.kind == "CustomResourceDefinition" and idx.isValid():
+            menu.addAction("Browse instances", lambda: self.action_requested.emit("open-crd", row))
         if self.kind == "Namespace":
+            if idx.isValid():
+                menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
             menu.addAction("New namespace…", self.new_requested.emit)
         if not menu.isEmpty():
             menu.exec(self.view.viewport().mapToGlobal(pos))
@@ -166,7 +192,9 @@ class ResourceTable(QWidget):
             src = self.proxy.mapToSource(current)
             self.selected.emit(self.model.rows[src.row()])
 
+    DOUBLE_CLICK = {"Pod": "containers", "Namespace": "open-namespace", "CustomResourceDefinition": "open-crd"}
+
     def _on_double_click(self, index):
-        if self.kind == "Pod" and index.isValid():
-            row = self.model.rows[self.proxy.mapToSource(index).row()]
-            self.action_requested.emit("containers", row)
+        action = self.DOUBLE_CLICK.get(self.kind)
+        if action and index.isValid():
+            self.action_requested.emit(action, self.model.rows[self.proxy.mapToSource(index).row()])

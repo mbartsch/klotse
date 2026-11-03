@@ -1,3 +1,4 @@
+import re
 from time import perf_counter
 
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
@@ -15,13 +16,38 @@ from .edit_dialog import EditDialog
 from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
 from .node_dialogs import DrainDialog, NodeShellDialog
-from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView
+from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
 from .resource_table import ResourceTable
 from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
+from .watcher import ChangeWatcher
 
 ALL_NS = "All namespaces"
-AUTO_REFRESH_MS = 10_000  # the foreground list reloads this often
+MAX_REPLICAS = 10000
+
+
+def parse_scale(text, current):
+    """New replica count from "5" (absolute) or an operation on the current count: *2 /2 +1 -1 (/ rounds up)."""
+    match = re.fullmatch(r"\s*([*x×/+-]?)\s*(\d+)\s*", text or "")
+    if not match:
+        raise ValueError(f"Cannot read “{(text or '').strip()}”. Use a number, or *2, /2, +1, -1.")
+    op, value = match[1], int(match[2])
+    if op in ("*", "x", "×"):
+        new = current * value
+    elif op == "/":
+        if value == 0:
+            raise ValueError("Cannot divide by zero.")
+        new = -(-current // value)
+    elif op == "+":
+        new = current + value
+    elif op == "-":
+        new = current - value
+    else:
+        new = value
+    return max(0, min(MAX_REPLICAS, new))
+AUTO_REFRESH_MS = 10_000  # the foreground list reloads this often (default)
+WATCH_DEBOUNCE_MS = 800  # a burst of change events becomes one reload
+AUTO_REFRESH_CHOICES = [("5s", 5_000), ("10s", 10_000), ("30s", 30_000), ("60s", 60_000)]
 KIND_VIEW = {"Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
 
 
@@ -52,6 +78,13 @@ class ClusterWorkspace(QMainWindow):
         self._opening = False
         self._auto_timer = QTimer(self, interval=AUTO_REFRESH_MS)
         self._auto_timer.timeout.connect(self._auto_refresh)
+        self._node_pods = {}  # node -> last counted pods, kept so a reload does not blank the column
+        self._node_pods_fresh = set()  # nodes counted since the last nodes load
+        self._node_pods_busy = self._node_pods_again = False
+        self._watchers = []
+        self._watched = None  # (view key, namespace) the running watches belong to
+        self._watch_timer = QTimer(self, interval=WATCH_DEBOUNCE_MS, singleShot=True)
+        self._watch_timer.timeout.connect(self._watch_reload)
         self.setWindowFlags(Qt.Widget)
         # side docks span the full height; the log dock sits under the central tabs only
         self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
@@ -97,21 +130,36 @@ class ClusterWorkspace(QMainWindow):
                 widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
-                widget.action_requested.connect(self.node_action if widget.kind == "Node" else self.pod_action)
+                widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
+                                                 "CustomResourceDefinition": self._crd_action}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
+        self.node_table.visible_changed.connect(self._update_node_pods)
 
         bar = QToolBar()
         bar.setMovable(False)
         self.addToolBar(bar)
         self.ns_combo = QComboBox()
         self.ns_combo.addItem(ALL_NS)
-        bar.addWidget(QLabel(" Namespace: "))
-        bar.addWidget(self.ns_combo)
+        # the selector only applies to namespaced lists, so it is hidden on cluster-wide views (see _sync_ns_selector)
+        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo)]
         refresh = QAction("Refresh", self)
         refresh.setShortcut(QKeySequence.Refresh)
         refresh.triggered.connect(self.refresh)
         bar.addAction(refresh)
+        bar.addSeparator()
+        self.auto_action = QAction("Auto-refresh", self, checkable=True, checked=True)
+        self.auto_action.setToolTip("Reload the visible list periodically and when the cluster reports a change")
+        self.auto_action.toggled.connect(self.set_auto_refresh)
+        bar.addAction(self.auto_action)
+        self.auto_interval = QComboBox()
+        for label, ms in AUTO_REFRESH_CHOICES:
+            self.auto_interval.addItem(label, ms)
+        self.auto_interval.setCurrentIndex(next(i for i, (_, ms) in enumerate(AUTO_REFRESH_CHOICES) if ms == AUTO_REFRESH_MS))
+        self.auto_interval.currentIndexChanged.connect(
+            lambda _=None: self._auto_timer.setInterval(self.auto_interval.currentData()))
+        bar.addWidget(self.auto_interval)
         self.ns_combo.activated.connect(lambda _=None: self.load_scoped())
+        self._sync_ns_selector()
 
     def start(self):
         """Connect; called by the shell after it has hooked up the signals."""
@@ -124,8 +172,10 @@ class ClusterWorkspace(QMainWindow):
         self.ns_table = T([("Name", "name"), ("Status", "status"), ("Age", "age"), ("Labels", "labels")], "Namespace")
         self.pod_table = T(POD_COLUMNS, "Pod")
         self.node_table = T([("Name", "name"), ("Status", "status"), ("Roles", "roles"), ("Version", "version"),
-                           ("IP", "ip"), ("CPU (cores)", "cpu", lambda v: f"{v:.1f}"),
-                             ("Memory (GiB)", "memory", lambda v: f"{v:.2f}"), ("Age", "age")], "Node")
+                           ("IP", "ip"), ("Pods", "pods", metric_format(str)), ("CPU (cores)", "cpu", lambda v: f"{v:.1f}"),
+                             ("Memory (GiB)", "memory", lambda v: f"{v:.2f}"),
+                             ("CPU used", "cpu_used", metric_format(lambda v: f"{v:.2f}")),
+                             ("Mem used (GiB)", "mem_used", metric_format(lambda v: f"{v:.2f}")), ("Age", "age")], "Node")
         self.rs_table = T([("Name", "name"), ("Namespace", "namespace"), ("Desired", "desired"), ("Current", "current"),
                            ("Ready", "ready"), ("Owner", "owner"), ("Age", "age")], "ReplicaSet")
         self.deploy_table = T([("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"),
@@ -147,7 +197,7 @@ class ClusterWorkspace(QMainWindow):
         self.loaders = {
             "overview": (lambda ns: svc().overview_cluster(), False, self.overview.set_data),
             "workloads": (lambda ns: svc().overview_workloads(ns), True, self.wl_overview.set_data),
-            "nodes": (lambda ns: svc().list_nodes(), False, self.node_table.set_rows),
+            "nodes": (lambda ns: svc().list_nodes(), False, self._set_nodes),
             "namespaces": (lambda ns: svc().list_namespaces(), False, self._set_namespaces),
             "pods": (lambda ns: svc().list_pods(ns), True, self.pod_table.set_rows),
             "deployments": (lambda ns: svc().list_deployments(ns), True, self.deploy_table.set_rows),
@@ -178,11 +228,20 @@ class ClusterWorkspace(QMainWindow):
         self.tabs.setCurrentIndex(idx)
         self.view_opened.emit(key)
 
+    def _sync_ns_selector(self):
+        """Show the namespace selector only while the foreground view is scoped by namespace."""
+        key = self.foreground_key()
+        scoped = key not in self.loaders or self.loaders[key][1]
+        for action in getattr(self, "_ns_actions", ()):
+            action.setVisible(scoped)
+
     def _on_tab_changed(self, index):
         if index >= 0:
             self.view_opened.emit(self.tabs.widget(index).view_key)
+            self._sync_ns_selector()
             if not self._opening:  # a tab that comes to the front is stale, reload it
                 self.load_foreground()
+            self._sync_watch()
 
     def open_view(self, key):
         self._opening = True  # open_view loads the view itself; don't also load from the tab-change signal
@@ -196,21 +255,138 @@ class ClusterWorkspace(QMainWindow):
         widget = self.tabs.currentWidget()
         return getattr(widget, "view_key", None)
 
+    def foreground_kind(self):
+        """Resource kind of the list in front ("Pod", "Node", …), or None for overviews and log tabs."""
+        return getattr(self.tabs.currentWidget(), "kind", None)
+
     def load_foreground(self):
         """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads)."""
         key = self.foreground_key()
-        if self._ready and not self._closed and key in self.loaders and key not in self._loading:
+        if (self._ready and not self._closed and self.auto_action.isChecked()
+                and key in self.loaders and key not in self._loading):
             self.load_view(key)
+
+    def _showing(self):
+        return self.isVisible() and not self.window().isMinimized()
 
     def _auto_refresh(self):
         # skip while this cluster's tab is hidden behind another one, or the window is minimized
-        if self.isVisible() and not self.window().isMinimized():
+        if self._showing():
             self.load_foreground()
+        self._sync_watch()  # also notices a window that was minimized or restored
+
+    def _sync_watch(self):
+        """Keep change watches running for the foreground view only (and none while hidden, off or closed)."""
+        wanted = None
+        if self._ready and not self._closed and self.auto_action.isChecked() and self._showing():
+            key = self.foreground_key()
+            if key in self.loaders:
+                ns = self.ns_combo.currentText()
+                wanted = (key, None if (not self.loaders[key][1] or ns == ALL_NS) else ns)
+        if wanted == self._watched:
+            return
+        self._stop_watchers()
+        self._watched = wanted
+        targets = getattr(self.service, "watch_targets", None)
+        if wanted is None or targets is None:
+            return
+        try:
+            found = targets(*wanted)
+        except Exception:
+            return  # not watchable: the periodic reload covers it
+        for fn, args in found:
+            watcher = ChangeWatcher(lambda stop, f=fn, a=args: self.service.watch_changes(f, a, stop))
+            watcher.changed.connect(self._watch_timer.start)
+            self._watchers.append(watcher)
+            watcher.start()
+
+    def _stop_watchers(self):
+        for watcher in self._watchers:
+            watcher.stop()
+        self._watchers.clear()
+        self._watched = None
+        self._watch_timer.stop()
+
+    def _watch_reload(self):
+        key = self.foreground_key()
+        if self._watched and self._watched[0] == key and not self._closed:
+            self.load_view(key)  # coalesces with a load that is already running
+
+    def set_auto_refresh(self, enabled):
+        """Toolbar toggle: switches the periodic reload (and the change watches) on or off."""
+        if enabled and self._ready and not self._closed:
+            self._auto_timer.start()
+            self.load_foreground()
+        else:
+            self._auto_timer.stop()
+        self._sync_watch()
+
+    # ---- pods per node, counted only for the rows on screen -------------------
+    def _set_nodes(self, rows):
+        for r in rows:
+            r.pods = self._node_pods.get(r.name, -1)
+        self._node_pods_fresh.clear()  # counts are stale after a reload; the visible ones are counted again
+        self.node_table.set_rows(rows)
+
+    def _update_node_pods(self):
+        if (self._closed or not self._ready or getattr(self.service, "node_pod_counts", None) is None
+                or not self.node_table.isVisible()):
+            return
+        if self._node_pods_busy:
+            self._node_pods_again = True
+            return
+        names = [r.name for r in self.node_table.visible_rows() if r.name not in self._node_pods_fresh]
+        if not names:
+            return
+        self._node_pods_busy = True
+        self._run(lambda: self.service.node_pod_counts(names), lambda counts: self._node_pods_done(counts),
+                  on_error=lambda _msg: self._node_pods_done({}))
+
+    def _node_pods_done(self, counts):
+        self._node_pods_busy = False
+        self._node_pods.update(counts)
+        self._node_pods_fresh.update(counts)
+        for r in self.node_table.model.rows:
+            if r.name in counts:
+                r.pods = counts[r.name]
+        self.node_table.model.refresh_column("pods")
+        if self._node_pods_again:
+            self._node_pods_again = False
+            self._update_node_pods()
+
+    def _crd_action(self, action, row):
+        if action == "open-crd":
+            self.open_custom_resources(row)
+
+    def open_custom_resources(self, crd):
+        """Open (or focus) a tab listing the instances of a custom resource definition."""
+        key = f"cr:{crd.plural}.{crd.group}"
+        namespaced = crd.scope == "Namespaced"
+        if key not in self.views:
+            columns = [("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")]
+            table = ResourceTable(columns, "CustomResource", editable=False)
+            table.view_key = key
+            table.selected.connect(self.detail.show_row)
+            self.views[key] = (table, f"{crd.kind}")
+            self.loaders[key] = (lambda ns: self.service.list_custom_objects(crd.group, crd.version, crd.plural, namespaced, ns),
+                                 namespaced, table.set_rows)
+        self.open_view(key)
+
+    def _namespace_action(self, action, row):
+        if action == "open-namespace":  # double-click / "Show pods": scope the toolbar to it and open its pods
+            if self.ns_combo.findText(row.name) >= 0:
+                self.ns_combo.setCurrentText(row.name)
+            self.open_view("pods")
 
     def showEvent(self, event):
         super().showEvent(event)
         if self._ready:  # this cluster's tab just came to the front
             self.load_foreground()
+            self._sync_watch()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._sync_watch()
 
     def open_keys(self):
         return [self.tabs.widget(i).view_key for i in range(self.tabs.count())]
@@ -278,6 +454,7 @@ class ClusterWorkspace(QMainWindow):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
         self._auto_timer.stop()
+        self._stop_watchers()
         self._pending_loads.clear()
         for i in range(self.log_tabs.count()):
             self.log_tabs.widget(i).stop()
@@ -331,14 +508,22 @@ class ClusterWorkspace(QMainWindow):
         n = len(rows)
         names = self._names(rows)
         if action == "scale":
-            current = (rows[0].raw.get("spec") or {}).get("replicas", 1)
-            count, ok = QInputDialog.getInt(self, f"Scale {n} {kind}s", f"Replicas for all {n}:\n{names}", current, 0, 10000)
+            olds = {id(r): (r.raw.get("spec") or {}).get("replicas", 1) for r in rows}
+            text, ok = QInputDialog.getText(
+                self, f"Scale {n} {kind}s",
+                f"New replicas for each of the {n} {kind}s:\n{names}\n\n"
+                "Enter a number, or change each one relative to its own count:\n"
+                "*2 double   /2 halve (rounds up)   +1 add one   -1 remove one", text=str(olds[id(rows[0])]))
             if not ok:
                 return
-            olds = {id(r): (r.raw.get("spec") or {}).get("replicas", 1) for r in rows}
-            self._bulk(f"Scaling {n} {kind}s to {count}", rows,
-                       lambda r: self.service.scale(kind, r.name, r.namespace, count),
-                       lambda r: self._scaled(kind, r, olds[id(r)], count), refresh=False)
+            try:
+                news = {id(r): parse_scale(text, olds[id(r)]) for r in rows}
+            except ValueError as e:
+                QMessageBox.warning(self, "Scale", str(e))
+                return
+            self._bulk(f"Scaling {n} {kind}s ({text.strip()})", rows,
+                       lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
+                       lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
         elif action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
             note = "\nForce uses zero grace period; finalizers still apply." if force else "\nController-managed pods will be recreated."
@@ -579,7 +764,9 @@ class ClusterWorkspace(QMainWindow):
             self._show_view("overview")  # refresh() below loads it
         self.refresh()
         self._ready = True
-        self._auto_timer.start()
+        if self.auto_action.isChecked():
+            self._auto_timer.start()
+        self._sync_watch()
 
     def refresh(self):
         """Reload the foreground tab plus the namespace list that feeds the toolbar filter.
@@ -592,6 +779,7 @@ class ClusterWorkspace(QMainWindow):
         key = self.foreground_key()
         if key in self.loaders and self.loaders[key][1]:
             self.load_view(key)
+        self._sync_watch()  # the watch follows the namespace
 
     def _set_namespaces(self, rows):
         self.ns_table.set_rows(rows)

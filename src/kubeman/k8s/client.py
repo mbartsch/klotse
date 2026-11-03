@@ -1,11 +1,12 @@
 from heapq import heappush, heapreplace
 
-from kubernetes import client, config
+from kubernetes import client, config, watch
+from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 
 
@@ -123,6 +124,7 @@ class KubeService:
     def __init__(self):
         self._core = None
         self._apps = None
+        self._custom = None
 
     @staticmethod
     def load_contexts():
@@ -149,7 +151,9 @@ class KubeService:
         self._core = core
         self._apps = client.AppsV1Api(api)
         self._apis = {"core": core, "apps": self._apps, "batch": client.BatchV1Api(api),
-                      "net": client.NetworkingV1Api(api), "storage": client.StorageV1Api(api)}
+                      "net": client.NetworkingV1Api(api), "storage": client.StorageV1Api(api),
+                      "ext": client.ApiextensionsV1Api(api)}
+        self._custom = client.CustomObjectsApi(api)
 
     def create_namespace(self, body):
         return map_namespace(self._core.create_namespace(body))
@@ -221,6 +225,93 @@ class KubeService:
             if not token:
                 break
 
+    # ---- change watches: the UI reloads the visible list when one of these fires -------
+    def watch_targets(self, key, namespace=None):
+        """List calls to watch for a view: [(list_fn, args)]. Empty for views that are only polled."""
+        core, apps = self._core, self._apps
+        scoped = lambda api, snake: ((getattr(api, f"list_namespaced_{snake}"), (namespace,)) if namespace
+                                     else (getattr(api, f"list_{snake}_for_all_namespaces"), ()))
+        if key == "overview":
+            return [(core.list_node, ()), scoped(core, "pod")]
+        if key == "workloads":
+            return [scoped(core, "pod")]
+        if key == "nodes":
+            return [(core.list_node, ())]
+        if key == "namespaces":
+            return [(core.list_namespace, ())]
+        if key == "pods":
+            return [scoped(core, "pod")]
+        simple = {"deployments": "deployment", "replicasets": "replica_set", "statefulsets": "stateful_set"}
+        if key in simple:
+            return [scoped(apps, simple[key])]
+        spec = SPEC_BY_KEY.get(key)
+        if spec is None:
+            return []
+        api = self._apis[spec.api]
+        if not spec.namespaced:
+            return [(getattr(api, f"list_{spec.snake}"), ())]
+        return [scoped(api, spec.snake)]
+
+    @staticmethod
+    def watch_changes(fn, args, stop, timeout=20):
+        """Yield one item per change event of fn(*args) until `stop` is set. Starts from the current list
+        version, resumes after each server-side timeout, and restarts from a fresh version after a 410 Gone."""
+        version = None
+        while not stop.is_set():
+            try:
+                if version is None:
+                    version = fn(*args, limit=1, _request_timeout=15).metadata.resource_version
+                stream = watch.Watch()
+                for event in stream.stream(fn, *args, resource_version=version, timeout_seconds=timeout,
+                                           _request_timeout=timeout + 10):
+                    if stop.is_set():
+                        stream.stop()
+                        return
+                    obj = event.get("object")
+                    if event.get("type") == "ERROR" or isinstance(obj, dict):
+                        version = None
+                        break
+                    version = obj.metadata.resource_version or version
+                    if event["type"] != "BOOKMARK":
+                        yield event["type"]
+            except ApiException:
+                version = None
+                if stop.wait(2):
+                    return
+            except Exception:
+                version = None
+                if stop.wait(5):  # network trouble: back off, then start over
+                    return
+
+    # ---- metrics-server (optional): every call degrades to "no data" ------
+    def _metrics(self, plural, namespace=None):
+        """Items of metrics.k8s.io/v1beta1 <plural>, or [] when metrics-server is missing or not permitted."""
+        try:
+            if namespace:
+                page = self._custom.list_namespaced_custom_object(
+                    "metrics.k8s.io", "v1beta1", namespace, plural, _request_timeout=10)
+            else:
+                page = self._custom.list_cluster_custom_object("metrics.k8s.io", "v1beta1", plural, _request_timeout=10)
+            return page.get("items") or []
+        except Exception:
+            return []
+
+    def node_usage(self):
+        """{node name: (cores, GiB)} currently in use."""
+        return {i["metadata"]["name"]: (float(parse_quantity(i["usage"].get("cpu", 0))),
+                                        float(parse_quantity(i["usage"].get("memory", 0))) / 2**30)
+                for i in self._metrics("nodes")}
+
+    def pod_usage(self, namespace=None):
+        """{(namespace, pod): (cores, MiB)} summed over containers."""
+        usage = {}
+        for i in self._metrics("pods", namespace):
+            containers = i.get("containers") or []
+            usage[(i["metadata"].get("namespace", ""), i["metadata"]["name"])] = (
+                sum(float(parse_quantity(c["usage"].get("cpu", 0))) for c in containers),
+                sum(float(parse_quantity(c["usage"].get("memory", 0))) for c in containers) / 2**20)
+        return usage
+
     def list_namespaces(self):
         return [map_namespace(n) for n in self._iter_list(self._core.list_namespace)]
 
@@ -228,10 +319,32 @@ class KubeService:
         api = self._core
         items = (self._iter_list(api.list_namespaced_pod, namespace) if namespace
                  else self._iter_list(api.list_pod_for_all_namespaces))
-        return [map_pod(p) for p in items]
+        rows = [map_pod(p) for p in items]
+        usage = self.pod_usage(namespace)
+        for r in rows:
+            if (r.namespace, r.name) in usage:
+                r.cpu_used, r.mem_used = usage[(r.namespace, r.name)]
+        return rows
 
     def list_nodes(self):
-        return [map_node(n) for n in self._iter_list(self._core.list_node)]
+        rows = [map_node(n) for n in self._iter_list(self._core.list_node)]
+        usage = self.node_usage()
+        for r in rows:
+            if r.name in usage:
+                r.cpu_used, r.mem_used = usage[r.name]
+        return rows
+
+    def node_pod_counts(self, names):
+        """{node: number of pods that are not finished} for just these nodes (one small query per node)."""
+        counts = {}
+        for name in names:
+            selector = f"spec.nodeName={name},status.phase!=Succeeded,status.phase!=Failed"
+            try:
+                counts[name] = sum(1 for _ in self._iter_list(self._core.list_pod_for_all_namespaces,
+                                                              field_selector=selector))
+            except Exception:
+                continue  # leave that node uncounted rather than failing the others
+        return counts
 
     def list_node_pods(self, node):
         return [map_pod(p) for p in self._iter_list(self._core.list_pod_for_all_namespaces,
@@ -269,6 +382,26 @@ class KubeService:
         if namespace:
             return self._iter_list(getattr(api, f"list_namespaced_{spec.snake}"), namespace)
         return self._iter_list(getattr(api, f"list_{spec.snake}_for_all_namespaces"))
+
+    def list_custom_objects(self, group, version, plural, namespaced, namespace=None):
+        """Instances of a custom resource: one namespace, or every namespace for a namespaced kind."""
+        api = self._custom
+        if namespaced and namespace:
+            fn, args = api.list_namespaced_custom_object, (group, version, namespace, plural)
+        else:  # cluster-scoped kinds, or a namespaced kind across all namespaces
+            fn, args = api.list_cluster_custom_object, (group, version, plural)
+        return [map_custom_object(i) for i in self._iter_dicts(fn, *args)]
+
+    @staticmethod
+    def _iter_dicts(fn, *args):
+        """Like _iter_list, but custom objects come back as plain dicts."""
+        token = None
+        while True:
+            page = fn(*args, limit=500, _continue=token, _request_timeout=30)
+            yield from page.get("items") or []
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                break
 
     def _overview_events(self, namespace=None):
         """One streaming pass: (newest 25 events, warning count, newest warnings for the drill-down)."""
@@ -317,6 +450,10 @@ class KubeService:
             "cpu": f"{cpu:.1f} cores", "memory": f"{mem:.2f} GiB",
             "warnings": warnings,
         })
+        used = self.node_usage()
+        if used:  # metrics-server present: the overview draws usage bars against allocatable
+            counts["usage"] = {"cpu": (sum(u[0] for u in used.values()), cpu),
+                               "memory": (sum(u[1] for u in used.values()), mem)}
         return {"counts": counts, "events": events, "lists": lists}
 
     def overview_workloads(self, namespace=None):

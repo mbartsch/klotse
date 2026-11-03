@@ -139,6 +139,33 @@ def map_storageclass(s):
                  default="yes" if default else "")
 
 
+def crd_version(crd):
+    """The version to browse: the storage version when served, else the first served one."""
+    versions = [v for v in crd.spec.versions or [] if v.served]
+    return next((v.name for v in versions if v.storage), versions[0].name if versions else "")
+
+
+def map_crd(c):
+    sp = c.spec
+    return _base(c, group=sp.group, kind=sp.names.kind, scope=sp.scope, plural=sp.names.plural, version=crd_version(c),
+                 versions=",".join(v.name for v in sp.versions or [] if v.served))
+
+
+def map_custom_object(item, namespaced=True):
+    """Row for one instance of a custom resource (a plain dict from the CustomObjects API)."""
+    meta = item.get("metadata") or {}
+    return Row(meta.get("name", ""), meta.get("namespace") or "", item, age=format_age(parse_timestamp(meta.get("creationTimestamp"))))
+
+
+def parse_timestamp(text):
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def map_event(e, lazy=False):
     """lazy=True defers serializing the manifest until the row's raw is first read (used for long drill-down lists)."""
     io = e.involved_object
@@ -195,6 +222,8 @@ SPECS = [
     Spec("storageclasses", "Storage Classes", "StorageClass", "storage_class", "storage", False,
          (("Name", "name"), ("Provisioner", "provisioner"), ("Reclaim Policy", "reclaim_policy"),
           ("Binding Mode", "binding_mode"), ("Expansion", "expansion"), ("Default", "default"), AGE), map_storageclass),
+    Spec("crds", "Custom Resource Definitions", "CustomResourceDefinition", "custom_resource_definition", "ext", False,
+         (("Name", "name"), ("Group", "group"), ("Kind", "kind"), ("Scope", "scope"), ("Versions", "versions"), AGE), map_crd),
     Spec("events", "Events", "Event", "event", "core", True,
          (("Type", "type"), ("Reason", "reason"), ("Object", "object"), ("Message", "message"), NS,
           ("Count", "count"), ("Last Seen", "last_seen")), map_event, editable=False),

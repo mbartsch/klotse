@@ -20,6 +20,7 @@ VIEWS = [
                  ("persistentvolumes", "Persistent Volumes"), ("storageclasses", "Storage Classes")], False),
     ("namespaces", "Namespaces"),
     ("events", "Events"),
+    ("Custom Resources", [("crds", "Definitions")], False),
 ]
 
 

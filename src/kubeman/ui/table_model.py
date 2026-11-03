@@ -38,6 +38,12 @@ class TableModel(QAbstractTableModel):
                     for key, value in (metadata.get(field) or {}).items()))
         self.endResetModel()
 
+    def refresh_column(self, attr):
+        """Repaint one column after its values were changed in place."""
+        col = next((i for i, c in enumerate(self.columns) if c[1] == attr), -1)
+        if col >= 0 and self.rows:
+            self.dataChanged.emit(self.index(0, col), self.index(len(self.rows) - 1, col))
+
     def set_columns(self, columns):
         self.beginResetModel()
         self.columns = list(columns)
