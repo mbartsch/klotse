@@ -86,9 +86,13 @@ def test_overview_only_serializes_recent_events(monkeypatch):
     serialized = []
     original = resources.to_dict
     monkeypatch.setattr(resources, 'to_dict', lambda e: (serialized.append(e), original(e))[1])
-    recent, warnings = svc._overview_events()
-    assert warnings == 500 and len(serialized) == 25
+    recent, warnings, warned = svc._overview_events()
+    assert warnings == 500 and len(serialized) == 25  # the 500 drill-down warnings are not serialized up front
     assert [row.name for row in recent] == [str(i) for i in range(999, 974, -1)]
+    # drill-down: every warning (newest first), each manifest serialized only when its row is first read
+    assert [row.name for row in warned[:3]] == ['999', '997', '995'] and len(warned) == 500
+    assert warned[0].raw['metadata']['name'] == '999' and len(serialized) == 26
+    assert warned[0].raw is warned[0].raw and len(serialized) == 26  # cached after the first read
 
 
 def test_overview_pods_skips_manifest_serialization(monkeypatch):
@@ -100,7 +104,9 @@ def test_overview_pods_skips_manifest_serialization(monkeypatch):
     svc._core = SimpleNamespace(list_pod_for_all_namespaces=lambda **kw:
         SimpleNamespace(items=[pod] * 10000, metadata=None))
     monkeypatch.setattr(module, '_raw', lambda _: pytest.fail('Overview serialized a pod manifest'))
-    assert svc._overview_pods() == {'pods': 10000, 'running': 10000, 'pending': 0, 'failed': 0}
+    counts, problems = svc._overview_pods()
+    assert counts == {'pods': 10000, 'running': 10000, 'pending': 0, 'failed': 0}
+    assert problems == {'pending': [], 'failed': []}  # healthy pods are never kept for the drill-down
 
 
 def test_large_table_initial_load_and_filter(qtbot):
@@ -188,13 +194,13 @@ def test_workload_overview_counts_pages_without_mapping_manifests(namespace, mon
     for kind in ('job', 'cron_job'):
         setattr(svc._apis['batch'], f'list_{kind}_for_all_namespaces', listing)
         setattr(svc._apis['batch'], f'list_namespaced_{kind}', listing)
-    svc._overview_pods = lambda ns: {'pods': 3, 'running': 2, 'pending': 1, 'failed': 0}
-    svc._overview_events = lambda ns: ([], 4)
+    svc._overview_pods = lambda ns: ({'pods': 3, 'running': 2, 'pending': 1, 'failed': 0}, {'pending': [], 'failed': []})
+    svc._overview_events = lambda ns: ([], 4, [])
     monkeypatch.setattr(module, '_raw', lambda _: pytest.fail('Count-only path serialized a manifest'))
     data = svc.overview_workloads(namespace)
     assert data == {'counts': {'pods': 3, 'running': 2, 'pending': 1, 'failed': 0, 'warnings': 4,
                               **{k: 2 for k in ('deployments', 'replicasets', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs')}},
-                    'events': []}
+                    'events': [], 'lists': {'pending': [], 'failed': [], 'warnings': []}}
     assert len(calls) == 12
     assert all(args == ((namespace,) if namespace else ()) for args, _ in calls)
 
@@ -223,8 +229,8 @@ def test_cluster_overview_uses_numeric_node_units_without_serializing(monkeypatc
     svc._core = SimpleNamespace(
         list_node=lambda **kw: SimpleNamespace(items=[node], metadata=None),
         list_namespace=lambda **kw: SimpleNamespace(items=[object()], metadata=None))
-    svc._overview_pods = lambda: {'pods': 3, 'running': 2, 'pending': 1, 'failed': 0}
-    svc._overview_events = lambda: ([], 4)
+    svc._overview_pods = lambda: ({'pods': 3, 'running': 2, 'pending': 1, 'failed': 0}, {'pending': [], 'failed': []})
+    svc._overview_events = lambda: ([], 4, [])
     monkeypatch.setattr(module, '_raw', lambda _: pytest.fail('Overview serialized a node manifest'))
     counts = svc.overview_cluster()['counts']
     assert counts['cpu'] == '1.5 cores' and counts['memory'] == '8.00 GiB'

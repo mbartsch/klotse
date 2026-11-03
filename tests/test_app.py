@@ -109,8 +109,10 @@ class FakeService:
     def overview_cluster(self):
         ev = Row("e1", "default", {"kind": "Event"}, type="Warning", reason="BackOff", object="Pod/web",
                  message="restarting", count=3, last_seen="1m")
+        failed = [PodRow(f"broken-{i}", "default", "0/1", "CrashLoopBackOff", 5, "n1", "1d",
+                         {"kind": "Pod", "spec": {"containers": [{"name": "app"}]}}) for i in range(2)]
         return {"counts": {"nodes": 1, "nodes_ready": 1, "pods": 1, "running": 1, "pending": 0, "failed": 2,
-                           "cpu": "4 cores"}, "events": [ev]}
+                           "cpu": "4 cores"}, "events": [ev], "lists": {"pending": [], "failed": failed, "warnings": [ev]}}
 
     def overview_workloads(self, namespace=None):
         return {"counts": {"pods": 7, "running": 7, "deployments": 3}, "events": []}
@@ -746,3 +748,102 @@ def test_network_policy_mapper_and_registry():
     assert spec.kind == "NetworkPolicy" and spec.namespaced and spec.editable and SPEC_BY_KIND["NetworkPolicy"] is spec
     assert [c[0] for c in spec.columns] == ["Name", "Namespace", "Pod Selector", "Policy Types", "Ingress rules",
                                             "Egress rules", "Age"]
+
+
+def _overview_data(pending=0, failed=2, warnings=3):
+    def pods(n, status):
+        return [PodRow(f"{status.lower()}-{i}", "default", "0/1", status, 3, "n1", "1d",
+                       {"kind": "Pod", "spec": {"containers": [{"name": "c"}]}}) for i in range(n)]
+
+    def ev(i):
+        return Row(f"w{i}", "default", {"kind": "Event"}, type="Warning", reason="BackOff", object="Pod/x",
+                   message="m", count=1, last_seen="1m")
+
+    return {"counts": {"pods": 9, "running": 7, "pending": pending, "failed": failed, "warnings": warnings},
+            "events": [ev(0)],
+            "lists": {"pending": pods(pending, "Pending"), "failed": pods(failed, "CrashLoopBackOff"),
+                      "warnings": [ev(i) for i in range(warnings)]}}
+
+
+def test_overview_cards_drill_down_on_click(qtbot):
+    from PySide6.QtCore import Qt
+
+    from kubeman.ui.overview import CLUSTER_CARDS, OverviewView
+
+    view = OverviewView(CLUSTER_CARDS)
+    qtbot.addWidget(view)
+    view.show()
+    view.set_data(_overview_data(pending=0, failed=2, warnings=3))
+    c = view.cards
+    assert c["failed"]._clickable and c["warnings"]._clickable
+    assert not c["pending"]._clickable and not c["pods"]._clickable and not c["running"]._clickable  # nothing behind them
+    assert view.title.text() == "Recent events" and view.stack.currentWidget() is view.events_table and not view.back.isVisible()
+
+    qtbot.mouseClick(c["pending"], Qt.LeftButton)  # a zero count does not open anything
+    assert view.focus is None
+    qtbot.mouseClick(c["failed"], Qt.LeftButton)
+    assert view.focus == "failed" and view.stack.currentWidget() is view.pods_table
+    assert view.title.text() == "Failed pods (2)" and view.pods_table.model.rowCount() == 2
+    assert [r.status for r in view.pods_table.model.rows] == ["CrashLoopBackOff"] * 2
+    assert view.back.isVisible()
+    assert c["failed"].styleSheet().startswith("Card { border: 1px solid #3d7eff")  # the open card is outlined
+    assert c["warnings"].styleSheet().startswith("Card { border: 1px solid #2b2f38")  # the others keep the normal border
+
+    qtbot.mouseClick(c["warnings"], Qt.LeftButton)  # switch straight to another card
+    assert view.focus == "warnings" and view.stack.currentWidget() is view.warnings_table
+    assert view.title.text() == "Warning events (3)" and view.warnings_table.model.rowCount() == 3
+    qtbot.mouseClick(c["warnings"], Qt.LeftButton)  # clicking the selected card again closes it
+    assert view.focus is None and view.title.text() == "Recent events" and view.stack.currentWidget() is view.events_table
+
+    qtbot.mouseClick(c["failed"], Qt.LeftButton)
+    qtbot.mouseClick(view.back, Qt.LeftButton)  # or use the button
+    assert view.focus is None and not view.back.isVisible()
+
+
+def test_overview_drill_down_follows_refreshes_and_clears_when_resolved(qtbot):
+    from PySide6.QtCore import Qt
+
+    from kubeman.ui.overview import CLUSTER_CARDS, OverviewView
+
+    view = OverviewView(CLUSTER_CARDS)
+    qtbot.addWidget(view)
+    view.show()
+    view.set_data(_overview_data(failed=2))
+    qtbot.mouseClick(view.cards["failed"], Qt.LeftButton)
+    view.set_data(_overview_data(failed=1))  # a refresh keeps the open list and updates it in place
+    assert view.focus == "failed" and view.title.text() == "Failed pods (1)" and view.pods_table.model.rowCount() == 1
+    view.set_data(_overview_data(failed=0))  # all fixed: the empty list closes itself
+    assert view.focus is None and view.stack.currentWidget() is view.events_table and not view.cards["failed"]._clickable
+    assert not view.back.isVisible() and view.title.text() == "Recent events"
+    view.set_data({"counts": {"failed": 3}, "events": []})  # data without drill-down lists (older service) is tolerated
+    assert not view.cards["failed"]._clickable
+
+
+def test_workspace_overview_drill_down_pods_have_pod_actions(qtbot):
+    from PySide6.QtCore import Qt
+
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    ws = win.workspace("ctx")
+    qtbot.waitUntil(lambda: ws.overview.cards["failed"].value.text() == "2", timeout=5000)
+    qtbot.mouseClick(ws.overview.cards["failed"], Qt.LeftButton)
+    assert ws.overview.pods_table.model.rowCount() == 2
+    ws.overview.pods_table.view.selectRow(0)  # selecting a row shows its YAML in the details dock
+    assert "kind: Pod" in ws.detail.toPlainText()
+    row = ws.overview.pods_table.model.rows[0]
+    ws.overview.pods_table.action_requested.emit("logs", row)  # the right-click Logs/Shell/Terminate actions work here too
+    assert ws.log_tabs.count() == 1 and ws.log_tabs.tabText(0) == "Logs: broken-0"
+    ws.shutdown()
+
+
+def test_pod_bucket_and_keep_newest_helpers():
+    from kubeman.k8s.client import keep_newest, pod_bucket
+
+    assert [pod_bucket(s) for s in ("Running", "Succeeded", "Completed", "Pending", "ContainerCreating", "Init:0/2",
+                                    "Terminating", "CrashLoopBackOff", "ImagePullBackOff", "Failed", "Evicted")] == [
+        "running", "done", "done", "pending", "pending", "pending", "pending", "failed", "failed", "failed", "failed"]
+    heap = []
+    for seq, ts in enumerate([5, 1, 9, 3, 7, 9]):  # ties on ts must not compare the payloads (objects here)
+        keep_newest(heap, 3, ts, seq, object())
+    assert sorted((t, s) for t, s, _ in heap) == [(7, 4), (9, 2), (9, 5)]  # the 3 newest survive; the bound holds
+    assert len(heap) == 3
