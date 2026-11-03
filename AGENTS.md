@@ -60,10 +60,10 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/kubeman/k8s/models.py` | Dataclass rows for namespaces, pods, nodes, and core workloads. Pod/Node rows carry usage fields (`cpu_used`, `mem_used`, `-1` = unknown); Node rows also carry `pods` (`-1` = not counted). |
 | `src/kubeman/k8s/resources.py` | Generic Row, resource mappers (including CRDs and custom objects), secret masking, and SPECS registry for additional resource views. |
 | `src/kubeman/k8s/util.py` | Age formatting and Kubernetes model serialization. |
-| `src/kubeman/ui/main_window.py` | Cluster navigator/workspace shell, visible Exit button, menus, and shared customization settings. The Customizations menu offers Pod or Node label columns only while a list of that kind is in front. |
+| `src/kubeman/ui/main_window.py` | Cluster navigator/workspace shell, visible Exit button, menus, and shared customization settings. Label-column customization is opened from the tabs (see `resource_table.py`). |
 | `src/kubeman/ui/workspace.py` | One cluster's resource tabs (including per-node pods, per-pod, and per-CRD tabs), namespace scope, detail/activity docks, asynchronous loading, auto-refresh and watches, node pod counts, and single and bulk resource actions. |
 | `src/kubeman/ui/navigator.py` | Context connection states and grouped view navigation (including the Custom Resources group). |
-| `src/kubeman/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, extended selection with bulk menus, context menus, per-kind double-click actions, a header-widget slot, and a debounced `visible_changed` signal with `visible_rows()`. |
+| `src/kubeman/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, extended selection with bulk menus, an optional Columns… button (Nodes, Pods, pods-on-node tabs), context menus, per-kind double-click actions, a header-widget slot, and a debounced `visible_changed` signal with `visible_rows()`. |
 | `src/kubeman/ui/table_model.py` | Display/sort/search roles, numeric age sorting, label lookups, condition/header tooltips, and in-place `refresh_column`. |
 | `src/kubeman/ui/overview.py` | Cluster/workload cards, bounded pod/event drill-down tables, and CPU/memory usage bars (hidden without metrics). |
 | `src/kubeman/ui/detail_panel.py` | Read-only YAML and searchable multi-key secret decoding. |
@@ -116,7 +116,7 @@ Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, an
 - Numeric CPU/memory values remain numeric for sorting, with separate display formatting.
 - Nodes filter across visible values plus label and annotation keys/values. Cached metadata search text is rebuilt when rows change.
 - Nodes show `karpenter.sh/nodepool` as `NodePool` immediately after Roles by default. A missing label displays an empty cell.
-- Customizations has separate ordered label lists for Nodes and Pods. Pod label columns follow Name. Changes update existing workspaces, overview pod tables, and node-specific pod tabs, and apply to subsequently opened workspaces/tabs.
+- Label columns are customized from a **Columns…** button next to the filter on the Nodes, Pods, and pods-on-node tabs (there is no global Customizations menu). It has separate ordered label lists for Nodes and Pods. Pod label columns follow Name. Changes update existing workspaces, overview pod tables, and node-specific pod tabs, and apply to subsequently opened workspaces/tabs.
 - Label-column model attributes use `label:<original-key>`. A short heading changes presentation only; lookups and tooltips retain the original Kubernetes key.
 - The dialog accepts one key per line, optionally `key = Short heading`, for example:
 
@@ -192,13 +192,13 @@ PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/tes
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_containers.py tests/test_node_actions.py tests/test_exit.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_manifest.py tests/test_secret_decode.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_bulk.py tests/test_auto_refresh.py tests/test_watch.py tests/test_metrics.py
-PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_node_pods.py tests/test_node_bar.py tests/test_pod_tab.py tests/test_customization_menu.py
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_node_pods.py tests/test_node_bar.py tests/test_pod_tab.py tests/test_inline_customizations.py
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_performance.py::test_large_table_initial_load_and_filter
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python scripts/benchmark_large_cluster.py --pods 10000
 git diff --check
 ```
 
-- `test_app.py` covers the app shell, navigation, views, resource mapping/actions, logs, scaling, CRDs, and numeric formatting. New feature tests are split by the filenames above (bulk actions, auto-refresh/namespace selector, watches, metrics, node pod counts, node action bar, pod tabs, customization menu).
+- `test_app.py` covers the app shell, navigation, views, resource mapping/actions, logs, scaling, CRDs, and numeric formatting. New feature tests are split by the filenames above (bulk actions, auto-refresh/namespace selector, watches, metrics, node pod counts, node action bar, pod tabs, inline label-column customization).
 - Use fake services, synthetic Kubernetes objects, monkeypatched terminals, and local child processes. Local validation must not mutate a real cluster merely to exercise UI code.
 - Wait for asynchronous callbacks/loading to finish before tearing down fixtures. Keep owning windows alive; QWidget/QObject ownership and pending events matter with PySide6.
 - Qt enum comparisons should use the class enum, e.g. `QDialog.Accepted`, not `dialog.Accepted`. The latter caused an actual DrainDialog/NodeShellDialog traceback and was fixed.
@@ -210,7 +210,7 @@ git diff --check
 
 ### Validation snapshot
 
-At the last check the full offline suite reported **168 passed** (counts are snapshots; rerun after edits). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
+At the last check the full offline suite reported **170 passed** (counts are snapshots; rerun after edits). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
 
 Known, unresolved: after all tests pass the pytest process can still exit non-zero (139 segfault, or 127) when a test that builds a `ClusterWorkspace` is followed by a test that runs a background worker. It also happens on `master` from before these features; it is intermittent and did not go away with deferred worker cleanup, parenting `QSettings`, or draining the thread pool. Single test files usually exit 0 (not reliably; `test_bulk.py` and `test_performance.py` have crashed on their own), while the full run exited 127 at the last check. Do not report a passing count as proof of a clean exit, and check the process exit status separately.
 

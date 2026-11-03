@@ -65,6 +65,7 @@ class ClusterWorkspace(QMainWindow):
     state = Signal(str)  # connecting | connected | failed
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
+    customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
 
     def __init__(self, service, context, parent=None, label_settings=None):
         super().__init__(parent)
@@ -135,6 +136,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.pods_table.action_requested.connect(self.pod_action)
                 widget.pods_table.bulk_requested.connect(self.bulk_action)
             if isinstance(widget, ResourceTable):
+                widget.customize_requested.connect(self.customize_requested)
                 widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
@@ -178,12 +180,13 @@ class ClusterWorkspace(QMainWindow):
     def _build_views(self):
         T = ResourceTable
         self.ns_table = T([("Name", "name"), ("Status", "status"), ("Age", "age"), ("Labels", "labels")], "Namespace")
-        self.pod_table = T(POD_COLUMNS, "Pod")
+        self.pod_table = T(POD_COLUMNS, "Pod", customizable=True)
         self.node_table = T([("Name", "name"), ("Status", "status"), ("Roles", "roles"), ("Version", "version"),
-                           ("IP", "ip"), ("Pods", "pods", metric_format(str)), ("CPU (cores)", "cpu", lambda v: f"{v:.1f}"),
+                           ("IP", "ip"), ("Pods", "pods", lambda v: str(v) if v >= 0 else "--"), ("CPU (cores)", "cpu", lambda v: f"{v:.1f}"),
                              ("Memory (GiB)", "memory", lambda v: f"{v:.2f}"),
                              ("CPU used", "cpu_used", metric_format(lambda v: f"{v:.2f}")),
-                             ("Mem used (GiB)", "mem_used", metric_format(lambda v: f"{v:.2f}")), ("Age", "age")], "Node")
+                             ("Mem used (GiB)", "mem_used", metric_format(lambda v: f"{v:.2f}")), ("Age", "age")], "Node",
+                             customizable=True)
         self.rs_table = T([("Name", "name"), ("Namespace", "namespace"), ("Desired", "desired"), ("Current", "current"),
                            ("Ready", "ready"), ("Owner", "owner"), ("Age", "age")], "ReplicaSet")
         self.deploy_table = T([("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"),
@@ -262,10 +265,6 @@ class ClusterWorkspace(QMainWindow):
     def foreground_key(self):
         widget = self.tabs.currentWidget()
         return getattr(widget, "view_key", None)
-
-    def foreground_kind(self):
-        """Resource kind of the list in front ("Pod", "Node", …), or None for overviews and log tabs."""
-        return getattr(self.tabs.currentWidget(), "kind", None)
 
     def load_foreground(self):
         """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads)."""
@@ -735,7 +734,8 @@ class ClusterWorkspace(QMainWindow):
             bar = self._node_bars[node][0]
             bar.set_row(self._node_row(node) or row, gone=False)
         else:
-            table = ResourceTable(POD_COLUMNS, "Pod")
+            table = ResourceTable(POD_COLUMNS, "Pod", customizable=True)
+            table.customize_requested.connect(self.customize_requested)
             bar = NodeActionBar(node)
             bar.set_row(self._node_row(node) or row, gone=False)
             bar.action_requested.connect(lambda action, n=node: self._node_bar_action(action, n))

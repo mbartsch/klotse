@@ -1,7 +1,7 @@
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
-                               QTabWidget, QToolBar, QToolButton, QWidget)
+                               QTabWidget, QToolBar, QWidget)
 
 from .customizations import LabelColumnsDialog, LabelSettings
 from .log_view import shutdown_all
@@ -30,23 +30,9 @@ class MainWindow(QMainWindow):
         self.exit_action.setMenuRole(QAction.QuitRole)
         self.exit_action.triggered.connect(self.close)
         self.menuBar().addMenu("File").addAction(self.exit_action)
-        self.customizations_menu = self.menuBar().addMenu("Customizations")
-        # one entry per kind, shown only while a list of that kind is in front (see _update_customizations)
-        self.customization_actions = {}
-        for kind in ("Node", "Pod"):
-            self.customization_actions[kind] = self.customizations_menu.addAction(
-                f"{kind} label columns…", lambda checked=False, k=kind: self.customize_labels(k))
-        self.no_customizations = self.customizations_menu.addAction("Nothing to customize in this view")
-        self.no_customizations.setEnabled(False)
-        self.customizations_menu.aboutToShow.connect(self._update_customizations)
-        self._update_customizations()
         self.exit_toolbar = QToolBar("Application", self)
         self.exit_toolbar.setMovable(False)
         self.exit_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.customizations_button = QToolButton(text="Customizations")
-        self.customizations_button.setPopupMode(QToolButton.InstantPopup)
-        self.customizations_button.setMenu(self.customizations_menu)
-        self.exit_toolbar.addWidget(self.customizations_button)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.exit_toolbar.addWidget(spacer)
@@ -95,17 +81,9 @@ class MainWindow(QMainWindow):
         ws.state.connect(lambda s, c=ctx: self._on_state(c, s))
         ws.failed.connect(lambda m, c=ctx: self._on_failed(c, m))
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
-        ws.view_opened.connect(lambda _key: self._update_customizations())
+        ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
         self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))
         ws.start()
-
-    def _update_customizations(self):
-        """Offer Pod columns on a pod list and Node columns on the Nodes list; nothing elsewhere."""
-        ws = self.clusters.currentWidget() if hasattr(self, "clusters") else None
-        kind = ws.foreground_kind() if ws is not None else None
-        for k, action in self.customization_actions.items():
-            action.setVisible(k == kind)
-        self.no_customizations.setVisible(kind not in self.customization_actions)
 
     def customize_labels(self, kind):
         available = set()

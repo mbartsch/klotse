@@ -134,7 +134,7 @@ def test_full_count_requested_while_busy_runs_afterwards(qtbot):
 def test_service_without_counting_support_leaves_column_blank(qtbot):
     ws = make_ws(qtbot, NS())
     ws._set_nodes([node("a")])
-    assert not ws._workers and pods_cell(ws, 0) == ""
+    assert not ws._workers and pods_cell(ws, 0) == "--"  # never counted: shown as unknown
 
 
 def test_all_node_pod_counts_service_one_pass_skips_unscheduled():

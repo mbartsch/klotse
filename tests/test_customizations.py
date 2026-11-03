@@ -97,8 +97,8 @@ def test_live_settings_update_all_workspaces_and_node_pod_tabs(qtbot, tmp_path):
     window = MainWindow(lambda: service, label_settings=config)
     qtbot.addWidget(window)
     window.show()
-    assert window.customizations_button.isVisible()
     workspace = window.workspace("ctx")
+    assert workspace.node_table.customize_button is not None and workspace.pod_table.customize_button is not None
     qtbot.waitUntil(lambda: workspace._opened_default and not workspace._loading)
     node_columns = workspace.node_table.model.columns
     roles = next(i for i, c in enumerate(node_columns) if c[1] == "roles")

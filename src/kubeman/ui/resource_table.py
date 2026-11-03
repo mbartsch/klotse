@@ -1,5 +1,6 @@
 from PySide6.QtCore import QElapsedTimer, QSortFilterProxyModel, Qt, Signal, QTimer
-from PySide6.QtWidgets import QAbstractItemView, QLabel, QLineEdit, QMenu, QTableView, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QTableView,
+                               QVBoxLayout, QWidget)
 
 from .table_model import TableModel
 
@@ -13,10 +14,11 @@ class ResourceTable(QWidget):
     scale_requested = Signal(str, object)
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
+    customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
 
-    def __init__(self, columns, kind, editable=True):
+    def __init__(self, columns, kind, editable=True, customizable=False):
         super().__init__()
         self.kind = kind
         self.editable = editable
@@ -64,8 +66,16 @@ class ResourceTable(QWidget):
         self.view.doubleClicked.connect(self._on_double_click)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context_menu)
+        top = QHBoxLayout()
+        top.addWidget(self.filter, 1)
+        self.customize_button = None
+        if customizable:  # Node and Pod lists: pick which labels become columns
+            self.customize_button = QPushButton("Columns…")
+            self.customize_button.setToolTip(f"Choose label columns for {kind.lower()} lists")
+            self.customize_button.clicked.connect(lambda: self.customize_requested.emit(kind))
+            top.addWidget(self.customize_button)
         lay = QVBoxLayout(self)
-        lay.addWidget(self.filter)
+        lay.addLayout(top)
         lay.addWidget(self.status)
         lay.addWidget(self.view)
 
