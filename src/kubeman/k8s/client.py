@@ -334,6 +334,16 @@ class KubeService:
                 r.cpu_used, r.mem_used = usage[r.name]
         return rows
 
+    def all_node_pod_counts(self):
+        """{node: unfinished pods} for every node that has any, from one pass over all pods (nothing is serialized)."""
+        counts = {}
+        for pod in self._iter_list(self._core.list_pod_for_all_namespaces,
+                                   field_selector="status.phase!=Succeeded,status.phase!=Failed"):
+            node = pod.spec.node_name
+            if node:
+                counts[node] = counts.get(node, 0) + 1
+        return counts
+
     def node_pod_counts(self, names):
         """{node: number of pods that are not finished} for just these nodes (one small query per node)."""
         counts = {}
@@ -345,6 +355,10 @@ class KubeService:
             except Exception:
                 continue  # leave that node uncounted rather than failing the others
         return counts
+
+    def read_pod(self, name, namespace):
+        """One pod, freshly read (for a pod's own tab)."""
+        return map_pod(self._core.read_namespaced_pod(name, namespace, _request_timeout=15))
 
     def list_node_pods(self, node):
         return [map_pod(p) for p in self._iter_list(self._core.list_pod_for_all_namespaces,

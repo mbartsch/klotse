@@ -1,6 +1,7 @@
 import re
-from time import perf_counter
+from time import monotonic, perf_counter
 
+from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
@@ -9,13 +10,14 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDockWidget, QInputDialog, QL
 from ..k8s.resources import SPECS
 from ..workers import Worker
 from .command_view import CommandView
-from .container_dialog import ContainerDialog, pod_containers
 from .customizations import LabelSettings
 from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
 from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
+from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
+from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
 from .resource_table import ResourceTable
 from .scale_monitor import ScaleMonitor
@@ -24,6 +26,8 @@ from .watcher import ChangeWatcher
 
 ALL_NS = "All namespaces"
 MAX_REPLICAS = 10000
+NODE_PODS_TTL_S = 20  # a node on screen is not recounted more often than this
+NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
 
 
 def parse_scale(text, current):
@@ -79,8 +83,12 @@ class ClusterWorkspace(QMainWindow):
         self._auto_timer = QTimer(self, interval=AUTO_REFRESH_MS)
         self._auto_timer.timeout.connect(self._auto_refresh)
         self._node_pods = {}  # node -> last counted pods, kept so a reload does not blank the column
-        self._node_pods_fresh = set()  # nodes counted since the last nodes load
-        self._node_pods_busy = self._node_pods_again = False
+        self._pod_tabs = {}  # view key -> {"row": PodRow, "bar": PodActionBar, "table": ResourceTable}
+        self._node_bars = {}  # node -> (action bar of its "pods on this node" tab, row it was opened from)
+        self._node_pods_at = {}  # node -> when it was last counted (monotonic seconds)
+        self._node_pods_busy = self._node_pods_all_again = False
+        self._node_pods_timer = QTimer(self, interval=NODE_PODS_REFRESH_MS)
+        self._node_pods_timer.timeout.connect(self._refresh_all_node_pods)
         self._watchers = []
         self._watched = None  # (view key, namespace) the running watches belong to
         self._watch_timer = QTimer(self, interval=WATCH_DEBOUNCE_MS, singleShot=True)
@@ -316,43 +324,69 @@ class ClusterWorkspace(QMainWindow):
         """Toolbar toggle: switches the periodic reload (and the change watches) on or off."""
         if enabled and self._ready and not self._closed:
             self._auto_timer.start()
+            self._node_pods_timer.start()
             self.load_foreground()
         else:
             self._auto_timer.stop()
+            self._node_pods_timer.stop()
         self._sync_watch()
 
-    # ---- pods per node, counted only for the rows on screen -------------------
+    # ---- pods per node ----------------------------------------------------------
+    # Every node is counted once when the list first loads (one pass over all pods). After that, rows are recounted
+    # as they come into sight, and everything is recounted every minute while auto-refresh is on.
     def _set_nodes(self, rows):
         for r in rows:
             r.pods = self._node_pods.get(r.name, -1)
-        self._node_pods_fresh.clear()  # counts are stale after a reload; the visible ones are counted again
         self.node_table.set_rows(rows)
+        for name, (bar, _) in self._node_bars.items():  # a real load: a node that is missing has been deleted
+            bar.set_row(self._node_row(name))
+        if any(r.name not in self._node_pods for r in rows):  # first load, or a node that just joined
+            self._count_node_pods(None)
 
-    def _update_node_pods(self):
-        if (self._closed or not self._ready or getattr(self.service, "node_pod_counts", None) is None
-                or not self.node_table.isVisible()):
+    def _count_node_pods(self, names):
+        """Count pods for `names` (one small query each), or for every node when names is None (one pass)."""
+        method = getattr(self.service, "all_node_pod_counts" if names is None else "node_pod_counts", None)
+        if self._closed or not self._ready or method is None:
             return
         if self._node_pods_busy:
-            self._node_pods_again = True
-            return
-        names = [r.name for r in self.node_table.visible_rows() if r.name not in self._node_pods_fresh]
-        if not names:
+            if names is None:
+                self._node_pods_all_again = True  # a full count is still wanted when the current one ends
             return
         self._node_pods_busy = True
-        self._run(lambda: self.service.node_pod_counts(names), lambda counts: self._node_pods_done(counts),
-                  on_error=lambda _msg: self._node_pods_done({}))
+        known = [r.name for r in self.node_table.model.rows]
+        self._run((method if names is None else (lambda: method(names))),
+                  lambda counts: self._node_pods_done(counts, names is None, known),
+                  on_error=lambda _msg: self._node_pods_done({}, False, known))
 
-    def _node_pods_done(self, counts):
+    def _node_pods_done(self, counts, full, known):
         self._node_pods_busy = False
+        if full:  # nodes without any pod are absent from the pass, so they count as zero
+            counts = {name: counts.get(name, 0) for name in known}
+        now = monotonic()
         self._node_pods.update(counts)
-        self._node_pods_fresh.update(counts)
+        self._node_pods_at.update(dict.fromkeys(counts, now))
         for r in self.node_table.model.rows:
             if r.name in counts:
                 r.pods = counts[r.name]
         self.node_table.model.refresh_column("pods")
-        if self._node_pods_again:
-            self._node_pods_again = False
-            self._update_node_pods()
+        if self._node_pods_all_again:
+            self._node_pods_all_again = False
+            self._count_node_pods(None)
+
+    def _update_node_pods(self):
+        """Rows came into sight (scroll, filter, sort, resize): recount the ones not counted lately."""
+        if self._closed or not self._ready or not self.node_table.isVisible():
+            return
+        now = monotonic()
+        names = [r.name for r in self.node_table.visible_rows()
+                 if now - self._node_pods_at.get(r.name, float("-inf")) > NODE_PODS_TTL_S]
+        if names:
+            self._count_node_pods(names)
+
+    def _refresh_all_node_pods(self):
+        """Minute tick: recount every node in the background (auto-refresh on, cluster showing, nodes loaded)."""
+        if self.auto_action.isChecked() and self._showing() and self.node_table.model.rows:
+            self._count_node_pods(None)
 
     def _crd_action(self, action, row):
         if action == "open-crd":
@@ -454,6 +488,7 @@ class ClusterWorkspace(QMainWindow):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
         self._auto_timer.stop()
+        self._node_pods_timer.stop()
         self._stop_watchers()
         self._pending_loads.clear()
         for i in range(self.log_tabs.count()):
@@ -618,7 +653,7 @@ class ClusterWorkspace(QMainWindow):
 
     def node_action(self, action, row):
         if action == "node-pods":
-            self.open_node_pods(row.name)
+            self.open_node_pods(row.name, row)
         elif action in ("cordon", "uncordon"):
             verb = "Cordon" if action == "cordon" else "Uncordon"
             effect = "Prevent new pods from scheduling here." if action == "cordon" else "Allow new pods to schedule here."
@@ -681,11 +716,31 @@ class ClusterWorkspace(QMainWindow):
             return
         self.message.emit(f"{self.context} / {name}: {message}")
         self.refresh()
+        if self._node_bars and self.foreground_key() != "nodes":  # keep the node action bars current (cordoned, gone)
+            self.load_view("nodes")
 
-    def open_node_pods(self, node):
+    def _node_row(self, name):
+        return next((r for r in self.node_table.model.rows if r.name == name), None)
+
+    def _node_bar_action(self, action, node):
+        row = self._node_row(node) or self._node_bars[node][1]
+        if row is None:
+            self._on_error(f"Node {node} is not loaded. Open the Nodes list first.")
+            return
+        self.node_action(action, row)
+
+    def open_node_pods(self, node, row=None):
         key = f"node-pods:{node}"
-        if key not in self.views:
+        if key in self.views:
+            bar = self._node_bars[node][0]
+            bar.set_row(self._node_row(node) or row, gone=False)
+        else:
             table = ResourceTable(POD_COLUMNS, "Pod")
+            bar = NodeActionBar(node)
+            bar.set_row(self._node_row(node) or row, gone=False)
+            bar.action_requested.connect(lambda action, n=node: self._node_bar_action(action, n))
+            self._node_bars[node] = (bar, row)
+            table.set_header_widget(bar)
             table.set_label_columns(self.label_settings.labels("Pod"), self.label_settings.headers("Pod"))
             table.view_key = key
             table.filter.setPlaceholderText(f"Filter pods on {node} (all namespaces)…")
@@ -699,9 +754,7 @@ class ClusterWorkspace(QMainWindow):
 
     def pod_action(self, action, row):
         if action == "containers":
-            dialog = ContainerDialog(self.context, row, self)
-            dialog.action_requested.connect(lambda a, c: self._container_action(a, row, c))
-            dialog.exec()
+            self.open_pod_tab(row)
             return
         if action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
@@ -731,6 +784,53 @@ class ClusterWorkspace(QMainWindow):
             open_terminal(argv)
         except Exception as e:
             self._on_error(f"{type(e).__name__}: {e}")
+
+    def open_pod_tab(self, row):
+        """Open (or focus) a tab for one pod: its containers, with Logs / Shell / Attach per container."""
+        key = f"pod:{row.namespace}/{row.name}"
+        if key in self._pod_tabs:
+            self._pod_tabs[key]["row"] = row
+            self._set_pod_tab(key, row)
+            self.open_view(key)
+            return
+        table = ResourceTable(CONTAINER_COLUMNS, "Container", editable=False)
+        table.view_key = key
+        bar = PodActionBar()
+        table.set_header_widget(bar)
+        table.selected.connect(self.detail.show_row)
+        self._pod_tabs[key] = {"row": row, "bar": bar, "table": table}
+        table.action_requested.connect(
+            lambda action, container, k=key: self._container_action(action, self._pod_tabs[k]["row"], container.name))
+        bar.action_requested.connect(lambda action, k=key: self._pod_tab_action(k, action))
+        self.views[key] = (table, f"Pod: {row.name}")
+
+        def fetch(_namespace):
+            try:
+                return self.service.read_pod(row.name, row.namespace)
+            except ApiException as e:
+                if e.status == 404:
+                    return None  # deleted or replaced
+                raise
+
+        self.loaders[key] = (fetch, False, lambda fresh, k=key: self._set_pod_tab(k, fresh))
+        self._set_pod_tab(key, row)
+        self.open_view(key)
+
+    def _set_pod_tab(self, key, row):
+        tab = self._pod_tabs[key]
+        if row is None:  # the pod is gone: keep the last containers on screen, disable the actions
+            tab["bar"].set_gone(tab["row"].name)
+            return
+        tab["row"] = row
+        tab["bar"].set_row(row)
+        tab["table"].set_rows(container_rows(row.raw))
+
+    def _pod_tab_action(self, key, action):
+        row = self._pod_tabs[key]["row"]
+        if action == "edit":
+            self.edit_resource("Pod", row)
+        else:
+            self.pod_action(action, row)
 
     def _container_action(self, action, row, container):
         if action == "logs":
@@ -766,6 +866,7 @@ class ClusterWorkspace(QMainWindow):
         self._ready = True
         if self.auto_action.isChecked():
             self._auto_timer.start()
+            self._node_pods_timer.start()
         self._sync_watch()
 
     def refresh(self):

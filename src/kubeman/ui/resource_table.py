@@ -107,6 +107,10 @@ class ResourceTable(QWidget):
         self.view.sortByColumn(new_sort, sort_order)
         self.view.resizeColumnsToContents()
 
+    def set_header_widget(self, widget):
+        """Put a widget (e.g. an action bar) above the filter box."""
+        self.layout().insertWidget(0, widget)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._visible_timer.start()
@@ -170,6 +174,10 @@ class ResourceTable(QWidget):
                 menu.addSeparator()
                 menu.addAction("Delete node…", lambda: self.action_requested.emit("delete-node", row))
                 menu.addAction("Force delete node…", lambda: self.action_requested.emit("force-delete-node", row))
+            if self.kind == "Container":
+                menu.addAction("Logs", lambda: self.action_requested.emit("logs", row))
+                menu.addAction("Connect (shell)…", lambda: self.action_requested.emit("shell", row))
+                menu.addAction("Attach…", lambda: self.action_requested.emit("attach", row))
             if self.kind == "Pod":
                 menu.addSeparator()
                 menu.addAction("Logs", lambda: self.action_requested.emit("logs", row))
@@ -192,7 +200,8 @@ class ResourceTable(QWidget):
             src = self.proxy.mapToSource(current)
             self.selected.emit(self.model.rows[src.row()])
 
-    DOUBLE_CLICK = {"Pod": "containers", "Namespace": "open-namespace", "CustomResourceDefinition": "open-crd"}
+    DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
+                    "CustomResourceDefinition": "open-crd"}
 
     def _on_double_click(self, index):
         action = self.DOUBLE_CLICK.get(self.kind)

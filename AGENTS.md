@@ -70,7 +70,8 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/kubeman/ui/manifest.py` | Shared readable, round-trip-safe YAML dumping. |
 | `src/kubeman/ui/edit_dialog.py` | YAML resource editor using the shared manifest dumper. |
 | `src/kubeman/ui/log_view.py` | Background log streaming, container selection, search/follow, and stream shutdown. |
-| `src/kubeman/ui/container_dialog.py` | Regular/init/ephemeral container list and container-specific Logs/Shell/Attach actions. |
+| `src/kubeman/ui/pod_view.py` | A pod's own tab: regular/init/ephemeral container rows, pod action bar, and container-specific Logs/Shell/Attach. |
+| `src/kubeman/ui/node_bar.py` | Node action bar (cordon, drain, shell, delete) shown above a node's pods tab. |
 | `src/kubeman/ui/node_dialogs.py` | Drain options and privileged nsenter debug-shell options. |
 | `src/kubeman/ui/command_view.py` | QProcess-backed drain output, completion/error reporting, and local process cancellation. |
 | `src/kubeman/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
@@ -81,7 +82,7 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/kubeman/ui/theme.py` | Application palette and Qt stylesheet. |
 | `scripts/benchmark_large_cluster.py` | Offline synthetic pod-mapping/table-load benchmark. |
 
-Auto-refresh and watches (`workspace.py`): only the foreground tab of a visible cluster reloads, every `AUTO_REFRESH_MS` (toolbar toggle and interval) and whenever a change watch fires (debounced 800 ms). Background tabs reload when they come to the front; Refresh and namespace changes also touch only the foreground tab. Views without `watch_targets` (node-pods, custom resources) are polled only. Metrics (`node_usage`/`pod_usage`) and CRD browsing (`list_custom_objects`) degrade to blank/empty when metrics-server or the API is unavailable; usage fields are `-1` when unknown. Double-click: Pod opens containers, Namespace scopes the toolbar and opens Pods, CRD opens its instances.
+Auto-refresh and watches (`workspace.py`): only the foreground tab of a visible cluster reloads, every `AUTO_REFRESH_MS` (toolbar toggle and interval) and whenever a change watch fires (debounced 800 ms). Background tabs reload when they come to the front; Refresh and namespace changes also touch only the foreground tab. Views without `watch_targets` (node-pods, custom resources) are polled only. Metrics (`node_usage`/`pod_usage`) and CRD browsing (`list_custom_objects`) degrade to blank/empty when metrics-server or the API is unavailable; usage fields are `-1` when unknown. Double-click: Pod opens its own tab, Node opens its pods tab, Container opens its logs, Namespace scopes the toolbar and opens Pods, CRD opens its instances.
 
 Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, and StatefulSets. The SPECS registry adds DaemonSets, Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, and Events. Secrets and Events have no Edit action.
 
@@ -148,7 +149,7 @@ example.com/team = Team
 ### Pod/container actions and terminals
 
 - Pod menus support Logs, Shell, Attach, normal termination, and explicit Force terminate. Confirm mutations; force deletion uses zero grace period and can remove the API object before host processes stop. Finalizers still apply.
-- Double-clicking a pod opens its containers, including regular, init, and ephemeral containers, with state, readiness, restart count, and image.
+- Double-clicking a pod opens its own tab (`pod:<ns>/<name>`) listing its containers, including regular, init, and ephemeral containers, with state, readiness, restart count, and image; double-clicking a container opens its logs. The tab refreshes like any foreground tab and disables its actions if the pod disappears. Double-clicking a node opens its pods tab, which carries the node actions.
 - Logs, Shell, and Attach must target the selected container, cluster context, namespace, and pod. Container-specific log tabs preserve the initial container selection.
 - Commands use explicit `--context`; do not rely on the shell's active kubeconfig context.
 - Windows terminals use `cmd /k` in a new console. macOS uses Terminal via osascript. Linux searches x-terminal-emulator, gnome-terminal, konsole, then xterm.

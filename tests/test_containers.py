@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from kubeman.k8s.client import KubeService
 from kubeman.k8s.models import PodRow
-from kubeman.ui.container_dialog import ContainerDialog, pod_containers
+from kubeman.ui.pod_view import container_rows, pod_containers
 from kubeman.ui.main_window import MainWindow
 from kubeman.ui.resource_table import ResourceTable
 
@@ -21,20 +21,16 @@ def pod():
             "initContainerStatuses": [{"name": "setup", "state": {"terminated": {"reason": "Completed"}}}]}})
 
 
-def test_container_picker_includes_all_types_and_selects_actions(qtbot):
+def test_container_rows_include_all_types_with_their_spec():
     row = pod()
     assert pod_containers(row.raw)[:3] == [
         ("app", "Container", "Running", "Yes", "1", "app:1"),
         ("sidecar", "Container", "CrashLoopBackOff", "No", "0", "proxy:2"),
         ("setup", "Init", "Completed", "No", "0", "setup:1")]
-    dialog = ContainerDialog("ctx", row)
-    qtbot.addWidget(dialog)
-    assert dialog.table.rowCount() == 4
-    dialog.table.selectRow(1)
-    selected = []
-    dialog.action_requested.connect(lambda *args: selected.append(args))
-    dialog.action_buttons["logs"].click()
-    assert selected == [("logs", "sidecar")]
+    rows = container_rows(row.raw)
+    assert [r.name for r in rows] == ["app", "sidecar", "setup", "debugger"]
+    assert [r.type for r in rows] == ["Container", "Container", "Init", "Ephemeral"]
+    assert rows[1].raw == {"name": "sidecar", "image": "proxy:2"} and rows[1].state == "CrashLoopBackOff"
 
 
 def test_pod_double_click_uses_proxy_row(qtbot):
@@ -89,12 +85,10 @@ def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: len(calls) == 2)
     assert ("pod", "web", "team-a", True) in calls
     assert ("node", "node-a", "uid-a", True) in calls
-    def choose(dialog):
-        dialog.table.selectRow(1)
-        dialog.action_buttons["logs"].click()
-        return QDialog.Accepted
-    monkeypatch.setattr(ContainerDialog, "exec", choose)
-    ws.pod_action("containers", row)
+    ws.pod_action("containers", row)  # double-click on a pod: its own tab, not a popup
+    tab = ws._pod_tabs["pod:team-a/web"]
+    assert ws.foreground_key() == "pod:team-a/web" and tab["table"].model.rowCount() == 4
+    tab["table"].action_requested.emit("logs", tab["table"].model.rows[1])  # the "sidecar" container
     qtbot.waitUntil(lambda: bool(logs))
     assert logs[0][:3] == ("team-a", "web", "sidecar")
     assert ws.log_tabs.currentWidget().container.currentText() == "sidecar"
