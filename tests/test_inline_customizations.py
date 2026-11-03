@@ -12,12 +12,12 @@ from kubeman.ui.workspace import ClusterWorkspace
 from test_app import FakeService
 
 
-def test_only_node_and_pod_lists_have_a_columns_button(qtbot):
+def test_resource_lists_have_a_columns_button_but_drilldowns_do_not(qtbot):
     ws = ClusterWorkspace(NS(), "ctx")
     qtbot.addWidget(ws)
     assert ws.node_table.customize_button.text() == "Columns…" and ws.pod_table.customize_button is not None
-    for key in ("deployments", "services", "namespaces", "events"):
-        assert ws.views[key][0].customize_button is None, key
+    for key in ("deployments", "daemonsets", "services", "namespaces", "events"):
+        assert ws.views[key][0].customize_button is not None, key
     assert ws.overview.pods_table.customize_button is None  # drill-down tables stay compact
     ws.load_view = lambda key: None
     ws.open_node_pods("n1")
@@ -41,7 +41,7 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     shown = []
 
     class FakeDialog:
-        def __init__(self, kind, settings, available, parent):
+        def __init__(self, kind, settings, available, builtin, parent):
             shown.append((kind, sorted(available)))
 
         def exec(self):

@@ -6,6 +6,7 @@ from .table_model import TableModel
 
 
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
+NOT_CUSTOMIZABLE = {"Container", "CustomResource"}  # per-pod container rows and dynamic CR columns keep fixed columns
 
 
 class ResourceTable(QWidget):
@@ -18,8 +19,10 @@ class ResourceTable(QWidget):
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
 
-    def __init__(self, columns, kind, editable=True, customizable=False):
+    def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
+        if customizable is None:
+            customizable = kind not in NOT_CUSTOMIZABLE
         self.kind = kind
         self.editable = editable
         self.base_columns = list(columns)
@@ -71,7 +74,7 @@ class ResourceTable(QWidget):
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
-            self.customize_button.setToolTip(f"Choose label columns for {kind.lower()} lists")
+            self.customize_button.setToolTip(f"Show, hide, order and add label columns for {kind} lists")
             self.customize_button.clicked.connect(lambda: self.customize_requested.emit(kind))
             top.addWidget(self.customize_button)
         lay = QVBoxLayout(self)
@@ -97,12 +100,18 @@ class ResourceTable(QWidget):
         self.view.resizeColumnsToContents()
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
 
-    def set_label_columns(self, keys, headings=None):
-        if self.kind not in ("Node", "Pod"):
+    def set_label_columns(self, keys, headings=None, layout=None):
+        """Apply label columns plus the saved built-in column order/visibility (layout: {"order", "hidden"})."""
+        if self.kind in NOT_CUSTOMIZABLE:
             return
-        columns = list(self.base_columns)
+        layout = layout or {}
+        first, rest = self.base_columns[:1], self.base_columns[1:]  # the first column (Name) never moves or hides
+        order = layout.get("order", [])
+        rank = {attr: i for i, attr in enumerate(order)}
+        rest = sorted(rest, key=lambda col: rank.get(col[1], len(order)))  # stable: unknown ones keep their place
+        columns = first + [col for col in rest if col[1] not in layout.get("hidden", [])]
         anchor = "roles" if self.kind == "Node" else "name"
-        insert_at = next((i + 1 for i, col in enumerate(columns) if col[1] == anchor), len(columns))
+        insert_at = next((i + 1 for i, col in enumerate(columns) if col[1] == anchor), 1)
         headings = headings or {}
         columns[insert_at:insert_at] = [
             (headings.get(key) or ("NodePool" if key == "karpenter.sh/nodepool" else key), f"label:{key}") for key in keys]

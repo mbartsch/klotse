@@ -86,14 +86,15 @@ class MainWindow(QMainWindow):
         ws.start()
 
     def customize_labels(self, kind):
-        available = set()
+        available, builtin = set(), ()
         for workspace in self.workspaces.values():
             for table in workspace.resource_tables():
                 if table.kind == kind:
+                    builtin = builtin or table.base_columns
                     for row in table.model.rows:
                         metadata = (row.raw or {}).get("metadata") or {}
                         available.update((metadata.get("labels") or {}).keys())
-        dialog = LabelColumnsDialog(kind, self.label_settings, available, self)
+        dialog = LabelColumnsDialog(kind, self.label_settings, available, builtin, self)
         dialog.exec()
         dialog.deleteLater()
 

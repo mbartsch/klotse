@@ -138,9 +138,9 @@ class OverviewView(QWidget):
         self.usage = QWidget()
         self.usage.setLayout(usage)
         self.usage.hide()  # only shown when metrics-server reports usage
-        self.events_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False)
-        self.pods_table = ResourceTable(POD_COLUMNS, "Pod")
-        self.warnings_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False)
+        self.events_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
+        self.pods_table = ResourceTable(POD_COLUMNS, "Pod", customizable=False)
+        self.warnings_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
         self.stack = QStackedWidget()
         for t in self.tables():
             self.stack.addWidget(t)

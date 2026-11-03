@@ -228,7 +228,8 @@ class ClusterWorkspace(QMainWindow):
 
     def apply_label_columns(self):
         for table in self.resource_tables():
-            table.set_label_columns(self.label_settings.labels(table.kind), self.label_settings.headers(table.kind))
+            table.set_label_columns(self.label_settings.labels(table.kind), self.label_settings.headers(table.kind),
+                                    self.label_settings.layout(table.kind))
 
     # ---- views / tabs -------------------------------------------------
     def _show_view(self, key):
@@ -741,7 +742,8 @@ class ClusterWorkspace(QMainWindow):
             bar.action_requested.connect(lambda action, n=node: self._node_bar_action(action, n))
             self._node_bars[node] = (bar, row)
             table.set_header_widget(bar)
-            table.set_label_columns(self.label_settings.labels("Pod"), self.label_settings.headers("Pod"))
+            table.set_label_columns(self.label_settings.labels("Pod"), self.label_settings.headers("Pod"),
+                                    self.label_settings.layout("Pod"))
             table.view_key = key
             table.filter.setPlaceholderText(f"Filter pods on {node} (all namespaces)…")
             table.selected.connect(self.detail.show_row)

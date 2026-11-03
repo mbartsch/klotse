@@ -126,6 +126,8 @@ app.kubernetes.io/name = App
 example.com/team = Team
 ```
 
+- Every resource list (Deployments, DaemonSets, Services, Events, Namespaces, …) has the same Columns… button and dialog, with its own saved label columns and layout per kind; only Container rows, custom-resource instance tabs, and the overview drill-down tables are fixed (`NOT_CUSTOMIZABLE`, `customizable=False`). Kinds are free-form strings in settings.
+- The same dialog has a **Built-in columns** list: untick to hide, Move up/down to reorder. The first column (Name) is fixed and always shown. Saved in `columns/layout` (JSON: `{kind: {order, hidden}}`) via `LabelSettings.layout`/`set_layout`; applied by `ResourceTable.set_label_columns(keys, headings, layout)`. Label columns still follow Roles (Nodes) or Name (Pods), or Name if Roles is hidden. Restore defaults resets both.
 - Available label keys can be searched, added, and given an optional Short heading. Users can edit/reorder the list, clear it to remove columns, or restore defaults.
 - Preserve active sort columns by attribute when inserting/removing/renaming label columns; a removed sort column falls back to unsorted order.
 
