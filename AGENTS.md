@@ -9,7 +9,7 @@ This file applies to the repository rooted here. It records the current implemen
 - Runtime dependencies: `PySide6-Essentials>=6.6`, `kubernetes>=29`, and `PyYAML>=6`. Development dependencies add `pytest` and `pytest-qt`.
 - Work lands on `master` through pull requests (squash-merged on GitHub, `mbartsch/kubeman`). Start new work on a branch from an up-to-date `master` and open a PR; do not commit to `master` directly. The `gh` CLI is used for PRs (installed with scoop on the Windows dev machine; it needs `gh auth login` once).
 - Preserve uncommitted work in the tree; do not reset or discard it, and do not assume it has been committed or pushed.
-- There is no LICENSE file yet and the GitHub repo reports no license; About shows "Not specified yet" until `about.LICENSE` is set.
+- The project is licensed under Apache-2.0 (`LICENSE`, `license` in pyproject.toml, `about.LICENSE`; keep the three in step). The README and About carry the Linux Foundation trademark disclaimer; the Kubernetes name and logo are theirs, so do not use the Kubernetes logo or put the mark in the product name.
 - There is no separate web frontend, database, or application server.
 
 ## Run and install
@@ -76,7 +76,7 @@ Cluster access comes from kubeconfig and its existing authentication helpers. `k
 | `src/klotse/ui/node_dialogs.py` | Drain options and privileged nsenter debug-shell options. |
 | `src/klotse/ui/command_view.py` | QProcess-backed drain output, completion/error reporting, and local process cancellation. |
 | `src/klotse/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
-| `src/klotse/ui/about.py` | Help → About Klotse dialog: logo, version, project/GitHub link, author, license, Python/Qt/kubernetes versions, and a Copy details button. Metadata constants (`REPO_URL`, `LICENSE`, ...) live at the top of the module. |
+| `src/klotse/ui/about.py` | Help → About Klotse dialog: logo, version, project/GitHub link, author, license, Python/Qt/kubernetes versions, and a Copy details button. Metadata constants (`REPO_URL`, `LICENSE`, `TRADEMARK_NOTE`, ...) live at the top of the module. |
 | `src/klotse/ui/branding.py` | Logo from `src/klotse/assets/` (`klotse_logo.png`/`.jpg`, or `logo.png`/`.jpg`; PNG preferred), center-cropped to a square because the artwork sits in the middle of a wide canvas: window/taskbar icon and the About dialog logo (128 px). Without a logo, or with an unreadable one, the app starts normally with no icon. There is deliberately no startup splash screen. Also sets the Windows taskbar app id. |
 | `src/klotse/ui/settings_store.py` | The user's settings file (`Klotse/Klotse.ini`); on first start it copies the old `Kubeman/Kubeman.ini` across (the old file is left in place). |
 | `src/klotse/ui/terminal_settings.py` | Saved macOS terminal preference and its settings dialog. |

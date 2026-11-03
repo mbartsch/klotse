@@ -21,10 +21,29 @@ def test_dialog_shows_project_version_url_license_and_runtime(qtbot):
     assert about.license_text() in text and dialog.info.openExternalLinks()
 
 
-def test_license_is_not_invented_until_one_is_set(monkeypatch):
-    assert not (Path(__file__).resolve().parent.parent / "LICENSE").exists() or about.LICENSE
+def test_license_is_apache_2_and_consistent_everywhere():
+    root = Path(__file__).resolve().parent.parent
+    text = (root / "LICENSE").read_text(encoding="utf-8")
+    assert "Apache License" in text and "Version 2.0, January 2004" in text
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["license"] == "Apache-2.0" and pyproject["project"]["license-files"] == ["LICENSE"]
+    assert about.LICENSE == "Apache License 2.0" and "License: Apache License 2.0" in about.details()
+    assert "Apache License 2.0" in (root / "README.md").read_text(encoding="utf-8")
+
+
+def test_dialog_links_the_license_and_carries_the_trademark_note(qtbot):
+    from PySide6.QtWidgets import QLabel
+
+    dialog = about.AboutDialog()
+    qtbot.addWidget(dialog)
+    assert f"href='{about.LICENSE_URL}'" in dialog.info.text()
+    notes = [label.text() for label in dialog.findChildren(QLabel) if "registered trademark" in label.text()]
+    assert notes == [about.TRADEMARK_NOTE] and "not affiliated with or endorsed" in notes[0]
+
+
+def test_missing_license_name_is_stated_not_invented(monkeypatch):
     monkeypatch.setattr(about, "LICENSE", None)
-    assert about.license_text() == "Not specified yet"
+    assert about.license_text() == "Not specified yet" and "Not specified yet" in about.license_html()
     monkeypatch.setattr(about, "LICENSE", "MIT")
     assert about.license_text() == "MIT" and "License: MIT" in about.details()
 

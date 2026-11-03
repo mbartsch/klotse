@@ -107,8 +107,10 @@ changes. Work goes through pull requests from a branch; do not commit to `master
 
 ## License
 
-No license has been chosen yet, so all rights are reserved by default. If you want to use or contribute to the
-code, please get in touch with the author first.
+Klotse is released under the [Apache License 2.0](LICENSE).
+
+Kubernetes is a registered trademark of The Linux Foundation. Klotse is an independent project and is not
+affiliated with or endorsed by The Linux Foundation or the Kubernetes project.
 
 ## Author
 

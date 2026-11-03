@@ -17,7 +17,10 @@ AUTHOR = "Marcelo H. Bartsch"
 # The repository has not been renamed on GitHub yet; change this when it is.
 REPO_URL = "https://github.com/mbartsch/kubeman"
 LOGO_SIZE = 128
-LICENSE = None  # name of the license once the project has one (there is no LICENSE file yet)
+LICENSE = "Apache License 2.0"  # keep in step with the LICENSE file and pyproject.toml
+LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
+TRADEMARK_NOTE = ("Kubernetes is a registered trademark of The Linux Foundation. Klotse is an independent "
+                  "project and is not affiliated with or endorsed by The Linux Foundation or the Kubernetes project.")
 
 
 def kubernetes_client_version():
@@ -30,6 +33,10 @@ def kubernetes_client_version():
 
 def license_text():
     return LICENSE or "Not specified yet"
+
+
+def license_html():
+    return f"<a href='{LICENSE_URL}'>{LICENSE}</a>" if LICENSE else license_text()
 
 
 def details():
@@ -69,7 +76,7 @@ class AboutDialog(QDialog):
             f"<table cellspacing='4'>"
             f"<tr><td><b>Project</b></td><td><a href='{REPO_URL}'>{REPO_URL}</a></td></tr>"
             f"<tr><td><b>Author</b></td><td>{AUTHOR}</td></tr>"
-            f"<tr><td><b>License</b></td><td>{license_text()}</td></tr>"
+            f"<tr><td><b>License</b></td><td>{license_html()}</td></tr>"
             f"<tr><td><b>Runtime</b></td><td>Python {platform.python_version()}, PySide6 {pyside_version}, "
             f"Qt {qVersion()}, kubernetes client {kubernetes_client_version()}</td></tr>"
             f"<tr><td><b>Platform</b></td><td>{platform.platform()}</td></tr></table>")
@@ -78,6 +85,10 @@ class AboutDialog(QDialog):
         self.info.setTextInteractionFlags(Qt.TextBrowserInteraction)
         self.info.setWordWrap(True)
         layout.addWidget(self.info)
+        trademark = QLabel(TRADEMARK_NOTE)
+        trademark.setWordWrap(True)
+        trademark.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(trademark)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         self.copy_button = QPushButton("Copy details")
