@@ -10,7 +10,7 @@ resources; read logs; open shells; scale, cordon and drain, all from one window.
 Built with Python, PySide6 (Qt Widgets) and the official Kubernetes Python client. It uses your existing
 kubeconfig and authentication helpers, so there is nothing to sign in to and no server component.
 
-> **Status:** early (version 0.1.0). Read-only use against real clusters has been tried; most of the
+> **Status:** early. Read-only use against real clusters has been tried; most of the
 > mutating actions (cordon, drain, delete, scale) are covered by automated tests with fake services, not yet by
 > live-cluster runs. Try them on a non-production cluster first.
 

@@ -22,6 +22,8 @@ PY="$VENV/bin/python"
 "$PY" -m pip install --disable-pip-version-check -q -r requirements-build.txt
 
 export PYTHONPATH="$ROOT/src"
+# The version comes from the git tag; write it into klotse/_version.py (needs the tags: a full clone, not a shallow one)
+"$PY" -m setuptools_scm --force-write-version-files >/dev/null
 VERSION="$("$PY" -c 'import klotse; print(klotse.__version__)')"
 ARCH="$(uname -m)"
 echo "Building Klotse $VERSION for $ARCH"

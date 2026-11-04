@@ -39,10 +39,11 @@ Both scripts finish by running the packaged app's own self-test (below), and fai
 
 - **Actions → Package → Run workflow** builds everything and keeps the files as downloadable artifacts.
 - **Pushing a tag** such as `v0.1.0` does the same and then creates a **draft** release with the files and a
-  `SHA256SUMS.txt` attached. Nothing is public until you publish the draft. The tag must equal
-  `klotse.__version__`, or the build stops.
+  `SHA256SUMS.txt` attached. Nothing is public until you publish the draft. The version comes from the tag
+  (`v0.2.0` becomes `0.2.0`), so there is no file to edit; a tag that is not a plain `vX.Y.Z` stops the build.
 
-To release: change `__version__` in `src/klotse/__init__.py`, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+To release: merge to `master`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Builds from any other commit get a
+`.devN` version (for example `0.2.1.dev3`) and can never be published to PyPI.
 
 ## Linux and PyPI (pipx)
 
@@ -76,8 +77,9 @@ GitHub secrets). One-time setup:
 3. Manual runs: Actions → PyPI → Run workflow uploads to PyPI by default (still waiting for your approval in the
    `pypi` environment). Untick "Upload to PyPI" to only build and test; tick "Also upload to TestPyPI" for a dry
    run there (needs the same pending publisher on test.pypi.org, environment `testpypi`). Pull requests never upload.
-4. Release: change `__version__`, merge, `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must equal
-   `klotse.__version__`. After the build and smoke tests pass, approve the `pypi` deployment.
+4. Release: `git tag vX.Y.Z && git push origin vX.Y.Z` on the commit to release (the version is read from the tag).
+   After the build and smoke tests pass, approve the `pypi` deployment. A manual run on an untagged commit builds a
+   `.devN` version, which the publish job refuses, so only the TestPyPI option can take it.
 
 Why not AppImage, `.deb` or `.rpm` yet: they are good fits (not sandboxed, so `kubectl`, cloud auth helpers and the
 host terminal keep working) and are the likely next step if pipx proves too much work for users. Flatpak and Snap are

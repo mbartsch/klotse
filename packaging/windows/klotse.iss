@@ -1,7 +1,10 @@
 ; Inno Setup script for the Klotse installer. Built by packaging/windows/build.ps1:
-;   iscc /DAppVersion=0.1.0 /DIconFile=build\icons\klotse.ico packaging\windows\klotse.iss
+;   iscc /DAppVersion=0.1.0 /DNumericVersion=0.1.0 /DIconFile=build\icons\klotse.ico packaging\windows\klotse.iss
 #ifndef AppVersion
   #define AppVersion "0.0.0"
+#endif
+#ifndef NumericVersion
+  #define NumericVersion "0.0.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\dist\Klotse"
@@ -20,7 +23,7 @@ AppPublisher=Marcelo H. Bartsch
 AppPublisherURL=https://github.com/mbartsch/klotse
 AppSupportURL=https://github.com/mbartsch/klotse/issues
 AppUpdatesURL=https://github.com/mbartsch/klotse/releases
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 DefaultDirName={autopf}\Klotse
 DefaultGroupName=Klotse
 DisableProgramGroupPage=yes

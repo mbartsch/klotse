@@ -8,6 +8,7 @@
 # Optional environment variables (macOS signing, see packaging/README.md):
 #   MACOS_CODESIGN_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)"; without it the app is ad-hoc signed
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,9 @@ import icons  # noqa: E402
 import klotse  # noqa: E402
 
 VERSION = klotse.__version__
+# Windows file versions and the macOS bundle version must be plain numbers: 0.2.1.dev3 -> 0.2.1
+_match = re.match(r"\d+(?:\.\d+){0,2}", VERSION)
+NUMERIC_VERSION = _match.group(0) if _match else "0.0.0"
 ASSETS = ROOT / "src" / "klotse" / "assets"
 LOGO = ASSETS / "klotse_logo.png"
 ICON_DIR = ROOT / "build" / "icons"
@@ -79,12 +83,12 @@ if IS_MAC:
         name="Klotse.app",
         icon=str(ICON_DIR / "klotse.icns"),
         bundle_identifier="io.github.mbartsch.klotse",
-        version=VERSION,
+        version=NUMERIC_VERSION,
         info_plist={
             "CFBundleName": "Klotse",
             "CFBundleDisplayName": "Klotse",
-            "CFBundleShortVersionString": VERSION,
-            "CFBundleVersion": VERSION,
+            "CFBundleShortVersionString": NUMERIC_VERSION,
+            "CFBundleVersion": NUMERIC_VERSION,
             "NSHighResolutionCapable": True,
             "LSApplicationCategoryType": "public.app-category.developer-tools",
             # Without this macOS refuses the Terminal / iTerm2 automation that "Shell" and "Attach" rely on.

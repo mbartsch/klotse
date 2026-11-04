@@ -31,7 +31,10 @@ if (-not (Test-Path $py)) {
 Invoke-Checked "installing build requirements" { & $py -m pip install --disable-pip-version-check -q -r requirements-build.txt }
 
 $env:PYTHONPATH = Join-Path $root "src"
+# The version comes from the git tag; write it into klotse/_version.py (needs the tags: a full clone, not a shallow one)
+Invoke-Checked "reading the version from git" { & $py -m setuptools_scm --force-write-version-files }
 $version = (& $py -c "import klotse; print(klotse.__version__)").Trim()
+$numeric = [regex]::Match($version, '^\d+(\.\d+){0,2}').Value
 Write-Host "Building Klotse $version"
 
 # 2. freeze
@@ -64,5 +67,5 @@ if (-not $iscc) {
     Write-Warning "Inno Setup 6 not found, so no installer was built (the zip above is complete). Install it with: winget install JRSoftware.InnoSetup"
     return
 }
-Invoke-Checked "Inno Setup" { & $iscc "/DAppVersion=$version" "/DIconFile=$root\build\icons\klotse.ico" "packaging\windows\klotse.iss" }
+Invoke-Checked "Inno Setup" { & $iscc "/DAppVersion=$version" "/DNumericVersion=$numeric" "/DIconFile=$root\build\icons\klotse.ico" "packaging\windows\klotse.iss" }
 Write-Host "Created $(Join-Path $root "dist\Klotse-$version-windows-x64-setup.exe")"

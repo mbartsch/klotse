@@ -37,14 +37,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the version comes from the git tag
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Tag matches the package version
+      - name: Tag gives a clean release version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          version=$(python -c "import sys; sys.path.insert(0, 'src'); import klotse; print(klotse.__version__)")
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match klotse.__version__ ($version)"; exit 1; }
+          python -m pip install "setuptools-scm>=8"
+          version=$(python -m setuptools_scm)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME gives version $version; use a tag like v1.2.3"; exit 1; }
       - name: Build the sdist and wheel
         run: |
           python -m pip install --upgrade build twine trove-classifiers
@@ -136,4 +139,9 @@ jobs:
         with:
           name: python-dist
           path: dist
+      - name: Refuse to publish a development version
+        # Only a commit that is exactly a v* tag has a clean version; anything else is 1.2.3.devN.
+        run: |
+          ls dist
+          if ls dist | grep -q '\.dev'; then echo "These are development builds; push a tag such as v1.2.3 to publish to PyPI."; exit 1; fi
       - uses: pypa/gh-action-pypi-publish@release/v1

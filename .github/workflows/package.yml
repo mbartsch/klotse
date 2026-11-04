@@ -23,15 +23,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the version comes from the git tag
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Tag matches the package version
+      - name: Tag gives a clean release version
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          version=$(python -c "import sys; sys.path.insert(0, 'src'); import klotse; print(klotse.__version__)")
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match klotse.__version__ ($version)"; exit 1; }
+          python -m pip install "setuptools-scm>=8"
+          version=$(python -m setuptools_scm)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME gives version $version; use a tag like v1.2.3"; exit 1; }
       - name: Install Inno Setup if the runner image lacks it
         shell: powershell
         run: |
@@ -59,6 +62,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the version comes from the git tag
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

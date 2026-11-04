@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]  # 77+ understands the SPDX license field
+requires = ["setuptools>=77", "setuptools-scm>=8"]  # 77+ understands the SPDX license field; scm reads the version from the git tag
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -41,8 +41,12 @@ klotse = "klotse.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.dynamic]
-version = {attr = "klotse.__version__"}
+[tool.setuptools_scm]
+# The version comes from the git tag: tag v0.2.0 -> 0.2.0. Commits after a tag give 0.2.1.devN (never a local "+g..."
+# part, which PyPI rejects). The result is written to a generated module that klotse/__init__.py reads.
+version_file = "src/klotse/_version.py"
+local_scheme = "no-local-version"
+fallback_version = "0+unknown"  # a source archive without git data and without PKG-INFO
 
 [tool.setuptools.package-data]
 klotse = ["assets/*"]

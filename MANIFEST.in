@@ -1,0 +1,5 @@
+# setuptools-scm puts every git-tracked file in the sdist; keep out what a Python user never needs.
+prune .github
+prune packaging
+prune scripts
+prune src/klotse/assets/source

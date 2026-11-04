@@ -6,3 +6,4 @@ build/
 dist/
 .venv-build/
 *.egg-info/
+src/klotse/_version.py

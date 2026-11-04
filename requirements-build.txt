@@ -6,3 +6,4 @@ pillow>=10
 build>=1.2     # python -m build: the sdist and wheel that go to PyPI
 twine>=5       # twine check: validates the package metadata and README rendering
 trove-classifiers  # verify that the classifiers in pyproject.toml are ones PyPI accepts
+setuptools-scm>=8
