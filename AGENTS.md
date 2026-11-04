@@ -311,7 +311,7 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 
 - `.github/workflows/security.yml` (PRs, master, weekly): bandit on `src` and `scripts` at medium severity and above (`bandit -r src scripts -ll`; fix it or justify with `# nosec Bxxx - reason`), pip-audit on `requirements.txt` and `requirements-build.txt`, zizmor on the workflows, dependency review on PRs. `codeql.yml` runs CodeQL (python, security-extended). `.github/dependabot.yml` updates pip and GitHub Actions weekly with a 7-day cooldown. `SECURITY.md` is the reporting policy. Every action is pinned to a commit SHA with the tag in a comment (Dependabot bumps them) and checkouts that only read use `persist-credentials: false`; new workflows must do the same and set `permissions` explicitly, and untrusted text (PR titles, branch names) goes through `env:`, never inline in `run:`.
 - Data from a cluster is untrusted: validate it before it builds an address or a command. `klotse_plugins/aws_nodes/safe.py` has `valid_region` (a node's region label goes into the host name of a signed AWS request, so a hostile label could have sent the session token elsewhere), `require_https` and `parse_xml` (refuses DTDs and entities). Use them for any new request code.
-- The security workflows ran green on PRs #30/#31. Repository settings the owner has to switch on (they are not in the repo): private vulnerability reporting and Dependabot security updates (both off when checked); secret scanning and push protection are on.
+- The security workflows ran green on PRs #30/#31. Repository settings checked on 2026-11-04 through the API: private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are all on.
 
 ## Change conventions
 
