@@ -1,0 +1,76 @@
+# Security checks that need no setup and no secrets:
+#   bandit            static analysis of the Python code (medium severity and above must be fixed or justified with # nosec)
+#   pip-audit         known vulnerabilities in the dependencies (runtime and build requirements)
+#   zizmor            static analysis of the GitHub workflows themselves (injection, unpinned actions, excess permissions)
+#   dependency-review a pull request may not add a dependency with a known high-severity vulnerability
+# CodeQL runs from its own workflow (codeql.yml). Everything also runs once a week, because new advisories appear for code
+# that did not change.
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
+        with:
+          python-version: "3.12"
+      - name: Bandit (medium severity and above)
+        run: |
+          python -m pip install "bandit==1.9.4"
+          bandit -r src scripts -ll
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
+        with:
+          python-version: "3.12"
+      - name: Audit the dependencies
+        run: |
+          python -m pip install "pip-audit==2.10.1"
+          pip-audit -r requirements.txt
+          pip-audit -r requirements-build.txt
+
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
+        with:
+          python-version: "3.12"
+      - name: Audit the workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m pip install "zizmor==1.32.0"
+          zizmor --no-progress .
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
+        with:
+          fail-on-severity: high

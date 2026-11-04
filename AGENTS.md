@@ -308,6 +308,12 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 - Tests: `tests/conftest.py` answers the exit question with No; tests that need a connected cluster call `open_active(win)` (from `test_app.py`); PluginHost tests use `Runner` and `node` from `test_plugins.py`; AWS plugin tests use fakes only (price tables, boto-like clients, the CLI, the sign-in endpoint) and instance ids must be hexadecimal (`i-0abc1`) to be recognised. botocore (for cross-checking the signature) is not a project dependency: install it with `pip install --target <temp dir>` and delete it.
 - Local package build: `powershell -File packaging\windows\build.ps1` (about 3 minutes, writes `dist/`, runs the packaged self-test); to run the packaged self-test directly: `dist\Klotse\Klotse.exe --self-test <report file>`.
 
+## Security checks
+
+- `.github/workflows/security.yml` (PRs, master, weekly): bandit on `src` and `scripts` at medium severity and above (`bandit -r src scripts -ll`; fix it or justify with `# nosec Bxxx - reason`), pip-audit on `requirements.txt` and `requirements-build.txt`, zizmor on the workflows, dependency review on PRs. `codeql.yml` runs CodeQL (python, security-extended). `.github/dependabot.yml` updates pip and GitHub Actions weekly with a 7-day cooldown. `SECURITY.md` is the reporting policy. Every action is pinned to a commit SHA with the tag in a comment (Dependabot bumps them) and checkouts that only read use `persist-credentials: false`; new workflows must do the same and set `permissions` explicitly, and untrusted text (PR titles, branch names) goes through `env:`, never inline in `run:`.
+- Data from a cluster is untrusted: validate it before it builds an address or a command. `klotse_plugins/aws_nodes/safe.py` has `valid_region` (a node's region label goes into the host name of a signed AWS request, so a hostile label could have sent the session token elsewhere), `require_https` and `parse_xml` (refuses DTDs and entities). Use them for any new request code.
+- Not verified: the new workflows have not run on GitHub yet. Repository settings the owner has to switch on (they are not in the repo): private vulnerability reporting and Dependabot security updates (both off when checked); secret scanning and push protection are on.
+
 ## Change conventions
 
 - Keep changes scoped to the requested behavior and preserve existing uncommitted work. Update this guide when behavior or the file map changes.

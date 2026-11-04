@@ -4,9 +4,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
+from .safe import ParseError, parse_xml, require_https, valid_region
 from .sigv4 import sign
 
 API_VERSION = "2016-11-15"
@@ -21,14 +21,16 @@ class AwsHttpError(Exception):
 
 
 def endpoint(region):
+    if not valid_region(region):
+        raise AwsHttpError("", "not a valid AWS region name")
     return f"https://ec2.{region}.amazonaws.com{'.cn' if region.startswith('cn-') else ''}/"
 
 
 def post(url, headers, body, timeout=30):
     """POST and return (status, body bytes). Only AWS's own error text is ever reported, never the request."""
-    request = urllib.request.Request(url, data=body, method="POST", headers=headers)
+    request = urllib.request.Request(require_https(url), data=body, method="POST", headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - https only, checked above
             return response.status, response.read(20_000_000)
     except urllib.error.HTTPError as error:
         return error.code, error.read(1_000_000)
@@ -69,8 +71,8 @@ class NativeEc2Client:
                        credentials.access_key, credentials.secret_key, self.region, "ec2", stamp, credentials.token or None)
         status, answer = self._http(url, headers, body)
         try:
-            root = _strip_namespaces(ET.fromstring(answer))
-        except ET.ParseError:
+            root = _strip_namespaces(parse_xml(answer))
+        except ParseError:
             raise AwsHttpError("", f"AWS answered something unreadable (HTTP {status})") from None
         if status >= 400:
             error = root.find(".//Error")

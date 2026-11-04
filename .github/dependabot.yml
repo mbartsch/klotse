@@ -1,0 +1,28 @@
+# Keeps dependencies and the pinned GitHub Actions current. Each update is a pull request that runs the normal checks.
+# Security updates for vulnerable dependencies also need "Dependabot security updates" switched on in the repository
+# settings (Settings -> Code security).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7  # do not take a release in its first week: a compromised release is usually pulled by then
+    commit-message:
+      prefix: "deps"
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]

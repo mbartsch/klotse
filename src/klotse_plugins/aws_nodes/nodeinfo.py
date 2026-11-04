@@ -2,6 +2,8 @@
 import re
 from dataclasses import dataclass
 
+from .safe import valid_region
+
 PROVIDER_ID = re.compile(r"^aws:///(?P<zone>[^/]+)/(?P<id>i-[0-9a-f]+)$")  # Fargate and others do not match
 REGION_PREFIX = re.compile(r"^([a-z]{2}(?:-gov)?-[a-z]+-\d+)")  # "us-east-1a" and "us-west-2-lax-1a" both give a region
 CAPACITY_LABELS = ("karpenter.sh/capacity-type", "eks.amazonaws.com/capacityType")
@@ -27,6 +29,8 @@ def parse_node(resource):
     labels = (raw.get("metadata") or {}).get("labels") or {}
     zone = match["zone"]
     region = labels.get("topology.kubernetes.io/region") or (REGION_PREFIX.match(zone) or [None, ""])[1]
+    if not valid_region(region):
+        region = ""  # a label that is not a region name is never put in an address
     capacity = next((labels[key] for key in CAPACITY_LABELS if labels.get(key)), "").lower().replace("_", "-")
     system = (labels.get("kubernetes.io/os") or labels.get("beta.kubernetes.io/os") or "linux").lower()
     return NodeInfo(
