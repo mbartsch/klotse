@@ -86,8 +86,9 @@ jobs:
           python-version: "3.12"
       - name: Release rules
         run: |
-          # the checkout is the merge of the PR into its base: the first parent is the base
-          git diff --name-only HEAD^1 HEAD > changed.txt
+          # the checkout is the merge of the PR into its base: the first parent is the base. Files that are only added
+          # are left out (the PR that introduced the version file could not otherwise pass); changing or deleting it is what counts.
+          git diff --name-only --diff-filter=MDRT HEAD^1 HEAD > changed.txt
           mapfile -t files < changed.txt
           python scripts/release.py check-pr "$TITLE" "$BRANCH" "${files[@]}"
 
