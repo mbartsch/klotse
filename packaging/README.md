@@ -128,8 +128,9 @@ not written yet, because it cannot be tested without the certificate.
   uninstall (folder, Start Menu entry and uninstall registration all removed). Not tested: the interactive wizard,
   the "all users" mode (needs administrator rights), upgrading over an older version, and SmartScreen behaviour.
 - macOS: the CI builds (Apple Silicon and Intel) pass: the app builds, its self-test passes inside `Klotse.app`, the
-  ad-hoc signature verifies and the DMG is created. Not tested: running the app on a real Mac, the Terminal/iTerm2
-  permission prompt and shell sessions, the Finder `PATH` fix, Gatekeeper behaviour, and opening the DMG.
+  ad-hoc signature verifies and the DMG is created. The owner has tested the 0.1.0 release on macOS; the details
+  (which Mac and architecture, and whether the Terminal/iTerm2 permission prompt and shell sessions, the Finder `PATH`
+  fix, Gatekeeper behaviour and opening the DMG were each exercised) were not recorded.
 - Linux has no native package (AppImage, `.deb`, `.rpm`); pipx/PyPI is the supported route (0.1.0 is on PyPI).
 - No automatic update check, no Windows ARM64 build (the x64 app runs under emulation).
 - No CI exists yet for the test suite itself.
