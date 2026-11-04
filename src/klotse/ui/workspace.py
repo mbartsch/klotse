@@ -100,6 +100,10 @@ class ClusterWorkspace(QMainWindow):
         self._watched = None  # (view key, namespace) the running watches belong to
         self._watch_timer = QTimer(self, interval=WATCH_DEBOUNCE_MS, singleShot=True)
         self._watch_timer.timeout.connect(self._watch_reload)
+        self._clock = perf_counter  # tests replace it
+        self._last_load = {}  # view key -> when its last load started; watch reloads wait for the refresh interval
+        self._watch_late = QTimer(self, singleShot=True)
+        self._watch_late.timeout.connect(self._watch_reload)
         self.setWindowFlags(Qt.Widget)
         # side docks span the full height; the log dock sits under the central tabs only
         self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
@@ -390,10 +394,17 @@ class ClusterWorkspace(QMainWindow):
         self._watchers.clear()
         self._watched = None
         self._watch_timer.stop()
+        self._watch_late.stop()
 
     def _watch_reload(self):
         key = self.foreground_key()
         if self._watched and self._watched[0] == key and not self._closed:
+            # A busy cluster changes all the time: a change reloads the list at once, but never more often than the
+            # refresh interval (10 s by default), so the list does not flicker faster than the user asked for.
+            wait = self._auto_timer.interval() / 1000 - (self._clock() - self._last_load.get(key, float("-inf")))
+            if wait > 0:
+                self._watch_late.start(int(wait * 1000) + 1)
+                return
             self.load_view(key)  # coalesces with a load that is already running
 
     def set_auto_refresh(self, enabled):
@@ -523,6 +534,7 @@ class ClusterWorkspace(QMainWindow):
         if table is not None:
             table.set_loading()
         started = perf_counter()
+        self._last_load[key] = self._clock()
         self.message.emit(f"{self.context} / {title}: Loading…")
 
         def finished(data, error=False):

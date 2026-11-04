@@ -133,11 +133,29 @@ def test_watches_stop_when_hidden_or_toggled_off(qtbot):
 def test_change_event_reloads_foreground_once_after_debounce(qtbot):
     ws, svc, loads = ws_with_watch(qtbot)
     loads.clear()
+    ws._last_load.clear()  # the first load is long enough ago
     for _ in range(5):
         ws._watchers[0].changed.emit()  # a burst of events
     qtbot.waitUntil(lambda: loads == ["nodes"], timeout=3000)
     qtbot.wait(1000)
     assert loads == ["nodes"]  # one reload for the whole burst
+    ws.shutdown()
+
+
+def test_watch_reloads_wait_for_the_refresh_interval(qtbot):
+    ws, svc, loads = ws_with_watch(qtbot)
+    loads.clear()
+    now = [1000.0]
+    ws._clock = lambda: now[0]
+    ws._last_load["nodes"] = now[0] - 2  # loaded 2 s ago; the interval is 10 s
+    ws._watchers[0].changed.emit()
+    qtbot.wait(1500)  # past the 800 ms debounce
+    assert loads == [] and ws._watch_late.isActive()  # a busy cluster does not reload it faster than the interval
+    assert 7000 < ws._watch_late.remainingTime() <= 8001
+    now[0] += 8.5
+    ws._watch_late.stop()
+    ws._watch_reload()  # the timer fires
+    qtbot.waitUntil(lambda: loads == ["nodes"], timeout=3000)
     ws.shutdown()
 
 
