@@ -38,6 +38,12 @@ class TableModel(QAbstractTableModel):
                     for key, value in (metadata.get(field) or {}).items()))
         self.endResetModel()
 
+    def refresh_plugin_columns(self):
+        """Repaint every plugin column after the plugin values on the rows changed."""
+        for i, col in enumerate(self.columns):
+            if col[1].startswith("plugin:") and self.rows:
+                self.dataChanged.emit(self.index(0, i), self.index(len(self.rows) - 1, i))
+
     def refresh_column(self, attr):
         """Repaint one column after its values were changed in place."""
         col = next((i for i, c in enumerate(self.columns) if c[1] == attr), -1)
@@ -59,6 +65,18 @@ class TableModel(QAbstractTableModel):
         if not index.isValid() or role not in (Qt.DisplayRole, Qt.EditRole, Qt.ToolTipRole, self.SearchRole):
             return None
         col = self.columns[index.column()]
+        if col[1].startswith("plugin:"):  # filled in by a plugin: absent until it has answered, never an error
+            value = (getattr(self.rows[index.row()], "extra", None) or {}).get(col[1])
+            if role == Qt.EditRole:
+                return value  # None sorts before real values
+            if value is None:
+                return ""
+            if len(col) > 2 and role != Qt.ToolTipRole:
+                try:
+                    return col[2](value)
+                except Exception:  # a plugin's formatter must not break the table
+                    return str(value)
+            return str(value)
         if col[1].startswith("label:"):
             metadata = (self.rows[index.row()].raw or {}).get("metadata") or {}
             value = (metadata.get("labels") or {}).get(col[1][6:], "")

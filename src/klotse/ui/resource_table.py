@@ -19,6 +19,7 @@ class ResourceTable(QWidget):
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
+    rows_set = Signal(list)  # new rows are in the table (plugins ask for their columns when this fires)
 
     def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
@@ -26,7 +27,10 @@ class ResourceTable(QWidget):
             customizable = kind not in NOT_CUSTOMIZABLE
         self.kind = kind
         self.editable = editable
+        self.core_columns = list(columns)
+        self.extra_columns = []  # columns added by plugins (see set_extra_columns)
         self.base_columns = list(columns)
+        self._label_args = None
         self.model = TableModel(columns, search_metadata=kind == "Node")
         self.proxy = QSortFilterProxyModel(self)
         self.proxy.setSourceModel(self.model)
@@ -116,11 +120,23 @@ class ResourceTable(QWidget):
         self.model.set_rows(rows)
         self.view.resizeColumnsToContents()
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
+        self.rows_set.emit(self.model.rows)
+
+    def set_extra_columns(self, columns):
+        """Columns added by plugins, after the built-in ones. They take part in the saved layout (order, hidden)
+        and the Columns… dialog like any built-in column."""
+        columns = list(columns)
+        if columns == self.extra_columns or self.kind in NOT_CUSTOMIZABLE:
+            return
+        self.extra_columns = columns
+        self.base_columns = self.core_columns + columns
+        self.set_label_columns(*(self._label_args or ([],)))
 
     def set_label_columns(self, keys, headings=None, layout=None):
         """Apply label columns plus the saved built-in column order/visibility (layout: {"order", "hidden"})."""
         if self.kind in NOT_CUSTOMIZABLE:
             return
+        self._label_args = (keys, headings, layout)
         layout = layout or {}
         first, rest = self.base_columns[:1], self.base_columns[1:]  # the first column (Name) never moves or hides
         order = layout.get("order", [])

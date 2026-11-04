@@ -94,6 +94,10 @@ Native Windows/macOS packages are built with PyInstaller (`packaging/`, see the 
 | `src/klotse/ui/edit_menu.py` | Edit menu actions (undo/redo/cut/copy/paste/select all) for the focused text box or table. |
 | `src/klotse/ui/preferences.py` | Custom kubeconfig setting and the Preferences dialog (kubeconfig picker, open config folder). |
 | `src/klotse/ui/scale_monitor.py` | Polling scale progress, readiness/failure evaluation, timeouts, and activity display. |
+| `src/klotse/plugins/api.py` | The public plugin API (`Plugin`, `Column`, `Setting`, `ResourceInfo`, `EnrichRequest`, re-exported by `klotse.plugins`; author guide in `PLUGINS.md`). Plugins are trusted in-process code; the only extension point so far is extra table columns. |
+| `src/klotse/plugins/manager.py` | `PluginManager`: finds plugins (modules in `BUNDLED_MODULES`, pip entry points in the `klotse.plugins` group, `.py` files/packages in the `plugins` folder next to the settings file), validates them, remembers which are enabled (`[plugins]` `enabled.N`) and their settings (`[plugin_<id>]`), and answers `columns_for(kind)`. A plugin that fails to load or run is reported (`Loaded.error`, `errors`), never fatal. |
+| `src/klotse/plugins/host.py` | `PluginHost` (one per workspace): when rows reach a table it applies cached plugin values to `row.extra` and runs `plugin.enrich()` off the GUI thread (through `Workspace._run`) for rows that are new (uid), stale (`refresh_s`) or unknown; one request per plugin and kind in flight, 60 s back-off after a failure, wrong answers reported as problems. |
+| `src/klotse/ui/plugins_dialog.py` | Edit → Plugins…: list with enable ticks, details, settings form, load/runtime problems, Open plugins folder, Reload. |
 | `src/klotse/ui/watcher.py` | `ChangeWatcher` QThread: runs `KubeService.watch_changes` and emits `changed`; `stop()` only sets a flag and never blocks the GUI thread. |
 | `src/klotse/ui/namespace_dialog.py` | Namespace creation form. |
 | `src/klotse/ui/theme.py` | Application palette and Qt stylesheet. |
@@ -150,6 +154,13 @@ example.com/team = Team
 - The same dialog has a **Built-in columns** list: untick to hide, Move up/down to reorder. The first column (Name) is fixed and always shown. Saved in `columns/layout` (JSON: `{kind: {order, hidden}}`) via `LabelSettings.layout`/`set_layout`; applied by `ResourceTable.set_label_columns(keys, headings, layout)`. Label columns still follow Roles (Nodes) or Name (Pods), or Name if Roles is hidden. Restore defaults resets both.
 - Available label keys can be searched, added, and given an optional Short heading. Users can edit/reorder the list, clear it to remove columns, or restore defaults.
 - Preserve active sort columns by attribute when inserting/removing/renaming label columns; a removed sort column falls back to unsorted order.
+
+### Plugins
+
+- Plugins add columns to the customizable resource lists; they are off until enabled in Edit → Plugins… and the AWS node plugin (price, instance id, AMI id, boot time) is planned as a bundled plugin on top of this, never hardcoded in the product. Do not special-case a plugin in core code; extend the API instead (and `PLUGINS.md`).
+- Plugin values live on `row.extra[attribute]` with attribute `plugin:<plugin id>:<column key>`; `TableModel` reads them (missing = blank display and `None` sort value; a raising formatter falls back to `str`). `ResourceTable.set_extra_columns` appends the columns to `base_columns` so they join the saved layout and the Columns… dialog; `ResourceTable.rows_set` fires after `set_rows`, which is when the workspace's `PluginHost` is asked (`ClusterWorkspace._hook_table`, also for node-pods tabs; the Overview's drill-down tables are not hooked). `MainWindow` owns the `PluginManager` and passes it to every workspace (`plugins=`); `None` means no plugin behaviour.
+- `enrich()` runs on a worker thread and must not touch Qt. Never run plugin code on the GUI thread, and keep plugin failures contained (reported, backed off, shown in the dialog).
+- The packaged-app self-test has a `plugins` check: bundled plugins must load (list new bundled modules in `BUNDLED_MODULES` and the PyInstaller spec's hidden imports).
 
 ### Settings persistence
 
@@ -242,7 +253,7 @@ git diff --check
 
 ### Validation snapshot
 
-At the last check the full offline suite reported **343 passed** (counts are snapshots; rerun after edits; `tests/test_packaging_support.py` covers the CLI flags, the frozen-app terminal command and the macOS `PATH` helper; `tests/test_desktop_entry.py` covers the Linux menu entry). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
+At the last check the full offline suite reported **373 passed** (counts are snapshots; rerun after edits; `tests/test_packaging_support.py` covers the CLI flags, the frozen-app terminal command and the macOS `PATH` helper; `tests/test_desktop_entry.py` covers the Linux menu entry). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
 
 Known, unresolved: after all tests pass the pytest process can still exit non-zero (139 segfault, or 127) when a test that builds a `ClusterWorkspace` is followed by a test that runs a background worker. It also happens on `master` from before these features; it is intermittent and did not go away with deferred worker cleanup, parenting `QSettings`, or draining the thread pool. Single test files usually exit 0 (not reliably; `test_bulk.py` and `test_performance.py` have crashed on their own), while the full run exited 127 at the last check. Do not report a passing count as proof of a clean exit, and check the process exit status separately.
 

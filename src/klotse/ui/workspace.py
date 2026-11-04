@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
                                QTabWidget, QToolBar)
 
 from ..k8s.resources import SPECS
+from ..plugins.host import PluginHost
 from ..workers import Worker
 from .command_view import CommandView
 from .customizations import LabelSettings
@@ -69,7 +70,7 @@ class ClusterWorkspace(QMainWindow):
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
 
-    def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None):
+    def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None):
         super().__init__(parent)
         self.service = service
         self.context = context
@@ -103,9 +104,17 @@ class ClusterWorkspace(QMainWindow):
         self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
         self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
 
+        # Plugins (see klotse.plugins): extra columns on the tables, filled in off the GUI thread. None = no plugins.
+        self.plugins = plugins
+        self.plugin_host = PluginHost(plugins, context, self._run, parent=self) if plugins is not None else None
         self._build_views()
         self.apply_label_columns()
         self.label_settings.changed.connect(self.apply_label_columns)
+        if self.plugin_host is not None:
+            for table in self.resource_tables():
+                self._hook_table(table)
+            plugins.changed.connect(self._plugins_changed)
+            self.plugin_host.updated.connect(self._plugins_updated)
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
         self.tabs = QTabWidget()
@@ -246,6 +255,31 @@ class ClusterWorkspace(QMainWindow):
     def resource_tables(self):
         for widget, _ in self.views.values():
             yield from widget.tables() if isinstance(widget, OverviewView) else [widget]
+
+    def _hook_table(self, table):
+        """Let plugins add columns to this table (only the customizable lists, not the Overview's drill-downs) and
+        ask them for values whenever rows arrive."""
+        if self.plugin_host is None or table.customize_button is None or getattr(table, "_plugin_hooked", False):
+            return
+        table._plugin_hooked = True
+        table.set_extra_columns(self.plugins.columns_for(table.kind))
+        table.rows_set.connect(lambda rows, t=table: self.plugin_host.rows_loaded(t.kind, rows))
+
+    def _hooked_tables(self):
+        return [t for t in self.resource_tables() if getattr(t, "_plugin_hooked", False)]
+
+    def _plugins_changed(self):
+        """A plugin was enabled, disabled or reconfigured: update the columns and ask for the values."""
+        for table in self._hooked_tables():
+            table.set_extra_columns(self.plugins.columns_for(table.kind))
+            self.plugin_host.rows_loaded(table.kind, table.model.rows)
+        self._plugins_updated(None)
+
+    def _plugins_updated(self, kind):
+        for table in self._hooked_tables():
+            if kind is None or table.kind == kind:
+                self.plugin_host.apply(table.kind, table.model.rows)
+                table.model.refresh_plugin_columns()
 
     def apply_label_columns(self):
         for table in self.resource_tables():
@@ -773,6 +807,7 @@ class ClusterWorkspace(QMainWindow):
             table.set_header_widget(bar)
             table.set_label_columns(self.label_settings.labels("Pod"), self.label_settings.headers("Pod"),
                                     self.label_settings.layout("Pod"))
+            self._hook_table(table)
             table.view_key = key
             table.filter.setPlaceholderText(f"Filter pods on {node} (all namespaces)…")
             table.selected.connect(self.detail.show_row)

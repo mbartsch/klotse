@@ -54,12 +54,25 @@ def _self_test_checks():
         dialog.deleteLater()
         return title
 
+    def plugins():
+        # the plugins bundled with Klotse must load (a missing hidden import in a packaged app would show here)
+        import tempfile
+
+        from PySide6.QtCore import QSettings
+        from .plugins.manager import BUNDLED_MODULES, PluginManager
+        scratch = QSettings(os.path.join(tempfile.gettempdir(), "klotse-selftest.ini"), QSettings.IniFormat)
+        manager = PluginManager(scratch, folder=None, bundled=BUNDLED_MODULES, entry_points=False)
+        failed = [f"{found.origin}: {found.error}" for found in manager.loaded if found.plugin is None]
+        if failed:
+            raise RuntimeError("; ".join(failed))
+        return f"{len(manager.loaded)} bundled plugin(s) load"
+
     def kubectl():
         found = shutil.which("kubectl")
         return found or "not found on PATH (needed for shells, attach and drain)"
 
     return [("version", lambda: __version__), ("mode", frozen), ("imports", imports), ("qt", qt), ("logo", logo),
-            ("about dialog", dialog), ("kubectl", kubectl)]
+            ("about dialog", dialog), ("plugins", plugins), ("kubectl", kubectl)]
 
 
 def self_test(report_file=None):

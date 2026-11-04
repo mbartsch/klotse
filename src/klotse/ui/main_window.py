@@ -9,10 +9,12 @@ from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolic
 from .about import AboutDialog
 from .cluster_groups import ClusterGroups
 from .cluster_session import ClusterSession
+from ..plugins.manager import PluginManager
 from .customizations import LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
+from .plugins_dialog import PluginsDialog
 from .preferences import KubeconfigSettings, PreferencesDialog
 from .terminal_settings import TerminalSettings, TerminalSettingsDialog
 from .workspace import ClusterWorkspace
@@ -26,7 +28,7 @@ class MainWindow(QMainWindow):
 
     closing = Signal()
 
-    def __init__(self, service_factory, label_settings=None):
+    def __init__(self, service_factory, label_settings=None, plugin_manager=None):
         super().__init__()
         self.factory = service_factory
         self.workspaces = {}  # context name -> ClusterWorkspace
@@ -35,6 +37,9 @@ class MainWindow(QMainWindow):
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
+        # plugins: bundled, pip (entry points) and the plugins folder next to the settings file; all off until enabled
+        self.plugins = plugin_manager if plugin_manager is not None else PluginManager(
+            self.label_settings.store, folder=Path(self.label_settings.store.fileName()).parent / "plugins", parent=self)
         self.setWindowTitle("Klotse")
         self.resize(1500, 850)
         self._shutting_down = False
@@ -51,6 +56,9 @@ class MainWindow(QMainWindow):
         self.preferences_action.setShortcut(QKeySequence.Preferences)
         self.preferences_action.triggered.connect(self.open_preferences)
         self.edit_menu.addAction(self.preferences_action)
+        self.plugins_action = QAction("Plugins…", self)
+        self.plugins_action.triggered.connect(self.open_plugins)
+        self.edit_menu.addAction(self.plugins_action)
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
         self.menuBar().addMenu("View").addAction(self.managed_fields_action)
@@ -138,7 +146,7 @@ class MainWindow(QMainWindow):
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
         ws = ClusterWorkspace(self.new_service(), ctx, label_settings=self.label_settings,
-                              terminal_settings=self.terminal_settings)
+                              terminal_settings=self.terminal_settings, plugins=self.plugins)
         self.workspaces[ctx] = ws
         ws.detail.set_show_managed_fields(self.managed_fields_action.isChecked())
         self.managed_fields_action.toggled.connect(ws.detail.set_show_managed_fields)
@@ -166,6 +174,11 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
         if accepted and chosen != self.kubeconfig_settings.path:
             self.apply_kubeconfig(chosen)
+
+    def open_plugins(self):
+        dialog = PluginsDialog(self.plugins, self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def apply_kubeconfig(self, path):
         """Switch to another kubeconfig (None = default): close open clusters, then reload the context list."""
