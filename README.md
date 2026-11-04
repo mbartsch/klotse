@@ -40,12 +40,47 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
   limit and percent-of-request/limit columns on Pods.
 - **Your columns.** The **Columns…** button on every list lets you hide and reorder built-in columns and add label
   columns with short headings. Saved per resource kind.
-- **Plugins.** Extra columns and right-click actions from plugins (Klotse ships one for AWS nodes: instance ID, AMI,
-  price per hour and month, spot price, launch time), off until you enable them in Preferences → Plugins (for
-  example per-node cloud details). Write your own as a single Python file: see [PLUGINS.md](https://github.com/mbartsch/klotse/blob/master/PLUGINS.md).
+- **Plugins.** Extra columns, right-click actions, Overview cards and per-cluster settings from plugins (Klotse ships one for AWS nodes: instance ID, AMI, price per hour and month, spot price, launch time, and the cluster's cost on the Overview), off until you enable them in Preferences → Plugins. Settings that differ per cluster, such as the AWS profile, are in the **Plugins** menu and in the right-click menu of a connected cluster. Write your own as a single Python file: see [PLUGINS.md](https://github.com/mbartsch/klotse/blob/master/PLUGINS.md).
 - **Edit menu and Preferences.** Undo/redo/cut/copy/paste/select all (Copy in a table copies the selected rows as
   tab-separated text). Preferences lets you choose a custom kubeconfig and open the settings folder.
 - **macOS.** Choose Terminal or iTerm2 for shells (Preferences → Terminal).
+
+## Screenshots
+
+The screenshots below were made with **invented data** (a made-up eight-node EKS cluster with fake prices and
+instance IDs), not a real cluster or AWS account. They show the AWS nodes plugin, which is off until you enable it
+in Preferences → Plugins. The text was rendered with Windows fonts, so spacing on your system may differ a little.
+
+**Cluster Overview.** The usual cluster and workload cards, plus the plugin's *Cost per hour*, *Cost per month* and
+*Nodes priced* cards (the sum of every node's current price; spot nodes without a spot price are not counted).
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/01-overview-cost-cards.png" alt="Cluster Overview with the AWS cost cards">
+
+**Nodes with plugin columns.** Instance ID, instance type, capacity, AMI, on-demand and current price per hour, and
+price per month, next to the built-in node columns. The values come from the Node objects (instance ID, type,
+capacity, node group image), from AWS's public price data, and, when AWS credentials are available, from EC2 (the AMI
+and launch time of every node, and current spot prices: the spot nodes here show a lower price than their on-demand
+rate).
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/02-nodes-aws-columns.png" alt="Nodes list with AWS columns">
+
+**Right-click a node.** After the built-in node actions, each plugin adds a submenu (here: Copy instance ID, Open in
+the EC2 console, Estimate the cost of the selected nodes).
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/06-node-right-click-aws-actions.png" alt="Node context menu with the AWS nodes submenu">
+
+**Per-cluster plugin settings.** Right-click a connected cluster in the left list, or use the **Plugins** menu, to
+open a plugin's settings for that cluster only: here the AWS profile (and, if you need it, the account) for that
+cluster. The Plugins menu appears only while an enabled plugin has such settings.
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/03-cluster-right-click-menu.png" alt="Cluster context menu with the plugin settings entry">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/04-plugins-menu.png" alt="The Plugins menu">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/05-cluster-settings-dialog.png" alt="Per-cluster settings dialog">
+
+**Preferences → Plugins.** Plugins are off until you tick them here; the page lists what each one adds and its
+general settings, and applies changes at once.
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/07-preferences-plugins.png" alt="Preferences, Plugins page">
 
 ## Requirements
 
