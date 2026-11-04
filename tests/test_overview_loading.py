@@ -17,8 +17,7 @@ def test_first_load_shows_a_busy_indicator_until_data_arrives(qtbot):
     qtbot.addWidget(view)
     assert not on_loading_page(view)
     view.set_loading()
-    assert on_loading_page(view) and shown(view.loading_bar)
-    assert view.loading_bar.minimum() == view.loading_bar.maximum() == 0  # indeterminate
+    assert on_loading_page(view) and shown(view.loading_clock)
     assert view.loading_label.text().startswith("Loading cluster data")
     view._loading_tick()
     assert view.loading_label.text().endswith("0s")
@@ -40,9 +39,9 @@ def test_a_failed_first_load_says_so_and_a_retry_shows_the_indicator_again(qtbot
     view.set_loading()
     view.set_error("ReadTimeoutError")
     assert view.loading_label.text() == "Load failed: ReadTimeoutError"
-    assert on_loading_page(view) and not shown(view.loading_bar) and not view._load_timer.isActive()
+    assert on_loading_page(view) and not shown(view.loading_clock) and not view._load_timer.isActive()
     view.set_loading()
-    assert shown(view.loading_bar) and view.loading_label.text().startswith("Loading cluster data")
+    assert shown(view.loading_clock) and view.loading_label.text().startswith("Loading cluster data")
 
 
 def test_an_error_while_data_is_shown_leaves_the_page_alone(qtbot):
@@ -92,9 +91,9 @@ def test_a_list_that_fails_to_load_says_so_in_the_big_message(qtbot):
     table.set_loading()
     table.set_error("ReadTimeoutError")
     assert table.stack.currentWidget() is table.loading_page
-    assert table.loading_page.label.text() == "Load failed: ReadTimeoutError" and table.loading_page.bar.isHidden()
+    assert table.loading_page.label.text() == "Load failed: ReadTimeoutError" and table.loading_page.clock.isHidden()
     table.set_loading()  # retry
-    assert not table.loading_page.bar.isHidden() and table.loading_page.label.text() == "Loading…"
+    assert not table.loading_page.clock.isHidden() and table.loading_page.label.text() == "Loading…"
 
 
 def test_a_reload_with_rows_on_screen_keeps_the_table_visible(qtbot):
@@ -107,3 +106,24 @@ def test_a_reload_with_rows_on_screen_keeps_the_table_visible(qtbot):
     assert table.stack.currentWidget() is table.view and table.status.text() == "Loading…"
     table.set_error("boom")
     assert table.stack.currentWidget() is table.view  # the rows stay; the status line carries the error
+
+
+def test_the_clock_hands_turn_at_fixed_speeds():
+    from klotse.ui.loading_pane import MINUTE_HAND_TURN_MS, hand_angles
+    assert hand_angles(0) == (0.0, 0.0)
+    hour, minute = hand_angles(MINUTE_HAND_TURN_MS // 4)
+    assert minute == 90.0 and hour == 7.5  # the hour hand moves a twelfth as fast
+    assert hand_angles(MINUTE_HAND_TURN_MS)[1] == 0.0  # one full turn, back at 12
+    assert hand_angles(MINUTE_HAND_TURN_MS * 12)[0] == 0.0  # the hour hand needs twelve of them
+
+
+def test_the_clock_only_ticks_while_it_is_on_screen_and_draws(qtbot):
+    from klotse.ui.loading_pane import LoadingPane
+    pane = LoadingPane()
+    qtbot.addWidget(pane)
+    assert not pane.clock._timer.isActive()
+    pane.show()
+    assert pane.clock._timer.isActive()
+    assert not pane.clock.grab().isNull()  # painting does not raise
+    pane.hide()
+    assert not pane.clock._timer.isActive()

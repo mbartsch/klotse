@@ -141,7 +141,7 @@ class OverviewView(QWidget):
         # Shown in place of the (still empty) events table while the first data is on its way, so the page does not
         # look dead. The cards above stay usable; nothing is blocked.
         self.loading_page = LoadingPane()
-        self.loading_label, self.loading_bar = self.loading_page.label, self.loading_page.bar
+        self.loading_label, self.loading_clock = self.loading_page.label, self.loading_page.clock
         self._load_clock = QElapsedTimer()
         self._load_timer = QTimer(self, interval=1000)
         self._load_timer.timeout.connect(self._loading_tick)
