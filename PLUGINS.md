@@ -90,7 +90,7 @@ An exception from `run()` is shown to the user and recorded in the Plugins dialo
 
 ## Installing a plugin
 
-Plugins are found in three places, and none runs until you enable it in **Edit → Plugins…**:
+Plugins are found in three places, and none runs until you enable it in **Settings → Plugins…**:
 
 1. **The plugins folder**: `.py` files, or folders with an `__init__.py`, in the `plugins` folder next to Klotse's
    settings file. The Plugins dialog has **Open plugins folder** and **Reload plugins**. This works in the packaged

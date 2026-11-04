@@ -31,7 +31,7 @@ A minimal plugin (a .py file in the plugins folder, or any importable module):
     plugin = NodeZone()          # Klotse looks for a module-level `plugin` (an instance) or `register()`
 
 Plugins run with the user's permissions and see everything Klotse shows, so they are off until enabled in
-Edit -> Plugins. A problem (an exception) is shown to the user and, for columns, the plugin is retried after a pause.
+Settings -> Plugins. A problem (an exception) is shown to the user and, for columns, the plugin is retried after a pause.
 """
 import re
 from dataclasses import dataclass, field
