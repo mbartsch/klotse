@@ -12,7 +12,7 @@ from ..ui.settings_store import default_store
 from .api import API_VERSION, Action, Column, Plugin, Setting, column_attr, valid_id
 
 ENTRY_POINT_GROUP = "klotse.plugins"
-BUNDLED_MODULES = ()  # modules shipped inside Klotse; loaded like any other plugin and just as disabled until enabled
+BUNDLED_MODULES = ("klotse_plugins.aws_nodes",)  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
 
 
 @dataclass
@@ -203,6 +203,10 @@ class PluginManager(QObject):
             if actions:
                 found.append((plugin, actions))
         return found
+
+    def cache_dir(self, plugin_id):
+        """A folder the plugin may keep downloaded data in (next to the settings file). Not created here."""
+        return Path(self.store.fileName()).parent / "plugin-cache" / plugin_id
 
     def record_error(self, plugin_id, message):
         self.errors[plugin_id] = message

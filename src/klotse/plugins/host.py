@@ -64,7 +64,8 @@ class PluginHost(QObject):
     def _start(self, plugin, kind, due):
         slot = (plugin.id, kind)
         self._busy.add(slot)
-        request = EnrichRequest(plugin.id, kind, self.context, due, self.manager.settings_for(plugin.id))
+        request = EnrichRequest(plugin.id, kind, self.context, due, self.manager.settings_for(plugin.id),
+                                cache_dir=self.manager.cache_dir(plugin.id))
 
         def done(result):
             self._busy.discard(slot)
@@ -88,7 +89,10 @@ class PluginHost(QObject):
             values = result.get(info.key) or {}
             self._cache[(plugin.id, kind, info.key)] = (
                 info.uid, {column_attr(plugin.id, k): v for k, v in values.items() if k in known}, now)
-        self.manager.clear_error(plugin.id)
+        if request.warnings:  # it answered, but something was wrong on the way: use the values, show the problem
+            self.manager.record_error(plugin.id, "; ".join(request.warnings))
+        else:
+            self.manager.clear_error(plugin.id)
         self.updated.emit(kind)
 
     def forget(self, plugin_id=None):

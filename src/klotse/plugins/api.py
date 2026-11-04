@@ -36,7 +36,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 2  # 1: columns. 2: actions in the right-click menus.
+API_VERSION = 3  # 1: columns. 2: actions in the right-click menus. 3: enrich() can warn; plugins get a cache folder.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -118,11 +118,21 @@ class ResourceInfo:
 
 @dataclass
 class EnrichRequest:
+    """What `enrich()` receives. `cache_dir` is a folder the plugin may keep files in (it may not exist yet; create it
+    when needed); `warn(text)` reports a problem that does not stop the plugin from returning what it has (shown in the
+    Plugins page; the plugin's values are still used)."""
+
     plugin_id: str
     kind: str
     context: str  # the kubeconfig context the resources come from
     resources: list
     settings: dict
+    cache_dir: object = None
+    warnings: list = field(default_factory=list)
+
+    def warn(self, text):
+        if text not in self.warnings:
+            self.warnings.append(text)
 
 
 @dataclass
@@ -140,6 +150,7 @@ class ActionRequest:
     log: object = None
     api_client: object = None
     kubectl: tuple = ()
+    cache_dir: object = None
 
 
 # ---- what run() may return (one result or a list of them; None for nothing) -----------------------------

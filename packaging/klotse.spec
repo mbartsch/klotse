@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "packaging"))
 
 import icons  # noqa: E402
 import klotse  # noqa: E402
+from PyInstaller.utils.hooks import collect_submodules  # noqa: E402
 
 VERSION = klotse.__version__
 # Windows file versions and the macOS bundle version must be plain numbers: 0.2.1.dev3 -> 0.2.1
@@ -35,7 +36,9 @@ a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT / "src")],
     datas=datas,
-    hiddenimports=[],
+    # The bundled plugins are loaded by name at run time (klotse.plugins.manager.BUNDLED_MODULES), so nothing imports
+    # them for PyInstaller to see: list them all, with what they import. The --self-test "plugins" check proves it.
+    hiddenimports=collect_submodules("klotse_plugins"),
     excludes=["tkinter", "pytest", "_pytest", "pytestqt", "unittest", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
     noarchive=False,
 )

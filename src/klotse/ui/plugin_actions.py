@@ -88,7 +88,8 @@ class PluginActionRunner(QObject):
 
         request = ActionRequest(plugin.id, action.key, kind, self.ws.context, resources,
                                 self.ws.plugins.settings_for(plugin.id), log=lambda line: self.output.emit(str(line)),
-                                api_client=api_client, kubectl=tuple(kubectl_base(self.ws.context, self.ws.kubeconfig)))
+                                api_client=api_client, kubectl=tuple(kubectl_base(self.ws.context, self.ws.kubeconfig)),
+                                cache_dir=self.ws.plugins.cache_dir(plugin.id))
         self.ws._run(lambda: plugin.run(request), lambda result: self._done(plugin, action, result),
                      on_error=lambda message: self._failed(plugin, action, message))
 

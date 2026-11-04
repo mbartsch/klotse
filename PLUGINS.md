@@ -14,8 +14,8 @@ Everything a plugin author needs is in `klotse.plugins`:
 | `Column(key, title, kinds=("Node",), format=None)` | A column for tables of those kinds (`"Node"`, `"Pod"`, `"Deployment"`, ...). `format` is an optional `value -> str` for display; sorting uses the raw value, so numbers stay numbers. |
 | `Action(key, title, kinds=("Node",), multi=False, confirm=None, dangerous=False)` | A right-click entry. `multi`: also offered when several rows are selected. `confirm`: a Yes/No question asked first. `dangerous`: it changes things; marked with ⚠ and always asks first. |
 | `Setting(key, label, default, kind="text" or "bool", help="")` | A setting the Plugins dialog shows; its value reaches `enrich()` and `run()` in `request.settings`. |
-| `EnrichRequest` | What `enrich()` receives: `plugin_id`, `kind`, `context` (the kubeconfig context), `resources`, `settings`. |
-| `ActionRequest` | What `run()` receives: `plugin_id`, `action` (the key), `kind`, `context`, `resources`, `settings`, plus `log(line)`, `api_client()` and `kubectl`. |
+| `EnrichRequest` | What `enrich()` receives: `plugin_id`, `kind`, `context` (the kubeconfig context), `resources`, `settings`, `cache_dir` (a folder to keep downloaded data in; create it when needed) and `warn(text)` (report a problem without giving up: the values you return are still used and the text is shown in the Plugins page). |
+| `ActionRequest` | What `run()` receives: `plugin_id`, `action` (the key), `kind`, `context`, `resources`, `settings`, plus `log(line)`, `api_client()`, `kubectl` and `cache_dir`. |
 | `ResourceInfo` | One resource: `name`, `namespace`, `raw` (the full manifest, read-only), `key` (`name`, or `namespace/name`), `uid`. |
 | `Message`, `Copy`, `OpenUrl`, `ShowText`, `Terminal`, `Reload` | What `run()` may return (see below). |
 
@@ -111,8 +111,36 @@ provides (`requires_api`) is listed in the dialog with the reason; it never stop
 
 ## API versions
 
-`klotse.plugins.API_VERSION` is 2: version 1 had columns, version 2 added actions. Set `requires_api = 2` if your
-plugin uses actions; a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
+`klotse.plugins.API_VERSION` is 3: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
+`EnrichRequest.warn`. Set `requires_api` to the lowest
+version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
+
+## The bundled plugin: AWS nodes
+
+Klotse ships one plugin of its own, **AWS nodes** (`klotse_plugins/aws_nodes`), written against this same API. It is off
+until you enable it. For nodes that are EC2 instances (an `aws:///zone/i-...` providerID, which EKS and Karpenter set) it
+adds these columns to the Nodes list:
+
+| Column | Where it comes from |
+| --- | --- |
+| Instance ID, Instance type, Capacity (on-demand / spot / reserved) | the Node's providerID and labels |
+| AMI | the EKS node group image label; for every node (also Karpenter's) from AWS when boto3 and credentials work |
+| On-demand $/h | AWS's public price list for the region and operating system |
+| Price $/h, Price $/month | on-demand nodes: the on-demand price; spot nodes: AWS's current spot price (needs boto3 and credentials, blank otherwise); the month is 730 hours |
+| Launched | the instance's launch time from AWS (needs boto3 and credentials) |
+
+and these right-click actions: **Copy instance ID** (several nodes at once), **Open in the EC2 console**, and
+**Estimate the cost of the selected nodes** (a text tab with each node and the total per hour and month).
+
+- **No login is needed** for everything except spot prices, launch time and the AMI of nodes without an image label. With
+  `boto3` installed in Klotse's environment and working AWS credentials (the usual `~/.aws`, environment variables or a
+  profile chosen in the plugin's settings) those appear too. The packaged apps do not include boto3.
+- **Prices** come from the small per-region files that the AWS pricing calculator uses (about 60 KB each, kept for a week in
+  the plugin cache folder), not the 480 MB official price list files. That is an undocumented AWS address: if it ever
+  changes the plugin says so on the Plugins page and keeps using its last copy.
+- **They are list prices for the instance only**: no EBS, data transfer, the EKS cluster fee, savings plans or reserved
+  instances, and local-zone nodes are priced like their parent region.
+- **Settings:** *Use the AWS API when boto3 and credentials are available* (on by default) and *AWS profile*.
 
 ## Things to know
 
