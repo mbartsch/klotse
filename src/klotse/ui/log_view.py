@@ -60,6 +60,11 @@ class LogStreamer(QThread):
                 pass
 
 
+def running_streamers():
+    """The log streamers that have not finished yet."""
+    return list(_alive)
+
+
 def shutdown_all(timeout_ms=2000):
     for s in list(_alive):
         s.stop()

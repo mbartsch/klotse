@@ -1,13 +1,37 @@
 import os
 import sys
 from threading import Timer
+from time import monotonic
 
 from PySide6.QtWidgets import QApplication
 
 from . import cli
 from .k8s.client import KubeService
-from .ui import branding, environment, theme
+from .ui import branding, environment, log_view, theme, watcher
 from .ui.main_window import MainWindow
+
+THREAD_GRACE_MS = 1000  # how long a thread that is winding down may take before the process stops waiting for it
+
+
+def leave(status, threads=None, hard_exit=os._exit, grace_ms=THREAD_GRACE_MS):
+    """End the process once the event loop has returned.
+
+    A QThread that is still running when Python tears down is destroyed mid-run: Qt prints "QThread: Destroyed while
+    thread is still running" and aborts (a crash report on macOS). Watch and log threads sit in network reads that
+    cannot be interrupted, so they may outlive the window by up to the server-side timeout. Give them a moment
+    to finish; if one is still blocked, skip the interpreter teardown and end the process directly."""
+    pending = list(threads) if threads is not None else [*watcher.running(), *log_view.running_streamers()]
+    deadline = monotonic() + grace_ms / 1000
+    for thread in pending:
+        thread.wait(max(0, int((deadline - monotonic()) * 1000)))
+    if not any(thread.isRunning() for thread in pending):
+        sys.exit(status)
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (AttributeError, OSError, ValueError):
+            pass  # a packaged Windows app has no console streams
+    hard_exit(status)
 
 
 def main(argv=None):
@@ -39,7 +63,7 @@ def main(argv=None):
     # Also cover native application Quit, which may bypass the window close event.
     app.aboutToQuit.connect(win.shutdown)
     win.show()
-    sys.exit(app.exec())
+    leave(app.exec())
 
 
 if __name__ == "__main__":

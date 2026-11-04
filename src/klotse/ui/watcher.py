@@ -5,6 +5,11 @@ from PySide6.QtCore import QThread, Signal
 _RUNNING = set()  # a QThread must not be destroyed while it runs; keep each one until it has finished
 
 
+def running():
+    """The watchers that have not finished yet."""
+    return list(_RUNNING)
+
+
 class ChangeWatcher(QThread):
     """Runs a blocking change stream (KubeService.watch_changes) and emits `changed` for every event.
 

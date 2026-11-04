@@ -206,6 +206,7 @@ example.com/team = Team
 - MainWindow shutdown is idempotent: stop workspaces/streams, clear queued global-pool work, and stop command views. Disconnected workspaces must ignore late results.
 - LogStreamer.stop shuts down the socket to unblock reading; do not call response.close on the GUI thread because its lock can freeze the UI. Retain streamers until QThreads finish.
 - The application entry point arms a daemon timer with a three-second `os._exit(0)` fallback so a stuck API worker/credential helper cannot hold Python open during Qt teardown. Native application Quit is covered too.
+- **QThreads at exit:** `ChangeWatcher` and `LogStreamer` threads can sit in a network read for up to the server-side timeout after the window closed. If Python tears down while one still runs, Qt reports "QThread: Destroyed while thread is still running" and aborts (macOS crash report; exit status 127 or 0xC0000409 on Windows). `__main__.leave()` therefore waits up to `THREAD_GRACE_MS` (1 s) for the running watchers/streamers (`watcher.running()`, `log_view.running_streamers()`) and, if one is still blocked, ends the process with `os._exit` instead of `sys.exit`. `tests/test_thread_exit.py` covers it, including a child process with a blocked watcher.
 - Keep hard-exit behavior confined to the executable entry point. Test it in child processes so it cannot kill the test runner.
 
 ## Tests and verification
@@ -241,7 +242,7 @@ git diff --check
 
 ### Validation snapshot
 
-At the last check the full offline suite reported **321 passed** (counts are snapshots; rerun after edits; `tests/test_packaging_support.py` covers the CLI flags, the frozen-app terminal command and the macOS `PATH` helper; `tests/test_desktop_entry.py` covers the Linux menu entry). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
+At the last check the full offline suite reported **325 passed** (counts are snapshots; rerun after edits; `tests/test_packaging_support.py` covers the CLI flags, the frozen-app terminal command and the macOS `PATH` helper; `tests/test_desktop_entry.py` covers the Linux menu entry). The five overview tests in `tests/test_performance.py` that once failed on stale return shapes were updated in PR #3 and pass; current `_overview_pods()` returns `(counts, lists)` and `_overview_events()` returns `(events, warning_count, warning_rows)`, so keep the drill-down data when changing those tests.
 
 Known, unresolved: after all tests pass the pytest process can still exit non-zero (139 segfault, or 127) when a test that builds a `ClusterWorkspace` is followed by a test that runs a background worker. It also happens on `master` from before these features; it is intermittent and did not go away with deferred worker cleanup, parenting `QSettings`, or draining the thread pool. Single test files usually exit 0 (not reliably; `test_bulk.py` and `test_performance.py` have crashed on their own), while the full run exited 127 at the last check. Do not report a passing count as proof of a clean exit, and check the process exit status separately.
 
