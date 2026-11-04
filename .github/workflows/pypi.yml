@@ -1,16 +1,22 @@
 # Builds the Python package (sdist + wheel), smoke-tests it the way a Linux user would install it (pipx), and publishes it
 # to PyPI. Publishing needs one-time setup on pypi.org (see packaging/README.md, "Publishing to PyPI") and is
 # deliberately gated:
-#   - it only runs for a version tag (git tag v0.1.0 && git push origin v0.1.0), and
+#   - it runs for a version tag (git tag v0.1.0 && git push origin v0.1.0) or a manual run (Actions -> PyPI -> Run
+#     workflow, where "Upload to PyPI" is ticked by default and can be unticked to only build and test), and
 #   - it uses the "pypi" environment, where you can require a manual approval before anything is uploaded.
+# Pull requests only build and test. TestPyPI is an extra, opt-in upload on a manual run.
 # A published version can never be replaced or reused, so check the build and the smoke test first.
 name: PyPI
 
 on:
   workflow_dispatch:
     inputs:
+      pypi:
+        description: "Upload to PyPI (untick to only build and test)"
+        type: boolean
+        default: true
       testpypi:
-        description: "Also upload to TestPyPI (a dry run; needs the TestPyPI trusted publisher)"
+        description: "Also upload to TestPyPI (needs the TestPyPI trusted publisher)"
         type: boolean
         default: false
   push:
@@ -116,7 +122,8 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # a version tag always publishes; a manual run publishes unless "Upload to PyPI" is unticked
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.pypi)
     needs: [build, smoke]
     runs-on: ubuntu-latest
     environment:
