@@ -36,10 +36,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
+          persist-credentials: false  # the job only reads the repository
           fetch-depth: 0  # the version comes from the git tag
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.12"
       - name: Tag gives a clean release version
@@ -61,7 +62,7 @@ jobs:
           bad = [c for c in classifiers if c not in trove_classifiers.classifiers]
           assert not bad, f"classifiers PyPI would reject: {bad}"
           PY
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: python-dist
           path: dist/
@@ -75,10 +76,10 @@ jobs:
       matrix:
         python: ["3.10", "3.12", "3.13"]
     steps:
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: ${{ matrix.python }}
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: python-dist
           path: dist
@@ -116,11 +117,11 @@ jobs:
     permissions:
       id-token: write  # tokenless "trusted publishing"; no password or API token is stored anywhere
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: python-dist
           path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -135,7 +136,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: python-dist
           path: dist
@@ -144,4 +145,4 @@ jobs:
         run: |
           ls dist
           if ls dist | grep -q '\.dev'; then echo "These are development builds; push a tag such as v1.2.3 to publish to PyPI."; exit 1; fi
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # release/v1

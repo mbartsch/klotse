@@ -11,14 +11,15 @@ from datetime import datetime, timezone
 from .awscreds import CredentialSource, CredentialsError
 from .ec2 import Ec2Error, Ec2Unavailable, boto3_session
 from .native import AwsHttpError, _strip_namespaces, _text, post
+from .safe import ParseError, parse_xml, valid_region
 from .sigv4 import sign
-
-import xml.etree.ElementTree as ET
 
 STS_VERSION = "2011-06-15"
 
 
 def _endpoint(region):
+    if not valid_region(region):
+        raise Ec2Error("not a valid AWS region name")
     return f"https://sts.{region}.amazonaws.com{'.cn' if region.startswith('cn-') else ''}/"
 
 
@@ -35,10 +36,10 @@ def native_account(source, region, http=post, now=time.time):
                    credentials.access_key, credentials.secret_key, region, "sts", stamp, credentials.token or None)
     try:
         status, answer = http(url, headers, body)
-        root = _strip_namespaces(ET.fromstring(answer))
+        root = _strip_namespaces(parse_xml(answer))
     except AwsHttpError as error:
         raise Ec2Error(str(error)) from None
-    except ET.ParseError:
+    except ParseError:
         raise Ec2Error("AWS answered something unreadable to GetCallerIdentity") from None
     if status >= 400:
         error = root.find(".//Error")

@@ -14,6 +14,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from .safe import require_https
+
 BASE_URL = "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/ec2-ondemand-without-sec-sel"
 CACHE_MAX_AGE_S = 7 * 86400
 MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024  # the real files are about 1 MB uncompressed; refuse anything absurd
@@ -71,8 +73,8 @@ def parse_price_file(raw):
 
 
 def download(url, timeout=30):
-    request = urllib.request.Request(url, headers={"User-Agent": "Klotse-aws-nodes", "Accept-Encoding": "gzip"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    request = urllib.request.Request(require_https(url), headers={"User-Agent": "Klotse-aws-nodes", "Accept-Encoding": "gzip"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - https only, checked above
         data = response.read(MAX_DOWNLOAD_BYTES + 1)
     if len(data) > MAX_DOWNLOAD_BYTES:
         raise PriceError("the price file is unexpectedly large")
