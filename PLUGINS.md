@@ -134,11 +134,18 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
 **Estimate the cost of the selected nodes** (a text tab with each node and the total per hour and month).
 
 - **No login is needed** for everything except spot prices, launch time and the AMI of nodes without an image label.
-  Those nodes' AMI is looked up in EC2 (one DescribeInstances call per region for all the nodes on screen); when boto3 is
+  Those nodes' AMI is looked up in EC2 (one DescribeInstances call per region for the nodes not asked about yet); when boto3 is
   not installed the Plugins page says how many nodes have no AMI for that reason, and after a failed lookup (an expired
   AWS login, say) the plugin asks again about a minute later, not half an hour. With
   `boto3` installed in Klotse's environment and working AWS credentials (the usual `~/.aws`, environment variables or a
   profile chosen in the plugin's settings) those appear too. The packaged apps do not include boto3.
+- **What AWS says about an instance is asked once and kept for good.** An instance's AMI, launch time, zone and whether
+  it is spot never change, and an instance id is never reused, so after the first answer the plugin does not ask again,
+  not even after a restart and not without credentials: the details are kept in a file per region in the plugin cache
+  folder (`instances-<region>.json`). Only spot prices (which move) are fetched again. An instance AWS did not know about
+  is not remembered as missing, and a failed call stores nothing, so both are tried again. An entry nobody used for six
+  months is dropped when the file is next written (such an instance has long been terminated), which keeps the files
+  small. Turning the AWS API setting off also ignores the kept details.
 - **Prices** come from the small per-region files that the AWS pricing calculator uses (about 60 KB each, kept for a week in
   the plugin cache folder), not the 480 MB official price list files. That is an undocumented AWS address: if it ever
   changes the plugin says so on the Plugins page and keeps using its last copy.

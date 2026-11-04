@@ -15,6 +15,7 @@ from klotse.plugins import Action, Column, Copy, Message, OpenUrl, Plugin, Setti
 from .console import account_for, console_results
 from .ec2 import Ec2, Ec2Error, Ec2Unavailable, boto3_session
 from .federation import FederationError, console_credentials, fetch_json, login_url
+from .instances import InstanceCache
 from .nodeinfo import parse_node
 from .pricing import HOURS_PER_MONTH, PriceError, on_demand_prices
 
@@ -87,6 +88,7 @@ class AwsNodes(Plugin):
     federation_fetch = staticmethod(fetch_json)  # replaced in tests
 
     def __init__(self):
+        self._instances = InstanceCache()  # what AWS said about each instance: asked once, kept for good
         self._ec2 = {}  # profile -> Ec2
         self._lock = threading.Lock()
 
@@ -98,34 +100,54 @@ class AwsNodes(Plugin):
                 self._ec2[profile] = Ec2(lambda region: session.client("ec2", region_name=region))
             return self._ec2[profile]
 
-    def _from_aws(self, nodes, settings, warn):
+    def _from_aws(self, nodes, settings, warn, cache_dir=None):
         """(instance details, spot prices, boto3 missing) from AWS; empty when it is off, boto3 is missing or AWS says no.
 
-        The details are asked for every node: the AMI of those without a node group image label, and for all of them
-        the launch time and whether they are spot."""
+        The details (AMI, launch time, zone, spot or not) never change for an instance, so each instance is asked about
+        once and then kept for good (see instances.py); later rounds only ask for new instances, and not at all (so
+        without credentials too) when all are known. Only spot prices are fetched again every time."""
         if not settings.get("use_aws_api", True):
             return {}, {}, False
-        try:
-            api = self._api(str(settings.get("aws_profile") or ""))
-        except Ec2Unavailable:
-            return {}, {}, True  # an optional extra: only worth a word when it leaves something blank (see collect)
-        except Ec2Error as error:
-            warn(f"AWS API: {error} (using the cluster data and the public prices instead)")
-            return {}, {}, False
+        profile, state = str(settings.get("aws_profile") or ""), {"api": None, "no_boto3": False, "failed": False}
+
+        def api():
+            """The AWS client, made on first need; None when boto3 is missing or the profile is unusable."""
+            if state["api"] is None and not state["no_boto3"] and not state["failed"]:
+                try:
+                    state["api"] = self._api(profile)
+                except Ec2Unavailable:
+                    state["no_boto3"] = True  # an optional extra: only worth a word when it leaves something blank
+                except Ec2Error as error:
+                    warn(f"AWS API: {error} (using the cluster data and the public prices instead)")
+                    state["failed"] = True
+            return state["api"]
+
         by_region, details, spot = defaultdict(list), {}, {}
         for node in nodes.values():
             if node.region:
                 by_region[node.region].append(node)
         for region, group in sorted(by_region.items()):
-            try:
-                details.update(api.instance_details(region, [n.instance_id for n in group]))
-                spot_types = [n.instance_type for n in group
-                              if n.capacity == "spot" or details.get(n.instance_id, {}).get("spot")]
-                for (itype, zone), price in api.spot_prices(region, spot_types).items():
-                    spot[(region, itype, zone)] = price
-            except Ec2Error as error:
-                warn(f"AWS API ({region}): {error} (using the cluster data and the public prices instead)")
-        return details, spot, False
+            known, missing = self._instances.lookup(cache_dir, region, [n.instance_id for n in group])
+            details.update(known)
+            client = api() if missing else None
+            if client is not None:
+                try:
+                    fresh = client.instance_details(region, missing)
+                except Ec2Error as error:
+                    warn(f"AWS API ({region}): {error} (using the cluster data and the public prices instead)")
+                    fresh = {}
+                self._instances.store(cache_dir, region, fresh)
+                details.update(fresh)
+            spot_types = [n.instance_type for n in group
+                          if n.capacity == "spot" or details.get(n.instance_id, {}).get("spot")]
+            client = api() if spot_types else None
+            if client is not None:
+                try:
+                    for (itype, zone), price in client.spot_prices(region, spot_types).items():
+                        spot[(region, itype, zone)] = price
+                except Ec2Error as error:
+                    warn(f"AWS API ({region}): {error} (using the cluster data and the public prices instead)")
+        return details, spot, state["no_boto3"]
 
     # ---- the numbers --------------------------------------------------------------------------
     def collect(self, resources, settings, cache_dir, warn):
@@ -149,7 +171,7 @@ class AwsNodes(Plugin):
             if table.note:
                 warn(f"{region}: {table.note}")
             tables[(region, os_name)] = table.prices
-        details, spot, no_boto3 = self._from_aws(nodes, settings, warn)
+        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir)
         without_ami = [n for n in nodes.values() if not n.ami and not (details.get(n.instance_id) or {}).get("ami")]
         if no_boto3 and without_ami:  # these AMIs can only come from EC2, which needs boto3 and credentials
             warn(f"{len(without_ami)} node(s) have no node group image label, so their AMI can only be looked up in "
