@@ -311,7 +311,8 @@ class ClusterWorkspace(QMainWindow):
     def apply_label_columns(self):
         for table in self.resource_tables():
             table.set_label_columns(self.label_settings.labels(table.kind), self.label_settings.headers(table.kind),
-                                    self.label_settings.layout(table.kind))
+                                    self.label_settings.layout(table.kind), self.label_settings.annotations(table.kind),
+                                    self.label_settings.annotation_headers(table.kind))
 
     # ---- views / tabs -------------------------------------------------
     def _show_view(self, key):

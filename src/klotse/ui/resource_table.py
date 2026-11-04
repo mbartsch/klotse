@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit
                                QTableView, QVBoxLayout, QWidget)
 
 from ..k8s.resources import DELETABLE_KINDS
+from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
 from .table_model import TableModel
 
@@ -83,7 +84,8 @@ class ResourceTable(QWidget):
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
-            self.customize_button.setToolTip(f"Show, hide, order and add label columns for {kind} lists")
+            what = "label and annotation" if kind in ANNOTATION_KINDS else "label"
+            self.customize_button.setToolTip(f"Show, hide, order and add {what} columns for {kind} lists")
             self.customize_button.clicked.connect(lambda: self.customize_requested.emit(kind))
             top.addWidget(self.customize_button)
         lay = QVBoxLayout(self)
@@ -143,11 +145,12 @@ class ResourceTable(QWidget):
         self.base_columns = self.core_columns + columns
         self.set_label_columns(*(self._label_args or ([],)))
 
-    def set_label_columns(self, keys, headings=None, layout=None):
-        """Apply label columns plus the saved built-in column order/visibility (layout: {"order", "hidden"})."""
+    def set_label_columns(self, keys, headings=None, layout=None, annotations=(), annotation_headings=None):
+        """Apply label and annotation columns plus the saved built-in column order/visibility
+        (layout: {"order", "hidden"}). Annotation columns follow the label columns."""
         if self.kind in NOT_CUSTOMIZABLE:
             return
-        self._label_args = (keys, headings, layout)
+        self._label_args = (keys, headings, layout, annotations, annotation_headings)
         layout = layout or {}
         first, rest = self.base_columns[:1], self.base_columns[1:]  # the first column (Name) never moves or hides
         order = layout.get("order", [])
@@ -159,6 +162,9 @@ class ResourceTable(QWidget):
         headings = headings or {}
         columns[insert_at:insert_at] = [
             (headings.get(key) or ("NodePool" if key == "karpenter.sh/nodepool" else key), f"label:{key}") for key in keys]
+        notes = annotation_headings or {}
+        columns[insert_at + len(keys):insert_at + len(keys)] = [
+            (notes.get(key) or key, f"annotation:{key}") for key in annotations]
         if columns == self.model.columns:
             return
         header = self.view.horizontalHeader()

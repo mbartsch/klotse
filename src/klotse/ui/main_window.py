@@ -11,7 +11,7 @@ from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
 from .cluster_session import ClusterSession
 from ..plugins.manager import PluginManager
-from .customizations import LabelColumnsDialog, LabelSettings
+from .customizations import ANNOTATION_KINDS, LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
         return True
 
     def customize_labels(self, kind):
-        available, builtin = set(), ()
+        available, available_annotations, builtin = set(), set(), ()
         for workspace in self.workspaces.values():
             for table in workspace.resource_tables():
                 if table.kind == kind:
@@ -239,7 +239,9 @@ class MainWindow(QMainWindow):
                     for row in table.model.rows:
                         metadata = (row.raw or {}).get("metadata") or {}
                         available.update((metadata.get("labels") or {}).keys())
-        dialog = LabelColumnsDialog(kind, self.label_settings, available, builtin, self)
+                        available_annotations.update((metadata.get("annotations") or {}).keys())
+        extra = {"available_annotations": available_annotations} if kind in ANNOTATION_KINDS else {}
+        dialog = LabelColumnsDialog(kind, self.label_settings, available, builtin, self, **extra)
         dialog.exec()
         dialog.deleteLater()
 

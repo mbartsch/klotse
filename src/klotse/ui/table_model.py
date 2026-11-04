@@ -3,6 +3,8 @@ import re
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 
+ANNOTATION_CELL_LIMIT = 200  # annotation values can be kilobytes (last-applied-configuration): the cell shows the start
+ANNOTATION_TIP_LIMIT = 2000
 _AGE = re.compile(r"(\d+)(min|[dhms])")
 _AGE_UNITS = {"d": 86400, "h": 3600, "m": 60, "min": 60, "s": 1}
 
@@ -77,11 +79,19 @@ class TableModel(QAbstractTableModel):
                 except Exception:  # a plugin's formatter must not break the table
                     return str(value)
             return str(value)
-        if col[1].startswith("label:"):
+        is_note = col[1].startswith("annotation:")
+        if is_note or col[1].startswith("label:"):
             metadata = (self.rows[index.row()].raw or {}).get("metadata") or {}
-            value = (metadata.get("labels") or {}).get(col[1][6:], "")
+            field, _, key = col[1].partition(":")
+            value = (metadata.get("annotations" if is_note else "labels") or {}).get(key, "")
         else:
             value = getattr(self.rows[index.row()], col[1])
+        if is_note and role != Qt.EditRole:
+            text = str(value)
+            if role == Qt.ToolTipRole:
+                return text[:ANNOTATION_TIP_LIMIT] + ("…" if len(text) > ANNOTATION_TIP_LIMIT else "")
+            text = " ".join(text.split())  # one line: annotations are often multi-line JSON or YAML
+            return text[:ANNOTATION_CELL_LIMIT - 1] + "…" if len(text) > ANNOTATION_CELL_LIMIT else text
         if role == Qt.ToolTipRole:
             if self.search_metadata and col[1] == "status":
                 conditions = (self.rows[index.row()].raw.get("status") or {}).get("conditions") or []
@@ -105,5 +115,7 @@ class TableModel(QAbstractTableModel):
             return self.columns[section][0]
         if role == Qt.ToolTipRole and orientation == Qt.Horizontal:
             attr = self.columns[section][1]
-            return attr[6:] if attr.startswith("label:") else self.columns[section][0]
+            if attr.startswith("label:"):
+                return attr[6:]
+            return attr[11:] if attr.startswith("annotation:") else self.columns[section][0]
         return None

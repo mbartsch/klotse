@@ -15,34 +15,38 @@ DEFAULT_HIDDEN = {"Pod": ["cpu_req", "cpu_lim", "cpu_req_pct", "cpu_lim_pct",
                           "mem_req", "mem_lim", "mem_req_pct", "mem_lim_pct"]}
 
 
-def normalize_label_keys(keys):
+# kinds whose Columns… dialog also offers annotation columns (the RBAC lists; any kind works in the settings file)
+ANNOTATION_KINDS = frozenset({"Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding", "ServiceAccount"})
+
+
+def normalize_label_keys(keys, what="label"):
     result = []
     for value in keys:
         key = value.strip()
         if not key:
             continue
         if "=" in key or any(char.isspace() for char in key):
-            raise ValueError("Enter label keys without values, one per line.")
+            raise ValueError(f"Enter {what} keys without values, one per line.")
         if key not in result:
             result.append(key)
     return result
 
 
-def parse_label_columns(lines):
+def parse_label_columns(lines, what="label"):
     keys, headers = [], {}
     for line in lines:
         key, _, heading = line.partition("=")
         key = key.strip()
         if not key:
             if line.strip():
-                raise ValueError("A column heading must have a label key before '='.")
+                raise ValueError(f"A column heading must have a {what} key before '='.")
             continue
         keys.append(key)
         if heading.strip():
             headers[key] = heading.strip()
         else:
             headers.pop(key, None)
-    return normalize_label_keys(keys), headers
+    return normalize_label_keys(keys, what), headers
 
 
 SECTION = "columns."  # one INI section per resource kind, e.g. [columns.Pod]
@@ -80,15 +84,16 @@ def _read_list(store, name):
     return True, [part.strip() for part in text.split(LEGACY_SEP) if part.strip()], True
 
 
-def _read_labels(store):
-    """Read the label columns as (found, lines, old_format), with lines in the dialog's `key = heading` syntax.
+def _read_labels(store, name="labels"):
+    """Read the label (or, with name="annotations", annotation) columns as (found, lines, old_format), with lines in
+    the dialog's `key = heading` syntax.
 
-    `labels.N` holds the label key and `labels_name.N` (same N) its optional heading. The previous formats, a
+    `labels.N` holds the key and `labels_name.N` (same N) its optional heading. The previous formats, a
     heading written as `key -> heading` in the value or a whole list on one line, are still read.
     """
-    numbered = sorted(_numbered(store, "labels").items())
+    numbered = sorted(_numbered(store, name).items())
     if numbered:
-        names = _numbered(store, "labels_name")
+        names = _numbered(store, f"{name}_name")
         lines, old = [], False
         for index, value in numbered:
             if ARROW in value:
@@ -97,7 +102,7 @@ def _read_labels(store):
                 value = f"{value} = {names[index]}"
             lines.append(value)
         return True, lines, old
-    found, items, old = _read_list(store, "labels")
+    found, items, old = _read_list(store, name)
     return found, [item.replace(ARROW, "=", 1) for item in items], old
 
 
@@ -120,6 +125,8 @@ class LabelSettings(QObject):
         labels.0=app.kubernetes.io/name         label columns (omitted = the default labels)
         labels_name.0=App                       optional heading for labels.0
         labels.1=example.com/team
+        annotations.0=example.com/owner         annotation columns (RBAC lists; omitted = none)
+        annotations_name.0=Owner                optional heading for annotations.0
 
     A bare empty key (`hidden=`, `labels=`) means "none"; a key that is absent means "use the default".
     Older files are still read and are rewritten in this format when the app starts: the JSON values under
@@ -135,6 +142,7 @@ class LabelSettings(QObject):
         self._headers = {}
         self._layout = {}
         self._explicit_labels = set()  # kinds whose label list was chosen by the user (written to the file)
+        self._annotations, self._annotation_headers, self._explicit_annotations = {}, {}, set()
         self._load_sections()
         self._load_legacy()
         if self._legacy:  # an older file: rewrite it right away so the file on disk is readable
@@ -154,8 +162,16 @@ class LabelSettings(QObject):
                 order_found, order, order_old = _read_list(self.store, "order")
                 hidden_found, hidden, hidden_old = _read_list(self.store, "hidden")
                 labels_found, labels, labels_old = _read_labels(self.store)
+                notes_found, notes, notes_old = _read_labels(self.store, "annotations")
             finally:
                 self.store.endGroup()
+            if notes_found:
+                try:
+                    keys, headers = parse_label_columns(notes, "annotation")
+                    self._annotations[kind], self._annotation_headers[kind] = keys, headers
+                    self._explicit_annotations.add(kind)
+                except ValueError:
+                    pass  # an invalid annotation list is ignored, like an invalid label list
             if order_old or hidden_old or labels_old:
                 self._legacy = True  # an older layout: rewrite it in the current one
             if order_found or hidden_found:
@@ -214,6 +230,12 @@ class LabelSettings(QObject):
     def headers(self, kind):
         return dict(self._headers.get(kind, {}))
 
+    def annotations(self, kind):
+        return list(self._annotations.get(kind, []))
+
+    def annotation_headers(self, kind):
+        return dict(self._annotation_headers.get(kind, {}))
+
     def layout(self, kind):
         """Saved built-in column order and hidden attributes for a kind: {"order": [...], "hidden": [...]}."""
         saved = self._layout.get(kind)
@@ -234,12 +256,30 @@ class LabelSettings(QObject):
         self._save(labels={**self._labels, kind: keys}, headers={**self._headers, kind: updated_headers},
                    explicit=self._explicit_labels | {kind})
 
+    def set_annotations(self, kind, keys, headers=None):
+        """Annotation columns of a kind (same rules as set_labels; saved next to the labels)."""
+        if not kind:
+            raise ValueError(f"Unsupported annotation column kind: {kind}")
+        keys = normalize_label_keys(keys, "annotation")
+        aliases = self._annotation_headers.get(kind, {}) if headers is None else headers
+        for title in aliases.values():
+            if not isinstance(title, str) or "\n" in title or "\r" in title:
+                raise ValueError("Column headings must be single-line text.")
+        updated = {key: title.strip() for key, title in aliases.items() if key in keys and title.strip()}
+        self._save(annotations={**self._annotations, kind: keys},
+                   annotation_headers={**self._annotation_headers, kind: updated},
+                   explicit_annotations=self._explicit_annotations | {kind})
+
     def set_layout(self, kind, order, hidden):
         if not kind:
             raise ValueError(f"Unsupported column kind: {kind}")
         self._save(layout={**self._layout, kind: {"order": list(order), "hidden": list(hidden)}})
 
-    def _save(self, labels=None, headers=None, layout=None, explicit=None):
+    def _save(self, labels=None, headers=None, layout=None, explicit=None, annotations=None,
+              annotation_headers=None, explicit_annotations=None):
+        annotations = self._annotations if annotations is None else annotations
+        annotation_headers = self._annotation_headers if annotation_headers is None else annotation_headers
+        explicit_annotations = self._explicit_annotations if explicit_annotations is None else explicit_annotations
         labels = self._labels if labels is None else labels
         headers = self._headers if headers is None else headers
         layout = self._layout if layout is None else layout
@@ -249,7 +289,7 @@ class LabelSettings(QObject):
                 self.store.remove(group)
         for old in ("columns/labels", "columns/layout"):  # earlier JSON format
             self.store.remove(old)
-        for kind in sorted(set(layout) | explicit):
+        for kind in sorted(set(layout) | explicit | explicit_annotations):
             self.store.beginGroup(SECTION + kind)
             if kind in layout:
                 _write_list(self.store, "order", layout[kind].get("order", []), keep_empty=False)  # none = default
@@ -261,21 +301,49 @@ class LabelSettings(QObject):
                 for index, key in enumerate(keys):
                     if key in titles:
                         self.store.setValue(f"labels_name.{index}", titles[key])
+            if kind in explicit_annotations:
+                titles = annotation_headers.get(kind, {})
+                keys = annotations.get(kind, [])
+                _write_list(self.store, "annotations", keys)
+                for index, key in enumerate(keys):
+                    if key in titles:
+                        self.store.setValue(f"annotations_name.{index}", titles[key])
             self.store.endGroup()
         self.store.sync()
         if self.store.status() != QSettings.NoError:
             raise OSError(f"Could not save customizations to {self.store.fileName()}")
         self._labels, self._headers, self._layout, self._explicit_labels = labels, headers, layout, explicit
+        self._annotations, self._annotation_headers = annotations, annotation_headers
+        self._explicit_annotations = explicit_annotations
         self._legacy = False
         self.changed.emit()
 
 
+def _add_entry(combo, heading, editor):
+    """Add the key chosen in `combo` (with the optional heading) as a line of `editor`; an existing key keeps its place
+    and only takes a new heading."""
+    key = combo.currentText().strip()
+    heading = heading.text().strip()
+    entry = f"{key} = {heading}" if heading else key
+    if not key:
+        return
+    lines = editor.toPlainText().splitlines()
+    for i, line in enumerate(lines):
+        if line.partition("=")[0].strip() == key:
+            if heading:
+                lines[i] = entry
+                editor.setPlainText("\n".join(lines))
+            return
+    text = editor.toPlainText().rstrip()
+    editor.setPlainText(text + ("\n" if text else "") + entry)
+
+
 class LabelColumnsDialog(QDialog):
-    def __init__(self, kind, settings, available=(), builtin=(), parent=None):
+    def __init__(self, kind, settings, available=(), builtin=(), parent=None, available_annotations=()):
         super().__init__(parent)
         self.kind, self.settings = kind, settings
         self.setWindowTitle(f"Customizations — {kind} columns")
-        self.resize(650, 560)
+        self.resize(650, 700 if kind in ANNOTATION_KINDS else 560)
         layout = QVBoxLayout(self)
         self.builtin = QListWidget()
         self.builtin.setMaximumHeight(170)
@@ -312,38 +380,56 @@ class LabelColumnsDialog(QDialog):
                       "Saved for all clusters and future sessions.")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        self.available = QComboBox()
-        self.available.setEditable(True)
-        self.available.setInsertPolicy(QComboBox.NoInsert)
-        self.available.setMaxVisibleItems(12)
-        self.available.addItems(sorted(available))
-        self.available.setCurrentIndex(-1)
-        self.available.lineEdit().setPlaceholderText("Choose or enter a label key…")
-        self.available.completer().setCompletionMode(QCompleter.PopupCompletion)
-        self.available.completer().setFilterMode(Qt.MatchContains)
-        self.available.completer().setCaseSensitivity(Qt.CaseInsensitive)
-        add = QPushButton("Add label")
-        add.clicked.connect(self._add)
-        picker = QHBoxLayout()
-        picker.addWidget(self.available, 1)
-        self.heading = QLineEdit(placeholderText="Short heading (optional)")
-        picker.addWidget(self.heading, 1)
-        picker.addWidget(add)
-        layout.addLayout(picker)
-        self.editor = QPlainTextEdit()
-        self.editor.setPlaceholderText("karpenter.sh/nodepool = Pool\nexample.com/team = Team")
-        headings = settings.headers(kind)
-        self.editor.setPlainText("\n".join(
-            f"{key} = {headings[key]}" if key in headings else key for key in settings.labels(kind)))
-        layout.addWidget(self.editor)
+        self.available, self.heading, self.editor = self._key_section(
+            layout, "label", available, settings.labels(kind), settings.headers(kind),
+            "karpenter.sh/nodepool = Pool\nexample.com/team = Team")
+        # RBAC lists can show annotations as columns too (they sit right after the label columns)
+        self.annotation_available = self.annotation_heading = self.annotation_editor = None
+        if kind in ANNOTATION_KINDS:
+            note = QLabel("Annotation columns work the same way: one annotation key per line. Long values are cut "
+                          "in the table and shown in full in the tooltip.")
+            note.setWordWrap(True)
+            layout.addWidget(note)
+            self.annotation_available, self.annotation_heading, self.annotation_editor = self._key_section(
+                layout, "annotation", available_annotations, settings.annotations(kind),
+                settings.annotation_headers(kind), "example.com/owner = Owner")
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.RestoreDefaults).clicked.connect(self._restore)
         layout.addWidget(buttons)
 
+    def _key_section(self, layout, noun, available, current, headings, example):
+        """A combo box of known keys (searchable, free text allowed), a heading box, an Add button and the text box
+        with one `key = heading` line per column. Returns (combo, heading, editor)."""
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.setMaxVisibleItems(12)
+        combo.addItems(sorted(available))
+        combo.setCurrentIndex(-1)
+        combo.lineEdit().setPlaceholderText(f"Choose or enter {'an' if noun == 'annotation' else 'a'} {noun} key…")
+        combo.completer().setCompletionMode(QCompleter.PopupCompletion)
+        combo.completer().setFilterMode(Qt.MatchContains)
+        combo.completer().setCaseSensitivity(Qt.CaseInsensitive)
+        heading = QLineEdit(placeholderText="Short heading (optional)")
+        editor = QPlainTextEdit()
+        editor.setPlaceholderText(example)
+        editor.setPlainText("\n".join(f"{key} = {headings[key]}" if key in headings else key for key in current))
+        add = QPushButton(f"Add {noun}")
+        add.clicked.connect(lambda: _add_entry(combo, heading, editor))
+        picker = QHBoxLayout()
+        picker.addWidget(combo, 1)
+        picker.addWidget(heading, 1)
+        picker.addWidget(add)
+        layout.addLayout(picker)
+        layout.addWidget(editor)
+        return combo, heading, editor
+
     def _restore(self):
         self.editor.setPlainText("\n".join(DEFAULT_LABELS.get(self.kind, [])))
+        if self.annotation_editor is not None:
+            self.annotation_editor.setPlainText("")
         by_attr = {self.builtin.item(i).data(Qt.UserRole): self.builtin.takeItem(i)
                    for i in reversed(range(self.builtin.count()))}
         for attr in getattr(self, "_default_builtin", []):
@@ -368,28 +454,23 @@ class LabelColumnsDialog(QDialog):
                 [i.data(Qt.UserRole) for i in items if i.checkState() == Qt.Unchecked])
 
     def _add(self):
-        key = self.available.currentText().strip()
-        heading = self.heading.text().strip()
-        entry = f"{key} = {heading}" if heading else key
-        if not key:
-            return
-        lines = self.editor.toPlainText().splitlines()
-        for i, line in enumerate(lines):
-            if line.partition("=")[0].strip() == key:
-                if heading:
-                    lines[i] = entry
-                    self.editor.setPlainText("\n".join(lines))
-                return
-        if key:
-            text = self.editor.toPlainText().rstrip()
-            self.editor.setPlainText(text + ("\n" if text else "") + entry)
+        _add_entry(self.available, self.heading, self.editor)
+
+    def _add_annotation(self):
+        if self.annotation_editor is not None:
+            _add_entry(self.annotation_available, self.annotation_heading, self.annotation_editor)
 
     def _save(self):
         try:
             keys, headings = parse_label_columns(self.editor.toPlainText().splitlines())
+            notes = None
+            if self.annotation_editor is not None:  # parse everything first so a mistake saves nothing
+                notes = parse_label_columns(self.annotation_editor.toPlainText().splitlines(), "annotation")
             if self.builtin.count():
                 self.settings.set_layout(self.kind, *self.builtin_layout())
             self.settings.set_labels(self.kind, keys, headings)
+            if notes is not None:
+                self.settings.set_annotations(self.kind, *notes)
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Cannot save customizations", str(error))
             return
