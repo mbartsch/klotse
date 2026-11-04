@@ -44,6 +44,44 @@ Both scripts finish by running the packaged app's own self-test (below), and fai
 
 To release: change `__version__` in `src/klotse/__init__.py`, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
+## Linux and PyPI (pipx)
+
+Linux is served by the Python package: `pipx install klotse` (or `pipx install git+https://github.com/mbartsch/klotse`
+until it is on PyPI). It needs no packaging beyond `pyproject.toml`; AppImage, `.deb`, `.rpm`, Flatpak and Snap were
+considered and left out for now (see the note below). pipx installs a command but no launcher, so
+`klotse --install-desktop-entry` writes `~/.local/share/applications/klotse.desktop` and the icon (no root needed), and
+`klotse --uninstall-desktop-entry` removes them.
+
+Build and check the Python package locally (the build environment has `build`, `twine` and `trove-classifiers`):
+
+```sh
+python -m build --outdir dist/pypi
+python -m twine check dist/pypi/*
+```
+
+`.github/workflows/pypi.yml` does this in CI, installs the wheel with pipx on Python 3.10, 3.12 and 3.13, runs the
+self-test headless and inside a real X11 session (Xvfb), and checks the desktop entry.
+
+### Publishing to PyPI
+
+Nothing has been published. A published version can never be replaced, only yanked, so check the CI results first.
+The workflow publishes with PyPI's *trusted publishing* (a short-lived token issued to the workflow, nothing stored in
+GitHub secrets). One-time setup:
+
+1. On pypi.org (account needed), add a **pending publisher** for the project name `klotse`: owner `mbartsch`,
+   repository `klotse`, workflow `pypi.yml`, environment `pypi`. This also reserves the name when the first upload
+   happens; the name was free when this was written, and nothing holds it until then.
+2. On GitHub, create the environments `pypi` (and `testpypi` for dry runs) under Settings → Environments, and add
+   yourself as a **required reviewer** of `pypi`, so every upload waits for your approval.
+3. Optional dry run: Actions → PyPI → Run workflow with "Also upload to TestPyPI" ticked (needs the same pending
+   publisher on test.pypi.org, environment `testpypi`).
+4. Release: change `__version__`, merge, `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must equal
+   `klotse.__version__`. After the build and smoke tests pass, approve the `pypi` deployment.
+
+Why not AppImage, `.deb` or `.rpm` yet: they are good fits (not sandboxed, so `kubectl`, cloud auth helpers and the
+host terminal keep working) and are the likely next step if pipx proves too much work for users. Flatpak and Snap are
+poor fits because their sandboxes block exactly those host tools.
+
 ## What a packaged app does differently
 
 These are the reasons the packaged app has code paths that a plain `python -m klotse` run does not:
@@ -89,5 +127,6 @@ not written yet, because it cannot be tested without the certificate.
 - macOS: the CI builds (Apple Silicon and Intel) pass: the app builds, its self-test passes inside `Klotse.app`, the
   ad-hoc signature verifies and the DMG is created. Not tested: running the app on a real Mac, the Terminal/iTerm2
   permission prompt and shell sessions, the Finder `PATH` fix, Gatekeeper behaviour, and opening the DMG.
-- No automatic update check, no Linux package, no Windows ARM64 build (the x64 app runs under emulation).
+- Linux has no native package (AppImage, `.deb`, `.rpm`); pipx/PyPI is the supported route. Nothing is on PyPI yet.
+- No automatic update check, no Windows ARM64 build (the x64 app runs under emulation).
 - No CI exists yet for the test suite itself.

@@ -5,10 +5,32 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "klotse"
 dynamic = ["version"]
+description = "A native Kubernetes desktop manager built with Python and Qt"
+readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+authors = [{ name = "Marcelo H. Bartsch" }]
+keywords = ["kubernetes", "k8s", "kubectl", "desktop", "gui", "qt", "pyside6", "cluster"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+    "Topic :: System :: Systems Administration",
+]
 requires-python = ">=3.10"
 dependencies = ["PySide6-Essentials>=6.6", "kubernetes>=29", "PyYAML>=6"]
+
+[project.urls]
+Homepage = "https://github.com/mbartsch/klotse"
+Repository = "https://github.com/mbartsch/klotse"
+Issues = "https://github.com/mbartsch/klotse/issues"
+Releases = "https://github.com/mbartsch/klotse/releases"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-qt"]

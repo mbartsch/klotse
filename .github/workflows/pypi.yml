@@ -1,0 +1,132 @@
+# Builds the Python package (sdist + wheel), smoke-tests it the way a Linux user would install it (pipx), and publishes it
+# to PyPI. Publishing needs one-time setup on pypi.org (see packaging/README.md, "Publishing to PyPI") and is
+# deliberately gated:
+#   - it only runs for a version tag (git tag v0.1.0 && git push origin v0.1.0), and
+#   - it uses the "pypi" environment, where you can require a manual approval before anything is uploaded.
+# A published version can never be replaced or reused, so check the build and the smoke test first.
+name: PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      testpypi:
+        description: "Also upload to TestPyPI (a dry run; needs the TestPyPI trusted publisher)"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+  pull_request:  # a PR that changes the package metadata builds and checks it (nothing is uploaded)
+    paths:
+      - "pyproject.toml"
+      - "README.md"
+      - "LICENSE"
+      - "src/klotse/desktop_entry.py"
+      - ".github/workflows/pypi.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(python -c "import sys; sys.path.insert(0, 'src'); import klotse; print(klotse.__version__)")
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match klotse.__version__ ($version)"; exit 1; }
+      - name: Build the sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine trove-classifiers
+          python -m build
+      - name: Check the metadata and the README rendering
+        run: |
+          python -m twine check dist/*
+          python - <<'PY'
+          import tomllib, trove_classifiers
+          classifiers = tomllib.load(open("pyproject.toml", "rb"))["project"]["classifiers"]
+          bad = [c for c in classifiers if c not in trove_classifiers.classifiers]
+          assert not bad, f"classifiers PyPI would reject: {bad}"
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:  # install the built wheel with pipx, as a Linux user would, on every supported Python we can check
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - name: System libraries Qt needs on a plain Ubuntu desktop (the list the README gives)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb desktop-file-utils libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+      - name: Install with pipx
+        run: |
+          python -m pip install --user pipx
+          python -m pipx install --python "$(which python)" dist/*.whl
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Version and headless self-test
+        run: |
+          klotse --version
+          klotse --self-test
+      - name: Self-test inside a real X11 session (checks the library list above is enough)
+        run: xvfb-run -a env QT_QPA_PLATFORM=xcb klotse --self-test
+      - name: Application-menu entry
+        run: |
+          klotse --install-desktop-entry
+          desktop-file-validate "$HOME/.local/share/applications/klotse.desktop"
+          test -f "$HOME/.local/share/icons/hicolor/512x512/apps/klotse.png"
+          klotse --uninstall-desktop-entry
+          test ! -e "$HOME/.local/share/applications/klotse.desktop"
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.testpypi
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/klotse
+    permissions:
+      id-token: write  # tokenless "trusted publishing"; no password or API token is stored anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/klotse
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

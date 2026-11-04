@@ -19,6 +19,7 @@ def main(argv=None):
     app = QApplication(sys.argv)
     theme.apply(app)
     app.setApplicationName("Klotse")
+    app.setDesktopFileName("klotse")  # Wayland matches the window to klotse.desktop (see desktop_entry.py)
     app.setWindowIcon(branding.app_icon())
     win = MainWindow(KubeService)  # a factory: each open cluster gets its own connection
     exit_timer = None

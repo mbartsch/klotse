@@ -3,6 +3,8 @@
     klotse --version                      print the version and exit
     klotse --self-test [REPORT_FILE]      check that this installation works (used to verify packaged builds)
     klotse --terminal-session APP JSON    run one macOS shell session (used by the packaged app, see ui/terminal.py)
+    klotse --install-desktop-entry        Linux, for pip/pipx installs: add Klotse to the application menu
+    klotse --uninstall-desktop-entry      Linux: remove that menu entry again
 
 Anything else is left to the GUI. A packaged Windows app has no console, so --self-test can write its report to a
 file; --version prints to stdout as usual.
@@ -17,7 +19,7 @@ from . import __version__
 def _self_test_checks():
     """Yield (name, callable) pairs; each callable returns a short detail string or raises."""
     def frozen():
-        return "packaged app" if getattr(sys, "frozen", False) else "running from source"
+        return "packaged app" if getattr(sys, "frozen", False) else "Python install (pip, pipx or a source checkout)"
 
     def imports():
         import kubernetes
@@ -88,6 +90,22 @@ def handle(argv):
         return 0
     if argv[0] == "--self-test":
         return self_test(argv[1] if len(argv) > 1 else None)
+    if argv[0] in ("--install-desktop-entry", "--uninstall-desktop-entry"):
+        from . import desktop_entry
+        try:
+            if argv[0] == "--install-desktop-entry":
+                print("Installed:")
+                for path in desktop_entry.install():
+                    print(f"  {path}")
+            else:
+                removed = desktop_entry.uninstall()
+                print("Removed:" if removed else "Nothing to remove.")
+                for path in removed:
+                    print(f"  {path}")
+        except (RuntimeError, OSError) as error:
+            print(f"klotse: {error}", file=sys.stderr)
+            return 1
+        return 0
     if argv[0] == "--terminal-session":
         if len(argv) < 3:
             print("usage: klotse --terminal-session APP COMMAND_JSON [TARGET...]", file=sys.stderr)
