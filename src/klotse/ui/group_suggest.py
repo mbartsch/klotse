@@ -2,10 +2,13 @@ import re
 from collections import Counter
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QSpinBox, QVBoxLayout)
+from PySide6.QtGui import QBrush, QColor
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QSpinBox,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
 from .cluster_groups import SEPARATOR, clean_path, lineage
+from .theme import MUTED
 
 DEFAULT_SEPARATORS = "./:_@"  # a "-" is usually inside a word (group-of-cluster), so it is opt-in
 SEPARATOR_CHOICES = "./:_@-"
@@ -47,6 +50,28 @@ def propose(names, separators=DEFAULT_SEPARATORS, min_size=2, depth=5, split_num
     return chains
 
 
+def regex_paths(names, pattern, template="", ignore_case=True):
+    """What a pattern makes of each name: {context: group path}, with None for a name the pattern does not match
+    and "" for a match that gives no path. An empty pattern matches nothing. Raises like propose_regex."""
+    if not pattern:
+        return {name: None for name in names}
+    compiled = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+    paths = {}
+    for name in names:
+        match = compiled.search(name)
+        if match is None:
+            paths[name] = None
+            continue
+        if template:
+            raw = match.expand(template)
+        elif compiled.groups:
+            raw = SEPARATOR.join((part or "").replace(SEPARATOR, "-") for part in match.groups())
+        else:
+            raw = match.group(0).replace(SEPARATOR, "-")
+        paths[name] = clean_path(raw)
+    return paths
+
+
 def propose_regex(names, pattern, template="", min_size=2, ignore_case=True):
     """Group suggestions from a regular expression: {context: [group paths, outermost first]}.
 
@@ -55,23 +80,7 @@ def propose_regex(names, pattern, template="", min_size=2, ignore_case=True):
     as one level. `template` replaces that rule with an expansion such as "\\2/\\1" or "\\g<env>" (use "/" for
     levels). Names that do not match stay ungrouped, and a level shared by fewer than `min_size` names is dropped.
     Raises re.error (or IndexError for a template naming a missing group) when the pattern or template is bad."""
-    if not pattern:
-        return {}
-    compiled = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
-    paths = {}
-    for name in names:
-        match = compiled.search(name)
-        if match is None:
-            continue
-        if template:
-            raw = match.expand(template)
-        elif compiled.groups:
-            raw = SEPARATOR.join((part or "").replace(SEPARATOR, "-") for part in match.groups())
-        else:
-            raw = match.group(0).replace(SEPARATOR, "-")
-        path = clean_path(raw)
-        if path:
-            paths[name] = path
+    paths = {name: path for name, path in regex_paths(names, pattern, template, ignore_case).items() if path}
     counts = Counter(level for path in paths.values() for level in lineage(path))
     chains = {}
     for name, path in paths.items():
@@ -93,7 +102,7 @@ class SuggestGroupsDialog(QDialog):
         super().__init__(parent)
         self.contexts, self.groups = list(contexts), groups
         self.setWindowTitle("Suggest groups")
-        self.resize(600, 700)
+        self.resize(660, 880)
         info = QLabel("Clusters can share a group when their names start the same way, or when a regular "
                       "expression picks the group out of the name. Tick the suggestions to create.")
         info.setWordWrap(True)
@@ -147,6 +156,18 @@ class SuggestGroupsDialog(QDialog):
         regex.addRow(self.ignore_case)
         regex.addRow(hint)
         regex.addRow(self.regex_error)
+        # Every context with what the pattern makes of it, to build the expression against the real names
+        self.context_view = QTreeWidget()
+        self.context_view.setHeaderLabels(["Context", "Group it would get"])
+        self.context_view.setRootIsDecorated(False)
+        self.context_view.setMinimumHeight(170)
+        self.show_filter = QComboBox()
+        self.show_filter.addItems(["All contexts", "Matching only", "Not matching only"])
+        self.show_filter.currentIndexChanged.connect(self._apply_filter)
+        self.match_summary = QLabel()
+        regex.addRow("Show", self.show_filter)
+        regex.addRow(self.match_summary)
+        regex.addRow(self.context_view)
 
         self.min_size = QSpinBox()
         self.min_size.setRange(2, 50)
@@ -203,6 +224,8 @@ class SuggestGroupsDialog(QDialog):
         regex = self.by_regex.isChecked()
         self.prefix_box.setVisible(not regex)
         self.regex_box.setVisible(regex)
+        if regex:
+            self._refresh_contexts()
         self.found.blockSignals(True)
         self.found.clear()
         counts = Counter(path for chain in self._chains().values() for path in chain)
@@ -214,6 +237,45 @@ class SuggestGroupsDialog(QDialog):
             self.found.addItem(item)
         self.found.blockSignals(False)
         self._update_apply()
+
+    def _refresh_contexts(self):
+        """List every context with the group the pattern gives it: matches normally, the rest dimmed."""
+        try:
+            paths = regex_paths(self.contexts, self.pattern.text(), self.template.text(), self.ignore_case.isChecked())
+        except (re.error, IndexError):  # the error is already shown; list the names untested
+            paths = {name: None for name in self.contexts}
+            tested = False
+        else:
+            tested = bool(self.pattern.text())
+        self.context_view.clear()
+        muted = QBrush(QColor(MUTED))
+        matching = 0
+        for name in self.contexts:
+            path = paths[name]
+            if not tested:
+                state, group = "untested", ""
+            elif path is None:
+                state, group = "no match", "no match"
+            else:
+                state, group = "match", path or "(no group from this match)"
+                matching += 1
+            item = QTreeWidgetItem([name, group])
+            item.setData(0, Qt.UserRole, state)
+            if state == "no match":
+                item.setForeground(0, muted)
+                item.setForeground(1, muted)
+            self.context_view.addTopLevelItem(item)
+        self.context_view.resizeColumnToContents(0)
+        self.match_summary.setText(f"{matching} of {len(self.contexts)} contexts match" if tested
+                                   else "Type a pattern to see which contexts match.")
+        self._apply_filter()
+
+    def _apply_filter(self, *_):
+        wanted = {0: None, 1: "match", 2: "no match"}[self.show_filter.currentIndex()]
+        for i in range(self.context_view.topLevelItemCount()):
+            item = self.context_view.topLevelItem(i)
+            state = item.data(0, Qt.UserRole)
+            item.setHidden(wanted is not None and state != "untested" and state != wanted)
 
     def checked_groups(self):
         return {self.found.item(i).data(Qt.UserRole) for i in range(self.found.count())
