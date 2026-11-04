@@ -40,8 +40,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
       - name: Tag matches the package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

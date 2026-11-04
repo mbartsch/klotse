@@ -26,10 +26,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip  # reuses downloaded wheels (PySide6 is ~100 MB); keyed on the requirements files
-          cache-dependency-path: |
-            requirements.txt
-            requirements-build.txt
       - name: Tag matches the package version
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -66,10 +62,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip  # reuses downloaded wheels (PySide6 is ~100 MB); keyed on the requirements files
-          cache-dependency-path: |
-            requirements.txt
-            requirements-build.txt
       - name: Build (app + dmg, self-tested)
         # Without signing secrets the app is ad-hoc signed only; see packaging/README.md for Developer ID and notarization.
         run: bash packaging/macos/build.sh
