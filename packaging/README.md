@@ -73,8 +73,9 @@ GitHub secrets). One-time setup:
    happens; the name was free when this was written, and nothing holds it until then.
 2. On GitHub, create the environments `pypi` (and `testpypi` for dry runs) under Settings → Environments, and add
    yourself as a **required reviewer** of `pypi`, so every upload waits for your approval.
-3. Optional dry run: Actions → PyPI → Run workflow with "Also upload to TestPyPI" ticked (needs the same pending
-   publisher on test.pypi.org, environment `testpypi`).
+3. Manual runs: Actions → PyPI → Run workflow uploads to PyPI by default (still waiting for your approval in the
+   `pypi` environment). Untick "Upload to PyPI" to only build and test; tick "Also upload to TestPyPI" for a dry
+   run there (needs the same pending publisher on test.pypi.org, environment `testpypi`). Pull requests never upload.
 4. Release: change `__version__`, merge, `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must equal
    `klotse.__version__`. After the build and smoke tests pass, approve the `pypi` deployment.
 
