@@ -1,3 +1,4 @@
+import json
 from heapq import heappush, heapreplace
 
 from kubernetes import client, config, watch
@@ -225,6 +226,26 @@ class KubeService:
         else:
             found = self._core.get_api_resources(_request_timeout=30)
         return [ApiResource(group, r.name, r.kind or "", bool(r.namespaced), version) for r in found.resources or []]
+
+    def list_service_account_names(self):
+        """[(namespace, name)] of every service account, for the binding editor's picker (names only, paged)."""
+        return [(a.metadata.namespace or "", a.metadata.name)
+                for a in self._iter_list(self._core.list_service_account_for_all_namespaces)]
+
+    def list_secret_names(self, namespace):
+        """Names of the secrets in a namespace, for the service account editor's pickers. Only metadata is requested
+        from the API server (PartialObjectMetadataList), so no secret data is transferred. A client that cannot send
+        the header makes this fail rather than download the secrets."""
+        accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+        names, token = [], None
+        while True:
+            reply = self._core.list_namespaced_secret(namespace, limit=500, _continue=token, _request_timeout=30,
+                                                      _preload_content=False, _headers={"Accept": accept})
+            page = json.loads(reply.data)
+            names += [item["metadata"]["name"] for item in page.get("items") or []]
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return names
 
     def delete_resource(self, kind, name, namespace, uid):
         """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that

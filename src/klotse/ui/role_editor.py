@@ -170,8 +170,10 @@ class Picker(QWidget):
     changed = Signal()
     picked = Signal(object)
 
-    def __init__(self, title, search=None, describe=None, special=(), label=None, placeholder="", help=""):
+    def __init__(self, title, search=None, describe=None, special=(), label=None, placeholder="", help="",
+                 direct=False):
         super().__init__()
+        self.direct = direct  # search-and-pick only: no list of chosen values; `picked` is all the caller needs
         self.search, self.describe, self.special = search, describe, list(special)
         self.label = label or (lambda v: v)
         self._values = []
@@ -211,6 +213,9 @@ class Picker(QWidget):
         chosen_row = QHBoxLayout()
         chosen_row.addWidget(self.chosen, 1)
         chosen_row.addWidget(self.remove_button, 0, Qt.AlignTop)
+        if direct:
+            self.chosen.hide()
+            self.remove_button.hide()
         lay.addLayout(chosen_row)
         self._timer = QTimer(self, singleShot=True, interval=SEARCH_DELAY_MS)
         self._timer.timeout.connect(self.refresh)
@@ -277,6 +282,8 @@ class Picker(QWidget):
         added = self.add_values([v for v, _ in chosen])
         if added:
             self.picked.emit([(v, extra) for v, extra in chosen if v in added])
+        if self.direct:
+            self.set_values([])  # nothing is kept here: the caller owns the list, so the same value can be picked again
 
     def _add_from_query(self):
         value = self.query.text().strip()

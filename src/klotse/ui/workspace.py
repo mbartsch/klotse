@@ -11,7 +11,9 @@ from ..k8s.api_index import ApiIndex
 from ..k8s.resources import DELETABLE_KINDS, SPECS
 from ..plugins.host import PluginHost
 from ..workers import Worker
+from .account_directory import AccountDirectory, SecretDirectory
 from .api_index_loader import ApiIndexLoader
+from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
 from .customizations import LabelSettings
 from .detail_panel import DetailPanel
@@ -24,7 +26,8 @@ from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_conta
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
 from .resource_table import ResourceTable
-from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky, role_warnings
+from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky
+from .service_account_editor import ServiceAccountEditDialog
 from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
 from .terminal_settings import TerminalSettings
@@ -623,13 +626,32 @@ class ClusterWorkspace(QMainWindow):
         self._api_loader.start()
         return self._api_loader
 
+    def account_directory(self):
+        """The cluster's service accounts for the binding editor's picker: loaded once, in the background."""
+        if getattr(self, "_accounts", None) is None:
+            self._accounts = AccountDirectory(self.service, self._run, parent=self)
+        self._accounts.start()
+        return self._accounts
+
+    def secret_directory(self, namespace):
+        """The secret names of one namespace for the service account editor's pickers: loaded once per namespace."""
+        directories = self.__dict__.setdefault("_secret_directories", {})
+        if namespace not in directories:
+            directories[namespace] = SecretDirectory(self.service, self._run, namespace, parent=self)
+        directories[namespace].start()
+        return directories[namespace]
+
     def edit_resource(self, kind, row):
-        warnings = role_warnings(row.raw) if kind in RULE_KINDS else []
+        warnings = care_warnings(kind, row.raw)
         note = "\n\n".join(([aggregated_note(row.raw)] if kind in RULE_KINDS and aggregated_note(row.raw) else [])
                             + warnings)
         form = None
         if kind in RULE_KINDS and not row.raw.get("aggregationRule"):  # an aggregated role's rules are overwritten
             form = RoleEditDialog(kind, row.raw, self.api_loader(), self)
+        elif kind in BINDING_KINDS:
+            form = BindingEditDialog(kind, row.raw, self.account_directory(), self)
+        elif kind == "ServiceAccount":
+            form = ServiceAccountEditDialog(kind, row.raw, self.secret_directory(row.namespace), self)
         if form is not None:
             accepted = form.exec() == QDialog.Accepted
             form.deleteLater()
@@ -651,12 +673,14 @@ class ClusterWorkspace(QMainWindow):
         "ClusterRole": "Bindings that refer to it stop granting anything; aggregated roles are rebuilt by the controller.",
         "Role": "Bindings that refer to it stop granting anything.",
         "ServiceAccount": "Pods that use it can no longer be created, and its tokens stop working.",
+        "RoleBinding": "Its subjects lose the access this binding gave them.",
+        "ClusterRoleBinding": "Its subjects lose the access this binding gave them.",
     }
 
     def delete_resource(self, kind, row):
         """Delete one RBAC object after a Yes/No question (default No); the UID precondition guards against a replacement."""
         where = f" in namespace {row.namespace}" if row.namespace else ""
-        extra = role_warnings(row.raw) if kind in RULE_KINDS else []
+        extra = care_warnings(kind, row.raw)
         note = "\n\n".join(n for n in [self.DELETE_NOTES.get(kind, ""), *extra] if n)
         if QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
                                 + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
@@ -716,9 +740,9 @@ class ClusterWorkspace(QMainWindow):
             if missing:
                 self._on_error(f"{kind} UID is missing for: " + ", ".join(missing) + ". Refresh the list first.")
                 return
-            flagged = [r.name for r in rows if kind in RULE_KINDS and role_warnings(r.raw)]
-            care = (f"\n\nTake care: {len(flagged)} of them are default (system) roles or feed an aggregated role "
-                    f"(admin/edit/view):\n{self._names([r for r in rows if r.name in flagged])}"
+            flagged = [r.name for r in rows if care_warnings(kind, r.raw)]
+            care = (f"\n\nTake care: {len(flagged)} of them are default (system) objects, feed an aggregated role "
+                    f"(admin/edit/view) or grant cluster-admin:\n{self._names([r for r in rows if r.name in flagged])}"
                     ) if flagged else ""
             if QMessageBox.question(self, f"Delete {kind}s", f"Cluster: {self.context}\nDelete {n} {kind}s?\n\n{names}{care}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
