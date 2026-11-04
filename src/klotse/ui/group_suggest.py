@@ -2,13 +2,15 @@ import re
 from collections import Counter
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QListWidget,
-                               QListWidgetItem, QSpinBox, QVBoxLayout)
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
+                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QSpinBox, QVBoxLayout)
 
-from .cluster_groups import SEPARATOR
+from .cluster_groups import SEPARATOR, clean_path, lineage
 
 DEFAULT_SEPARATORS = "./:_@"  # a "-" is usually inside a word (group-of-cluster), so it is opt-in
 SEPARATOR_CHOICES = "./:_@-"
+SEPARATOR_NAMES = {".": "dot", "/": "slash", ":": "colon", "_": "underscore", "@": "at sign",
+                   "-": "hyphen (usually part of a word, e.g. group-of-cluster)"}
 
 
 def tokens(name, separators=DEFAULT_SEPARATORS, split_numbers=True):
@@ -45,47 +47,124 @@ def propose(names, separators=DEFAULT_SEPARATORS, min_size=2, depth=5, split_num
     return chains
 
 
+def propose_regex(names, pattern, template="", min_size=2, ignore_case=True):
+    """Group suggestions from a regular expression: {context: [group paths, outermost first]}.
+
+    The pattern is searched in each name. Its capture groups become the levels of the group path, in order
+    ("^([a-z]+)-(\\w+)-" on "eks-prod-eu1" gives "eks/prod"); a pattern without capture groups uses the whole match
+    as one level. `template` replaces that rule with an expansion such as "\\2/\\1" or "\\g<env>" (use "/" for
+    levels). Names that do not match stay ungrouped, and a level shared by fewer than `min_size` names is dropped.
+    Raises re.error (or IndexError for a template naming a missing group) when the pattern or template is bad."""
+    if not pattern:
+        return {}
+    compiled = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+    paths = {}
+    for name in names:
+        match = compiled.search(name)
+        if match is None:
+            continue
+        if template:
+            raw = match.expand(template)
+        elif compiled.groups:
+            raw = SEPARATOR.join((part or "").replace(SEPARATOR, "-") for part in match.groups())
+        else:
+            raw = match.group(0).replace(SEPARATOR, "-")
+        path = clean_path(raw)
+        if path:
+            paths[name] = path
+    counts = Counter(level for path in paths.values() for level in lineage(path))
+    chains = {}
+    for name, path in paths.items():
+        chain = []
+        for level in lineage(path):
+            if counts[level] < min_size:
+                break
+            chain.append(level)
+        if chain:
+            chains[name] = chain
+    return chains
+
+
 class SuggestGroupsDialog(QDialog):
-    """Propose groups from the context names; the user ticks the ones to create."""
+    """Propose groups from the context names, by shared prefixes or by a regular expression; the user ticks the
+    ones to create."""
 
     def __init__(self, contexts, groups, parent=None):
         super().__init__(parent)
         self.contexts, self.groups = list(contexts), groups
         self.setWindowTitle("Suggest groups")
-        self.resize(560, 520)
-        info = QLabel("Clusters whose names start the same way can share a group. The name is split at the "
-                      "separators below; a group is suggested when enough clusters share the beginning.")
+        self.resize(600, 700)
+        info = QLabel("Clusters can share a group when their names start the same way, or when a regular "
+                      "expression picks the group out of the name. Tick the suggestions to create.")
         info.setWordWrap(True)
+
+        self.by_prefix = QRadioButton("Shared name prefixes")
+        self.by_regex = QRadioButton("Regular expression")
+        self.by_prefix.setChecked(True)
+        mode = QButtonGroup(self)
+        mode.addButton(self.by_prefix)
+        mode.addButton(self.by_regex)
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(self.by_prefix)
+        mode_row.addWidget(self.by_regex)
+        mode_row.addStretch(1)
+
+        # one under the other, each with its name: single characters side by side were hard to tell apart
         self.separators = {}
-        row = QHBoxLayout()
+        self.prefix_box = QGroupBox("Split names at")
+        split = QVBoxLayout(self.prefix_box)
         for char in SEPARATOR_CHOICES:
-            box = QCheckBox(char)
+            box = QCheckBox(f"{char}     {SEPARATOR_NAMES[char]}")
             box.setChecked(char in DEFAULT_SEPARATORS)
-            box.toggled.connect(self.refresh)
             self.separators[char] = box
-            row.addWidget(box)
-        row.addStretch(1)
-        self.split_numbers = QCheckBox("Split a trailing number (us1, us2 share the group us)")
+            split.addWidget(box)
+        self.split_numbers = QCheckBox("Split a trailing number (us1 and us2 share the group us)")
         self.split_numbers.setChecked(True)
-        self.regroup = QCheckBox("Also move clusters that already have a group")
-        self.min_size = QSpinBox()
-        self.min_size.setRange(2, 50)
-        self.min_size.setValue(2)
         self.depth = QSpinBox()
         self.depth.setRange(1, 10)
         self.depth.setValue(5)
-        for widget in (self.split_numbers, self.regroup):
-            widget.toggled.connect(self.refresh)
+        split.addWidget(self.split_numbers)
+        depth_row = QFormLayout()
+        depth_row.addRow("Levels at most", self.depth)
+        split.addLayout(depth_row)
+
+        self.regex_box = QGroupBox("Regular expression")
+        regex = QFormLayout(self.regex_box)
+        self.pattern = QLineEdit()
+        self.pattern.setPlaceholderText(r"^([^.]+)\.([^.]+)\.   (each capture group becomes a level)")
+        self.template = QLineEdit()
+        self.template.setPlaceholderText(r"optional, e.g. \2/\1 or \g<env>   (use / for levels)")
+        self.ignore_case = QCheckBox("Ignore case")
+        self.ignore_case.setChecked(True)
+        self.regex_error = QLabel()
+        self.regex_error.setStyleSheet("color: #e5484d;")
+        self.regex_error.setWordWrap(True)
+        hint = QLabel(r"Example: eks-prod-eu-1 with ^([a-z]+)-([a-z]+)-([a-z]+) gives the groups eks, eks/prod and "
+                      r"eks/prod/eu. Names that do not match stay ungrouped.")
+        hint.setWordWrap(True)
+        regex.addRow("Pattern", self.pattern)
+        regex.addRow("Group path", self.template)
+        regex.addRow(self.ignore_case)
+        regex.addRow(hint)
+        regex.addRow(self.regex_error)
+
+        self.min_size = QSpinBox()
+        self.min_size.setRange(2, 50)
+        self.min_size.setValue(2)
+        self.regroup = QCheckBox("Also move clusters that already have a group")
+        common = QFormLayout()
+        common.addRow("Clusters needed for a group", self.min_size)
+        common.addRow(self.regroup)
+
+        for button in (self.by_prefix, self.by_regex, self.split_numbers, self.regroup, self.ignore_case,
+                       *self.separators.values()):
+            button.toggled.connect(self.refresh)
         for spin in (self.min_size, self.depth):
             spin.valueChanged.connect(self.refresh)
+        for line in (self.pattern, self.template):
+            line.textChanged.connect(self.refresh)
         self.found = QListWidget()
         self.found.itemChanged.connect(self._update_apply)
-        form = QFormLayout()
-        form.addRow("Separators", row)
-        form.addRow(self.split_numbers)
-        form.addRow("Clusters needed for a group", self.min_size)
-        form.addRow("Levels at most", self.depth)
-        form.addRow(self.regroup)
         self.summary = QLabel()
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.apply_button = buttons.button(QDialogButtonBox.Ok)
@@ -94,20 +173,36 @@ class SuggestGroupsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(info)
-        layout.addLayout(form)
+        layout.addLayout(mode_row)
+        layout.addWidget(self.prefix_box)
+        layout.addWidget(self.regex_box)
+        layout.addLayout(common)
         layout.addWidget(self.found, 1)
         layout.addWidget(self.summary)
         layout.addWidget(buttons)
         self.refresh()
 
     def _chains(self):
-        chosen = "".join(char for char, box in self.separators.items() if box.isChecked())
-        chains = propose(self.contexts, chosen, self.min_size.value(), self.depth.value(), self.split_numbers.isChecked())
+        if self.by_regex.isChecked():
+            try:
+                chains = propose_regex(self.contexts, self.pattern.text(), self.template.text(), self.min_size.value(),
+                                       self.ignore_case.isChecked())
+                self.regex_error.clear()
+            except (re.error, IndexError) as error:
+                self.regex_error.setText(f"Invalid expression: {error}")
+                chains = {}
+        else:
+            chosen = "".join(char for char, box in self.separators.items() if box.isChecked())
+            chains = propose(self.contexts, chosen, self.min_size.value(), self.depth.value(),
+                             self.split_numbers.isChecked())
         if not self.regroup.isChecked():
             chains = {ctx: chain for ctx, chain in chains.items() if not self.groups.group_of(ctx)}
         return chains
 
     def refresh(self, *_):
+        regex = self.by_regex.isChecked()
+        self.prefix_box.setVisible(not regex)
+        self.regex_box.setVisible(regex)
         self.found.blockSignals(True)
         self.found.clear()
         counts = Counter(path for chain in self._chains().values() for path in chain)
@@ -136,5 +231,9 @@ class SuggestGroupsDialog(QDialog):
     def _update_apply(self, *_):
         count = len(self.assignments())
         self.apply_button.setEnabled(count > 0)
-        self.summary.setText(f"{count} cluster(s) would be put in a group." if self.found.count()
-                             else "No groups to suggest with these settings.")
+        if self.found.count():
+            self.summary.setText(f"{count} cluster(s) would be put in a group.")
+        elif self.by_regex.isChecked() and not self.pattern.text():
+            self.summary.setText("Type a regular expression to see the groups it would make.")
+        else:
+            self.summary.setText("No groups to suggest with these settings.")

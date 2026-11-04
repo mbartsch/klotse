@@ -21,7 +21,8 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
   open it asks whether to reconnect them next time (Yes remembers them, No starts clean, Cancel stays open).
 - **Cluster groups.** Organise a long context list into nested groups (`prod/eu`): right-click the Disconnected
   section or a cluster to create groups and move clusters, or choose **Suggest groups…** to propose them from the
-  context names (shared prefixes such as `team.api.prod.us1` and `us2`). Right-click a group for **Connect all**.
+  context names (shared prefixes such as `team.api.prod.us1` and `us2`, or a regular expression whose capture
+  groups become the levels). Right-click a group for **Connect all**.
 - **Resources.** Overview, Workloads, Nodes, Namespaces, Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets,
   Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, Events,
   CustomResourceDefinitions, and read-only browsing of custom resource instances.
