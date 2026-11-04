@@ -4,6 +4,6 @@
 __pycache__
 build/
 dist/
+src/klotse/_build_info.py
 .venv-build/
 *.egg-info/
-src/klotse/_version.py

@@ -15,7 +15,7 @@ from klotse.ui import environment, terminal, terminal_session
 # ---- command line ---------------------------------------------------------------------------------------------
 def test_version_flag_prints_and_exits_without_starting_the_gui(capsys):
     assert cli.handle(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == f"Klotse {klotse.__version__}"
+    assert capsys.readouterr().out.strip() == f"Klotse {klotse.__display_version__}"
     assert cli.handle(["-V"]) == 0
 
 
@@ -56,7 +56,7 @@ def test_self_test_survives_a_missing_console_and_a_legacy_encoding(qtbot, monke
 def test_the_module_runs_as_a_program():
     result = subprocess.run([sys.executable, "-m", "klotse", "--version"], capture_output=True, text=True,
                             env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}, timeout=60)
-    assert result.returncode == 0 and result.stdout.strip() == f"Klotse {klotse.__version__}"
+    assert result.returncode == 0 and result.stdout.strip() == f"Klotse {klotse.__display_version__}"
 
 
 # ---- the macOS terminal session in a packaged app ---------------------------------------------------------------

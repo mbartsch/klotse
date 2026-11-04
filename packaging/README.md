@@ -38,12 +38,14 @@ Both scripts finish by running the packaged app's own self-test (below), and fai
 `.github/workflows/package.yml` builds Windows and both macOS architectures on GitHub's runners:
 
 - **Actions → Package → Run workflow** builds everything and keeps the files as downloadable artifacts.
-- **Pushing a tag** such as `v0.1.0` does the same and then creates a **draft** release with the files and a
-  `SHA256SUMS.txt` attached (this worked for `v0.1.0`). Nothing is public until you publish the draft. The version comes from the tag
-  (`v0.2.0` becomes `0.2.0`), so there is no file to edit; a tag that is not a plain `vX.Y.Z` stops the build.
+- **A version tag** (`vX.Y.Z`, made by the release process below) does the same and then creates a **draft** release with the files and a
+  `SHA256SUMS.txt` attached. Nothing is public until you publish the draft. The version is the one in `src/klotse/_version.py`; the build
+  stops if the tag and that file disagree.
 
-To release: merge to `master`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Builds from any other commit get a
-`.devN` version (for example `0.2.1.dev3`) and can never be published to PyPI.
+To release: Actions -> Release -> Run workflow with the version (for example `0.2.0`). It opens a release PR (branch `release/v0.2.0`, title
+`Release v0.2.0`, changing only the version file). Merge it (squash, keep the title); the merge commit is tagged `v0.2.0` automatically and the
+builds start. A build from any other commit (master, a branch) reports `X.Y.Z+g<commit>` in About and `--version`, with X.Y.Z the last release, so it is never mistaken for the release; it cannot be published to PyPI (only a tag publishes).
+See `scripts/release.py` for the rules and `.github/workflows/release.yml` for the steps, including the optional `RELEASE_TOKEN` secret.
 
 ## Linux and PyPI (pipx)
 
@@ -77,9 +79,9 @@ GitHub secrets). One-time setup:
 3. Manual runs: Actions → PyPI → Run workflow uploads to PyPI by default (still waiting for your approval in the
    `pypi` environment). Untick "Upload to PyPI" to only build and test; tick "Also upload to TestPyPI" for a dry
    run there (needs the same pending publisher on test.pypi.org, environment `testpypi`). Pull requests never upload.
-4. Release: `git tag vX.Y.Z && git push origin vX.Y.Z` on the commit to release (the version is read from the tag).
-   After the build and smoke tests pass, approve the `pypi` deployment. A manual run on an untagged commit builds a
-   `.devN` version, which the publish job refuses, so only the TestPyPI option can take it.
+4. Release: merge a release PR (see above); its merge commit is tagged `vX.Y.Z` for you.
+   After the build and smoke tests pass, approve the `pypi` deployment. A manual run on an untagged ref is refused by the publish job,
+   so only the TestPyPI option can take it.
 
 Why not AppImage, `.deb` or `.rpm` yet: they are good fits (not sandboxed, so `kubectl`, cloud auth helpers and the
 host terminal keep working) and are the likely next step if pipx proves too much work for users. Flatpak and Snap are

@@ -51,9 +51,9 @@ def test_missing_license_name_is_stated_not_invented(monkeypatch):
 def test_version_has_a_single_source_shared_with_pyproject():
     pyproject = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8"))
     assert "version" in pyproject["project"]["dynamic"] and "version" not in pyproject["project"]
-    assert pyproject["tool"]["setuptools_scm"]["version_file"] == "src/klotse/_version.py"
-    assert "setuptools-scm" in " ".join(pyproject["build-system"]["requires"])
-    assert klotse.__version__ and f"Klotse {klotse.__version__}" in about.details()
+    assert pyproject["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "klotse._version.__version__"}
+    assert "setuptools-scm" not in " ".join(pyproject["build-system"]["requires"])  # the version is written in the source
+    assert klotse.__version__ and f"Klotse {klotse.__display_version__}" in about.details()
 
 
 def test_dialog_shows_the_logo_from_assets_when_present(qtbot, tmp_path, monkeypatch):

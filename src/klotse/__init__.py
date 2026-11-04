@@ -1,10 +1,6 @@
-# The version comes from the git tag (see [tool.setuptools_scm] in pyproject.toml). _version.py is generated when the
-# package, a packaged app or `python -m setuptools_scm --force-write-version-files` is built; it is not committed.
-try:
-    from ._version import version as __version__
-except ImportError:  # a plain source checkout where nothing generated it: ask the installed metadata, if any
-    try:
-        from importlib.metadata import version as _installed_version
-        __version__ = _installed_version("klotse")
-    except Exception:
-        __version__ = "0+unknown"
+from ._version import __version__  # noqa: F401  (the single, tracked source of the version; see _version.py)
+
+try:  # written by the build scripts (scripts/release.py write-build-info): the version plus +g<commit> for a build that is not a tagged release
+    from ._build_info import display_version as __display_version__  # noqa: F401
+except ImportError:
+    __display_version__ = __version__

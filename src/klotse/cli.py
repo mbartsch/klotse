@@ -13,7 +13,7 @@ import os
 import shutil
 import sys
 
-from . import __version__
+from . import __display_version__ as __version__  # what the app reports; plain X.Y.Z for a tagged release
 
 
 def _self_test_checks():

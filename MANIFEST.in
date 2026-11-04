@@ -1,4 +1,4 @@
-# setuptools-scm puts every git-tracked file in the sdist; keep out what a Python user never needs.
+# Keep what a Python user never needs out of the sdist.
 prune .github
 prune packaging
 prune scripts

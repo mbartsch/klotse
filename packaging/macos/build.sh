@@ -22,8 +22,9 @@ PY="$VENV/bin/python"
 "$PY" -m pip install --disable-pip-version-check -q -r requirements-build.txt
 
 export PYTHONPATH="$ROOT/src"
-# The version comes from the git tag; write it into klotse/_version.py (needs the tags: a full clone, not a shallow one)
-"$PY" -m setuptools_scm --force-write-version-files >/dev/null
+# The version is the one written in src/klotse/_version.py (changed only by a release PR); the app reports it with +g<commit>
+# added when this commit is not exactly the tagged release (written to the git-ignored src/klotse/_build_info.py)
+"$PY" scripts/release.py write-build-info
 VERSION="$("$PY" -c 'import klotse; print(klotse.__version__)')"
 ARCH="$(uname -m)"
 echo "Building Klotse $VERSION for $ARCH"

@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, qVersion
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout)
 
-from .. import __version__
+from .. import __display_version__ as __version__  # what the app reports; plain X.Y.Z for a tagged release
 from . import branding
 
 NAME = "Klotse"

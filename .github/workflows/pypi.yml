@@ -38,16 +38,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # the version comes from the git tag
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Tag gives a clean release version
+      - name: The tag must match the version in the source
         if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          python -m pip install "setuptools-scm>=8"
-          version=$(python -m setuptools_scm)
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME gives version $version; use a tag like v1.2.3"; exit 1; }
+        run: python scripts/release.py check-tag "$GITHUB_REF_NAME"
       - name: Build the sdist and wheel
         run: |
           python -m pip install --upgrade build twine trove-classifiers
@@ -139,9 +136,12 @@ jobs:
         with:
           name: python-dist
           path: dist
-      - name: Refuse to publish a development version
-        # Only a commit that is exactly a v* tag has a clean version; anything else is 1.2.3.devN.
+      - name: Publish only a tagged release
+        # The version is in the source and changes only in a release PR, whose merge commit is tagged (release.yml). A run on
+        # any other ref would upload an untagged version, so it is refused; the build job already checked tag == version.
         run: |
           ls dist
-          if ls dist | grep -q '\.dev'; then echo "These are development builds; push a tag such as v1.2.3 to publish to PyPI."; exit 1; fi
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) echo "Publish from a version tag (made by the release process), not from $GITHUB_REF."; exit 1;; esac
+          version="${GITHUB_REF_NAME#v}"
+          ls dist | grep -q "^klotse-$version[-.]" || { echo "dist has no files for $version"; exit 1; }
       - uses: pypa/gh-action-pypi-publish@release/v1

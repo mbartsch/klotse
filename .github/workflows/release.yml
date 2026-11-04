@@ -1,0 +1,125 @@
+# The release process (rules in scripts/release.py, summary in AGENTS.md):
+#
+#   1. Actions -> Release -> Run workflow, with the version (for example 0.2.0). It opens the release PR: branch
+#      release/v0.2.0, title "Release v0.2.0", changing only src/klotse/_version.py.
+#   2. Every pull request is checked here: a release PR must follow that definition, and no other PR may change the
+#      version file.
+#   3. After the release PR is merged (squash), the tag v0.2.0 is created on the merge commit, so the tagged commit contains
+#      its own version. The Package and PyPI workflows then run for the tag (publishing to PyPI still waits for the approval
+#      on the "pypi" environment).
+#
+# Tags and PRs made with the default GITHUB_TOKEN do not start other workflows. Optionally add a repository secret
+# RELEASE_TOKEN (a fine-grained token with Contents and Pull requests write access): it is used instead, so the pushed tag
+# starts the build workflows by itself and the release PR gets its checks. Without it, the tag job starts the Package and
+# PyPI workflows explicitly, and the release PR's checks have to be started by pushing an empty commit to it, or closing and
+# reopening it.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z (higher than the latest tag)"
+        required: true
+        type: string
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Check the version and write it
+        run: python scripts/release.py prepare "$VERSION"
+      - name: Open the release PR
+        run: |
+          last=$(python scripts/release.py latest)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/v$VERSION"
+          git add src/klotse/_version.py
+          git commit -m "Release v$VERSION"
+          git push origin "release/v$VERSION"
+          {
+            echo "Sets the version to $VERSION. This PR changes only src/klotse/_version.py."
+            echo
+            echo "After it is merged (squash, keep the title) the commit is tagged v$VERSION and the packages are built."
+            echo
+            echo "Changes since ${last:+v$last}:"
+            echo
+            git log --no-merges --format='- %s' "${last:+v$last..}HEAD~1"
+          } > body.md
+          gh pr create --base master --head "release/v$VERSION" --title "Release v$VERSION" --body-file body.md
+
+  check-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      TITLE: ${{ github.event.pull_request.title }}
+      BRANCH: ${{ github.head_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Release rules
+        run: |
+          # the checkout is the merge of the PR into its base: the first parent is the base
+          git diff --name-only HEAD^1 HEAD > changed.txt
+          mapfile -t files < changed.txt
+          python scripts/release.py check-pr "$TITLE" "$BRANCH" "${files[@]}"
+
+  tag:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Tag a merged release PR
+        run: |
+          subject=$(git log -1 --format=%s)
+          version=$(python scripts/release.py tag-for-commit "$subject")
+          if [ -z "$version" ]; then echo "Not a release commit; nothing to tag."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$version" -m "Klotse $version"
+          git push origin "v$version"
+          echo "Tagged v$version"
+          if [ "$HAS_RELEASE_TOKEN" != "true" ]; then
+            # a tag pushed with GITHUB_TOKEN starts nothing by itself: start the builds for the tag explicitly
+            gh workflow run package.yml --ref "v$version"
+            gh workflow run pypi.yml --ref "v$version"
+          fi

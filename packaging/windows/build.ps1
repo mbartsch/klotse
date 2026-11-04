@@ -31,8 +31,9 @@ if (-not (Test-Path $py)) {
 Invoke-Checked "installing build requirements" { & $py -m pip install --disable-pip-version-check -q -r requirements-build.txt }
 
 $env:PYTHONPATH = Join-Path $root "src"
-# The version comes from the git tag; write it into klotse/_version.py (needs the tags: a full clone, not a shallow one)
-Invoke-Checked "reading the version from git" { & $py -m setuptools_scm --force-write-version-files }
+# The version is the one written in src/klotse/_version.py (changed only by a release PR); the app reports it with +g<commit>
+# added when this commit is not exactly the tagged release (written to the git-ignored src/klotse/_build_info.py)
+Invoke-Checked "writing the build info" { & $py (Join-Path $root "scriptselease.py") write-build-info }
 $version = (& $py -c "import klotse; print(klotse.__version__)").Trim()
 $numeric = [regex]::Match($version, '^\d+(\.\d+){0,2}').Value
 Write-Host "Building Klotse $version"

@@ -24,17 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # the version comes from the git tag
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Tag gives a clean release version
+      - name: The tag must match the version in the source
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        run: |
-          python -m pip install "setuptools-scm>=8"
-          version=$(python -m setuptools_scm)
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME gives version $version; use a tag like v1.2.3"; exit 1; }
+        run: python scripts/release.py check-tag "$GITHUB_REF_NAME"
       - name: Install Inno Setup if the runner image lacks it
         shell: powershell
         run: |
@@ -63,7 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # the version comes from the git tag
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
