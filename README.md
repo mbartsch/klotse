@@ -54,7 +54,7 @@ a `SHA256SUMS.txt` to check the downloads against. You can also run Klotse from 
 yourself (see [Development](#development)).
 
 - The Windows installer has been tested (install, run, uninstall). The macOS apps are built and self-tested in CI, and
-  the 0.1.0 release has been tested on macOS.
+  the 0.1.0 release has been tested on an Apple Silicon Mac (M3 Pro, macOS 26.7.1). The Intel build has not been run on an Intel Mac.
 - The packages are not signed yet, so expect a warning on first start: on Windows choose **More info → Run anyway**,
   on macOS right-click the app and choose **Open**.
 - `kubectl` is not included and has to be installed separately.
