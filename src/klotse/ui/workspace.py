@@ -7,9 +7,11 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
                                QTabWidget, QToolBar)
 
+from ..k8s.api_index import ApiIndex
 from ..k8s.resources import DELETABLE_KINDS, SPECS
 from ..plugins.host import PluginHost
 from ..workers import Worker
+from .api_index_loader import ApiIndexLoader
 from .command_view import CommandView
 from .customizations import LabelSettings
 from .detail_panel import DetailPanel
@@ -22,6 +24,7 @@ from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_conta
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
 from .resource_table import ResourceTable
+from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky, role_warnings
 from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
 from .terminal_settings import TerminalSettings
@@ -612,9 +615,34 @@ class ClusterWorkspace(QMainWindow):
         QMessageBox.warning(self, "Kubernetes error", f"{self.context}\n\n{msg}")
 
     # ---- actions -------------------------------------------------------
+    def api_loader(self):
+        """The cluster's API resources for the role editor's pickers: one index per workspace, loaded once in the
+        background and reused by every later edit (the editor's Reload button refreshes it)."""
+        if getattr(self, "_api_loader", None) is None:
+            self._api_loader = ApiIndexLoader(self.service, self._run, ApiIndex(), parent=self)
+        self._api_loader.start()
+        return self._api_loader
+
     def edit_resource(self, kind, row):
-        dlg = EditDialog(f"Edit {kind} {row.name}", row.raw, self)
+        warnings = role_warnings(row.raw) if kind in RULE_KINDS else []
+        note = "\n\n".join(([aggregated_note(row.raw)] if kind in RULE_KINDS and aggregated_note(row.raw) else [])
+                            + warnings)
+        form = None
+        if kind in RULE_KINDS and not row.raw.get("aggregationRule"):  # an aggregated role's rules are overwritten
+            form = RoleEditDialog(kind, row.raw, self.api_loader(), self)
+        if form is not None:
+            accepted = form.exec() == QDialog.Accepted
+            form.deleteLater()
+            if accepted:
+                self.message.emit(f"Saving {kind} {row.name}…")
+                self._run(self.service.replace, lambda _: self._saved(kind, row.name), kind, form.result_body)
+                return
+            if not form.wants_yaml:
+                return
+        dlg = EditDialog(f"Edit {kind} {row.name}", row.raw, self, note=note)
         if dlg.exec() != EditDialog.Accepted:
+            return
+        if not confirm_risky(self, kind, row.name, warnings):
             return
         self.message.emit(f"Saving {kind} {row.name}…")
         self._run(self.service.replace, lambda _: self._saved(kind, row.name), kind, dlg.result_body)
@@ -628,7 +656,8 @@ class ClusterWorkspace(QMainWindow):
     def delete_resource(self, kind, row):
         """Delete one RBAC object after a Yes/No question (default No); the UID precondition guards against a replacement."""
         where = f" in namespace {row.namespace}" if row.namespace else ""
-        note = self.DELETE_NOTES.get(kind, "")
+        extra = role_warnings(row.raw) if kind in RULE_KINDS else []
+        note = "\n\n".join(n for n in [self.DELETE_NOTES.get(kind, ""), *extra] if n)
         if QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
                                 + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
                                 QMessageBox.No) != QMessageBox.Yes:
@@ -687,7 +716,11 @@ class ClusterWorkspace(QMainWindow):
             if missing:
                 self._on_error(f"{kind} UID is missing for: " + ", ".join(missing) + ". Refresh the list first.")
                 return
-            if QMessageBox.question(self, f"Delete {kind}s", f"Cluster: {self.context}\nDelete {n} {kind}s?\n\n{names}",
+            flagged = [r.name for r in rows if kind in RULE_KINDS and role_warnings(r.raw)]
+            care = (f"\n\nTake care: {len(flagged)} of them are default (system) roles or feed an aggregated role "
+                    f"(admin/edit/view):\n{self._names([r for r in rows if r.name in flagged])}"
+                    ) if flagged else ""
+            if QMessageBox.question(self, f"Delete {kind}s", f"Cluster: {self.context}\nDelete {n} {kind}s?\n\n{names}{care}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self._bulk(f"Deleting {n} {kind}s", rows, lambda r: self.service.delete_resource(

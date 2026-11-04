@@ -8,7 +8,7 @@ from .manifest import dump_manifest
 class EditDialog(QDialog):
     """Edit a resource as YAML; `result_body` holds the parsed manifest after Save."""
 
-    def __init__(self, title, raw, parent=None):
+    def __init__(self, title, raw, parent=None, note=""):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(800, 600)
@@ -21,6 +21,11 @@ class EditDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel("Saving replaces the live object (like kubectl replace). Many fields are immutable."))
+        if note:  # something to know before changing this object (RBAC: aggregated or system roles)
+            warning = QLabel(note)
+            warning.setWordWrap(True)
+            warning.setStyleSheet("background:#3a2c0f; color:#f5a524; padding:6px; border-radius:4px;")
+            lay.addWidget(warning)
         lay.addWidget(self.editor)
         lay.addWidget(buttons)
 

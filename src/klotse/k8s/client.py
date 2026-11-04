@@ -6,6 +6,7 @@ from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
+from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 
@@ -210,6 +211,20 @@ class KubeService:
     def delete_pod(self, name, namespace, force=False):
         options = {"body": client.V1DeleteOptions(grace_period_seconds=0, propagation_policy="Background")} if force else {}
         self._core.delete_namespaced_pod(name, namespace, _request_timeout=15, **options)
+
+    # ---- API discovery (for the role editor's pickers) --------------------
+    def discovery_groups(self):
+        """[(group, preferred version)] for the core group and every API group the cluster serves (one call)."""
+        groups = client.ApisApi(self._api_client).get_api_versions(_request_timeout=30).groups or []
+        return [("", "v1")] + [(g.name, g.preferred_version.version) for g in groups if g.preferred_version]
+
+    def discovery_resources(self, group, version):
+        """ApiResource entries of one group/version, subresources (`pods/log`) included."""
+        if group:
+            found = self._custom.get_api_resources(group, version, _request_timeout=30)
+        else:
+            found = self._core.get_api_resources(_request_timeout=30)
+        return [ApiResource(group, r.name, r.kind or "", bool(r.namespaced), version) for r in found.resources or []]
 
     def delete_resource(self, kind, name, namespace, uid):
         """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
