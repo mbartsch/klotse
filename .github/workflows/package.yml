@@ -64,7 +64,7 @@ jobs:
           python-version: "3.12"
       - name: Build (app + dmg, self-tested)
         # Without signing secrets the app is ad-hoc signed only; see packaging/README.md for Developer ID and notarization.
-        run: ./packaging/macos/build.sh
+        run: bash packaging/macos/build.sh
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
