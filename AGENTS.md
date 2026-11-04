@@ -70,7 +70,7 @@ Native Windows/macOS packages are built with PyInstaller (`packaging/`, see the 
 | `src/klotse/ui/navigator.py` | Context connection states and grouped view navigation (including the Custom Resources group). |
 | `src/klotse/ui/resource_table.py` | Shared table, debounced filtering, sorting, label columns, extended selection with bulk menus, an optional Columns… button (Nodes, Pods, pods-on-node tabs), context menus, per-kind double-click actions, a header-widget slot, and a debounced `visible_changed` signal with `visible_rows()`. |
 | `src/klotse/ui/table_model.py` | Display/sort/search roles, numeric age sorting, label lookups, condition/header tooltips, and in-place `refresh_column`. |
-| `src/klotse/ui/overview.py` | Cluster/workload cards, bounded pod/event drill-down tables, CPU/memory usage bars (hidden without metrics), and a non-blocking "Loading cluster data… Ns" busy bar for the first load (or a failed one with its error; refreshes with data on screen stay quiet). `Workspace.load_view` drives it like a table's `set_loading`/`set_error`. |
+| `src/klotse/ui/overview.py` | Cluster/workload cards, bounded pod/event drill-down tables, CPU/memory usage bars (hidden without metrics), and a non-blocking large "Loading cluster data… Ns" message with a busy bar, centered in the still empty events pane, for the first load (or a failed one with its error; refreshes with data on screen stay quiet). `Workspace.load_view` drives it like a table's `set_loading`/`set_error`. |
 | `src/klotse/ui/detail_panel.py` | Read-only YAML and searchable multi-key secret decoding. |
 | `src/klotse/ui/manifest.py` | Shared readable, round-trip-safe YAML dumping. |
 | `src/klotse/ui/edit_dialog.py` | YAML resource editor using the shared manifest dumper. |

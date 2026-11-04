@@ -137,20 +137,21 @@ class OverviewView(QWidget):
         self.cards = {}
         self._data = None
         self.focus = None  # drill-down card key currently shown, or None for recent events
-        # Shown while the first data is on its way, so the empty cards do not look dead. It never blocks the page.
+        # Shown in place of the (still empty) events table while the first data is on its way, so the page does not
+        # look dead. The cards above stay usable; nothing is blocked.
         self.loading_label = QLabel()
-        self.loading_label.setStyleSheet(f"color: {MUTED};")
+        self.loading_label.setAlignment(Qt.AlignCenter)
+        self.loading_label.setStyleSheet(f"color: {MUTED}; font-size: 22px; font-weight: 600;")
         self.loading_bar = QProgressBar()
         self.loading_bar.setRange(0, 0)  # busy / indeterminate
         self.loading_bar.setTextVisible(False)
-        self.loading_bar.setFixedSize(120, 6)
-        loading = QHBoxLayout()
-        loading.addWidget(self.loading_bar)
-        loading.addWidget(self.loading_label)
+        self.loading_bar.setFixedSize(260, 8)
+        self.loading_page = QWidget()
+        loading = QVBoxLayout(self.loading_page)
         loading.addStretch(1)
-        self.loading_row = QWidget()
-        self.loading_row.setLayout(loading)
-        self.loading_row.hide()
+        loading.addWidget(self.loading_label)
+        loading.addWidget(self.loading_bar, 0, Qt.AlignHCenter)
+        loading.addStretch(2)
         self._load_clock = QElapsedTimer()
         self._load_timer = QTimer(self, interval=1000)
         self._load_timer.timeout.connect(self._loading_tick)
@@ -182,8 +183,8 @@ class OverviewView(QWidget):
         self.stack = QStackedWidget()
         for t in self.tables():
             self.stack.addWidget(t)
+        self.stack.addWidget(self.loading_page)
         lay = QVBoxLayout(self)
-        lay.addWidget(self.loading_row)
         lay.addLayout(grid)
         lay.addWidget(self.usage)
         lay.addLayout(head)
@@ -199,7 +200,7 @@ class OverviewView(QWidget):
         self._load_clock.start()
         self.loading_bar.show()
         self.loading_label.setText("Loading cluster data…")
-        self.loading_row.show()
+        self.stack.setCurrentWidget(self.loading_page)
         self._load_timer.start()
 
     def _loading_tick(self):
@@ -210,11 +211,10 @@ class OverviewView(QWidget):
         if self._data is None:  # with data on screen the status bar message is enough
             self.loading_bar.hide()
             self.loading_label.setText(f"Load failed: {message}")
-            self.loading_row.show()
+            self.stack.setCurrentWidget(self.loading_page)
 
     def set_data(self, data):
         self._load_timer.stop()
-        self.loading_row.hide()
         self._data = data
         lists = data.get("lists", {})
         for key, card in self.cards.items():
