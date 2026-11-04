@@ -4,10 +4,11 @@ from copy import deepcopy
 
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMenu, QPlainTextEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+from PySide6.QtWidgets import (QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
+from . import rbac_view
 from .manifest import dump_manifest
 
 
@@ -18,7 +19,7 @@ class DetailPanel(QWidget):
         self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.editor.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.decode_button = QToolButton(text="Decode values…")
-        self.decode_button.setToolTip("Choose secret keys to decode in Details (YAML)")
+        self.decode_button.setToolTip("Choose secret keys to decode in Details")
         self.decode_button.setPopupMode(QToolButton.InstantPopup)
         self.decode_menu = QMenu(self.decode_button)
         picker = QWidget()
@@ -52,10 +53,35 @@ class DetailPanel(QWidget):
         self._secret_data = {}
         self._decoded_keys = set()
         self.show_managed_fields = False  # metadata.managedFields is long and rarely useful; opt in from View
+        # Readable view for kinds that have one (RBAC); the YAML stays one click away. Text from the cluster is escaped.
+        self.formatted = QTextBrowser()
+        self.formatted.setOpenLinks(False)
+        self.formatted.setOpenExternalLinks(False)
+        self.formatted_button = QPushButton("Formatted", checkable=True)
+        self.yaml_button = QPushButton("YAML", checkable=True)
+        self.view_bar = QWidget()
+        bar = QHBoxLayout(self.view_bar)
+        bar.setContentsMargins(0, 0, 0, 0)
+        bar.addWidget(self.formatted_button)
+        bar.addWidget(self.yaml_button)
+        bar.addStretch(1)
+        modes = QButtonGroup(self)
+        modes.setExclusive(True)
+        modes.addButton(self.formatted_button)
+        modes.addButton(self.yaml_button)
+        for b in (self.formatted_button, self.yaml_button):
+            b.setStyleSheet("QPushButton:checked { background: #3d7eff; color: white; }")  # theme.ACCENT
+        self.formatted_button.setChecked(True)
+        self.formatted_button.toggled.connect(self._show_mode)
+        self.view_bar.hide()
+        self.formatted.hide()
+        self._formatted_ok = False  # the current row has a formatted view
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.view_bar)
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
+        layout.addWidget(self.formatted)
         layout.addWidget(self.editor)
 
     def toPlainText(self):
@@ -78,6 +104,24 @@ class DetailPanel(QWidget):
         self.decode_menu.hide()
         self.decode_button.setVisible(bool(self._secret_data))
         self.editor.setPlainText(dump_manifest(self._displayed(row.raw)))
+        self._render_formatted(row)
+
+    def _render_formatted(self, row):
+        kind = getattr(row, "rbac_kind", None)
+        self._formatted_ok = False
+        if kind in rbac_view.RBAC_KINDS:
+            try:
+                self.formatted.setHtml(rbac_view.render(kind, row.raw))
+                self._formatted_ok = True
+            except Exception as e:  # a odd manifest must never break Details; the YAML is still there
+                self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
+        self.view_bar.setVisible(self._formatted_ok)
+        self._show_mode()
+
+    def _show_mode(self, *_):
+        formatted = self._formatted_ok and self.formatted_button.isChecked()
+        self.formatted.setVisible(formatted)
+        self.editor.setVisible(not formatted)
 
     def set_show_managed_fields(self, show):
         """Include or hide metadata.managedFields in Details; the shown resource is redrawn, scroll kept."""

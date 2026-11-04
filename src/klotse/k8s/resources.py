@@ -139,6 +139,53 @@ def map_storageclass(s):
                  default="yes" if default else "")
 
 
+def rules_text(rules):
+    """One searchable line for RBAC rules: `resources: verbs` per rule, `/path: verbs` for non-resource URLs."""
+    parts = []
+    for r in rules or []:
+        verbs = ",".join(r.verbs or [])
+        what = []
+        for group in r.api_groups or []:
+            for res in r.resources or []:
+                what.append(f"{group}/{res}" if group else res)
+        # the client renamed this attribute (non_resource_ur_ls before v30-ish, non_resource_urls now); accept both
+        urls = getattr(r, "non_resource_urls", None) or getattr(r, "non_resource_ur_ls", None)
+        what += list(urls or [])
+        if r.resource_names:
+            what.append("names=" + ",".join(r.resource_names))
+        parts.append(f"{','.join(what) or '-'}: {verbs}")
+    return "; ".join(parts)
+
+
+def subjects_text(subjects):
+    out = []
+    for s in subjects or []:
+        ns = f"{s.namespace}/" if getattr(s, "namespace", None) else ""
+        out.append(f"{s.kind}:{ns}{s.name}")
+    return ", ".join(out)
+
+
+def map_role(r):
+    return _base(r, rbac_kind="Role", rule_count=len(r.rules or []), rules=rules_text(r.rules))
+
+
+def map_clusterrole(r):
+    aggregated = "yes" if r.aggregation_rule else ""
+    return _base(r, rbac_kind="ClusterRole", rule_count=len(r.rules or []), aggregated=aggregated,
+                 rules=rules_text(r.rules))
+
+
+def map_binding(b):
+    ref = b.role_ref
+    kind = "RoleBinding" if b.metadata.namespace else "ClusterRoleBinding"
+    return _base(b, rbac_kind=kind, role=f"{ref.kind}/{ref.name}", subjects=subjects_text(b.subjects), subject_count=len(b.subjects or []))
+
+
+def map_serviceaccount(s):
+    return _base(s, rbac_kind="ServiceAccount", secrets=len(s.secrets or []), automount="" if s.automount_service_account_token is None
+                 else str(bool(s.automount_service_account_token)))
+
+
 def crd_version(crd):
     """The version to browse: the storage version when served, else the first served one."""
     versions = [v for v in crd.spec.versions or [] if v.served]
@@ -187,6 +234,7 @@ class Spec:
     columns: tuple
     mapper: Callable
     editable: bool = True
+    deletable: bool = False  # offers Delete… (the RBAC kinds); delete goes through KubeService.delete_resource
 
 
 NS = ("Namespace", "namespace")
@@ -227,6 +275,20 @@ SPECS = [
     Spec("events", "Events", "Event", "event", "core", True,
          (("Type", "type"), ("Reason", "reason"), ("Object", "object"), ("Message", "message"), NS,
           ("Count", "count"), ("Last Seen", "last_seen")), map_event, editable=False),
+    # Access control (RBAC). The rules / subjects columns are plain text so the table filter finds e.g. "secrets" or a user.
+    Spec("serviceaccounts", "Service Accounts", "ServiceAccount", "service_account", "core", True,
+         (("Name", "name"), NS, ("Secrets", "secrets"), ("Automount token", "automount"), AGE),
+         map_serviceaccount, deletable=True),
+    Spec("roles", "Roles", "Role", "role", "rbac", True,
+         (("Name", "name"), NS, ("Rules", "rule_count"), ("Permissions", "rules"), AGE), map_role, deletable=True),
+    Spec("rolebindings", "Role Bindings", "RoleBinding", "role_binding", "rbac", True,
+         (("Name", "name"), NS, ("Role", "role"), ("Subjects", "subjects"), AGE), map_binding, deletable=True),
+    Spec("clusterroles", "Cluster Roles", "ClusterRole", "cluster_role", "rbac", False,
+         (("Name", "name"), ("Rules", "rule_count"), ("Aggregated", "aggregated"), ("Permissions", "rules"), AGE),
+         map_clusterrole, deletable=True),
+    Spec("clusterrolebindings", "Cluster Role Bindings", "ClusterRoleBinding", "cluster_role_binding", "rbac", False,
+         (("Name", "name"), ("Role", "role"), ("Subjects", "subjects"), AGE), map_binding, deletable=True),
 ]
 SPEC_BY_KEY = {s.key: s for s in SPECS}
 SPEC_BY_KIND = {s.kind: s for s in SPECS}
+DELETABLE_KINDS = frozenset(s.kind for s in SPECS if s.deletable)

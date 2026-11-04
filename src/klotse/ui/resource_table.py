@@ -2,6 +2,7 @@ from PySide6.QtCore import QElapsedTimer, QSortFilterProxyModel, Qt, Signal, QTi
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QStackedWidget,
                                QTableView, QVBoxLayout, QWidget)
 
+from ..k8s.resources import DELETABLE_KINDS
 from .loading_pane import LoadingPane
 from .table_model import TableModel
 
@@ -197,6 +198,8 @@ class ResourceTable(QWidget):
         bulk = lambda action: (lambda: self.bulk_requested.emit(self.kind, action, rows))
         if self.kind in SCALABLE:
             menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
+        if self.kind in DELETABLE_KINDS:
+            menu.addAction(f"Delete {n} {self.kind}s…", bulk("delete"))
         if self.kind == "Pod":
             menu.addAction(f"Terminate {n} pods…", bulk("terminate"))
             menu.addAction(f"Force terminate {n} pods…", bulk("force-terminate"))
@@ -243,6 +246,8 @@ class ResourceTable(QWidget):
                 menu.addAction("Edit…", lambda: self.edit_requested.emit(self.kind, row))
             if self.kind in SCALABLE:
                 menu.addAction("Scale…", lambda: self.scale_requested.emit(self.kind, row))
+            if self.kind in DELETABLE_KINDS:
+                menu.addAction("Delete…", lambda: self.action_requested.emit("delete", row))
             if self.kind == "Node":
                 menu.addSeparator()
                 menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))

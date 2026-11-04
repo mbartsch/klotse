@@ -160,7 +160,7 @@ class KubeService:
         self._apps = client.AppsV1Api(api)
         self._apis = {"core": core, "apps": self._apps, "batch": client.BatchV1Api(api),
                       "net": client.NetworkingV1Api(api), "storage": client.StorageV1Api(api),
-                      "ext": client.ApiextensionsV1Api(api)}
+                      "ext": client.ApiextensionsV1Api(api), "rbac": client.RbacAuthorizationV1Api(api)}
         self._custom = client.CustomObjectsApi(api)
 
     def create_namespace(self, body):
@@ -210,6 +210,21 @@ class KubeService:
     def delete_pod(self, name, namespace, force=False):
         options = {"body": client.V1DeleteOptions(grace_period_seconds=0, propagation_policy="Background")} if force else {}
         self._core.delete_namespaced_pod(name, namespace, _request_timeout=15, **options)
+
+    def delete_resource(self, kind, name, namespace, uid):
+        """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
+        reused the name from being deleted."""
+        spec = SPEC_BY_KIND.get(kind)
+        if spec is None or not spec.deletable:
+            raise ValueError(f"Deleting {kind} is not supported")
+        if not uid:
+            raise ValueError(f"{kind} UID is missing; refresh the list first")
+        api = self._apis[spec.api]
+        body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid))
+        if spec.namespaced:
+            getattr(api, f"delete_namespaced_{spec.snake}")(name, namespace, body=body, _request_timeout=15)
+        else:
+            getattr(api, f"delete_{spec.snake}")(name, body=body, _request_timeout=15)
 
     def cordon_node(self, name, unschedulable):
         self._core.patch_node(name, {"spec": {"unschedulable": unschedulable}}, _request_timeout=15)

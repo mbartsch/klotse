@@ -7,7 +7,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
                                QTabWidget, QToolBar)
 
-from ..k8s.resources import SPECS
+from ..k8s.resources import DELETABLE_KINDS, SPECS
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .command_view import CommandView
@@ -134,7 +134,7 @@ class ClusterWorkspace(QMainWindow):
 
         # right: object details
         self.detail = DetailPanel()
-        self.detail_dock = QDockWidget("Details (YAML)", self)
+        self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
 
@@ -162,7 +162,9 @@ class ClusterWorkspace(QMainWindow):
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
-                                                 "CustomResourceDefinition": self._crd_action}.get(widget.kind, self.pod_action))
+                                                 "CustomResourceDefinition": self._crd_action,
+                                                 **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
+                                                    for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
         self.node_table.visible_changed.connect(self._update_node_pods)
 
@@ -616,6 +618,31 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Saving {kind} {row.name}…")
         self._run(self.service.replace, lambda _: self._saved(kind, row.name), kind, dlg.result_body)
 
+    DELETE_NOTES = {
+        "ClusterRole": "Bindings that refer to it stop granting anything; aggregated roles are rebuilt by the controller.",
+        "Role": "Bindings that refer to it stop granting anything.",
+        "ServiceAccount": "Pods that use it can no longer be created, and its tokens stop working.",
+    }
+
+    def delete_resource(self, kind, row):
+        """Delete one RBAC object after a Yes/No question (default No); the UID precondition guards against a replacement."""
+        where = f" in namespace {row.namespace}" if row.namespace else ""
+        note = self.DELETE_NOTES.get(kind, "")
+        if QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
+                                + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No) != QMessageBox.Yes:
+            return
+        uid = (row.raw.get("metadata") or {}).get("uid")
+        if not uid:
+            self._on_error(f"{kind} UID is missing. Refresh the list before deleting.")
+            return
+        self.message.emit(f"Deleting {kind} {row.name}…")
+        self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid)
+
+    def _deleted(self, kind, name):
+        self.message.emit(f"Deleted {kind} {name}")
+        self.refresh()
+
     def scale_resource(self, kind, row):
         current = (row.raw.get("spec") or {}).get("replicas", 1)
         n, ok = QInputDialog.getInt(self, f"Scale {kind}", f"Replicas for {row.name}:", current, 0, 10000)
@@ -654,6 +681,16 @@ class ClusterWorkspace(QMainWindow):
             self._bulk(f"Scaling {n} {kind}s ({text.strip()})", rows,
                        lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
                        lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
+        elif action == "delete" and kind in DELETABLE_KINDS:
+            missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
+            if missing:
+                self._on_error(f"{kind} UID is missing for: " + ", ".join(missing) + ". Refresh the list first.")
+                return
+            if QMessageBox.question(self, f"Delete {kind}s", f"Cluster: {self.context}\nDelete {n} {kind}s?\n\n{names}",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._bulk(f"Deleting {n} {kind}s", rows, lambda r: self.service.delete_resource(
+                kind, r.name, r.namespace, r.raw["metadata"]["uid"]))
         elif action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
             note = "\nForce uses zero grace period; finalizers still apply." if force else "\nController-managed pods will be recreated."

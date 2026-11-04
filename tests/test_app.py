@@ -277,7 +277,8 @@ def test_navigator_and_logs(qtbot):
     qtbot.waitUntil(lambda: win.nav.cluster_item("ctx").childCount() > 0, timeout=5000)
     top = win.nav.cluster_item("ctx")
     labels = [top.child(i).text(0) for i in range(top.childCount())]
-    assert labels == ["Overview", "Nodes", "Workloads", "Config", "Network", "Storage", "Namespaces", "Events", "Custom Resources"]
+    assert labels == ["Overview", "Nodes", "Workloads", "Config", "Network", "Storage", "Access Control", "Namespaces", "Events",
+                      "Custom Resources"]
     groups = {top.child(i).text(0): [top.child(i).child(j).text(0) for j in range(top.child(i).childCount())]
               for i in range(top.childCount()) if top.child(i).childCount()}
     assert groups["Workloads"] == ["Overview", "Pods", "Deployments", "DaemonSets", "StatefulSets",
