@@ -126,6 +126,13 @@ class KubeService:
         self._core = None
         self._apps = None
         self._custom = None
+        self._api_client = None
+
+    def api_client(self):
+        """The kubernetes ApiClient of the connected cluster (for plugins, which may use the official client)."""
+        if self._api_client is None:
+            raise RuntimeError("not connected to a cluster")
+        return self._api_client
 
     def load_contexts(self):
         """Returns (context names, active context name or None)."""
@@ -148,6 +155,7 @@ class KubeService:
             core.get_api_resources(_request_timeout=10)  # fail fast on bad creds/unreachable
         except MaxRetryError as e:
             raise ConnectionError(f"Cannot reach the API server at {cfg.host}") from e
+        self._api_client = api
         self._core = core
         self._apps = client.AppsV1Api(api)
         self._apis = {"core": core, "apps": self._apps, "batch": client.BatchV1Api(api),

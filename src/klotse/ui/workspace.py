@@ -19,6 +19,7 @@ from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
+from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
 from .resource_table import ResourceTable
 from .scale_monitor import ScaleMonitor
@@ -107,6 +108,7 @@ class ClusterWorkspace(QMainWindow):
         # Plugins (see klotse.plugins): extra columns on the tables, filled in off the GUI thread. None = no plugins.
         self.plugins = plugins
         self.plugin_host = PluginHost(plugins, context, self._run, parent=self) if plugins is not None else None
+        self.plugin_runner = PluginActionRunner(self) if plugins is not None else None
         self._build_views()
         self.apply_label_columns()
         self.label_settings.changed.connect(self.apply_label_columns)
@@ -264,6 +266,9 @@ class ClusterWorkspace(QMainWindow):
         table._plugin_hooked = True
         table.set_extra_columns(self.plugins.columns_for(table.kind))
         table.rows_set.connect(lambda rows, t=table: self.plugin_host.rows_loaded(t.kind, rows))
+        table.plugin_actions = self.plugin_runner.offered  # right-click entries plugins add
+        table.plugin_action_requested.connect(
+            lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
 
     def _hooked_tables(self):
         return [t for t in self.resource_tables() if getattr(t, "_plugin_hooked", False)]

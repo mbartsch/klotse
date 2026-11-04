@@ -29,6 +29,8 @@ class PluginsDialog(QDialog):
         self.source = QLabel()
         self.source.setWordWrap(True)
         self.source.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.provides = QLabel()
+        self.provides.setWordWrap(True)
         self.error = QLabel()
         self.error.setWordWrap(True)
         self.error.setStyleSheet("color: #e5484d;")
@@ -37,7 +39,7 @@ class PluginsDialog(QDialog):
         details = QWidget()
         side = QVBoxLayout(details)
         side.setContentsMargins(8, 0, 0, 0)
-        for widget in (self.title, self.description, self.source, self.error, self.settings_box):
+        for widget in (self.title, self.description, self.source, self.provides, self.error, self.settings_box):
             side.addWidget(widget)
         side.addStretch(1)
         self.empty = QLabel("")
@@ -117,13 +119,14 @@ class PluginsDialog(QDialog):
             self.settings_form.removeRow(0)
         self.settings_box.setVisible(False)
         if found is None:
-            for label in (self.title, self.description, self.source, self.error):
+            for label in (self.title, self.description, self.source, self.provides, self.error):
                 label.clear()
             return
         plugin = found.plugin
         self.title.setText(plugin.name or plugin.id if plugin else found.id)
         self.description.setText(plugin.description if plugin else "")
         self.source.setText(f"Source: {found.source}: {found.origin}" + (f"\nVersion: {plugin.version}" if plugin and plugin.version else ""))
+        self.provides.setText(self._provides_text(plugin) if plugin else "")
         self._refresh_details()
         if plugin is None:
             return
@@ -145,6 +148,19 @@ class PluginsDialog(QDialog):
             else:
                 self.settings_form.addRow(widget)
         self.settings_box.setVisible(bool(plugin.settings))
+
+    @staticmethod
+    def _provides_text(plugin):
+        """What the plugin adds, so the user knows what enabling it does (and which actions can change things)."""
+        lines = []
+        if plugin.columns:
+            lines.append("Columns: " + ", ".join(f"{c.title} ({'/'.join(c.kinds)})" for c in plugin.columns))
+        if plugin.actions:
+            lines.append("Right-click actions: " + ", ".join(
+                f"{'⚠ ' if a.dangerous else ''}{a.title} ({'/'.join(a.kinds)})" for a in plugin.actions))
+            if any(a.dangerous for a in plugin.actions):
+                lines.append("⚠ marks actions that can change things; they always ask before they run.")
+        return "\n".join(lines)
 
     def _refresh_details(self):
         found = self._current()

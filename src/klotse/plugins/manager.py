@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QSettings, Signal
 
 from ..ui.settings_store import default_store
-from .api import Column, Plugin, Setting, column_attr, valid_id
+from .api import API_VERSION, Action, Column, Plugin, Setting, column_attr, valid_id
 
 ENTRY_POINT_GROUP = "klotse.plugins"
 BUNDLED_MODULES = ()  # modules shipped inside Klotse; loaded like any other plugin and just as disabled until enabled
@@ -41,14 +41,16 @@ def _as_plugin(obj):
         raise TypeError("it does not provide a klotse.plugins.Plugin")
     if not valid_id(obj.id):
         raise ValueError(f"invalid plugin id {obj.id!r} (use lower case letters, digits, '-' and '_')")
-    for group, kind in ((obj.columns, Column), (obj.settings, Setting)):
+    if not isinstance(obj.requires_api, int) or obj.requires_api > API_VERSION:
+        raise ValueError(f"it needs plugin API {obj.requires_api}, this Klotse provides {API_VERSION}")
+    for group, kind in ((obj.columns, Column), (obj.actions, Action), (obj.settings, Setting)):
         if not all(isinstance(item, kind) for item in group):
-            raise TypeError(f"plugin {obj.id}: columns and settings must be Column and Setting objects")
+            raise TypeError(f"plugin {obj.id}: columns, actions and settings must be Column, Action and Setting objects")
         keys = [item.key for item in group]
         if len(keys) != len(set(keys)) or not all(keys):
             raise ValueError(f"plugin {obj.id}: column and setting keys must be non-empty and unique")
-    if not all(isinstance(col.kinds, tuple) and col.kinds for col in obj.columns):
-        raise ValueError(f"plugin {obj.id}: a column's kinds must be a non-empty tuple such as ('Node',)")
+    if not all(isinstance(item.kinds, tuple) and item.kinds for item in (*obj.columns, *obj.actions)):
+        raise ValueError(f"plugin {obj.id}: the kinds of a column or action must be a non-empty tuple such as ('Node',)")
     return obj
 
 
@@ -191,6 +193,16 @@ class PluginManager(QObject):
                     attr = column_attr(plugin.id, col.key)
                     columns.append((col.title, attr, col.format) if col.format else (col.title, attr))
         return columns
+
+    def actions_for(self, kind, multi=False):
+        """The enabled plugins' actions for `kind` as [(plugin, [actions])]; with several rows selected only the
+        actions that allow it (`multi`)."""
+        found = []
+        for plugin in self.active():
+            actions = [a for a in plugin.actions if kind in a.kinds and (a.multi or not multi)]
+            if actions:
+                found.append((plugin, actions))
+        return found
 
     def record_error(self, plugin_id, message):
         self.errors[plugin_id] = message

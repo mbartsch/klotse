@@ -20,6 +20,7 @@ class ResourceTable(QWidget):
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
     rows_set = Signal(list)  # new rows are in the table (plugins ask for their columns when this fires)
+    plugin_action_requested = Signal(str, str, list)  # plugin id, action key, selected row objects
 
     def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
@@ -31,6 +32,7 @@ class ResourceTable(QWidget):
         self.extra_columns = []  # columns added by plugins (see set_extra_columns)
         self.base_columns = list(columns)
         self._label_args = None
+        self.plugin_actions = None  # callable(kind, rows) -> [(plugin name, plugin id, [Action])], set by the workspace
         self.model = TableModel(columns, search_metadata=kind == "Node")
         self.proxy = QSortFilterProxyModel(self)
         self.proxy.setSourceModel(self.model)
@@ -197,6 +199,24 @@ class ResourceTable(QWidget):
             menu.addAction(f"Delete {n} nodes…", bulk("delete-node"))
             menu.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
 
+    def _plugin_menu(self, menu, rows):
+        """Entries plugins add for these rows: one submenu per plugin, or flat for a plugin with a single action."""
+        groups = self.plugin_actions(self.kind, rows) if self.plugin_actions is not None else []
+        if not groups:
+            return
+        menu.addSeparator()
+        for plugin_name, plugin_id, actions in groups:
+            def add(target, action, plugin_id=plugin_id, plugin_name=plugin_name):
+                entry = target.addAction(("⚠ " if action.dangerous else "") + action.title,
+                                         lambda: self.plugin_action_requested.emit(plugin_id, action.key, rows))
+                entry.setToolTip(plugin_name)
+            if len(actions) == 1:
+                add(menu, actions[0])
+            else:
+                submenu = menu.addMenu(plugin_name)
+                for action in actions:
+                    add(submenu, action)
+
     def _context_menu(self, pos):
         idx = self.view.indexAt(pos)
         menu = QMenu(self)
@@ -206,6 +226,7 @@ class ResourceTable(QWidget):
             rows = self.selected_rows()
             if len(rows) > 1:
                 self._bulk_menu(menu, rows)
+                self._plugin_menu(menu, rows)
                 if not menu.isEmpty():
                     menu.exec(self.view.viewport().mapToGlobal(pos))
                 return
@@ -244,6 +265,8 @@ class ResourceTable(QWidget):
             if idx.isValid():
                 menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
             menu.addAction("New namespace…", self.new_requested.emit)
+        if idx.isValid():  # plugin entries come last, after the built-in ones
+            self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
         if not menu.isEmpty():
             menu.exec(self.view.viewport().mapToGlobal(pos))
 
