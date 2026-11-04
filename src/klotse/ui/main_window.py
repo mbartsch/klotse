@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolic
                                QTabWidget, QToolBar, QWidget)
 
 from .about import AboutDialog
+from .cluster_groups import ClusterGroups
 from .cluster_session import ClusterSession
 from .customizations import LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
@@ -33,6 +34,7 @@ class MainWindow(QMainWindow):
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
+        self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
         self.setWindowTitle("Klotse")
         self.resize(1500, 850)
         self._shutting_down = False
@@ -91,9 +93,16 @@ class MainWindow(QMainWindow):
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
         self.contexts, _ = self.new_service().load_contexts()
-        self.nav.set_contexts(self.contexts)
+        self.nav.set_contexts(self.contexts, self.groups)
+        self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
+
+    def _save_groups(self):
+        try:
+            self.groups.save()
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot save the cluster groups", str(error))
 
     def new_service(self):
         """A fresh service for one cluster, reading the custom kubeconfig when one is selected in Preferences."""
@@ -173,7 +182,7 @@ class MainWindow(QMainWindow):
             self._discard(ctx)
         contexts, _ = self.new_service().load_contexts()
         self.contexts = contexts
-        self.nav.set_contexts(contexts)
+        self.nav.set_contexts(contexts, self.groups)
         self.status.showMessage(
             f"Loaded {len(contexts)} context(s) from {path or 'the default kubeconfig'}" if contexts
             else self._no_contexts_message())
