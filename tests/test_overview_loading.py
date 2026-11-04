@@ -109,12 +109,46 @@ def test_a_reload_with_rows_on_screen_keeps_the_table_visible(qtbot):
 
 
 def test_the_clock_hands_turn_at_fixed_speeds():
-    from klotse.ui.loading_pane import MINUTE_HAND_TURN_MS, hand_angles
+    from klotse.ui.loading_pane import hand_angles
     assert hand_angles(0) == (0.0, 0.0)
-    hour, minute = hand_angles(MINUTE_HAND_TURN_MS // 4)
-    assert minute == 90.0 and hour == 7.5  # the hour hand moves a twelfth as fast
-    assert hand_angles(MINUTE_HAND_TURN_MS)[1] == 0.0  # one full turn, back at 12
-    assert hand_angles(MINUTE_HAND_TURN_MS * 12)[0] == 0.0  # the hour hand needs twelve of them
+    assert hand_angles(90) == (7.5, 90.0)  # the hour hand moves a twelfth as fast
+    assert hand_angles(360) == (30.0, 0.0)  # one full turn of the minute hand: back at 12, hour hand one hour on
+    assert hand_angles(360 * 12) == (0.0, 0.0)
+
+
+def test_the_clock_remembers_its_angle_and_never_leaps_after_a_stall(qtbot):
+    from klotse.ui.loading_pane import MAX_STEP_DEG, MINUTE_HAND_TURN_MS, ClockSpinner
+    clock = ClockSpinner()
+    qtbot.addWidget(clock)
+    clock.advance(1000.0)  # the first frame only sets the reference time
+    assert clock.angles() == (0.0, 0.0)
+    clock.advance(1040.0)  # a normal 40 ms frame
+    expected = 40 / MINUTE_HAND_TURN_MS * 360
+    assert abs(clock.angles()[1] - expected) < 1e-9
+    before = clock.angles()
+    clock.advance(1040.0 + 5000.0)  # the GUI thread was busy for 5 s: one capped step, not a leap
+    assert abs(clock.angles()[1] - (before[1] + MAX_STEP_DEG)) < 1e-9
+    clock.advance(1040.0 + 5000.0 - 100.0)  # a clock that runs backwards is ignored
+    assert clock.angles()[1] >= before[1] + MAX_STEP_DEG
+
+
+def test_the_hands_keep_their_place_when_the_clock_is_hidden_shown_or_the_text_changes(qtbot):
+    from klotse.ui.loading_pane import LoadingPane
+    pane = LoadingPane()
+    qtbot.addWidget(pane)
+    pane.show_busy("Loading… 0s")
+    pane.show()
+    pane.clock.advance(1000.0)
+    pane.clock.advance(1400.0)
+    before = pane.clock.angles()
+    assert before[1] > 0
+    pane.hide()  # a tab switch, a redraw, a relayout...
+    pane.show()
+    pane.show_busy("Loading… 1s")  # the once-a-second tick
+    assert pane.clock.angles() == before  # nothing sent the hands back to 12
+    pane.clock.advance(5000.0)  # the first frame after re-showing only sets the reference time
+    pane.clock.advance(5200.0)
+    assert pane.clock.angles()[1] > before[1]
 
 
 def test_the_clock_only_ticks_while_it_is_on_screen_and_draws(qtbot):
@@ -127,21 +161,3 @@ def test_the_clock_only_ticks_while_it_is_on_screen_and_draws(qtbot):
     assert not pane.clock.grab().isNull()  # painting does not raise
     pane.hide()
     assert not pane.clock._timer.isActive()
-
-
-def test_the_hands_keep_their_place_when_the_clock_is_hidden_shown_or_the_text_changes(qtbot, monkeypatch):
-    from klotse.ui import loading_pane
-    now = [1000.0]
-    monkeypatch.setattr(loading_pane, "monotonic", lambda: now[0])
-    pane = loading_pane.LoadingPane()
-    qtbot.addWidget(pane)
-    pane.show_busy("Loading… 0s")
-    pane.show()
-    now[0] += 0.5
-    before = pane.clock.angles()
-    pane.hide()  # a tab switch, a redraw, a relayout...
-    pane.show()
-    pane.show_busy("Loading… 1s")  # the once-a-second tick
-    assert pane.clock.angles() == before  # same moment, same hands: nothing restarted
-    now[0] += 0.5
-    assert pane.clock.angles() != before  # and time still moves them on
