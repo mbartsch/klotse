@@ -40,11 +40,11 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
   limit and percent-of-request/limit columns on Pods.
 - **Your columns.** The **Columns…** button on every list lets you hide and reorder built-in columns and add label
   columns with short headings. Saved per resource kind.
-- **Plugins.** Extra columns and right-click actions from plugins, off until you enable them in Settings → Plugins… (for
+- **Plugins.** Extra columns and right-click actions from plugins, off until you enable them in Preferences → Plugins (for
   example per-node cloud details). Write your own as a single Python file: see [PLUGINS.md](https://github.com/mbartsch/klotse/blob/master/PLUGINS.md).
 - **Edit menu and Preferences.** Undo/redo/cut/copy/paste/select all (Copy in a table copies the selected rows as
   tab-separated text). Preferences lets you choose a custom kubeconfig and open the settings folder.
-- **macOS.** Choose Terminal or iTerm2 for shells (Settings → Terminal…).
+- **macOS.** Choose Terminal or iTerm2 for shells (Preferences → Terminal).
 
 ## Requirements
 

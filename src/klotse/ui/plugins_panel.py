@@ -1,21 +1,18 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
-
-from .preferences import open_folder
+from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                               QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 WARNING = ("Plugins are code that runs with your permissions and can see everything Klotse shows. "
-           "Enable only plugins you trust.")
+           "Enable only plugins you trust. Changes on this page take effect immediately.")
 
 
-class PluginsDialog(QDialog):
-    """Settings -> Plugins: every plugin that was found, whether it is enabled, its settings, and why one failed."""
+class PluginsPanel(QWidget):
+    """The Plugins page of Preferences: every plugin that was found, whether it is enabled, its settings, and why one
+    failed. Unlike the other pages it applies each change at once (enabling a plugin must show its columns now)."""
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.manager = manager
-        self.setWindowTitle("Plugins")
-        self.resize(780, 520)
         warning = QLabel(WARNING)
         warning.setWordWrap(True)
         self.list = QListWidget()
@@ -52,15 +49,15 @@ class PluginsDialog(QDialog):
         reload_button = QPushButton("Reload plugins")
         reload_button.setToolTip("Look for plugins again (after adding a file to the plugins folder)")
         reload_button.clicked.connect(self.reload)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        buttons.addButton(folder, QDialogButtonBox.ActionRole)
-        buttons.addButton(reload_button, QDialogButtonBox.ActionRole)
+        buttons = QHBoxLayout()
+        buttons.addWidget(folder)
+        buttons.addWidget(reload_button)
+        buttons.addStretch(1)
         layout = QVBoxLayout(self)
         layout.addWidget(warning)
         layout.addLayout(body, 1)
         layout.addWidget(self.empty)
-        layout.addWidget(buttons)
+        layout.addLayout(buttons)
         manager.errors_changed.connect(self._refresh_details)
         self.populate()
 
@@ -178,6 +175,7 @@ class PluginsDialog(QDialog):
     def open_plugins_folder(self):
         if self.manager.folder is None:
             return None
+        from .preferences import open_folder  # preferences imports this module, so not at the top
         error = open_folder(self.manager.folder)
         if error:
             QMessageBox.warning(self, "Plugins folder", error)

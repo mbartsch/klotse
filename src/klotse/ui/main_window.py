@@ -14,9 +14,8 @@ from .customizations import LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
-from .plugins_dialog import PluginsDialog
 from .preferences import KubeconfigSettings, PreferencesDialog
-from .terminal_settings import TerminalSettings, TerminalSettingsDialog
+from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
 
 
@@ -59,14 +58,6 @@ class MainWindow(QMainWindow):
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
         self.menuBar().addMenu("View").addAction(self.managed_fields_action)
-        self.settings_menu = self.menuBar().addMenu("Settings")
-        if sys.platform == "darwin":
-            self.terminal_settings_action = QAction("Terminal…", self)
-            self.terminal_settings_action.triggered.connect(self.configure_terminal)
-            self.settings_menu.addAction(self.terminal_settings_action)
-        self.plugins_action = QAction("Plugins…", self)
-        self.plugins_action.triggered.connect(self.open_plugins)
-        self.settings_menu.addAction(self.plugins_action)
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
@@ -169,17 +160,16 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
     def open_preferences(self):
-        dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self)
+        # One Preferences window for everything: General, Terminal (macOS only: the only terminal choice there is) and
+        # Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
+        dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
+                                   terminal=self.terminal_settings if sys.platform == "darwin" else None,
+                                   plugins=self.plugins)
         accepted = dialog.exec() == PreferencesDialog.Accepted
         chosen = dialog.chosen_kubeconfig()
         dialog.deleteLater()
         if accepted and chosen != self.kubeconfig_settings.path:
             self.apply_kubeconfig(chosen)
-
-    def open_plugins(self):
-        dialog = PluginsDialog(self.plugins, self)
-        dialog.exec()
-        dialog.deleteLater()
 
     def apply_kubeconfig(self, path):
         """Switch to another kubeconfig (None = default): close open clusters, then reload the context list."""
@@ -213,11 +203,6 @@ class MainWindow(QMainWindow):
                         metadata = (row.raw or {}).get("metadata") or {}
                         available.update((metadata.get("labels") or {}).keys())
         dialog = LabelColumnsDialog(kind, self.label_settings, available, builtin, self)
-        dialog.exec()
-        dialog.deleteLater()
-
-    def configure_terminal(self):
-        dialog = TerminalSettingsDialog(self.terminal_settings, self)
         dialog.exec()
         dialog.deleteLater()
 

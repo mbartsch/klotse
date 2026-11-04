@@ -8,7 +8,8 @@ import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QDialog, QMessageBox
 
-from klotse.ui.terminal_settings import TerminalSettings, TerminalSettingsDialog
+from klotse.ui.preferences import KubeconfigSettings, PreferencesDialog
+from klotse.ui.terminal_settings import TerminalPanel, TerminalSettings
 
 
 def test_terminal_preference_default_persistence_and_invalid_value(tmp_path):
@@ -24,30 +25,48 @@ def test_terminal_preference_default_persistence_and_invalid_value(tmp_path):
     assert TerminalSettings(loaded.store).mac_terminal == "Terminal"
 
 
-def test_terminal_dialog_save_cancel_and_save_failure(qtbot, tmp_path, monkeypatch):
+def test_terminal_page_saves_only_on_save_and_reports_a_save_failure(qtbot, tmp_path, monkeypatch):
     settings = TerminalSettings(QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat))
-    dialog = TerminalSettingsDialog(settings)
-    qtbot.addWidget(dialog)
-    dialog.terminal.setCurrentText("iTerm2")
-    dialog.reject()
-    assert settings.mac_terminal == "Terminal"
-    dialog._save()
+    panel = TerminalPanel(settings)
+    qtbot.addWidget(panel)
+    panel.terminal.setCurrentText("iTerm2")
+    assert settings.mac_terminal == "Terminal"  # choosing is not saving
+    panel.save()
     assert settings.mac_terminal == "iTerm2"
-    assert dialog.result() == QDialog.Accepted
 
     broken = SimpleNamespace(value=lambda *args: "Terminal", setValue=lambda *args: None,
                              sync=lambda: None, status=lambda: QSettings.AccessError,
                              fileName=lambda: "read-only.ini")
     settings = TerminalSettings(broken)
-    dialog = TerminalSettingsDialog(settings)
+    panel = TerminalPanel(settings)
+    qtbot.addWidget(panel)
+    panel.terminal.setCurrentText("iTerm2")
+    with pytest.raises(OSError, match="read-only.ini"):
+        panel.save()
+    assert settings.mac_terminal == "Terminal"
+
+
+def test_preferences_saves_the_terminal_and_a_failure_keeps_the_dialog_open(qtbot, tmp_path, monkeypatch):
+    kubeconfig = KubeconfigSettings(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat))
+    settings = TerminalSettings(QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat))
+    dialog = PreferencesDialog(kubeconfig, tmp_path / "cfg", terminal=settings)
     qtbot.addWidget(dialog)
-    dialog.terminal.setCurrentText("iTerm2")
+    dialog.terminal_panel.terminal.setCurrentText("iTerm2")
+    dialog.reject()
+    assert settings.mac_terminal == "Terminal"  # Cancel keeps the old choice
+    dialog._save()
+    assert settings.mac_terminal == "iTerm2" and dialog.result() == QDialog.Accepted
+
+    broken = SimpleNamespace(value=lambda *args: "Terminal", setValue=lambda *args: None,
+                             sync=lambda: None, status=lambda: QSettings.AccessError,
+                             fileName=lambda: "read-only.ini")
+    dialog = PreferencesDialog(kubeconfig, tmp_path / "cfg", terminal=TerminalSettings(broken))
+    qtbot.addWidget(dialog)
+    dialog.terminal_panel.terminal.setCurrentText("iTerm2")
     errors = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: errors.append(args[-1]))
     dialog._save()
-    assert errors and "read-only.ini" in errors[0]
-    assert settings.mac_terminal == "Terminal"
-    assert dialog.result() != QDialog.Accepted
+    assert errors and "read-only.ini" in errors[0] and dialog.result() != QDialog.Accepted
 
 
 @pytest.mark.parametrize("app", ["Terminal", "iTerm2"])
@@ -110,7 +129,6 @@ def test_preference_shared_with_existing_and_future_workspaces(qtbot, tmp_path, 
     open_active(window)
     first = window.workspace("ctx")
     qtbot.waitUntil(lambda: first._connected and not first._loading)
-    assert window.terminal_settings_action.text() == "Terminal…"
     calls = []
     monkeypatch.setattr(workspace, "open_terminal", lambda *args: calls.append(args))
     monkeypatch.setattr(workspace.ClusterWorkspace, "_run",
@@ -118,12 +136,12 @@ def test_preference_shared_with_existing_and_future_workspaces(qtbot, tmp_path, 
     argv = ["kubectl", "--context", "ctx"]
     first._launch_terminal(argv, "opened")
     assert calls[-1] == (argv, "Terminal")
-    def choose_iterm(dialog):
-        dialog.terminal.setCurrentText("iTerm2")
+    def choose_iterm(dialog):  # the user picks iTerm2 on the Terminal page of Preferences and saves
+        dialog.terminal_panel.terminal.setCurrentText("iTerm2")
         dialog._save()
         return dialog.result()
-    monkeypatch.setattr(TerminalSettingsDialog, "exec", choose_iterm)
-    window.terminal_settings_action.trigger()
+    monkeypatch.setattr(PreferencesDialog, "exec", choose_iterm)
+    window.open_preferences()
     first._launch_terminal(argv, "opened")
     assert calls[-1] == (argv, "iTerm2")
     # Avoid starting connection workers; only exercise workspace creation/sharing.

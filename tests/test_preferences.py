@@ -221,7 +221,7 @@ def test_preferences_action_applies_the_dialog_choice(qtbot, tmp_path, monkeypat
     class FakeDialog:
         Accepted = QDialog.Accepted
 
-        def __init__(self, kubeconfig, folder, parent):
+        def __init__(self, kubeconfig, folder, parent=None, **pages):
             assert kubeconfig is win.kubeconfig_settings and Path(folder) == win.config_folder()
 
         def exec(self):

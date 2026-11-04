@@ -7,7 +7,7 @@ from klotse.k8s.models import NodeRow
 from klotse.plugins import (API_VERSION, Action, Copy, Message, OpenUrl, Plugin, Reload, ShowText, Terminal)
 from klotse.plugins.manager import Loaded, PluginManager, _as_plugin
 from klotse.ui import plugin_actions
-from klotse.ui.plugins_dialog import PluginsDialog
+from klotse.ui.plugins_panel import PluginsPanel
 from klotse.ui.workspace import ClusterWorkspace
 from test_plugins import node, store
 
@@ -351,7 +351,7 @@ def test_closing_the_plugins_tab_and_logging_again_makes_a_new_one(qtbot, tmp_pa
 
 # ---- the dialog ---------------------------------------------------------------------------------
 def test_the_dialog_says_what_a_plugin_adds_and_warns_about_dangerous_actions(qtbot, tmp_path):
-    dialog = PluginsDialog(manager_with(tmp_path, Acts()))
+    dialog = PluginsPanel(manager_with(tmp_path, Acts()))
     qtbot.addWidget(dialog)
     text = dialog.provides.text()
     assert "Right-click actions: Copy name (Node), ⚠ Kill (Node/Pod), Only in zone a (Node), Pod thing (Pod)" in text

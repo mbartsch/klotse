@@ -3,9 +3,11 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QSettings, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMessageBox, QPushButton, QWidget)
+                               QLineEdit, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
+from .plugins_panel import PluginsPanel
 from .settings_store import default_store
+from .terminal_settings import TerminalPanel
 
 
 class KubeconfigSettings(QObject):
@@ -47,12 +49,13 @@ def open_folder(folder):
 class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
-    def __init__(self, kubeconfig, config_folder, parent=None):
+    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None):
         super().__init__(parent)
         self.kubeconfig, self.config_folder = kubeconfig, Path(config_folder)
         self.setWindowTitle("Preferences")
-        self.resize(640, 0)
-        form = QFormLayout(self)
+        self.resize(780, 560) if plugins is not None else self.resize(640, 0)
+        general = QWidget()
+        form = QFormLayout(general)
 
         self.path = QLineEdit(kubeconfig.path or "", readOnly=True)
         self.path.setPlaceholderText("Default (KUBECONFIG or ~/.kube/config)")
@@ -81,10 +84,23 @@ class PreferencesDialog(QDialog):
         form.addRow("Settings", self.open_button)
         form.addRow("", QLabel(str(self.config_folder)))
 
+        # More pages when the caller has something to configure: the macOS terminal, the plugins. With only the General
+        # page there is no tab bar.
+        self.terminal_panel = TerminalPanel(terminal) if terminal is not None else None
+        self.plugins_panel = PluginsPanel(plugins) if plugins is not None else None
+        self.tabs = QTabWidget()
+        self.tabs.addTab(general, "General")
+        if self.terminal_panel is not None:
+            self.tabs.addTab(self.terminal_panel, "Terminal")
+        if self.plugins_panel is not None:
+            self.tabs.addTab(self.plugins_panel, "Plugins")
+        self.tabs.tabBar().setVisible(self.tabs.count() > 1)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.tabs, 1)
+        layout.addWidget(buttons)
 
     def _browse(self):
         start = self.path.text() or str(Path.home() / ".kube")
@@ -106,4 +122,10 @@ class PreferencesDialog(QDialog):
         if chosen and not Path(chosen).is_file():
             QMessageBox.warning(self, "Cannot save preferences", f"Kubeconfig file not found: {chosen}")
             return
-        self.accept()  # the caller saves and applies it (closing open clusters needs confirmation first)
+        if self.terminal_panel is not None:
+            try:
+                self.terminal_panel.save()
+            except (ValueError, OSError) as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                return
+        self.accept()  # the caller saves and applies the kubeconfig (closing open clusters needs confirmation first)
