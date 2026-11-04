@@ -9,7 +9,7 @@ WARNING = ("Plugins are code that runs with your permissions and can see everyth
 
 
 class PluginsDialog(QDialog):
-    """Edit -> Plugins: every plugin that was found, whether it is enabled, its settings, and why one failed."""
+    """Settings -> Plugins: every plugin that was found, whether it is enabled, its settings, and why one failed."""
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)

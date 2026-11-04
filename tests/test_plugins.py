@@ -10,6 +10,7 @@ from klotse.plugins import Column, Plugin, Setting
 from klotse.plugins.api import column_attr, valid_id
 from klotse.plugins.host import RETRY_AFTER_S, PluginHost
 from klotse.plugins.manager import PluginManager, _as_plugin
+import klotse.ui.main_window as main_module
 from klotse.ui.customizations import LabelSettings
 from klotse.ui.main_window import MainWindow
 from klotse.ui.plugins_dialog import PluginsDialog
@@ -490,8 +491,10 @@ def test_reloading_finds_a_plugin_added_to_the_folder(qtbot, tmp_path):
 def test_the_window_has_a_plugins_menu_item_and_gives_workspaces_the_manager(qtbot, tmp_path):
     win = MainWindow(FakeService, label_settings=LabelSettings(store(tmp_path)))
     qtbot.addWidget(win)
-    texts = [a.text() for a in win.edit_menu.actions() if not a.isSeparator()]
-    assert texts[-2:] == ["Preferences…", "Plugins…"]
+    assert "Plugins…" not in [a.text() for a in win.edit_menu.actions()]
+    assert [a.text() for a in win.menuBar().actions()][-2:] == ["Settings", "Help"]
+    settings = [a.text() for a in win.settings_menu.actions() if not a.isSeparator()]
+    assert settings == (["Terminal…", "Plugins…"] if main_module.sys.platform == "darwin" else ["Plugins…"])
     assert win.plugins.folder == tmp_path / "plugins"
     win.open_cluster("ctx")
     assert win.workspace("ctx").plugins is win.plugins
