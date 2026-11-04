@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 from klotse.ui.detail_panel import DetailPanel
 from klotse.ui.main_window import MainWindow
 
-from test_app import FakeService
+from test_app import FakeService, open_active
 
 RAW = {"apiVersion": "v1", "kind": "Pod",
        "metadata": {"name": "web", "managedFields": [{"manager": "kubectl-client-side-apply", "operation": "Update"}]},
@@ -49,6 +49,7 @@ def test_toggle_keeps_decoded_secret_values(qtbot):
 def test_view_menu_option_applies_to_open_and_new_workspaces(qtbot):
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     action = win.managed_fields_action
     assert action.isCheckable() and not action.isChecked()
     ws = win.workspace("ctx")

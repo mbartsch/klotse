@@ -99,7 +99,7 @@ def test_mac_session_success_closes_and_failure_waits_for_acknowledgement(monkey
 
 
 def test_preference_shared_with_existing_and_future_workspaces(qtbot, tmp_path, monkeypatch):
-    from test_app import FakeService
+    from test_app import FakeService, open_active
     from klotse.ui import main_window, workspace
     from klotse.ui.customizations import LabelSettings
 
@@ -107,6 +107,7 @@ def test_preference_shared_with_existing_and_future_workspaces(qtbot, tmp_path, 
     store = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)
     window = main_window.MainWindow(FakeService, label_settings=LabelSettings(store))
     qtbot.addWidget(window)
+    open_active(window)
     first = window.workspace("ctx")
     qtbot.waitUntil(lambda: first._connected and not first._loading)
     assert window.terminal_settings_action.text() == "Terminal…"

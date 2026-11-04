@@ -6,7 +6,7 @@ from klotse.ui.pod_view import container_rows, pod_containers
 from klotse.ui.main_window import MainWindow
 from klotse.ui.resource_table import ResourceTable
 
-from test_app import FakeService, FakeStream
+from test_app import FakeService, FakeStream, open_active
 
 
 def pod():
@@ -75,6 +75,7 @@ def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     service.open_log_stream = open_logs
     window = MainWindow(lambda: service)
     qtbot.addWidget(window)
+    open_active(window)
     ws = window.workspace("ctx")
     qtbot.waitUntil(lambda: ws._opened_default and not ws._loading)
     row = pod()

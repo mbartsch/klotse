@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolic
                                QTabWidget, QToolBar, QWidget)
 
 from .about import AboutDialog
+from .cluster_session import ClusterSession
 from .customizations import LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
+        self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.setWindowTitle("Klotse")
         self.resize(1500, 850)
         self._shutting_down = False
@@ -86,12 +88,12 @@ class MainWindow(QMainWindow):
         self.nav.view_requested.connect(self._open_view)
 
         self.status = self.statusBar()
-        contexts, active = self.new_service().load_contexts()
-        self.nav.set_contexts(contexts)
-        if not contexts:
-            self.status.showMessage(self._no_contexts_message())
-        else:
-            self.open_cluster(active if active in contexts else contexts[0])
+        # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
+        # to remember when exiting come back through restore_clusters(), which the entry point calls.
+        self.contexts, _ = self.new_service().load_contexts()
+        self.nav.set_contexts(self.contexts)
+        self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
+                                else self._no_contexts_message())
 
     def new_service(self):
         """A fresh service for one cluster, reading the custom kubeconfig when one is selected in Preferences."""
@@ -105,6 +107,18 @@ class MainWindow(QMainWindow):
         return f"No kubeconfig contexts found in {path}" if path else "No kubeconfig contexts found"
 
     # ---- clusters ------------------------------------------------------
+    def restore_clusters(self):
+        """Reconnect the clusters remembered at the last exit (those still in the kubeconfig); returns them."""
+        remembered, current = self.session.saved()
+        wanted = [ctx for ctx in remembered if ctx in self.contexts]
+        for ctx in wanted:
+            self.open_cluster(ctx)
+        if current in wanted:
+            self.open_cluster(current)  # focus the one that was in front
+        if wanted:
+            self.status.showMessage(f"Reconnecting {', '.join(wanted)}")
+        return wanted
+
     def workspace(self, context=None):
         """The workspace for `context`, or the one in the current tab."""
         return self.workspaces.get(context) if context else self.clusters.currentWidget()
@@ -158,6 +172,7 @@ class MainWindow(QMainWindow):
         for ctx in list(self.workspaces):
             self._discard(ctx)
         contexts, _ = self.new_service().load_contexts()
+        self.contexts = contexts
         self.nav.set_contexts(contexts)
         self.status.showMessage(
             f"Loaded {len(contexts)} context(s) from {path or 'the default kubeconfig'}" if contexts
@@ -243,6 +258,38 @@ class MainWindow(QMainWindow):
         QThreadPool.globalInstance().clear()
         shutdown_all()
 
+    def confirm_exit(self):
+        """Ask whether to reconnect the open clusters next time; False when the user cancels the exit.
+
+        Yes remembers them, No (or no cluster open) leaves the next start with a clean list. A window that was never
+        shown has nobody to ask."""
+        if not self.isVisible():
+            return True
+        opened = [self.clusters.widget(i).context for i in range(self.clusters.count())]
+        try:
+            if not opened:
+                self.session.forget()
+                return True
+            front = self.clusters.currentWidget()
+            names = ", ".join(opened)
+            answer = QMessageBox.question(
+                self, "Exit Klotse",
+                "\n".join(["Reconnect to the open cluster(s) the next time Klotse starts?", "", names, "",
+                           "Yes remembers them; No starts with a clean list."]),
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+            if answer == QMessageBox.Cancel:
+                return False
+            if answer == QMessageBox.Yes:
+                self.session.remember(opened, front.context if front is not None else None)
+            else:
+                self.session.forget()
+        except OSError as error:  # never trap the user in the app because the settings file is not writable
+            QMessageBox.warning(self, "Cannot save the session", str(error))
+        return True
+
     def closeEvent(self, event):
+        if not self._shutting_down and not self.confirm_exit():
+            event.ignore()
+            return
         self.shutdown()
         super().closeEvent(event)

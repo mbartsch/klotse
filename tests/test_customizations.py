@@ -8,7 +8,7 @@ from klotse.ui.customizations import DEFAULT_LABELS, LabelColumnsDialog, LabelSe
 from klotse.ui.main_window import MainWindow
 from klotse.ui.resource_table import ResourceTable
 
-from test_app import FakeService
+from test_app import FakeService, open_active
 
 
 def preferences(tmp_path):
@@ -98,6 +98,7 @@ def test_live_settings_update_all_workspaces_and_node_pod_tabs(qtbot, tmp_path):
     service.list_node_pods = lambda node: service.list_pods()
     window = MainWindow(lambda: service, label_settings=config)
     qtbot.addWidget(window)
+    open_active(window)
     window.show()
     workspace = window.workspace("ctx")
     assert workspace.node_table.customize_button is not None and workspace.pod_table.customize_button is not None

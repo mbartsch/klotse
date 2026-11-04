@@ -23,6 +23,7 @@ def main(argv=None):
     app.setDesktopFileName("klotse")  # Wayland matches the window to klotse.desktop (see desktop_entry.py)
     app.setWindowIcon(branding.app_icon())
     win = MainWindow(KubeService)  # a factory: each open cluster gets its own connection
+    win.restore_clusters()  # only the clusters the user asked to remember when exiting; otherwise a clean list
     exit_timer = None
 
     def bound_shutdown():

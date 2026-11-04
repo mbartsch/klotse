@@ -9,7 +9,7 @@ from klotse.ui.main_window import MainWindow
 from klotse.ui.resource_table import ResourceTable
 from klotse.ui.workspace import ClusterWorkspace
 
-from test_app import FakeService
+from test_app import FakeService, open_active
 
 
 def test_resource_lists_have_a_columns_button_but_drilldowns_do_not(qtbot):
@@ -53,6 +53,7 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     expected_menus = ["File", "Edit", "View", "Settings", "Help"] if main_module.sys.platform == "darwin" else ["File", "Edit", "View", "Help"]
     assert [a.text() for a in win.menuBar().actions()] == expected_menus
     assert not hasattr(win, "customizations_button")
@@ -81,6 +82,7 @@ def test_pod_dialog_lists_request_and_limit_columns_not_the_overview_subset(qtbo
     monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     win.workspace("ctx")
     win.customize_labels("Pod")
     assert got == [[c[1] for c in POD_COLUMNS]] and RESOURCE_COLUMNS <= set(got[0])

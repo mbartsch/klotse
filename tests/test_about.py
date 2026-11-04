@@ -8,7 +8,7 @@ import klotse
 from klotse.ui import about, main_window as main_module
 from klotse.ui.main_window import MainWindow
 
-from test_app import FakeService
+from test_app import FakeService, open_active
 
 
 def test_dialog_shows_project_version_url_license_and_runtime(qtbot):

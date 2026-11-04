@@ -17,7 +17,8 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
 ## Features
 
 - **Multiple clusters.** Every context in your kubeconfig is listed on the left; each open cluster gets its own
-  tab and its own connection.
+  tab and its own connection. Klotse never connects by itself: it starts with a clean list. When you exit with clusters
+  open it asks whether to reconnect them next time (Yes remembers them, No starts clean, Cancel stays open).
 - **Resources.** Overview, Workloads, Nodes, Namespaces, Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets,
   Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, Events,
   CustomResourceDefinitions, and read-only browsing of custom resource instances.

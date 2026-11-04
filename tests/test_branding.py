@@ -89,6 +89,9 @@ def test_startup_sets_the_icon_and_shows_no_splash(qtbot, monkeypatch):
         def __init__(self, factory):
             events.append("window.init")
 
+        def restore_clusters(self):
+            events.append("window.restore")
+
         def show(self):
             events.append("window.show")
 
@@ -101,7 +104,7 @@ def test_startup_sets_the_icon_and_shows_no_splash(qtbot, monkeypatch):
     assert not hasattr(entry.branding, "make_splash")
     with pytest.raises(SystemExit):
         entry.main([])  # no command-line arguments, whatever pytest was started with
-    assert events == [("name", "Klotse"), ("desktop file", "klotse"), "icon", "window.init", "window.show"]
+    assert events == [("name", "Klotse"), ("desktop file", "klotse"), "icon", "window.init", "window.restore", "window.show"]
 
 
 def test_macos_app_name_is_only_attempted_for_a_source_run_on_a_mac(monkeypatch):

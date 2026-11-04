@@ -73,6 +73,12 @@ class FakeStream:
         self.closed.set()
 
 
+def open_active(win):
+    """What starting the app used to do: connect the kubeconfig's current context. It no longer does that by itself."""
+    contexts, active = win.new_service().load_contexts()
+    win.open_cluster(active if active in contexts else contexts[0])
+
+
 class FakeService:
     @staticmethod
     def load_contexts():
@@ -132,6 +138,7 @@ class FakeService:
 def test_window_populates_tables(qtbot):
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     # only the default Overview tab is open; the namespace list always loads for the toolbar filter
     qtbot.waitUntil(lambda: ws.ns_table.model.rowCount() == 1 and ws.overview.events_table.model.rowCount() == 1,
@@ -169,6 +176,7 @@ def test_edit_flow_calls_replace(qtbot, monkeypatch):
     monkeypatch.setattr(mw, "EditDialog", FakeDialog)
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     ws.open_view("pods")
     qtbot.waitUntil(lambda: ws.pod_table.model.rowCount() == 1, timeout=5000)
@@ -217,6 +225,7 @@ def test_scale_flow_calls_service(qtbot, monkeypatch):
     monkeypatch.setattr(QInputDialog, "getInt", lambda *a, **k: (3, True))
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     ws.open_view("deployments")
     qtbot.waitUntil(lambda: ws.deploy_table.model.rowCount() == 1, timeout=5000)
@@ -245,6 +254,7 @@ def test_pod_terminate_and_connect(qtbot, monkeypatch):
     monkeypatch.setattr(mw, "open_terminal", lambda argv, terminal: opened.append(argv))
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     ws.open_view("pods")
     qtbot.waitUntil(lambda: ws.pod_table.model.rowCount() == 1, timeout=5000)
@@ -262,6 +272,7 @@ def test_navigator_and_logs(qtbot):
 
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: win.nav.cluster_item("ctx").childCount() > 0, timeout=5000)
     top = win.nav.cluster_item("ctx")
@@ -298,6 +309,7 @@ def test_overview_cards_and_events(qtbot):
     svc = FakeService()
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: ws.overview.cards["failed"].value.text() == "2", timeout=5000)
     assert ws.overview.cards["cpu"].value.text() == "4 cores"
@@ -315,6 +327,7 @@ def test_generic_views_lazy_and_namespace_scoped(qtbot):
     svc = FakeService()
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: ws.ns_table.model.rowCount() == 1, timeout=5000)
     assert svc.requested == []  # nothing fetched until a tab is opened
@@ -417,6 +430,7 @@ def test_multiple_clusters_open_in_separate_tabs(qtbot, monkeypatch):
     MultiService.instances.clear()
     win = MainWindow(MultiService)
     qtbot.addWidget(win)
+    open_active(win)
     assert [win.clusters.tabText(i) for i in range(win.clusters.count())] == ["a"]  # active context opens at startup
     qtbot.waitUntil(lambda: win.nav.cluster_item("a").childCount() > 0, timeout=5000)
 
@@ -456,6 +470,7 @@ def test_failed_cluster_connection_closes_its_tab(qtbot, monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a[2]))
     win = MainWindow(MultiService)
     qtbot.addWidget(win)
+    open_active(win)
     win.nav.context_clicked.emit("bad")
     qtbot.waitUntil(lambda: bool(warnings), timeout=5000)
     assert "unreachable" in warnings[0] and "bad" in warnings[0]
@@ -568,6 +583,7 @@ def test_workspace_scale_opens_monitor_and_tracks_to_completion(qtbot, monkeypat
     svc.scale_script = [_st(0, [_pod("p1", "Pending", "0/1")]), _st(2, [_pod("p1"), _pod("p2")])]
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     ws.open_view("deployments")
     qtbot.waitUntil(lambda: ws.deploy_table.model.rowCount() == 1, timeout=5000)
@@ -624,6 +640,7 @@ def test_nodes_table_displays_formatted_but_sorts_numerically(qtbot):
 
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     ws.open_view("nodes")
     qtbot.waitUntil(lambda: ws.node_table.model.rowCount() == 1, timeout=5000)
@@ -696,6 +713,7 @@ def test_disconnect_reconnect_via_navigator(qtbot):
     MultiService.instances.clear()
     win = MainWindow(MultiService)
     qtbot.addWidget(win)
+    open_active(win)
     qtbot.waitUntil(lambda: win.nav.cluster_item("a").childCount() > 0, timeout=5000)
     win.nav.context_clicked.emit("b")
     qtbot.waitUntil(lambda: win.nav.cluster_item("b").childCount() > 0, timeout=5000)
@@ -723,6 +741,7 @@ def test_disconnect_while_connecting_drops_late_result(qtbot):
 
     win = MainWindow(SlowService)
     qtbot.addWidget(win)
+    open_active(win)
     assert win.nav.state("a") == "connecting" and win.nav.cluster_item("a").parent() is win.nav.topLevelItem(0)
     win.nav.disconnect_requested.emit("a")  # cancel while still connecting
     assert win.workspaces == {} and win.nav.state("a") == "idle"
@@ -829,6 +848,7 @@ def test_workspace_overview_drill_down_pods_have_pod_actions(qtbot):
 
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: ws.overview.cards["failed"].value.text() == "2", timeout=5000)
     qtbot.mouseClick(ws.overview.cards["failed"], Qt.LeftButton)
@@ -898,6 +918,7 @@ def test_workspace_browses_crd_instances(qtbot):
     svc.list_custom_objects = lambda *a: asked.append(a) or [Row("w1", "default", {"kind": "Widget"}, age="1d")]
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
+    open_active(win)
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: ws._ready and not ws._loading, timeout=5000)
     crd = Row("widgets.example.com", "", {}, group="example.com", kind="Widget", scope="Namespaced",

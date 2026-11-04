@@ -17,7 +17,7 @@ from klotse.ui.preferences import KubeconfigSettings, PreferencesDialog
 from klotse.ui.resource_table import ResourceTable
 from klotse.ui.terminal import kubectl_args, node_shell_args
 
-from test_app import FakeService
+from test_app import FakeService, open_active
 
 
 def store(tmp_path):
@@ -27,6 +27,7 @@ def store(tmp_path):
 def window(qtbot, tmp_path):
     win = MainWindow(FakeService, LabelSettings(store(tmp_path)))
     qtbot.addWidget(win)
+    open_active(win)
     return win
 
 

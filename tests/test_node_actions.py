@@ -30,6 +30,7 @@ def workspaces(qtbot):
         root = MainWindow(lambda: base)
         roots.append(root)
         qtbot.addWidget(root)
+        root.open_cluster(context)
         workspace = root.workspace(context)
         qtbot.waitUntil(lambda: workspace._opened_default and not workspace._loading)
         return workspace
