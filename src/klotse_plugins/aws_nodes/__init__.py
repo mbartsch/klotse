@@ -10,9 +10,11 @@ import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from klotse.plugins import Action, Column, Copy, OpenUrl, Plugin, Setting, ShowText
+from klotse.plugins import Action, Column, Copy, Message, OpenUrl, Plugin, Setting, ShowText
 
+from .console import account_for, console_results
 from .ec2 import Ec2, Ec2Error, Ec2Unavailable, boto3_session
+from .federation import FederationError, console_credentials, fetch_json, login_url
 from .nodeinfo import parse_node
 from .pricing import HOURS_PER_MONTH, PriceError, on_demand_prices
 
@@ -64,8 +66,25 @@ class AwsNodes(Plugin):
                      "and the public price list."),
         Setting("aws_profile", "AWS profile", "",
                 help="A profile from your AWS config. Empty uses the default credentials."),
+        Setting("multi_account", "I use several AWS accounts in the console", False, kind="bool",
+                help="Then \"Open in the EC2 console\" has to say which account to open. Fill in the three settings below."),
+        Setting("sso_start_url", "IAM Identity Center start URL", "",
+                help="For example https://d-1234567890.awsapps.com/start . The link then signs in to the cluster's account "
+                     "and opens the instance page."),
+        Setting("role_name", "Role name", "",
+                help="With IAM Identity Center: the permission set to sign in with. Without it: a role to switch to "
+                     "(the instance link is put on the clipboard to paste after switching)."),
+        Setting("auto_login", "Sign in to the console automatically (needs boto3 and credentials)", False, kind="bool",
+                help="Uses your AWS credentials (the profile above) to ask AWS for a one-time sign-in link and opens it in "
+                     "your browser, so there is no login page. The link is never shown, logged or kept. With several "
+                     "accounts it assumes the role named above in the cluster's account. Not used with IAM Identity "
+                     "Center, whose portal signs you in."),
+        Setting("account_map", "Account for each cluster", "",
+                help="Which account a cluster is in, as context=123456789012 entries separated by ; . Only needed when the "
+                     "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
     )
     session_factory = staticmethod(boto3_session)  # replaced in tests
+    federation_fetch = staticmethod(fetch_json)  # replaced in tests
 
     def __init__(self):
         self._ec2 = {}  # profile -> Ec2
@@ -154,10 +173,36 @@ class AwsNodes(Plugin):
         if request.action == "copy-id":
             return Copy("\n".join(info.instance_id for _, info in infos))
         if request.action == "console":
-            return OpenUrl(console_url(infos[0][1]))
+            return self.open_console(request, infos[0][1])
         if request.action == "cost":
             return ShowText("AWS node cost estimate", self.cost_report(request, infos))
         return None
+
+    def open_console(self, request, info):
+        """The results for "Open in the EC2 console": a signed-in link when asked and possible, else the normal link."""
+        settings, destination = request.settings, console_url(info)
+        gov = info.region.startswith("us-gov-")
+
+        def normal():
+            return console_results(destination, request.context, settings, gov=gov)
+
+        if not settings.get("auto_login") or str(settings.get("sso_start_url") or "").strip():
+            return normal()  # IAM Identity Center signs in through its own portal
+        try:
+            multi = bool(settings.get("multi_account"))
+            account = account_for(request.context, settings) if multi else None
+            role = str(settings.get("role_name") or "").strip() if multi else ""
+            if multi and not (account and role):
+                raise FederationError("with several accounts it needs the cluster's account and a role name to assume")
+            session = self.session_factory(str(settings.get("aws_profile") or ""))
+            url = login_url(console_credentials(session, account, role, gov), destination, gov, fetch=self.federation_fetch)
+        except Ec2Unavailable:
+            return [Message("Automatic sign-in needs boto3, which is not installed here. Opening the normal link.",
+                            "warning"), *normal()]
+        except (FederationError, Ec2Error) as error:
+            return [Message(f"Automatic sign-in did not work: {error}. Opening the normal link instead.", "warning"),
+                    *normal()]
+        return [OpenUrl(url)]  # a one-time secret: straight to the browser, never logged or shown
 
     def cost_report(self, request, infos):
         warnings = []

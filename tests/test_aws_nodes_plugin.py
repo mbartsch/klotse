@@ -387,7 +387,7 @@ def test_copy_and_console_actions():
     copied = plugin.run(request_for("copy-id", [node("a", "i-1"), node("b", "i-2"), node("c", provider=False)]))
     assert copied.text == "i-1\ni-2"
     link = plugin.run(request_for("console", [node("a", "i-9")]))
-    assert link.url.endswith("instanceId=i-9")
+    assert len(link) == 1 and link[0].url.endswith("instanceId=i-9")  # one account: the plain console link
     assert plugin.run(request_for("nothing", [node("a")])) is None
 
 
@@ -420,7 +420,8 @@ def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(tmp_path):
     assert [c[0] for c in manager.columns_for("Node")] == [
         "Instance ID", "Instance type", "Capacity", "AMI", "On-demand $/h", "Price $/h", "Price $/month", "Launched"]
     assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost"]
-    assert manager.settings_for("aws-nodes") == {"use_aws_api": True, "aws_profile": ""}
+    assert manager.settings_for("aws-nodes") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
+                                                 "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": ""}
 
 
 def test_the_cache_folder_is_next_to_the_settings_file(tmp_path):
@@ -443,3 +444,81 @@ def test_the_host_warns_in_the_plugins_page_but_still_uses_the_values(qtbot, tmp
     host.apply("Node", [row])
     assert row.extra["plugin:aws-nodes:price_od"] == 0.096
     assert "denied" in manager.errors["aws-nodes"]
+
+
+# ---- several AWS accounts ---------------------------------------------------------------------------------------
+from klotse.plugins import Copy, Message, OpenUrl  # noqa: E402
+from klotse_plugins.aws_nodes import console  # noqa: E402
+
+ARN = "arn:aws:eks:eu-west-1:123456789012:cluster/prod"
+PLAIN = "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#InstanceDetails:instanceId=i-0abc123"
+
+
+def settings(**values):
+    return {"multi_account": True, "sso_start_url": "", "role_name": "", "account_map": "", **values}
+
+
+def test_the_account_comes_from_an_eks_arn_context_or_the_map():
+    assert console.account_from_context(ARN) == "123456789012"
+    assert console.account_from_context("arn:aws-us-gov:eks:us-gov-west-1:210987654321:cluster/x") == "210987654321"
+    assert console.account_from_context("minikube") is None and console.account_from_context(None) is None
+    assert console.account_from_context("arn:aws:iam::123456789012:role/x") is None  # not a cluster
+    mapping = console.parse_account_map("prod-eu=111111111111; staging = 222222222222,\nbad=12345\n=333333333333\nnoequals")
+    assert mapping == {"prod-eu": "111111111111", "staging": "222222222222"}
+    assert console.account_for("prod-eu", {"account_map": "prod-eu=111111111111"}) == "111111111111"
+    assert console.account_for(ARN, {"account_map": f"{ARN}=999999999999"}) == "999999999999"  # the map wins
+    assert console.account_for(ARN, {}) == "123456789012" and console.account_for("minikube", {}) is None
+
+
+def test_with_one_account_the_link_is_the_plain_console_link():
+    assert console.console_results(PLAIN, "anything", {"multi_account": False, "sso_start_url": "https://x.awsapps.com/start"}) == [OpenUrl(PLAIN)]
+    assert console.console_results(PLAIN, "anything", {}) == [OpenUrl(PLAIN)]
+
+
+def test_identity_center_signs_in_to_the_clusters_account_and_lands_on_the_instance():
+    [link] = console.console_results(PLAIN, ARN, settings(sso_start_url="https://d-1234567890.awsapps.com/start", role_name="Admin Access"))
+    assert isinstance(link, OpenUrl)
+    assert link.url == ("https://d-1234567890.awsapps.com/start/#/console?account_id=123456789012&role_name=Admin%20Access"
+                        "&destination=" + __import__("urllib.parse", fromlist=["quote"]).quote(PLAIN, safe=""))
+    for typed in ("https://d-1234567890.awsapps.com", "https://d-1234567890.awsapps.com/", "https://d-1234567890.awsapps.com/start/"):
+        [again] = console.console_results(PLAIN, ARN, settings(sso_start_url=typed, role_name="Admin Access"))
+        assert again.url == link.url  # the /start part is added or tidied
+
+
+def test_identity_center_needs_https_and_a_role_and_the_account():
+    [message] = console.console_results(PLAIN, ARN, settings(sso_start_url="http://d-1.awsapps.com/start", role_name="R"))
+    assert message.level == "warning" and "https://" in message.text
+    [message] = console.console_results(PLAIN, ARN, settings(sso_start_url="https://d-1.awsapps.com/start"))
+    assert message.level == "warning" and "role name" in message.text
+    [message] = console.console_results(PLAIN, "my-renamed-context", settings(sso_start_url="https://d-1.awsapps.com/start", role_name="R"))
+    assert message.level == "warning" and "my-renamed-context" in message.text and "my-renamed-context=123456789012" in message.text
+    ok = console.console_results(PLAIN, "my-renamed-context", settings(sso_start_url="https://d-1.awsapps.com/start", role_name="R",
+                                                                       account_map="my-renamed-context=444444444444"))
+    assert ok[0].url.startswith("https://d-1.awsapps.com/start/#/console?account_id=444444444444")
+
+
+def test_switching_role_opens_the_switch_page_and_puts_the_link_on_the_clipboard():
+    copy, link, message = console.console_results(PLAIN, ARN, settings(role_name="deploy/Ops"))
+    assert copy == Copy(PLAIN)
+    assert link.url == "https://signin.aws.amazon.com/switchrole?account=123456789012&roleName=deploy/Ops&displayName=Klotse%20123456789012"
+    assert isinstance(message, Message) and "deploy/Ops" in message.text and "clipboard" in message.text
+    gov = console.console_results(PLAIN, "arn:aws-us-gov:eks:us-gov-west-1:210987654321:cluster/x", settings(role_name="R"), gov=True)
+    assert gov[1].url.startswith("https://signin.amazonaws-us-gov.com/switchrole?account=210987654321")
+
+
+def test_several_accounts_without_a_way_to_sign_in_says_what_to_set():
+    [message] = console.console_results(PLAIN, ARN, settings())
+    assert message.level == "warning" and "IAM Identity Center start URL" in message.text
+
+
+def test_the_plugin_action_uses_the_context_and_its_settings():
+    plugin = AwsNodes()
+    request = ActionRequest("aws-nodes", "console", "Node", ARN, [node("a", "i-9")],
+                            {"multi_account": True, "sso_start_url": "https://d-1.awsapps.com/start", "role_name": "R",
+                             "account_map": "", "use_aws_api": False, "aws_profile": ""})
+    [link] = plugin.run(request)
+    assert link.url.startswith("https://d-1.awsapps.com/start/#/console?account_id=123456789012&role_name=R&destination=")
+    gov_request = ActionRequest("aws-nodes", "console", "Node", "arn:aws-us-gov:eks:us-gov-east-1:210987654321:cluster/x",
+                                [node("a", "i-9", zone="us-gov-east-1a")],
+                                {"multi_account": True, "role_name": "R", "account_map": "", "sso_start_url": ""})
+    assert "signin.amazonaws-us-gov.com" in plugin.run(gov_request)[1].url

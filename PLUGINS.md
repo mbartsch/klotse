@@ -140,7 +140,43 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
   changes the plugin says so on the Plugins page and keeps using its last copy.
 - **They are list prices for the instance only**: no EBS, data transfer, the EKS cluster fee, savings plans or reserved
   instances, and local-zone nodes are priced like their parent region.
-- **Settings:** *Use the AWS API when boto3 and credentials are available* (on by default) and *AWS profile*.
+- **Settings:** *Use the AWS API when boto3 and credentials are available* (on by default), *AWS profile*, and the
+  console settings below.
+
+### Opening the console with several AWS accounts
+
+"Open in the EC2 console" opens the plain console link, which is right with one account or when you are already signed
+in to the right one. If you tick **I use several AWS accounts in the console** the link has to say which account:
+
+- **Which account a cluster is in** is read from its context name when that is the EKS ARN that
+  `aws eks update-kubeconfig` creates (it contains the account id). For other context names, list them in *Account for
+  each cluster* as `context=123456789012` separated by `;`. If the account cannot be found the action says so instead of
+  opening the wrong one.
+- **IAM Identity Center:** set *IAM Identity Center start URL* (for example `https://d-1234567890.awsapps.com/start`) and
+  *Role name* (the permission set). The link is AWS's documented shortcut link
+  (`<start URL>/#/console?account_id=...&role_name=...&destination=...`): it signs in to the cluster's account and opens the
+  instance page. Not tested here against a real portal; China and GovCloud portals have other addresses.
+- **Switching role:** with only a *Role name*, the instance link is put on the clipboard and AWS's switch-role page is
+  opened for that account and role; paste the link after switching (AWS's switch-role page has no destination parameter).
+
+### Signing in automatically
+
+AWS has a documented way for a program to sign a browser in to the console without a login page (the "custom identity
+broker" flow). Tick **Sign in to the console automatically** and "Open in the EC2 console" asks AWS for a one-time
+sign-in link and opens it, so you are signed in even if you were not:
+
+1. temporary credentials come from the chosen *AWS profile*: used as they are when they are temporary already (IAM
+   Identity Center, an assumed role); with several accounts the *Role name* is assumed in the cluster's account (STS
+   AssumeRole); with long-term IAM user keys an STS GetFederationToken is used (the console then has what the user may do,
+   without IAM and Organizations pages that AWS withholds from federated sessions);
+2. the credentials are POSTed to AWS's federation endpoint, which returns a one-time sign-in token;
+3. the login link (valid 15 minutes) is opened in the browser.
+
+It needs `boto3` and working credentials, is **off by default**, is not used together with an IAM Identity Center start URL
+(its own portal signs you in), and the login link is a secret: it goes straight to the browser and is never shown, copied,
+logged or kept, and error messages never include it or the credentials. If automatic sign-in fails the normal link opens
+with a warning saying why. AWS controls who may do this: the credentials need `sts:AssumeRole` or `sts:GetFederationToken`
+as the case may be. Not tested against real AWS here.
 
 ## Things to know
 
