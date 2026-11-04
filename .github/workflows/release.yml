@@ -45,7 +45,7 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          persist-credentials: false  # the token is given to the push command only
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.12"
@@ -59,7 +59,7 @@ jobs:
           git switch -c "release/v$VERSION"
           git add src/klotse/_version.py
           git commit -m "Release v$VERSION"
-          git push origin "release/v$VERSION"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin "release/v$VERSION"
           {
             echo "Sets the version to $VERSION. This PR changes only src/klotse/_version.py."
             echo
@@ -81,6 +81,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.12"
@@ -105,7 +106,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          persist-credentials: false  # the token is given to the push command only
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.12"
@@ -117,7 +118,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$version" -m "Klotse $version"
-          git push origin "v$version"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin "v$version"
           echo "Tagged v$version"
           if [ "$HAS_RELEASE_TOKEN" != "true" ]; then
             # a tag pushed with GITHUB_TOKEN starts nothing by itself: start the builds for the tag explicitly
