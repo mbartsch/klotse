@@ -35,7 +35,7 @@ Both scripts finish by running the packaged app's own self-test (below), and fai
 
 ## Building in CI
 
-`.github/workflows/package.yml` builds Windows and both macOS architectures on GitHub's runners:
+`.github/workflows/package.yml` builds Windows and both macOS architectures on GitHub's runners (on a pull request only when it is a release PR, branch `release/*`; other PRs skip it):
 
 - **Actions → Package → Run workflow** builds everything and keeps the files as downloadable artifacts.
 - **A version tag** (`vX.Y.Z`, made by the release process below) does the same and then creates a **draft** release with the files and a

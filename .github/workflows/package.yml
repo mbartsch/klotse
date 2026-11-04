@@ -1,4 +1,5 @@
-# Builds the Windows and macOS packages. It runs on pull requests that touch packaging; run it by hand
+# Builds the Windows and macOS packages. On pull requests it runs only for a release PR (branch release/vX.Y.Z, see
+# release.yml), so the packages are proven before the version is tagged; other PRs skip it. Run it by hand
 # (Actions -> Package -> Run workflow) to get the files as
 # downloadable artifacts, or push a version tag (git tag v0.1.0 && git push origin v0.1.0) to also create a DRAFT
 # release with the files attached. A draft is not public until you publish it.
@@ -8,18 +9,14 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-  pull_request:  # a PR that touches packaging builds all three packages as a check (nothing is released)
-    paths:
-      - "packaging/**"
-      - ".github/workflows/package.yml"
-      - "requirements*.txt"
-      - "pyproject.toml"
+  pull_request:  # only a release PR builds (the jobs check the branch name); nothing is released
 
 permissions:
   contents: read
 
 jobs:
   windows:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -51,6 +48,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')
     strategy:
       fail-fast: false
       matrix:
