@@ -52,6 +52,7 @@ class Navigator(QTreeWidget):
     connect_requested = Signal(str)
     disconnect_requested = Signal(str)
     reconnect_requested = Signal(str)
+    plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
 
     ROLE_KIND = Qt.UserRole
@@ -65,6 +66,7 @@ class Navigator(QTreeWidget):
         self._order = {}  # name -> position in the kubeconfig, so each section keeps a stable order
         self._states = {}
         self.groups = None  # a ClusterGroups, or None for a plain list
+        self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
         self._connected_hdr = self._idle_hdr = None
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -255,6 +257,11 @@ class Navigator(QTreeWidget):
             name = cluster.data(0, self.ROLE_KEY)
             for label, signal in self.actions_for(name):
                 menu.addAction(label, lambda sig=signal: sig.emit(name))
+            entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
+            if entries:
+                menu.addSeparator()
+                for plugin_id, text in entries:
+                    menu.addAction(text, lambda pid=plugin_id: self.plugin_settings_requested.emit(pid, name))
             if self.groups is not None:
                 menu.addSeparator()
                 move = menu.addMenu("Move to group")

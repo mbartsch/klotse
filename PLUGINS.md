@@ -121,7 +121,7 @@ version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `war
 
 A plugin that needs something different for each cluster (an account, a profile, a region) declares
 `cluster_settings = (Setting("team", "Team", pattern=r"..."),)`. While such a plugin is enabled Klotse shows a **Plugins**
-menu with *<plugin>: settings for this cluster…*, enabled when a cluster is in front. The dialog has one text box per
+menu with *<plugin>: settings for this cluster…*, enabled when a cluster is in front; the same entry is in the right-click menu of a connected cluster in the left list. The dialog has one text box per
 setting; an empty box means "not set for this cluster". The values reach `enrich()`, `overview()` and `run()` in
 `request.settings` next to the general settings, for that cluster only (`""` when not set, so the plugin falls back to its
 general settings). `Setting.pattern`, if given, is a regular expression a non-empty value must match completely. Saving

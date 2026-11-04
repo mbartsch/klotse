@@ -93,6 +93,9 @@ class MainWindow(QMainWindow):
         self.nav.disconnect_requested.connect(self._discard)
         self.nav.reconnect_requested.connect(self.reconnect_cluster)
         self.nav.view_requested.connect(self._open_view)
+        self.nav.plugin_entries = lambda: [(p.id, f"{p.name or p.id}: settings for this cluster…")
+                                           for p in self.plugins.cluster_plugins()]
+        self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
 
         self.status = self.statusBar()
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
@@ -172,9 +175,10 @@ class MainWindow(QMainWindow):
             self.plugins_menu.addSeparator()
             self.plugins_menu.addAction("Connect to a cluster first").setEnabled(False)
 
-    def open_cluster_settings(self, plugin_id):
-        """Edit a plugin's settings for the cluster in front; False when there is none or the plugin is not enabled."""
-        ws = self.clusters.currentWidget()
+    def open_cluster_settings(self, plugin_id, context=None):
+        """Edit a plugin's settings for `context` (default: the cluster in front); False when there is no such open
+        cluster or the plugin is not enabled."""
+        ws = self.workspaces.get(context) if context else self.clusters.currentWidget()
         plugin = next((p for p in self.plugins.cluster_plugins() if p.id == plugin_id), None)
         if ws is None or plugin is None:
             return False

@@ -99,3 +99,21 @@ def test_the_plugins_menu_needs_an_enabled_plugin_and_a_cluster_in_front(qtbot, 
     assert shown["plugin"] == "zoned" and win.plugins.cluster_settings_for("zoned", shown["context"]) == {"team": "blue"}
     win.plugins.set_enabled("zoned", False)
     assert win.open_cluster_settings("zoned") is False and not win.plugins_menu.menuAction().isVisible()
+
+
+def test_a_connected_cluster_offers_the_plugin_settings_on_right_click(qtbot, tmp_path, monkeypatch):
+    win = MainWindow(FakeService, label_settings=LabelSettings(store(tmp_path)))
+    qtbot.addWidget(win)
+    win.plugins.loaded = manager_with(tmp_path, Zoned(), enabled=False).loaded
+    ctx = win.contexts[0]
+    texts = lambda: [a.text() for a in win.nav.menu_for(win.nav._clusters[ctx]).actions()]  # noqa: E731
+    win.plugins.set_enabled("zoned", True)
+    assert "Zoned: settings for this cluster…" not in texts()  # not connected yet
+    open_active(win)
+    assert "Zoned: settings for this cluster…" in texts()
+    opened = []
+    monkeypatch.setattr(ClusterSettingsDialog, "exec", lambda self: opened.append(self.context) or 0)
+    next(a for a in win.nav.menu_for(win.nav._clusters[ctx]).actions() if a.text().startswith("Zoned")).trigger()
+    assert opened == [win.clusters.currentWidget().context]
+    win.plugins.set_enabled("zoned", False)
+    assert "Zoned: settings for this cluster…" not in texts()
