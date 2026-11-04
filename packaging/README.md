@@ -65,7 +65,7 @@ self-test headless and inside a real X11 session (Xvfb), and checks the desktop 
 
 ### Publishing to PyPI
 
-Nothing has been published. A published version can never be replaced, only yanked, so check the CI results first.
+Version 0.1.0 is already on PyPI. A published version can never be replaced, only yanked, so check the CI results first.
 The workflow publishes with PyPI's *trusted publishing* (a short-lived token issued to the workflow, nothing stored in
 GitHub secrets). One-time setup:
 
@@ -130,6 +130,6 @@ not written yet, because it cannot be tested without the certificate.
 - macOS: the CI builds (Apple Silicon and Intel) pass: the app builds, its self-test passes inside `Klotse.app`, the
   ad-hoc signature verifies and the DMG is created. Not tested: running the app on a real Mac, the Terminal/iTerm2
   permission prompt and shell sessions, the Finder `PATH` fix, Gatekeeper behaviour, and opening the DMG.
-- Linux has no native package (AppImage, `.deb`, `.rpm`); pipx/PyPI is the supported route. Nothing is on PyPI yet.
+- Linux has no native package (AppImage, `.deb`, `.rpm`); pipx/PyPI is the supported route (0.1.0 is on PyPI).
 - No automatic update check, no Windows ARM64 build (the x64 app runs under emulation).
 - No CI exists yet for the test suite itself.
