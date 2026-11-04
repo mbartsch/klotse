@@ -44,12 +44,17 @@ def parse_account_map(text):
 
 
 def profile_for(context, settings):
-    """The AWS profile for a cluster: its entry in "AWS profile for each cluster", else the default profile ("" = the
-    default credentials)."""
-    return parse_pairs(settings.get("profile_map")).get(context) or str(settings.get("aws_profile") or "")
+    """The AWS profile for a cluster: what was set for it in the Plugins menu, else its entry in "AWS profile for each
+    cluster", else the default profile ("" = the default credentials)."""
+    return (str(settings.get("cluster_profile") or "").strip() or parse_pairs(settings.get("profile_map")).get(context)
+            or str(settings.get("aws_profile") or ""))
 
 
 def account_for(context, settings):
+    """The AWS account of a cluster: set in the Plugins menu, else in "Account for each cluster", else the EKS ARN."""
+    chosen = str(settings.get("cluster_account") or "").strip()
+    if ACCOUNT_ID.fullmatch(chosen):
+        return chosen
     return parse_account_map(settings.get("account_map")).get(context) or account_from_context(context)
 
 

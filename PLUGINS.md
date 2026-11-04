@@ -112,9 +112,20 @@ provides (`requires_api`) is listed in the dialog with the reason; it never stop
 
 ## API versions
 
-`klotse.plugins.API_VERSION` is 4: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
-`EnrichRequest.warn`, version 4 added multi-line settings. Set `requires_api` to the lowest
-version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
+`klotse.plugins.API_VERSION` is 6: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
+`EnrichRequest.warn`, version 4 added multi-line settings, version 5 added Overview cards, version 6 added cluster
+settings. Set `requires_api` to the lowest
+version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings, 5 for Overview cards, 6 for cluster settings); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
+
+## Cluster settings
+
+A plugin that needs something different for each cluster (an account, a profile, a region) declares
+`cluster_settings = (Setting("team", "Team", pattern=r"..."),)`. While such a plugin is enabled Klotse shows a **Plugins**
+menu with *<plugin>: settings for this cluster…*, enabled when a cluster is in front. The dialog has one text box per
+setting; an empty box means "not set for this cluster". The values reach `enrich()`, `overview()` and `run()` in
+`request.settings` next to the general settings, for that cluster only (`""` when not set, so the plugin falls back to its
+general settings). `Setting.pattern`, if given, is a regular expression a non-empty value must match completely. Saving
+makes every open list and Overview ask the plugin again. They are stored in `[plugin_<id>_clusters]` of the settings file.
 
 ## The bundled plugin: AWS nodes
 
@@ -159,6 +170,12 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
   is not listed uses *AWS profile (default for all clusters)*. The profile of the cluster a node belongs to is used for the
   EC2 lookups, the cost estimate and the automatic console sign-in. Changing a setting makes the plugin ask again for
   what it showed (the details it already kept for good are not asked again).
+- **Profile and account from the menu.** With the plugin enabled and a cluster in front, **Plugins → AWS nodes: settings
+  for this cluster…** sets that cluster's *AWS profile* and, optionally, *AWS account ID* (12 digits). The profile wins
+  over the per-cluster list in the plugin's settings and the default profile. The account is normally not needed: for
+  "Open in the EC2 console" with several accounts it is taken from the menu, the per-cluster account list, the EKS ARN in
+  the context name, and otherwise asked from AWS for the cluster's profile (STS GetCallerIdentity, like
+  `aws sts get-caller-identity`; boto3 or the AWS CLI's credentials; kept per profile until Klotse closes).
 - **Settings:** *Use the AWS API when credentials are available* (on by default), *AWS profile*, *AWS profile for each
   cluster*, and the console settings below.
 

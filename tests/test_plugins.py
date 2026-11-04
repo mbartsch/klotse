@@ -493,7 +493,8 @@ def test_reloading_finds_a_plugin_added_to_the_folder(qtbot, tmp_path):
 def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path, monkeypatch):
     win = MainWindow(FakeService, label_settings=LabelSettings(store(tmp_path)))
     qtbot.addWidget(win)
-    assert [a.text() for a in win.menuBar().actions()] == ["File", "Edit", "View", "Help"]  # no Settings menu anywhere
+    # no Settings menu anywhere; "Plugins" only appears while an enabled plugin has settings for each cluster
+    assert [a.text() for a in win.menuBar().actions() if a.isVisible()] == ["File", "Edit", "View", "Help"]
     assert "Plugins…" not in [a.text() for a in win.edit_menu.actions()]
     assert win.plugins.folder == tmp_path / "plugins"
     win.open_cluster("ctx")

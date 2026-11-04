@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QSettings, Signal
 
 from ..ui.settings_store import default_store
-from .api import API_VERSION, Action, Column, Plugin, Setting, column_attr, valid_id
+from .api import API_VERSION, Action, Column, OverviewCard, Plugin, Setting, column_attr, valid_id
 
 ENTRY_POINT_GROUP = "klotse.plugins"
 BUNDLED_MODULES = ("klotse_plugins.aws_nodes",)  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
@@ -43,9 +43,10 @@ def _as_plugin(obj):
         raise ValueError(f"invalid plugin id {obj.id!r} (use lower case letters, digits, '-' and '_')")
     if not isinstance(obj.requires_api, int) or obj.requires_api > API_VERSION:
         raise ValueError(f"it needs plugin API {obj.requires_api}, this Klotse provides {API_VERSION}")
-    for group, kind in ((obj.columns, Column), (obj.actions, Action), (obj.settings, Setting)):
+    for group, kind in ((obj.columns, Column), (obj.actions, Action), (obj.overview_cards, OverviewCard), (obj.settings, Setting),
+                        (obj.cluster_settings, Setting)):
         if not all(isinstance(item, kind) for item in group):
-            raise TypeError(f"plugin {obj.id}: columns, actions and settings must be Column, Action and Setting objects")
+            raise TypeError(f"plugin {obj.id}: columns, actions, overview cards and settings must be Column, Action, OverviewCard and Setting objects")
         keys = [item.key for item in group]
         if len(keys) != len(set(keys)) or not all(keys):
             raise ValueError(f"plugin {obj.id}: column and setting keys must be non-empty and unique")
@@ -153,8 +154,9 @@ class PluginManager(QObject):
         self._enabled = wanted
         self.changed.emit()
 
-    def settings_for(self, plugin_id):
-        """The plugin's settings as {key: value}, saved values over the defaults."""
+    def settings_for(self, plugin_id, context=None):
+        """The plugin's settings as {key: value}, saved values over the defaults. With `context`, the cluster settings
+        the user set for that cluster are added (every cluster setting is present, "" when not set)."""
         item = self.get(plugin_id)
         values = {}
         for setting in item.plugin.settings if item else ():
@@ -165,10 +167,60 @@ class PluginManager(QObject):
                 values[setting.key] = str(saved).lower() in ("true", "1", "yes")
             else:
                 values[setting.key] = str(saved)
+        if context is not None and item:
+            mine = self.cluster_settings_for(plugin_id, context)
+            values.update({s.key: mine.get(s.key, "") for s in item.plugin.cluster_settings})
         return values
 
     def set_setting(self, plugin_id, key, value):
         self.store.setValue(f"plugin_{plugin_id}/{key}", value)
+        self._sync()
+        self.settings_changed.emit(plugin_id)
+        self.changed.emit()
+
+    # ---- settings per cluster ----------------------------------------------
+    def cluster_plugins(self):
+        """The enabled plugins that have settings to set for each cluster."""
+        return [plugin for plugin in self.active() if plugin.cluster_settings]
+
+    def _read_clusters(self, plugin_id):
+        """{context: {key: value}} saved for the plugin: numbered keys `context.N` and `<key>.N` in [plugin_<id>_clusters]."""
+        self.store.beginGroup(f"plugin_{plugin_id}_clusters")
+        try:
+            raw = {key: self.store.value(key) for key in self.store.childKeys()}
+        finally:
+            self.store.endGroup()
+
+        def text(value):  # QSettings returns a list for a value containing a comma
+            return ",".join(map(str, value)) if isinstance(value, (list, tuple)) else str(value if value is not None else "")
+
+        found = {}
+        for key, value in raw.items():
+            head, _, number = key.partition(".")
+            if head == "context" and number.isdigit() and text(value):
+                found[text(value)] = {k.partition(".")[0]: text(v) for k, v in raw.items()
+                                      if k.partition(".")[2] == number and k.partition(".")[0] != "context" and text(v)}
+        return found
+
+    def cluster_settings_for(self, plugin_id, context):
+        """What the user set for this cluster: {key: value} for the cluster settings that are not empty."""
+        item = self.get(plugin_id)
+        known = {s.key for s in item.plugin.cluster_settings} if item else set()
+        return {k: v for k, v in self._read_clusters(plugin_id).get(context, {}).items() if k in known}
+
+    def set_cluster_settings(self, plugin_id, context, values):
+        """Save the plugin's settings for one cluster (empty values are forgotten); raises OSError if it cannot be saved."""
+        every = self._read_clusters(plugin_id)
+        mine = {k: str(v).strip() for k, v in values.items() if str(v).strip()}
+        if mine:
+            every[context] = mine
+        else:
+            every.pop(context, None)
+        self.store.remove(f"plugin_{plugin_id}_clusters")
+        for number, (name, items) in enumerate(sorted(every.items())):
+            self.store.setValue(f"plugin_{plugin_id}_clusters/context.{number}", name)
+            for key, value in items.items():
+                self.store.setValue(f"plugin_{plugin_id}_clusters/{key}.{number}", value)
         self._sync()
         self.settings_changed.emit(plugin_id)
         self.changed.emit()
@@ -195,6 +247,10 @@ class PluginManager(QObject):
                     attr = column_attr(plugin.id, col.key)
                     columns.append((col.title, attr, col.format) if col.format else (col.title, attr))
         return columns
+
+    def overview_plugins(self):
+        """The enabled plugins that add cards to the cluster Overview."""
+        return [plugin for plugin in self.active() if plugin.overview_cards]
 
     def actions_for(self, kind, multi=False):
         """The enabled plugins' actions for `kind` as [(plugin, [actions])]; with several rows selected only the

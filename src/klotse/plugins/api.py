@@ -3,7 +3,8 @@
 A plugin adds information and commands to Klotse without being part of it. It can
 
 * add **columns** to the resource lists: declare `Column`s and fill them in `enrich()`;
-* add **actions** to the right-click menu of resources: declare `Action`s and do the work in `run()`.
+* add **actions** to the right-click menu of resources: declare `Action`s and do the work in `run()`;
+* add **cards** to the cluster Overview (a total cost, say): declare `OverviewCard`s and compute them in `overview()`.
 
 Both run on a worker thread, so they may use the network, and neither may touch Qt. Klotse caches column values per
 resource and only asks again for new resources, or after `refresh_s` seconds when the values go stale.
@@ -36,7 +37,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 4  # 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings.
+API_VERSION = 6  # 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -87,6 +88,14 @@ class Action:
 
 
 @dataclass(frozen=True)
+class OverviewCard:
+    """A card a plugin adds to the cluster Overview, under the built-in ones. `overview()` returns its value."""
+
+    key: str
+    title: str
+
+
+@dataclass(frozen=True)
 class Setting:
     """A setting the Plugins dialog shows for a plugin. kind is "text" (one line), "multiline" (a text box for lists, one
     entry per line) or "bool"; values reach `enrich()` and `run()` in `request.settings` (defaults filled in)."""
@@ -96,6 +105,7 @@ class Setting:
     default: object = ""
     kind: str = "text"
     help: str = ""
+    pattern: str = ""  # cluster settings only: a regular expression a non-empty text value must match completely
 
 
 @dataclass
@@ -126,6 +136,23 @@ class EnrichRequest:
     kind: str
     context: str  # the kubeconfig context the resources come from
     resources: list
+    settings: dict
+    cache_dir: object = None
+    warnings: list = field(default_factory=list)
+
+    def warn(self, text):
+        if text not in self.warnings:
+            self.warnings.append(text)
+
+
+@dataclass
+class OverviewRequest:
+    """What `overview()` receives: every node of the cluster (`ResourceInfo`s with their manifests). `cache_dir` and
+    `warn(text)` work as in `EnrichRequest`."""
+
+    plugin_id: str
+    context: str
+    nodes: list
     settings: dict
     cache_dir: object = None
     warnings: list = field(default_factory=list)
@@ -208,11 +235,20 @@ class Plugin:
     requires_api = 1  # the lowest API_VERSION that has everything this plugin uses
     columns = ()  # Column objects
     actions = ()  # Action objects
+    overview_cards = ()  # OverviewCard objects
     settings = ()  # Setting objects
+    cluster_settings = ()  # Setting objects (text only) the user sets for each cluster, from the Plugins menu; they reach
+    #                        `request.settings` for that cluster only, next to `settings`; empty = not set for the cluster
     refresh_s = None  # ask again for known resources after this many seconds; None = once per resource
+    overview_refresh_s = 300  # compute the Overview cards again after this many seconds (the last values stay shown)
 
     def enrich(self, request):
         """Return {resource.key: {column key: value}} for the resources in `request`. Runs on a worker thread."""
+        return {}
+
+    def overview(self, request):
+        """Return {card key: text or number} for the cluster Overview, from `request.nodes`; a card whose key is missing
+        (or None) is not shown, so a plugin that does not apply to this cluster returns {}. Runs on a worker thread."""
         return {}
 
     def applies(self, action, resource):

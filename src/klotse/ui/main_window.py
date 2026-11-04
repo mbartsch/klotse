@@ -3,10 +3,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
+from PySide6.QtWidgets import (QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
                                QTabWidget, QToolBar, QWidget)
 
 from .about import AboutDialog
+from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
 from .cluster_session import ClusterSession
 from ..plugins.manager import PluginManager
@@ -58,6 +59,10 @@ class MainWindow(QMainWindow):
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
         self.menuBar().addMenu("View").addAction(self.managed_fields_action)
+        # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
+        self.plugins_menu = self.menuBar().addMenu("Plugins")
+        self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
+        self.plugins.changed.connect(self._update_plugins_menu)
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
@@ -94,6 +99,7 @@ class MainWindow(QMainWindow):
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
         self.contexts, _ = self.new_service().load_contexts()
         self.nav.set_contexts(self.contexts, self.groups)
+        self._update_plugins_menu()
         self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
@@ -149,6 +155,33 @@ class MainWindow(QMainWindow):
         ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
         self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))
         ws.start()
+
+    # ---- Plugins menu ---------------------------------------------------
+    def _update_plugins_menu(self):
+        self.plugins_menu.menuAction().setVisible(bool(self.plugins.cluster_plugins()))
+
+    def _fill_plugins_menu(self):
+        """One entry per enabled plugin with cluster settings, for the cluster in front (disabled without one)."""
+        self.plugins_menu.clear()
+        ws = self.clusters.currentWidget()
+        for plugin in self.plugins.cluster_plugins():
+            action = self.plugins_menu.addAction(f"{plugin.name or plugin.id}: settings for this cluster…")
+            action.setEnabled(ws is not None)
+            action.triggered.connect(lambda _=False, p=plugin: self.open_cluster_settings(p.id))
+        if ws is None and self.plugins_menu.actions():
+            self.plugins_menu.addSeparator()
+            self.plugins_menu.addAction("Connect to a cluster first").setEnabled(False)
+
+    def open_cluster_settings(self, plugin_id):
+        """Edit a plugin's settings for the cluster in front; False when there is none or the plugin is not enabled."""
+        ws = self.clusters.currentWidget()
+        plugin = next((p for p in self.plugins.cluster_plugins() if p.id == plugin_id), None)
+        if ws is None or plugin is None:
+            return False
+        dialog = ClusterSettingsDialog(self.plugins, plugin, ws.context, self)
+        accepted = dialog.exec() == QDialog.Accepted
+        dialog.deleteLater()
+        return accepted
 
     def config_folder(self):
         """Folder holding Klotse's settings file (see LabelSettings.store.fileName())."""

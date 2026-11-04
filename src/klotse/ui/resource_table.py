@@ -19,6 +19,7 @@ class ResourceTable(QWidget):
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
+    rows_incoming = Signal(list)  # new rows are about to go in: plugins put the values they already know on them
     rows_set = Signal(list)  # new rows are in the table (plugins ask for their columns when this fires)
     plugin_action_requested = Signal(str, str, list)  # plugin id, action key, selected row objects
 
@@ -119,10 +120,17 @@ class ResourceTable(QWidget):
     def set_rows(self, rows):
         self._load_timer.stop()
         self.stack.setCurrentWidget(self.view)
+        self.rows_incoming.emit(rows)  # before the columns are measured: a refresh must not blank or shrink plugin columns
         self.model.set_rows(rows)
         self.view.resizeColumnsToContents()
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
         self.rows_set.emit(self.model.rows)
+
+    def fit_plugin_columns(self):
+        """Widen the plugin columns to their values (done when values arrive, not on every refresh)."""
+        for index, column in enumerate(self.model.columns):
+            if column[1].startswith("plugin:"):
+                self.view.resizeColumnToContents(index)
 
     def set_extra_columns(self, columns):
         """Columns added by plugins, after the built-in ones. They take part in the saved layout (order, hidden)

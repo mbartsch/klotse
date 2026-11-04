@@ -150,6 +150,8 @@ class OverviewView(QWidget):
             self.cards[key] = Card(key, title, tone)
             self.cards[key].clicked.connect(self._on_card)
             grid.addWidget(self.cards[key], i // COLUMNS, i % COLUMNS)
+        self.plugin_cards = {}  # card id -> Card, added by plugins (see set_plugin_cards)
+        self.plugin_grid = QGridLayout()
         self.title = QLabel("Recent events")
         self.title.setStyleSheet("font-weight: 600; padding-top: 8px;")
         self.back = QPushButton("Show recent events")
@@ -176,6 +178,7 @@ class OverviewView(QWidget):
         self.stack.addWidget(self.loading_page)
         lay = QVBoxLayout(self)
         lay.addLayout(grid)
+        lay.addLayout(self.plugin_grid)
         lay.addWidget(self.usage)
         lay.addLayout(head)
         lay.addWidget(self.stack, 1)
@@ -200,6 +203,26 @@ class OverviewView(QWidget):
         if self._data is None:  # with data on screen the status bar message is enough
             self.loading_page.show_failed(f"Load failed: {message}")
             self.stack.setCurrentWidget(self.loading_page)
+
+    def set_plugin_cards(self, cards):
+        """Cards plugins add under the built-in ones: [(card id, title)]. Cards that stay keep their value."""
+        if [key for key, _ in cards] == list(self.plugin_cards):
+            return
+        old = {key: card.value.text() for key, card in self.plugin_cards.items()}
+        for card in self.plugin_cards.values():
+            self.plugin_grid.removeWidget(card)
+            card.deleteLater()
+        self.plugin_cards = {}
+        for i, (key, title) in enumerate(cards):
+            card = Card(key, title, "")
+            card.set_value(old.get(key, "–"))
+            self.plugin_cards[key] = card
+            self.plugin_grid.addWidget(card, i // COLUMNS, i % COLUMNS)
+
+    def set_plugin_values(self, values):
+        for key, card in self.plugin_cards.items():
+            if key in values:
+                card.set_value(str(values[key]))
 
     def set_data(self, data):
         self._load_timer.stop()

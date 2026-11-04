@@ -54,7 +54,7 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
     open_active(win)
-    assert [a.text() for a in win.menuBar().actions()] == ["File", "Edit", "View", "Help"]
+    assert [a.text() for a in win.menuBar().actions() if a.isVisible()] == ["File", "Edit", "View", "Help"]
     assert not hasattr(win, "customizations_button")
     ws = win.workspace("ctx")
     qtbot.waitUntil(lambda: ws._ready, timeout=5000)

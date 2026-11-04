@@ -10,10 +10,11 @@ import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from klotse.plugins import Action, Column, Copy, Message, OpenUrl, Plugin, Setting, ShowText
+from klotse.plugins import Action, Column, Copy, Message, OpenUrl, OverviewCard, Plugin, Setting, ShowText
 
 from .console import account_for, console_results, profile_for
 from .ec2 import Ec2Error, Ec2Unavailable, boto3_session, default_ec2
+from .identity import caller_account
 from .federation import FederationError, console_credentials, fetch_json, login_url
 from .instances import InstanceCache
 from .nodeinfo import parse_node
@@ -41,7 +42,7 @@ class AwsNodes(Plugin):
     id = "aws-nodes"
     name = "AWS nodes"
     version = "0.1"
-    requires_api = 4
+    requires_api = 6
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
                    "Works without a login (the cluster's own data plus AWS's public price list); with boto3 and AWS "
@@ -60,6 +61,11 @@ class AwsNodes(Plugin):
         Action("copy-id", "Copy instance ID", multi=True),
         Action("console", "Open in the EC2 console"),
         Action("cost", "Estimate the cost of the selected nodes", multi=True),
+    )
+    overview_cards = (
+        OverviewCard("cost_hour", "Cost per hour"),
+        OverviewCard("cost_month", "Cost per month"),
+        OverviewCard("priced", "Nodes priced"),
     )
     settings = (
         Setting("use_aws_api", "Use the AWS API when credentials are available", True, kind="bool",
@@ -88,13 +94,24 @@ class AwsNodes(Plugin):
                 help="Which account a cluster is in, one per line as context = 123456789012. Only needed when the "
                      "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
     )
+    cluster_settings = (  # Plugins menu -> AWS nodes -> settings for the cluster in front
+        Setting("cluster_profile", "AWS profile", "",
+                help="The profile from your AWS config used for this cluster's EC2 lookups, cost estimate and console "
+                     "sign-in. Empty uses the entry in the plugin's settings, or the default profile."),
+        Setting("cluster_account", "AWS account ID", "", pattern=r"\d{12}",
+                help="Usually leave empty: the account is taken from the plugin's per-cluster list, the EKS ARN in the "
+                     "context name, or else asked from AWS (sts get-caller-identity) for the profile above. Fill it in "
+                     "only to override that."),
+    )
     session_factory = staticmethod(boto3_session)  # for the sign-in (STS needs boto3); replaced in tests
     ec2_factory = staticmethod(default_ec2)  # boto3 if installed, else the built-in client; replaced in tests
     federation_fetch = staticmethod(fetch_json)  # replaced in tests
+    account_lookup = staticmethod(caller_account)  # (profile, region) -> account id; replaced in tests
 
     def __init__(self):
         self._instances = InstanceCache()  # what AWS said about each instance: asked once, kept for good
         self._ec2 = {}  # profile -> Ec2
+        self._accounts = {}  # profile -> account id it signs in to (STS GetCallerIdentity)
         self._lock = threading.Lock()
 
     # ---- the AWS API (optional) --------------------------------------------------------------
@@ -199,6 +216,16 @@ class AwsNodes(Plugin):
     def enrich(self, request):
         return self.collect(request.resources, request.settings, request.cache_dir, request.warn, request.context)
 
+    def overview(self, request):
+        """The cluster's total cost, like eks-node-viewer's header: the current price of every node that has one."""
+        values = self.collect(request.nodes, request.settings, request.cache_dir, request.warn, request.context)
+        if not values:
+            return {}  # not an AWS cluster: no cards
+        priced = [v["price_now"] for v in values.values() if v["price_now"] is not None]
+        total = sum(priced)
+        return {"cost_hour": per_hour(total), "cost_month": per_month(total * HOURS_PER_MONTH),
+                "priced": f"{len(priced)} of {len(values)}"}
+
     def applies(self, action, resource):
         return parse_node(resource) is not None
 
@@ -213,9 +240,29 @@ class AwsNodes(Plugin):
             return ShowText("AWS node cost estimate", self.cost_report(request, infos))
         return None
 
+    def with_account(self, request, region):
+        """The settings, with `cluster_account` filled in from the profile's identity (STS GetCallerIdentity) when the
+        account is not known any other way (menu, account map, EKS ARN) and several accounts are in use. A failed lookup
+        leaves the settings alone: the usual "cannot tell which account" message then follows."""
+        settings = request.settings
+        if not settings.get("multi_account") or account_for(request.context, settings):
+            return settings
+        profile = profile_for(request.context, settings)
+        with self._lock:
+            known = self._accounts.get(profile)
+        if known is None:
+            try:
+                known = self.account_lookup(profile, region)
+            except Ec2Error as error:
+                request.log and request.log(f"Could not get the account of the AWS profile {profile or '(default)'}: {error}")
+                return settings
+            with self._lock:
+                self._accounts[profile] = known
+        return {**settings, "cluster_account": known}
+
     def open_console(self, request, info):
         """The results for "Open in the EC2 console": a signed-in link when asked and possible, else the normal link."""
-        settings, destination = request.settings, console_url(info)
+        settings, destination = self.with_account(request, info.region), console_url(info)
         gov = info.region.startswith("us-gov-")
 
         def normal():
