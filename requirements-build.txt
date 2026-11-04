@@ -1,8 +1,8 @@
 # Extra tools to build the Windows and macOS packages (see packaging/README.md).
 # PyInstaller freezes the app; Pillow turns assets/klotse_logo.png into the .ico and .icns icons.
 -r requirements.txt
-pyinstaller>=6.10
-pillow>=10
-build>=1.2     # python -m build: the sdist and wheel that go to PyPI
-twine>=5       # twine check: validates the package metadata and README rendering
+pyinstaller>=6.22.3
+pillow>=12.3.0
+build>=1.6.1     # python -m build: the sdist and wheel that go to PyPI
+twine>=7.0.0       # twine check: validates the package metadata and README rendering
 trove-classifiers  # verify that the classifiers in pyproject.toml are ones PyPI accepts
