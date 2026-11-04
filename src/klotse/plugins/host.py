@@ -16,7 +16,8 @@ class PluginHost(QObject):
     and keeps what they answer.
 
     Values are cached per (plugin, kind, resource); a resource is only asked about again when it is new (another uid),
-    or when the plugin sets `refresh_s` and its values are older than that. The values live on each row as
+    or when the plugin sets `refresh_s` and its values are older than that, or a minute after an answer that came with
+    warnings. The values live on each row as
     `row.extra[attribute]`, which is where the table model reads them.
     """
 
@@ -25,7 +26,7 @@ class PluginHost(QObject):
     def __init__(self, manager, context, run, clock=monotonic, parent=None):
         super().__init__(parent)
         self.manager, self.context, self._run, self._clock = manager, context, run, clock
-        self._cache = {}  # (plugin id, kind, resource key) -> (uid, {attribute: value}, fetched at)
+        self._cache = {}  # (plugin id, kind, resource key) -> (uid, {attribute: value}, asked again at or None)
         self._busy = set()  # (plugin id, kind) with a request in flight
         self._retry_at = {}  # (plugin id, kind) -> not before this time
 
@@ -42,7 +43,7 @@ class PluginHost(QObject):
             for row in rows:
                 info = resource_info(row)
                 entry = self._cache.get((plugin.id, kind, info.key))
-                stale = bool(plugin.refresh_s) and entry is not None and now - entry[2] >= plugin.refresh_s
+                stale = entry is not None and entry[2] is not None and now >= entry[2]
                 if entry is None or entry[0] != info.uid or stale:
                     due.append(info)
             if due and slot not in self._busy and now >= self._retry_at.get(slot, 0):
@@ -85,10 +86,16 @@ class PluginHost(QObject):
             return
         known = {col.key for col in plugin.columns}
         now = self._clock()
+        # When to ask again: after `refresh_s` for a complete answer (never, without it); soon for one that came with
+        # warnings, since something was missing (an expired login, a service that was down) and may be fixed by now.
+        if request.warnings:
+            ask_again = now + RETRY_AFTER_S
+        else:
+            ask_again = now + plugin.refresh_s if plugin.refresh_s else None
         for info in request.resources:
             values = result.get(info.key) or {}
             self._cache[(plugin.id, kind, info.key)] = (
-                info.uid, {column_attr(plugin.id, k): v for k, v in values.items() if k in known}, now)
+                info.uid, {column_attr(plugin.id, k): v for k, v in values.items() if k in known}, ask_again)
         if request.warnings:  # it answered, but something was wrong on the way: use the values, show the problem
             self.manager.record_error(plugin.id, "; ".join(request.warnings))
         else:

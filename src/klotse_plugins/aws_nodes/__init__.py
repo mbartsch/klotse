@@ -99,16 +99,19 @@ class AwsNodes(Plugin):
             return self._ec2[profile]
 
     def _from_aws(self, nodes, settings, warn):
-        """(instance details, spot prices) from AWS; empty when it is off, boto3 is missing or AWS says no."""
+        """(instance details, spot prices, boto3 missing) from AWS; empty when it is off, boto3 is missing or AWS says no.
+
+        The details are asked for every node: the AMI of those without a node group image label, and for all of them
+        the launch time and whether they are spot."""
         if not settings.get("use_aws_api", True):
-            return {}, {}
+            return {}, {}, False
         try:
             api = self._api(str(settings.get("aws_profile") or ""))
         except Ec2Unavailable:
-            return {}, {}  # an optional extra: nothing to complain about
+            return {}, {}, True  # an optional extra: only worth a word when it leaves something blank (see collect)
         except Ec2Error as error:
             warn(f"AWS API: {error} (using the cluster data and the public prices instead)")
-            return {}, {}
+            return {}, {}, False
         by_region, details, spot = defaultdict(list), {}, {}
         for node in nodes.values():
             if node.region:
@@ -122,7 +125,7 @@ class AwsNodes(Plugin):
                     spot[(region, itype, zone)] = price
             except Ec2Error as error:
                 warn(f"AWS API ({region}): {error} (using the cluster data and the public prices instead)")
-        return details, spot
+        return details, spot, False
 
     # ---- the numbers --------------------------------------------------------------------------
     def collect(self, resources, settings, cache_dir, warn):
@@ -146,7 +149,11 @@ class AwsNodes(Plugin):
             if table.note:
                 warn(f"{region}: {table.note}")
             tables[(region, os_name)] = table.prices
-        details, spot = self._from_aws(nodes, settings, warn)
+        details, spot, no_boto3 = self._from_aws(nodes, settings, warn)
+        without_ami = [n for n in nodes.values() if not n.ami and not (details.get(n.instance_id) or {}).get("ami")]
+        if no_boto3 and without_ami:  # these AMIs can only come from EC2, which needs boto3 and credentials
+            warn(f"{len(without_ami)} node(s) have no node group image label, so their AMI can only be looked up in "
+                 f"AWS: install boto3 in Klotse's environment and sign in to AWS (the packaged apps do not include boto3)")
         for key, node in nodes.items():
             extra = details.get(node.instance_id) or {}
             capacity = "spot" if extra.get("spot") else node.capacity

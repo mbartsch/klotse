@@ -56,7 +56,8 @@ about a minute.
 Klotse calls `enrich()` with the resources on screen that it has no values for yet. A resource is asked about once (and
 again if it is replaced by one with another uid). Set `refresh_s` (seconds) if the values go stale, for example prices;
 the resources are then asked about again after that long. Only one request per plugin and kind is in flight at a time,
-so the 10 second auto-refresh does not pile up requests. Cache anything expensive yourself (a price list, a token): the
+so the 10 second auto-refresh does not pile up requests. An answer that came with `request.warn(...)` is used, but it
+is asked for again after about a minute instead of waiting for `refresh_s`, since what was missing may be fixed by then. Cache anything expensive yourself (a price list, a token): the
 same plugin object lives for the whole session and may be called from different threads over time.
 
 ## Actions
@@ -132,7 +133,10 @@ adds these columns to the Nodes list:
 and these right-click actions: **Copy instance ID** (several nodes at once), **Open in the EC2 console**, and
 **Estimate the cost of the selected nodes** (a text tab with each node and the total per hour and month).
 
-- **No login is needed** for everything except spot prices, launch time and the AMI of nodes without an image label. With
+- **No login is needed** for everything except spot prices, launch time and the AMI of nodes without an image label.
+  Those nodes' AMI is looked up in EC2 (one DescribeInstances call per region for all the nodes on screen); when boto3 is
+  not installed the Plugins page says how many nodes have no AMI for that reason, and after a failed lookup (an expired
+  AWS login, say) the plugin asks again about a minute later, not half an hour. With
   `boto3` installed in Klotse's environment and working AWS credentials (the usual `~/.aws`, environment variables or a
   profile chosen in the plugin's settings) those appear too. The packaged apps do not include boto3.
 - **Prices** come from the small per-region files that the AWS pricing calculator uses (about 60 KB each, kept for a week in

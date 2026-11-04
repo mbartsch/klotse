@@ -261,10 +261,11 @@ def fake_prices(monkeypatch):
     return table
 
 
-def collect(plugin, resources, settings=None):
+def collect(plugin, resources, settings=None, hints=False):
+    """(values, warnings); the "no AMI without boto3" hint is left out unless a test is about it."""
     warnings = []
     values = plugin.collect(resources, {"use_aws_api": True, "aws_profile": "", **(settings or {})}, None, warnings.append)
-    return values, warnings
+    return values, warnings if hints else [w for w in warnings if "node group image label" not in w]
 
 
 def test_without_any_login_the_columns_come_from_the_node_and_the_public_prices(fake_prices):
@@ -320,10 +321,35 @@ def test_aws_failures_warn_but_the_columns_still_fill_in(fake_prices):
     assert warnings == ["AWS API: The config profile (nope) could not be found (using the cluster data and the public prices instead)"]
 
 
-def test_a_missing_boto3_is_not_a_warning(fake_prices):
-    plugin, _ = make_plugin()
-    _, warnings = collect(plugin, [node("n1")])
-    assert warnings == []
+def test_a_missing_boto3_is_only_mentioned_when_it_leaves_an_ami_blank(fake_prices):
+    plugin, _ = make_plugin()  # no boto3
+    labelled = node("n1", extra={"eks.amazonaws.com/nodegroup-image": "ami-label"})
+    _, warnings = collect(plugin, [labelled], hints=True)
+    assert warnings == []  # every AMI is known from the label: nothing is missing
+    values, warnings = collect(plugin, [labelled, node("n2", "i-2"), node("n3", "i-3")], hints=True)
+    assert values["n1"]["ami"] == "ami-label" and values["n2"]["ami"] is None
+    assert len(warnings) == 1 and warnings[0].startswith("2 node(s) have no node group image label")
+    assert "install boto3" in warnings[0]
+    _, off = collect(plugin, [node("n2", "i-2")], settings={"use_aws_api": False}, hints=True)
+    assert off == []  # the user turned the AWS API off: not a problem to report
+
+
+def test_a_node_without_the_image_label_gets_its_ami_from_ec2(fake_prices):
+    client = FakeClient(instances={"i-2": instance("i-2", "ami-from-ec2"), "i-1": instance("i-1", "ami-from-ec2-too")})
+    plugin, _ = make_plugin(ec2=Ec2(lambda region: client))
+    values, warnings = collect(plugin, [node("n1", "i-1", extra={"eks.amazonaws.com/nodegroup-image": "ami-label"}),
+                                        node("n2", "i-2")], hints=True)
+    assert values["n2"]["ami"] == "ami-from-ec2" and warnings == []
+    assert values["n1"]["ami"] == "ami-from-ec2-too"  # what AWS says wins over the label
+    assert client.calls == [["i-1", "i-2"]]  # one call for the region, however many nodes
+
+
+def test_when_ec2_cannot_say_the_label_is_kept_and_a_gone_instance_just_has_no_ami(fake_prices):
+    client = FakeClient(instances={}, missing=set())
+    plugin, _ = make_plugin(ec2=Ec2(lambda region: client))
+    values, warnings = collect(plugin, [node("n1", "i-1", extra={"eks.amazonaws.com/nodegroup-image": "ami-label"}),
+                                        node("n2", "i-2")], hints=True)
+    assert values["n1"]["ami"] == "ami-label" and values["n2"]["ami"] is None and warnings == []
 
 
 def test_a_region_without_a_price_list_warns_and_leaves_the_prices_blank(fake_prices):
