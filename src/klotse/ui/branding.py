@@ -34,6 +34,40 @@ def app_icon():
     return QIcon(pixmap) if not pixmap.isNull() else QIcon()
 
 
+def set_macos_app_name(name="Klotse"):
+    """Run through the Python interpreter (pipx, run.sh, python -m klotse), macOS names the menu bar after the
+    interpreter's own bundle: "Python". Rename the running process before the menus are built. A packaged
+    Klotse.app already has the right name in its Info.plist, so this only acts on a source or pip install.
+    Returns True when the name was set; never raises."""
+    if sys.platform != "darwin" or getattr(sys, "frozen", False):
+        return False
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        ctypes.cdll.LoadLibrary(ctypes.util.find_library("Foundation"))  # makes NSBundle and NSString available
+        objc.objc_getClass.restype = objc.sel_registerName.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = objc.sel_registerName.argtypes = [ctypes.c_char_p]
+
+        def send(receiver, selector, *args):  # objc_msgSend with a signature that fits this call
+            kinds = [ctypes.c_char_p if isinstance(a, ctypes.c_char_p) else ctypes.c_void_p for a in args]
+            call = ctypes.cast(objc.objc_msgSend, ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, *kinds))
+            return call(receiver, objc.sel_registerName(selector), *args)
+
+        def nsstring(text):
+            return send(objc.objc_getClass(b"NSString"), b"stringWithUTF8String:", ctypes.c_char_p(text.encode()))
+
+        bundle = send(objc.objc_getClass(b"NSBundle"), b"mainBundle")
+        info = send(bundle, b"infoDictionary") if bundle else None
+        if not info:
+            return False
+        send(info, b"setObject:forKey:", nsstring(name), nsstring("CFBundleName"))
+        send(send(objc.objc_getClass(b"NSProcessInfo"), b"processInfo"), b"setProcessName:", nsstring(name))
+        return True
+    except Exception:  # a cosmetic nicety must never stop the app from starting
+        return False
+
+
 def set_windows_app_id():
     """Give the process its own Windows identity so the taskbar shows Klotse's icon, not pythonw's."""
     if sys.platform != "win32":

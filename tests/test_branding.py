@@ -102,3 +102,19 @@ def test_startup_sets_the_icon_and_shows_no_splash(qtbot, monkeypatch):
     with pytest.raises(SystemExit):
         entry.main([])  # no command-line arguments, whatever pytest was started with
     assert events == [("name", "Klotse"), ("desktop file", "klotse"), "icon", "window.init", "window.show"]
+
+
+def test_macos_app_name_is_only_attempted_for_a_source_run_on_a_mac(monkeypatch):
+    monkeypatch.setattr(branding.sys, "platform", "win32")
+    assert branding.set_macos_app_name() is False  # other platforms: nothing to do
+    monkeypatch.setattr(branding.sys, "platform", "darwin")
+    monkeypatch.setattr(branding.sys, "frozen", True, raising=False)
+    assert branding.set_macos_app_name() is False  # a packaged app is named by its Info.plist
+
+
+def test_macos_app_name_never_raises_when_the_objc_runtime_is_unavailable(monkeypatch):
+    monkeypatch.setattr(branding.sys, "platform", "darwin")
+    monkeypatch.delattr(branding.sys, "frozen", raising=False)
+    import ctypes.util
+    monkeypatch.setattr(ctypes.util, "find_library", lambda name: None)
+    assert branding.set_macos_app_name() is False

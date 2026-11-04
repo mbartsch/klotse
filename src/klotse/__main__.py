@@ -16,6 +16,7 @@ def main(argv=None):
         sys.exit(status)
     environment.prepare_environment()  # macOS: make kubectl and auth helpers findable when started from Finder
     branding.set_windows_app_id()
+    branding.set_macos_app_name()  # menu bar says Klotse, not Python, when run through the interpreter
     app = QApplication(sys.argv)
     theme.apply(app)
     app.setApplicationName("Klotse")
