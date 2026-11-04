@@ -86,6 +86,8 @@ not written yet, because it cannot be tested without the certificate.
 - Windows installer: compiled and tested with a silent per-user install, the installed app's self-test and a clean
   uninstall (folder, Start Menu entry and uninstall registration all removed). Not tested: the interactive wizard,
   the "all users" mode (needs administrator rights), upgrading over an older version, and SmartScreen behaviour.
-- Everything macOS (`build.sh`, the spec's macOS branch, entitlements, the DMG) is untested until CI runs it.
+- macOS: the CI builds (Apple Silicon and Intel) pass: the app builds, its self-test passes inside `Klotse.app`, the
+  ad-hoc signature verifies and the DMG is created. Not tested: running the app on a real Mac, the Terminal/iTerm2
+  permission prompt and shell sessions, the Finder `PATH` fix, Gatekeeper behaviour, and opening the DMG.
 - No automatic update check, no Linux package, no Windows ARM64 build (the x64 app runs under emulation).
 - No CI exists yet for the test suite itself.
