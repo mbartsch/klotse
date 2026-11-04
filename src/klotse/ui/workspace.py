@@ -445,7 +445,7 @@ class ClusterWorkspace(QMainWindow):
         self._loading.add(key)
         title = self.views[key][1]
         widget = self.views[key][0]
-        table = widget if isinstance(widget, ResourceTable) else None
+        table = widget if isinstance(widget, (ResourceTable, OverviewView)) else None  # both show loading and errors
         if table is not None:
             table.set_loading()
         started = perf_counter()
