@@ -66,3 +66,44 @@ def test_workspace_load_drives_the_overview_indicator(qtbot):
     ws.load_view("overview")
     pending.pop()[0](DATA)
     assert not on_loading_page(ws.overview)
+
+
+def make_table(kind="Event", spec="events"):
+    from klotse.k8s.resources import SPEC_BY_KEY
+    from klotse.ui.resource_table import ResourceTable
+    return ResourceTable(SPEC_BY_KEY[spec].columns, kind, editable=False, customizable=False)
+
+
+def test_a_list_shows_a_large_message_until_its_first_rows_arrive(qtbot):
+    table = make_table()
+    qtbot.addWidget(table)
+    assert table.stack.currentWidget() is table.view
+    table.set_loading()
+    assert table.stack.currentWidget() is table.loading_page and table.loading_page.label.text() == "Loading…"
+    table._loading_tick()
+    assert table.loading_page.label.text() == "Loading… 0s" and table.status.text() == "Loading… 0s"
+    table.set_rows([])
+    assert table.stack.currentWidget() is table.view and table.status.text() == "No resources found"
+
+
+def test_a_list_that_fails_to_load_says_so_in_the_big_message(qtbot):
+    table = make_table()
+    qtbot.addWidget(table)
+    table.set_loading()
+    table.set_error("ReadTimeoutError")
+    assert table.stack.currentWidget() is table.loading_page
+    assert table.loading_page.label.text() == "Load failed: ReadTimeoutError" and table.loading_page.bar.isHidden()
+    table.set_loading()  # retry
+    assert not table.loading_page.bar.isHidden() and table.loading_page.label.text() == "Loading…"
+
+
+def test_a_reload_with_rows_on_screen_keeps_the_table_visible(qtbot):
+    from klotse.k8s.models import NamespaceRow
+    ws = ClusterWorkspace(None, "test")
+    qtbot.addWidget(ws)
+    table = ws.ns_table
+    table.set_rows([NamespaceRow("default", "Active", "1d", "", {})])
+    table.set_loading()  # the routine 10 s refresh
+    assert table.stack.currentWidget() is table.view and table.status.text() == "Loading…"
+    table.set_error("boom")
+    assert table.stack.currentWidget() is table.view  # the rows stay; the status line carries the error

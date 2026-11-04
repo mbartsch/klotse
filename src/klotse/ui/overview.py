@@ -1,9 +1,10 @@
 from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QStackedWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout,
+                               QWidget)
 
 from ..k8s.resources import SPEC_BY_KEY
+from .loading_pane import LoadingPane
 from .resource_table import ResourceTable
 from .theme import ACCENT, BORDER, MUTED
 
@@ -139,19 +140,8 @@ class OverviewView(QWidget):
         self.focus = None  # drill-down card key currently shown, or None for recent events
         # Shown in place of the (still empty) events table while the first data is on its way, so the page does not
         # look dead. The cards above stay usable; nothing is blocked.
-        self.loading_label = QLabel()
-        self.loading_label.setAlignment(Qt.AlignCenter)
-        self.loading_label.setStyleSheet(f"color: {MUTED}; font-size: 22px; font-weight: 600;")
-        self.loading_bar = QProgressBar()
-        self.loading_bar.setRange(0, 0)  # busy / indeterminate
-        self.loading_bar.setTextVisible(False)
-        self.loading_bar.setFixedSize(260, 8)
-        self.loading_page = QWidget()
-        loading = QVBoxLayout(self.loading_page)
-        loading.addStretch(1)
-        loading.addWidget(self.loading_label)
-        loading.addWidget(self.loading_bar, 0, Qt.AlignHCenter)
-        loading.addStretch(2)
+        self.loading_page = LoadingPane()
+        self.loading_label, self.loading_bar = self.loading_page.label, self.loading_page.bar
         self._load_clock = QElapsedTimer()
         self._load_timer = QTimer(self, interval=1000)
         self._load_timer.timeout.connect(self._loading_tick)
@@ -198,8 +188,7 @@ class OverviewView(QWidget):
         if self._data is not None or self._load_timer.isActive():
             return
         self._load_clock.start()
-        self.loading_bar.show()
-        self.loading_label.setText("Loading cluster data…")
+        self.loading_page.show_busy("Loading cluster data…")
         self.stack.setCurrentWidget(self.loading_page)
         self._load_timer.start()
 
@@ -209,8 +198,7 @@ class OverviewView(QWidget):
     def set_error(self, message):
         self._load_timer.stop()
         if self._data is None:  # with data on screen the status bar message is enough
-            self.loading_bar.hide()
-            self.loading_label.setText(f"Load failed: {message}")
+            self.loading_page.show_failed(f"Load failed: {message}")
             self.stack.setCurrentWidget(self.loading_page)
 
     def set_data(self, data):
