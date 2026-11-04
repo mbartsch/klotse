@@ -22,7 +22,7 @@ A minimal plugin (a .py file in the plugins folder, or any importable module):
     plugin = NodeZone()          # Klotse looks for a module-level `plugin` (an instance) or `register()`
 
 Plugins run with the user's permissions and see everything Klotse shows, so they are off until enabled in
-Settings -> Plugins. `enrich()` must not touch Qt; raise an exception to report a problem (it is shown in the Plugins
+Preferences -> Plugins. `enrich()` must not touch Qt; raise an exception to report a problem (it is shown in the Plugins
 dialog and the plugin is retried after a pause).
 """
 import re

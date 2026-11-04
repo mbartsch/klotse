@@ -1,6 +1,5 @@
 from PySide6.QtCore import QObject, QSettings
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                               QLabel, QMessageBox)
+from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QWidget
 
 from .settings_store import default_store
 
@@ -22,11 +21,13 @@ class TerminalSettings(QObject):
         self.mac_terminal = terminal
 
 
-class TerminalSettingsDialog(QDialog):
+class TerminalPanel(QWidget):
+    """The Terminal page of Preferences (macOS): which app opens pod shells, attach sessions and node shells.
+    `save()` writes the choice when Preferences is saved and raises ValueError/OSError if it cannot."""
+
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.settings = settings
-        self.setWindowTitle("Terminal settings")
         form = QFormLayout(self)
         hint = QLabel("Choose the macOS app for pod shells, attach sessions and node shells.\n"
                       "Successful sessions close automatically. Errors stay visible until Enter is pressed.\n"
@@ -37,15 +38,6 @@ class TerminalSettingsDialog(QDialog):
         self.terminal.addItems(["Terminal", "iTerm2"])
         self.terminal.setCurrentText(settings.mac_terminal)
         form.addRow("macOS terminal", self.terminal)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._save)
-        buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
 
-    def _save(self):
-        try:
-            self.settings.set_mac_terminal(self.terminal.currentText())
-        except (ValueError, OSError) as error:
-            QMessageBox.warning(self, "Cannot save terminal settings", str(error))
-            return
-        self.accept()
+    def save(self):
+        self.settings.set_mac_terminal(self.terminal.currentText())

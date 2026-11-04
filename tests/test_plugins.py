@@ -3,7 +3,7 @@ import textwrap
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QFormLayout, QMessageBox
+from PySide6.QtWidgets import QDialog, QFormLayout, QMessageBox
 
 from klotse.k8s.models import NodeRow
 from klotse.plugins import Column, Plugin, Setting
@@ -13,7 +13,9 @@ from klotse.plugins.manager import PluginManager, _as_plugin
 import klotse.ui.main_window as main_module
 from klotse.ui.customizations import LabelSettings
 from klotse.ui.main_window import MainWindow
-from klotse.ui.plugins_dialog import PluginsDialog
+from klotse.ui.plugins_panel import PluginsPanel
+from klotse.ui.preferences import KubeconfigSettings, PreferencesDialog
+from klotse.ui.terminal_settings import TerminalSettings
 from klotse.ui.workspace import ClusterWorkspace
 from test_app import FakeService
 
@@ -428,7 +430,7 @@ def test_a_workspace_without_plugins_is_unchanged(qtbot):
 
 # ---- the dialog and the window --------------------------------------------------------
 def dialog_for(qtbot, manager):
-    dialog = PluginsDialog(manager)
+    dialog = PluginsPanel(manager)
     qtbot.addWidget(dialog)
     return dialog
 
@@ -488,13 +490,64 @@ def test_reloading_finds_a_plugin_added_to_the_folder(qtbot, tmp_path):
     assert dialog.list.count() == 1 and dialog.empty.text() == ""
 
 
-def test_the_window_has_a_plugins_menu_item_and_gives_workspaces_the_manager(qtbot, tmp_path):
+def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path, monkeypatch):
     win = MainWindow(FakeService, label_settings=LabelSettings(store(tmp_path)))
     qtbot.addWidget(win)
+    assert [a.text() for a in win.menuBar().actions()] == ["File", "Edit", "View", "Help"]  # no Settings menu anywhere
     assert "Plugins…" not in [a.text() for a in win.edit_menu.actions()]
-    assert [a.text() for a in win.menuBar().actions()][-2:] == ["Settings", "Help"]
-    settings = [a.text() for a in win.settings_menu.actions() if not a.isSeparator()]
-    assert settings == (["Terminal…", "Plugins…"] if main_module.sys.platform == "darwin" else ["Plugins…"])
     assert win.plugins.folder == tmp_path / "plugins"
     win.open_cluster("ctx")
     assert win.workspace("ctx").plugins is win.plugins
+    seen = {}
+
+    class FakeDialog:
+        Accepted = 1
+
+        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None):
+            seen.update(terminal=terminal, plugins=plugins)
+
+        def exec(self):
+            return 0
+
+        def chosen_kubeconfig(self):
+            return None
+
+        def deleteLater(self):
+            pass
+
+    monkeypatch.setattr(main_module, "PreferencesDialog", FakeDialog)
+    monkeypatch.setattr(main_module.sys, "platform", "linux")
+    win.open_preferences()
+    assert seen == {"terminal": None, "plugins": win.plugins}  # the terminal choice exists on macOS only
+    monkeypatch.setattr(main_module.sys, "platform", "darwin")
+    win.open_preferences()
+    assert seen == {"terminal": win.terminal_settings, "plugins": win.plugins}
+
+
+def test_preferences_has_a_page_per_thing_to_configure(qtbot, tmp_path):
+    kubeconfig = KubeconfigSettings(store(tmp_path))
+    plain = PreferencesDialog(kubeconfig, tmp_path / "cfg")
+    qtbot.addWidget(plain)
+    assert [plain.tabs.tabText(i) for i in range(plain.tabs.count())] == ["General"] and plain.tabs.tabBar().isHidden()
+    manager = manager_with(tmp_path, Zone(), enabled=False)
+    terminal = TerminalSettings(store(tmp_path))
+    full = PreferencesDialog(kubeconfig, tmp_path / "cfg", terminal=terminal, plugins=manager)
+    qtbot.addWidget(full)
+    assert [full.tabs.tabText(i) for i in range(full.tabs.count())] == ["General", "Terminal", "Plugins"]
+    assert not full.tabs.tabBar().isHidden()
+    only_plugins = PreferencesDialog(kubeconfig, tmp_path / "cfg", plugins=manager)
+    qtbot.addWidget(only_plugins)
+    assert [only_plugins.tabs.tabText(i) for i in range(only_plugins.tabs.count())] == ["General", "Plugins"]
+
+
+def test_the_plugins_page_applies_at_once_while_saving_keeps_the_other_pages(qtbot, tmp_path):
+    manager = manager_with(tmp_path, Zone(), enabled=False)
+    terminal = TerminalSettings(store(tmp_path))
+    dialog = PreferencesDialog(KubeconfigSettings(store(tmp_path)), tmp_path / "cfg", terminal=terminal, plugins=manager)
+    qtbot.addWidget(dialog)
+    dialog.plugins_panel.list.item(0).setCheckState(Qt.Checked)
+    assert manager.is_enabled("zone")  # no need to press Save: Cancel afterwards would not undo it
+    dialog.terminal_panel.terminal.setCurrentText("iTerm2")
+    assert terminal.mac_terminal == "Terminal"  # a choice on the other pages waits for Save
+    dialog._save()
+    assert terminal.mac_terminal == "iTerm2" and dialog.result() == QDialog.Accepted

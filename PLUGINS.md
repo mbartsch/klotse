@@ -49,7 +49,7 @@ time.
 
 ## Installing a plugin
 
-Plugins are found in three places, and none runs until you enable it in **Settings → Plugins…**:
+Plugins are found in three places, and none runs until you enable it on the **Plugins** page of Preferences (Edit → Preferences… on Windows and Linux, the application menu's Settings… on macOS):
 
 1. **The plugins folder**: `.py` files, or folders with an `__init__.py`, in the `plugins` folder next to Klotse's
    settings file. The Plugins dialog has **Open plugins folder** and **Reload plugins**. This works in the packaged
