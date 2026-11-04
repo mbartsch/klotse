@@ -321,10 +321,10 @@ def test_generic_views_lazy_and_namespace_scoped(qtbot):
     for spec in SPECS:
         assert spec.key in ws.views and spec.key in ws.loaders
     ws.open_view("services")
-    qtbot.waitUntil(lambda: ("services", None) in svc.requested, timeout=5000)
+    qtbot.waitUntil(lambda: ("services", "default") in svc.requested, timeout=5000)
     ws.open_view("persistentvolumes")
     qtbot.waitUntil(lambda: ("persistentvolumes", None) in svc.requested, timeout=5000)  # its own initial load
-    ws.ns_combo.setCurrentText("default")  # present once the namespace list has loaded
+    ws.set_namespace("default")  # present once the namespace list has loaded
     assert ws.ns_combo.currentText() == "default"
     svc.requested.clear()
     ws.load_scoped()  # foreground is cluster-scoped (PVs): a namespace change reloads nothing
@@ -907,6 +907,6 @@ def test_workspace_browses_crd_instances(qtbot):
     table = ws.views["cr:widgets.example.com"][0]
     qtbot.waitUntil(lambda: table.model.rowCount() == 1, timeout=5000)
     assert ws.tabs.tabText(ws.tabs.currentIndex()) == "Widget" and [c[1] for c in table.base_columns] == ["name", "namespace", "age"]
-    assert asked[0] == ("example.com", "v1", "widgets", True, None)
+    assert asked[0] == ("example.com", "v1", "widgets", True, "default")
     table.view.selectRow(0)
     assert "kind: Widget" in ws.detail.toPlainText()

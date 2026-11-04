@@ -4,7 +4,7 @@ from time import monotonic, perf_counter
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
+from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
                                QTabWidget, QToolBar)
 
 from ..k8s.resources import SPECS
@@ -26,6 +26,7 @@ from .terminal_settings import TerminalSettings
 from .watcher import ChangeWatcher
 
 ALL_NS = "All namespaces"
+DEFAULT_NS = "default"  # what a newly opened cluster is scoped to
 MAX_REPLICAS = 10000
 NODE_PODS_TTL_S = 20  # a node on screen is not recounted more often than this
 NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
@@ -77,6 +78,7 @@ class ClusterWorkspace(QMainWindow):
         self.pool = QThreadPool.globalInstance()
         self._workers = set()
         self._loads = {}  # view -> latest requested namespace
+        self._load_serial = {}  # view -> number of the newest load; results of older (abandoned) loads are dropped
         self._loading = set()
         self._pending_loads = set()
         self._closed = False
@@ -151,7 +153,19 @@ class ClusterWorkspace(QMainWindow):
         bar.setMovable(False)
         self.addToolBar(bar)
         self.ns_combo = QComboBox()
-        self.ns_combo.addItem(ALL_NS)
+        self.ns_combo.addItems([ALL_NS, DEFAULT_NS])
+        self.ns_combo.setCurrentIndex(1)  # start in the "default" namespace; _set_namespaces falls back if it does not exist
+        # Searchable like the label picker: type any part of a name to filter the list. Only the chosen item counts
+        # (see namespace()), so a half-typed name never scopes a load.
+        self.ns_combo.setEditable(True)
+        self.ns_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.ns_combo.setMinimumContentsLength(18)
+        self.ns_combo.setToolTip("Type to search the namespaces")
+        completer = QCompleter(self.ns_combo.model(), self.ns_combo)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.ns_combo.setCompleter(completer)
+        self.ns_combo.lineEdit().editingFinished.connect(self._reset_ns_text)
         # the selector only applies to namespaced lists, so it is hidden on cluster-wide views (see _sync_ns_selector)
         self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo)]
         refresh = QAction("Refresh", self)
@@ -296,7 +310,7 @@ class ClusterWorkspace(QMainWindow):
         if self._ready and not self._closed and self.auto_action.isChecked() and self._showing():
             key = self.foreground_key()
             if key in self.loaders:
-                ns = self.ns_combo.currentText()
+                ns = self.namespace()
                 wanted = (key, None if (not self.loaders[key][1] or ns == ALL_NS) else ns)
         if wanted == self._watched:
             return
@@ -415,8 +429,7 @@ class ClusterWorkspace(QMainWindow):
 
     def _namespace_action(self, action, row):
         if action == "open-namespace":  # double-click / "Show pods": scope the toolbar to it and open its pods
-            if self.ns_combo.findText(row.name) >= 0:
-                self.ns_combo.setCurrentText(row.name)
+            self.set_namespace(row.name)
             self.open_view("pods")
 
     def showEvent(self, event):
@@ -436,12 +449,18 @@ class ClusterWorkspace(QMainWindow):
         if self._closed:
             return
         fetch, scoped, sink = self.loaders[key]
-        ns = self.ns_combo.currentText()
+        ns = self.namespace()
         namespace = None if (not scoped or ns == ALL_NS) else ns
+        previous = self._loads.get(key, namespace)
         self._loads[key] = namespace
         if key in self._loading:
-            self._pending_loads.add(key)
-            return
+            if previous == namespace:  # the same request is already running: coalesce repeated refreshes
+                self._pending_loads.add(key)
+                return
+            # The namespace changed mid-load: abandon the running request (it cannot be cancelled, but its result
+            # is ignored, see the serial below) and start over now instead of waiting for it to finish.
+            self._pending_loads.discard(key)
+        serial = self._load_serial[key] = self._load_serial.get(key, 0) + 1
         self._loading.add(key)
         title = self.views[key][1]
         widget = self.views[key][0]
@@ -452,6 +471,8 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"{self.context} / {title}: Loading…")
 
         def finished(data, error=False):
+            if self._load_serial.get(key) != serial:  # abandoned by a newer load of this view: ignore it entirely
+                return
             self._loading.discard(key)
             if self._closed:
                 return
@@ -893,12 +914,30 @@ class ClusterWorkspace(QMainWindow):
             self.load_view(key)
         self._sync_watch()  # the watch follows the namespace
 
+    def namespace(self):
+        """The namespace chosen in the selector (ALL_NS for all). Not the text being typed."""
+        return self.ns_combo.itemText(self.ns_combo.currentIndex()) or ALL_NS
+
+    def set_namespace(self, name):
+        index = self.ns_combo.findText(name, Qt.MatchExactly)
+        if index >= 0:
+            self.ns_combo.setCurrentIndex(index)
+            self.ns_combo.setEditText(name)
+        return index >= 0
+
+    def _reset_ns_text(self):
+        """Typed text that is not a namespace is dropped when editing ends; the chosen one stays."""
+        self.ns_combo.setEditText(self.namespace())
+
     def _set_namespaces(self, rows):
         self.ns_table.set_rows(rows)
         names = [r.name for r in rows]
-        current = self.ns_combo.currentText()
+        previous = self.namespace()
+        keep = previous if previous in names else ALL_NS  # default (or a deleted namespace) missing: all namespaces
         self.ns_combo.blockSignals(True)
         self.ns_combo.clear()
         self.ns_combo.addItems([ALL_NS] + names)
-        self.ns_combo.setCurrentText(current if current in names else ALL_NS)
+        self.set_namespace(keep)
         self.ns_combo.blockSignals(False)
+        if keep != previous:
+            self.load_scoped()

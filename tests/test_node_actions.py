@@ -232,7 +232,7 @@ def test_node_pods_view_is_across_namespaces_and_keeps_pod_actions(qtbot, monkey
     ws = workspaces(SimpleNamespace(list_node_pods=listing), "cluster-a")
     monkeypatch.setattr(ClusterWorkspace, "pod_action", lambda self, *args: actions.append(args))
     ws.ns_combo.addItem("unrelated-namespace")
-    ws.ns_combo.setCurrentText("unrelated-namespace")
+    ws.set_namespace("unrelated-namespace")
     ws.node_table.action_requested.emit("node-pods", node_row())
     table, title = ws.views["node-pods:node-a"]
     qtbot.waitUntil(lambda: table.model.rowCount() == 1)

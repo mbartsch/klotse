@@ -103,6 +103,6 @@ def test_namespace_selector_only_on_namespaced_views(qtbot):
         ws.open_view(key)
         assert shown(), key
     ws.open_view("nodes")
-    ws.ns_combo.setCurrentText("All namespaces")
+    ws.set_namespace("All namespaces")
     ws.tabs.setCurrentWidget(ws.views["pods"][0])  # switching tabs by clicking updates it too
     assert shown()

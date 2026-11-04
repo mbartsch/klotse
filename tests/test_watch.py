@@ -105,9 +105,9 @@ def test_only_the_foreground_view_is_watched(qtbot):
     ws, svc, _ = ws_with_watch(qtbot)
     assert svc.targets == [("nodes", None)]
     ws.tabs.setCurrentWidget(ws.views["pods"][0])
-    assert svc.targets[-1] == ("pods", None) and len(ws._watchers) == 1
+    assert svc.targets[-1] == ("pods", "default") and len(ws._watchers) == 1
     ws.ns_combo.addItem("team")
-    ws.ns_combo.setCurrentText("team")
+    ws.set_namespace("team")
     ws.load_scoped()  # the watch follows the namespace for scoped views
     assert svc.targets[-1] == ("pods", "team")
     ws.tabs.setCurrentWidget(ws.views["nodes"][0])  # cluster-scoped views ignore the namespace

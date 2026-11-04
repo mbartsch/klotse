@@ -143,18 +143,19 @@ def test_refresh_coalesces_and_ignores_stale_results(qtbot):
 
     ws.ns_combo.addItems(['old', 'new'])
     ws.loaders['pods'] = (fetch, True, sink)
-    ws.ns_combo.setCurrentText('old')
+    ws.set_namespace('old')
     ws.load_view('pods')
     try:
         qtbot.waitUntil(lambda: calls == ['old'])
-        ws.ns_combo.setCurrentText('new')
+        ws.set_namespace('new')
         for _ in range(100):
             ws.load_view('pods')
-        assert len(ws._workers) == 1
+        assert len(ws._workers) == 2  # the abandoned 'old' request is still running; one new load, the rest coalesce
     finally:
         release.set()
-    qtbot.waitUntil(lambda: received == ['new'])
-    assert calls == ['old', 'new'] and threads == [ws.thread()]
+    # the abandoned 'old' answer is dropped; the repeated refreshes made during the 'new' load cost one follow-up load
+    qtbot.waitUntil(lambda: received == ['new', 'new'])
+    assert calls == ['old', 'new', 'new'] and threads == [ws.thread()] * 2
 
 
 def test_load_after_error_can_retry_and_closed_workspace_skips_result(qtbot):
