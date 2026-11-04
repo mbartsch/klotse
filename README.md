@@ -92,7 +92,7 @@ general settings, and applies changes at once.
 ## Install
 
 Native packages are built for Windows (an installer and a portable `.zip`) and macOS (a `.dmg` for Apple Silicon and
-one for Intel). Version 0.1.0 is on the project's [Releases](https://github.com/mbartsch/klotse/releases) page, with
+one for Intel). The latest version, 0.2.0, is on the project's [Releases](https://github.com/mbartsch/klotse/releases) page, with
 a `SHA256SUMS.txt` to check the downloads against. You can also run Klotse from source (below) or build the packages
 yourself (see [Development](#development)).
 
@@ -198,7 +198,7 @@ packaging/macos/build.sh                                               # macOS: 
 ```
 
 A packaged app can check itself: `Klotse --version` and `Klotse --self-test [REPORT_FILE]`. GitHub Actions builds
-everything on a version tag (`v0.1.0`) or on demand and drafts a release.
+everything on a version tag (`v0.2.0`, made by the Release workflow) or on demand and drafts a release.
 
 [`AGENTS.md`](https://github.com/mbartsch/klotse/blob/master/AGENTS.md) documents the architecture, file map and behavior to preserve; read it before larger
 changes. Work goes through pull requests from a branch; do not commit to `master` directly.
