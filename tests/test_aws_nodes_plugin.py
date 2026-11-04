@@ -329,7 +329,7 @@ def test_a_missing_boto3_is_only_mentioned_when_it_leaves_an_ami_blank(fake_pric
     values, warnings = collect(plugin, [labelled, node("n2", "i-2"), node("n3", "i-3")], hints=True)
     assert values["n1"]["ami"] == "ami-label" and values["n2"]["ami"] is None
     assert len(warnings) == 1 and warnings[0].startswith("2 node(s) have no node group image label")
-    assert "install boto3" in warnings[0]
+    assert "boto3 or the AWS CLI" in warnings[0]
     _, off = collect(plugin, [node("n2", "i-2")], settings={"use_aws_api": False}, hints=True)
     assert off == []  # the user turned the AWS API off: not a problem to report
 
@@ -447,7 +447,7 @@ def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(tmp_path):
         "Instance ID", "Instance type", "Capacity", "AMI", "On-demand $/h", "Price $/h", "Price $/month", "Launched"]
     assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost"]
     assert manager.settings_for("aws-nodes") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
-                                                 "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": ""}
+                                                 "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": "", "profile_map": ""}
 
 
 def test_the_cache_folder_is_next_to_the_settings_file(tmp_path):

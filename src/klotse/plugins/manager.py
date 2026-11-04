@@ -79,6 +79,7 @@ class PluginManager(QObject):
     """
 
     changed = Signal()  # plugins were (de)activated, reloaded or their settings changed
+    settings_changed = Signal(str)  # a plugin's setting changed (emitted just before `changed`): its cached values are stale
     errors_changed = Signal()  # a plugin reported a problem while running (or it was cleared)
 
     def __init__(self, store=None, folder=None, bundled=BUNDLED_MODULES, entry_points=True, parent=None):
@@ -169,6 +170,7 @@ class PluginManager(QObject):
     def set_setting(self, plugin_id, key, value):
         self.store.setValue(f"plugin_{plugin_id}/{key}", value)
         self._sync()
+        self.settings_changed.emit(plugin_id)
         self.changed.emit()
 
     def _sync(self):

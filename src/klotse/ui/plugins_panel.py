@@ -1,6 +1,6 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
+                               QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
 
 WARNING = ("Plugins are code that runs with your permissions and can see everything Klotse shows. "
            "Enable only plugins you trust. Changes on this page take effect immediately.")
@@ -13,6 +13,7 @@ class PluginsPanel(QWidget):
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.manager = manager
+        self._pending = []  # (timer, save) of multi-line settings that were typed in and not saved yet
         warning = QLabel(WARNING)
         warning.setWordWrap(True)
         self.list = QListWidget()
@@ -110,7 +111,23 @@ class PluginsPanel(QWidget):
         self._refresh_details()
 
     # ---- the details of the selected plugin ---------------------------------------
+    def flush(self):
+        """Save multi-line settings that were typed in but whose timer has not fired yet (leaving the page, another plugin)."""
+        for timer, save in list(self._pending):
+            try:
+                if timer.isActive():
+                    timer.stop()
+                    save()
+            except RuntimeError:
+                pass  # the box is already gone
+
+    def hideEvent(self, event):
+        self.flush()
+        super().hideEvent(event)
+
     def _show_details(self, item, _previous):
+        self.flush()
+        self._pending = []  # the boxes of the plugin shown so far are about to be replaced
         found = item.data(Qt.UserRole) if item is not None else None
         while self.settings_form.rowCount():
             self.settings_form.removeRow(0)
@@ -134,6 +151,17 @@ class PluginsPanel(QWidget):
                 box.setChecked(bool(values[setting.key]))
                 box.toggled.connect(lambda on, s=setting: self._save_setting(plugin.id, s.key, on))
                 widget, label = box, ""
+            elif setting.kind == "multiline":
+                widget = QPlainTextEdit(str(values[setting.key]))
+                widget.setFixedHeight(96)
+                widget.setTabChangesFocus(True)
+                timer = QTimer(widget, singleShot=True, interval=700)  # one save after typing stops, not one per key
+                save = lambda w=widget, s=setting: self._save_setting(plugin.id, s.key, w.toPlainText())  # noqa: E731
+                timer.timeout.connect(save)
+                widget.textChanged.connect(timer.start)
+                widget.save_timer = timer
+                self._pending.append((timer, save))
+                label = setting.label
             else:
                 widget = QLineEdit(str(values[setting.key]))
                 widget.editingFinished.connect(lambda w=widget, s=setting: self._save_setting(plugin.id, s.key, w.text()))

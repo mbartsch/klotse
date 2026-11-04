@@ -115,6 +115,7 @@ class ClusterWorkspace(QMainWindow):
         if self.plugin_host is not None:
             for table in self.resource_tables():
                 self._hook_table(table)
+            plugins.settings_changed.connect(self.plugin_host.forget)  # new settings: what was fetched may be wrong now
             plugins.changed.connect(self._plugins_changed)
             self.plugin_host.updated.connect(self._plugins_updated)
 

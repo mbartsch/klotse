@@ -36,7 +36,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 3  # 1: columns. 2: actions in the right-click menus. 3: enrich() can warn; plugins get a cache folder.
+API_VERSION = 4  # 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -88,8 +88,8 @@ class Action:
 
 @dataclass(frozen=True)
 class Setting:
-    """A setting the Plugins dialog shows for a plugin. kind is "text" or "bool"; values reach `enrich()` and `run()`
-    in `request.settings` (defaults filled in)."""
+    """A setting the Plugins dialog shows for a plugin. kind is "text" (one line), "multiline" (a text box for lists, one
+    entry per line) or "bool"; values reach `enrich()` and `run()` in `request.settings` (defaults filled in)."""
 
     key: str
     label: str

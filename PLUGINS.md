@@ -13,7 +13,7 @@ Everything a plugin author needs is in `klotse.plugins`:
 | `Plugin` | Base class. Set `id`, `name`, `description`, `version`, `requires_api`, `columns`, `actions`, `settings`, `refresh_s` and override `enrich()` (columns), `run()` (actions) and optionally `applies()`. |
 | `Column(key, title, kinds=("Node",), format=None)` | A column for tables of those kinds (`"Node"`, `"Pod"`, `"Deployment"`, ...). `format` is an optional `value -> str` for display; sorting uses the raw value, so numbers stay numbers. |
 | `Action(key, title, kinds=("Node",), multi=False, confirm=None, dangerous=False)` | A right-click entry. `multi`: also offered when several rows are selected. `confirm`: a Yes/No question asked first. `dangerous`: it changes things; marked with ⚠ and always asks first. |
-| `Setting(key, label, default, kind="text" or "bool", help="")` | A setting the Plugins dialog shows; its value reaches `enrich()` and `run()` in `request.settings`. |
+| `Setting(key, label, default, kind="text" or "multiline" or "bool", help="")` | A setting the Plugins dialog shows ("multiline" is a text box for lists, one entry per line); its value reaches `enrich()` and `run()` in `request.settings`. |
 | `EnrichRequest` | What `enrich()` receives: `plugin_id`, `kind`, `context` (the kubeconfig context), `resources`, `settings`, `cache_dir` (a folder to keep downloaded data in; create it when needed) and `warn(text)` (report a problem without giving up: the values you return are still used and the text is shown in the Plugins page). |
 | `ActionRequest` | What `run()` receives: `plugin_id`, `action` (the key), `kind`, `context`, `resources`, `settings`, plus `log(line)`, `api_client()`, `kubectl` and `cache_dir`. |
 | `ResourceInfo` | One resource: `name`, `namespace`, `raw` (the full manifest, read-only), `key` (`name`, or `namespace/name`), `uid`. |
@@ -112,9 +112,9 @@ provides (`requires_api`) is listed in the dialog with the reason; it never stop
 
 ## API versions
 
-`klotse.plugins.API_VERSION` is 3: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
-`EnrichRequest.warn`. Set `requires_api` to the lowest
-version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
+`klotse.plugins.API_VERSION` is 4: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
+`EnrichRequest.warn`, version 4 added multi-line settings. Set `requires_api` to the lowest
+version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
 
 ## The bundled plugin: AWS nodes
 
@@ -136,9 +136,12 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
 - **No login is needed** for everything except spot prices, launch time and the AMI of nodes without an image label.
   Those nodes' AMI is looked up in EC2 (one DescribeInstances call per region for the nodes not asked about yet); when boto3 is
   not installed the Plugins page says how many nodes have no AMI for that reason, and after a failed lookup (an expired
-  AWS login, say) the plugin asks again about a minute later, not half an hour. With
-  `boto3` installed in Klotse's environment and working AWS credentials (the usual `~/.aws`, environment variables or a
-  profile chosen in the plugin's settings) those appear too. The packaged apps do not include boto3.
+  AWS login, say) the plugin asks again about a minute later, not half an hour. The AWS lookups need credentials:
+  with `boto3` installed they are the usual boto3 ones; without it the plugin signs the two EC2 calls itself and takes
+  the credentials from the **AWS CLI** (`aws configure export-credentials`, so IAM Identity Center, assumed-role,
+  `credential_process` and plain key profiles all work; AWS CLI v2.9 or newer, which EKS users nearly always have because
+  their kubeconfig runs `aws eks get-token`) or from the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` variables. So the
+  packaged apps work too, as long as the AWS CLI is installed and signed in.
 - **What AWS says about an instance is asked once and kept for good.** An instance's AMI, launch time, zone and whether
   it is spot never change, and an instance id is never reused, so after the first answer the plugin does not ask again,
   not even after a restart and not without credentials: the details are kept in a file per region in the plugin cache
@@ -151,8 +154,13 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
   changes the plugin says so on the Plugins page and keeps using its last copy.
 - **They are list prices for the instance only**: no EBS, data transfer, the EKS cluster fee, savings plans or reserved
   instances, and local-zone nodes are priced like their parent region.
-- **Settings:** *Use the AWS API when boto3 and credentials are available* (on by default), *AWS profile*, and the
-  console settings below.
+- **A profile for each cluster.** Clusters in other accounts need their own credentials: list them in *AWS profile for each
+  cluster*, one per line as `context = profile` (the context is the cluster's name in your kubeconfig), and a cluster that
+  is not listed uses *AWS profile (default for all clusters)*. The profile of the cluster a node belongs to is used for the
+  EC2 lookups, the cost estimate and the automatic console sign-in. Changing a setting makes the plugin ask again for
+  what it showed (the details it already kept for good are not asked again).
+- **Settings:** *Use the AWS API when credentials are available* (on by default), *AWS profile*, *AWS profile for each
+  cluster*, and the console settings below.
 
 ### Opening the console with several AWS accounts
 
@@ -183,7 +191,7 @@ sign-in link and opens it, so you are signed in even if you were not:
 2. the credentials are POSTed to AWS's federation endpoint, which returns a one-time sign-in token;
 3. the login link (valid 15 minutes) is opened in the browser.
 
-It needs `boto3` and working credentials, is **off by default**, is not used together with an IAM Identity Center start URL
+It needs `boto3` (the sign-in uses STS) and working credentials, is **off by default**, is not used together with an IAM Identity Center start URL
 (its own portal signs you in), and the login link is a secret: it goes straight to the browser and is never shown, copied,
 logged or kept, and error messages never include it or the credentials. If automatic sign-in fails the normal link opens
 with a warning saying why. AWS controls who may do this: the credentials need `sts:AssumeRole` or `sts:GetFederationToken`

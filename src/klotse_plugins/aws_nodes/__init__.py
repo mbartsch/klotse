@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 
 from klotse.plugins import Action, Column, Copy, Message, OpenUrl, Plugin, Setting, ShowText
 
-from .console import account_for, console_results
-from .ec2 import Ec2, Ec2Error, Ec2Unavailable, boto3_session
+from .console import account_for, console_results, profile_for
+from .ec2 import Ec2Error, Ec2Unavailable, boto3_session, default_ec2
 from .federation import FederationError, console_credentials, fetch_json, login_url
 from .instances import InstanceCache
 from .nodeinfo import parse_node
@@ -41,7 +41,7 @@ class AwsNodes(Plugin):
     id = "aws-nodes"
     name = "AWS nodes"
     version = "0.1"
-    requires_api = 3
+    requires_api = 4
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
                    "Works without a login (the cluster's own data plus AWS's public price list); with boto3 and AWS "
@@ -62,11 +62,15 @@ class AwsNodes(Plugin):
         Action("cost", "Estimate the cost of the selected nodes", multi=True),
     )
     settings = (
-        Setting("use_aws_api", "Use the AWS API when boto3 and credentials are available", True, kind="bool",
-                help="Adds spot prices, the real launch time and the AMI of every node. Untick to use only the cluster "
-                     "and the public price list."),
-        Setting("aws_profile", "AWS profile", "",
+        Setting("use_aws_api", "Use the AWS API when credentials are available", True, kind="bool",
+                help="Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. "
+                     "It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick "
+                     "to use only the cluster and the public price list."),
+        Setting("aws_profile", "AWS profile (default for all clusters)", "",
                 help="A profile from your AWS config. Empty uses the default credentials."),
+        Setting("profile_map", "AWS profile for each cluster", "", kind="multiline",
+                help="Clusters in other accounts need their own profile. One per line, as context = profile; the context is "
+                     "the cluster's name in your kubeconfig. A cluster that is not listed uses the default profile above."),
         Setting("multi_account", "I use several AWS accounts in the console", False, kind="bool",
                 help="Then \"Open in the EC2 console\" has to say which account to open. Fill in the three settings below."),
         Setting("sso_start_url", "IAM Identity Center start URL", "",
@@ -80,11 +84,12 @@ class AwsNodes(Plugin):
                      "your browser, so there is no login page. The link is never shown, logged or kept. With several "
                      "accounts it assumes the role named above in the cluster's account. Not used with IAM Identity "
                      "Center, whose portal signs you in."),
-        Setting("account_map", "Account for each cluster", "",
-                help="Which account a cluster is in, as context=123456789012 entries separated by ; . Only needed when the "
+        Setting("account_map", "Account for each cluster", "", kind="multiline",
+                help="Which account a cluster is in, one per line as context = 123456789012. Only needed when the "
                      "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
     )
-    session_factory = staticmethod(boto3_session)  # replaced in tests
+    session_factory = staticmethod(boto3_session)  # for the sign-in (STS needs boto3); replaced in tests
+    ec2_factory = staticmethod(default_ec2)  # boto3 if installed, else the built-in client; replaced in tests
     federation_fetch = staticmethod(fetch_json)  # replaced in tests
 
     def __init__(self):
@@ -96,11 +101,10 @@ class AwsNodes(Plugin):
     def _api(self, profile):
         with self._lock:
             if profile not in self._ec2:
-                session = self.session_factory(profile)
-                self._ec2[profile] = Ec2(lambda region: session.client("ec2", region_name=region))
+                self._ec2[profile] = self.ec2_factory(profile)
             return self._ec2[profile]
 
-    def _from_aws(self, nodes, settings, warn, cache_dir=None):
+    def _from_aws(self, nodes, settings, warn, cache_dir=None, profile=None):
         """(instance details, spot prices, boto3 missing) from AWS; empty when it is off, boto3 is missing or AWS says no.
 
         The details (AMI, launch time, zone, spot or not) never change for an instance, so each instance is asked about
@@ -108,7 +112,8 @@ class AwsNodes(Plugin):
         without credentials too) when all are known. Only spot prices are fetched again every time."""
         if not settings.get("use_aws_api", True):
             return {}, {}, False
-        profile, state = str(settings.get("aws_profile") or ""), {"api": None, "no_boto3": False, "failed": False}
+        profile = str(settings.get("aws_profile") or "") if profile is None else profile
+        state = {"api": None, "no_boto3": False, "failed": False}
 
         def api():
             """The AWS client, made on first need; None when boto3 is missing or the profile is unusable."""
@@ -150,8 +155,9 @@ class AwsNodes(Plugin):
         return details, spot, state["no_boto3"]
 
     # ---- the numbers --------------------------------------------------------------------------
-    def collect(self, resources, settings, cache_dir, warn):
-        """{resource key: {column key: value}} for the AWS nodes among `resources` (the others are left out)."""
+    def collect(self, resources, settings, cache_dir, warn, context=""):
+        """{resource key: {column key: value}} for the AWS nodes among `resources` (the others are left out). `context`
+        is the cluster they come from: it decides which AWS profile is used."""
         nodes = {}
         for resource in resources:
             info = parse_node(resource)
@@ -171,11 +177,11 @@ class AwsNodes(Plugin):
             if table.note:
                 warn(f"{region}: {table.note}")
             tables[(region, os_name)] = table.prices
-        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir)
+        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir, profile_for(context, settings))
         without_ami = [n for n in nodes.values() if not n.ami and not (details.get(n.instance_id) or {}).get("ami")]
         if no_boto3 and without_ami:  # these AMIs can only come from EC2, which needs boto3 and credentials
             warn(f"{len(without_ami)} node(s) have no node group image label, so their AMI can only be looked up in "
-                 f"AWS: install boto3 in Klotse's environment and sign in to AWS (the packaged apps do not include boto3)")
+                 f"AWS, which needs boto3 or the AWS CLI with credentials")
         for key, node in nodes.items():
             extra = details.get(node.instance_id) or {}
             capacity = "spot" if extra.get("spot") else node.capacity
@@ -191,7 +197,7 @@ class AwsNodes(Plugin):
 
     # ---- the plugin interface -------------------------------------------------------------------
     def enrich(self, request):
-        return self.collect(request.resources, request.settings, request.cache_dir, request.warn)
+        return self.collect(request.resources, request.settings, request.cache_dir, request.warn, request.context)
 
     def applies(self, action, resource):
         return parse_node(resource) is not None
@@ -223,7 +229,7 @@ class AwsNodes(Plugin):
             role = str(settings.get("role_name") or "").strip() if multi else ""
             if multi and not (account and role):
                 raise FederationError("with several accounts it needs the cluster's account and a role name to assume")
-            session = self.session_factory(str(settings.get("aws_profile") or ""))
+            session = self.session_factory(profile_for(request.context, settings))
             url = login_url(console_credentials(session, account, role, gov), destination, gov, fetch=self.federation_fetch)
         except Ec2Unavailable:
             return [Message("Automatic sign-in needs boto3, which is not installed here. Opening the normal link.",
@@ -236,7 +242,7 @@ class AwsNodes(Plugin):
     def cost_report(self, request, infos):
         warnings = []
         values = self.collect([r for r, _ in infos], request.settings, request.cache_dir,
-                              lambda text: warnings.append(text) if text not in warnings else None)
+                              lambda text: warnings.append(text) if text not in warnings else None, request.context)
         rows, total_hour, unpriced = [], 0.0, []
         for resource, info in infos:
             v = values[resource.key]

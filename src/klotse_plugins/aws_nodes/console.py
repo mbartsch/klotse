@@ -26,14 +26,27 @@ def account_from_context(context):
     return match["account"] if match else None
 
 
-def parse_account_map(text):
-    """{context name: account id} from "context=123456789012" entries separated by ; , or new lines (bad ones are skipped)."""
+def parse_pairs(text, valid=None):
+    """{name: value} from "name=value" entries separated by new lines (or ; or ,); entries that are not one, or whose value
+    `valid` rejects, are skipped."""
     mapping = {}
     for entry in re.split(r"[;,\n]", str(text or "")):
-        name, _, account = entry.partition("=")
-        if name.strip() and ACCOUNT_ID.fullmatch(account.strip()):
-            mapping[name.strip()] = account.strip()
+        name, _, value = entry.partition("=")
+        name, value = name.strip(), value.strip()
+        if name and value and (valid is None or valid(value)):
+            mapping[name] = value
     return mapping
+
+
+def parse_account_map(text):
+    """{context name: account id} from "context=123456789012" entries (bad ones are skipped)."""
+    return parse_pairs(text, lambda value: ACCOUNT_ID.fullmatch(value) is not None)
+
+
+def profile_for(context, settings):
+    """The AWS profile for a cluster: its entry in "AWS profile for each cluster", else the default profile ("" = the
+    default credentials)."""
+    return parse_pairs(settings.get("profile_map")).get(context) or str(settings.get("aws_profile") or "")
 
 
 def account_for(context, settings):

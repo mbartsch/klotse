@@ -91,3 +91,20 @@ class Ec2:
         except Exception as error:
             raise Ec2Error(_clean(error)) from error
         return {key: price for key, (_, price) in latest.items()}
+
+
+def default_ec2(profile=""):
+    """An `Ec2` for a profile: through boto3 when it is installed, otherwise through the built-in client (native.py) with the
+    credentials the AWS CLI or the environment provide (awscreds.py). Raises Ec2Error when there are no usable credentials."""
+    from .awscreds import CredentialSource, CredentialsError
+    from .native import NativeEc2Client
+    try:
+        session = boto3_session(profile)
+    except Ec2Unavailable:
+        source = CredentialSource(profile)
+        try:
+            source.get()  # fail once, here, instead of once per region
+        except CredentialsError as error:
+            raise Ec2Error(str(error)) from None
+        return Ec2(lambda region: NativeEc2Client(region, source))
+    return Ec2(lambda region: session.client("ec2", region_name=region))
