@@ -1,9 +1,10 @@
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout,
                                QWidget)
 
 from ..k8s.resources import SPEC_BY_KEY
+from .loading_pane import LoadingPane
 from .resource_table import ResourceTable
 from .theme import ACCENT, BORDER, MUTED
 
@@ -137,6 +138,13 @@ class OverviewView(QWidget):
         self.cards = {}
         self._data = None
         self.focus = None  # drill-down card key currently shown, or None for recent events
+        # Shown in place of the (still empty) events table while the first data is on its way, so the page does not
+        # look dead. The cards above stay usable; nothing is blocked.
+        self.loading_page = LoadingPane()
+        self.loading_label, self.loading_clock = self.loading_page.label, self.loading_page.clock
+        self._load_clock = QElapsedTimer()
+        self._load_timer = QTimer(self, interval=1000)
+        self._load_timer.timeout.connect(self._loading_tick)
         grid = QGridLayout()
         for i, (key, title, tone) in enumerate(cards):
             self.cards[key] = Card(key, title, tone)
@@ -165,6 +173,7 @@ class OverviewView(QWidget):
         self.stack = QStackedWidget()
         for t in self.tables():
             self.stack.addWidget(t)
+        self.stack.addWidget(self.loading_page)
         lay = QVBoxLayout(self)
         lay.addLayout(grid)
         lay.addWidget(self.usage)
@@ -174,7 +183,26 @@ class OverviewView(QWidget):
     def tables(self):
         return [self.events_table, self.pods_table, self.warnings_table]
 
+    def set_loading(self):
+        """A load started. Only the first one (nothing to show yet) gets an indicator; routine refreshes stay quiet."""
+        if self._data is not None or self._load_timer.isActive():
+            return
+        self._load_clock.start()
+        self.loading_page.show_busy("Loading cluster data…")
+        self.stack.setCurrentWidget(self.loading_page)
+        self._load_timer.start()
+
+    def _loading_tick(self):
+        self.loading_label.setText(f"Loading cluster data… {self._load_clock.elapsed() // 1000}s")
+
+    def set_error(self, message):
+        self._load_timer.stop()
+        if self._data is None:  # with data on screen the status bar message is enough
+            self.loading_page.show_failed(f"Load failed: {message}")
+            self.stack.setCurrentWidget(self.loading_page)
+
     def set_data(self, data):
+        self._load_timer.stop()
         self._data = data
         lists = data.get("lists", {})
         for key, card in self.cards.items():

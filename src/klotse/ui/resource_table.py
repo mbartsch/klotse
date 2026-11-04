@@ -1,7 +1,8 @@
 from PySide6.QtCore import QElapsedTimer, QSortFilterProxyModel, Qt, Signal, QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QTableView,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QStackedWidget,
+                               QTableView, QVBoxLayout, QWidget)
 
+from .loading_pane import LoadingPane
 from .table_model import TableModel
 
 
@@ -80,22 +81,38 @@ class ResourceTable(QWidget):
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(self.status)
-        lay.addWidget(self.view)
+        # Long lists (Nodes, Pods) can take a while the first time: while there is nothing to show yet, a large
+        # message takes the place of the empty table. Reloads with rows on screen only use the status line.
+        self.loading_page = LoadingPane()
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.view)
+        self.stack.addWidget(self.loading_page)
+        lay.addWidget(self.stack, 1)
 
     def set_loading(self):
         self._load_clock.start()
         self.status.setText("Loading…")
+        if not self.model.rowCount():
+            self.loading_page.show_busy("Loading…")
+            self.stack.setCurrentWidget(self.loading_page)
         self._load_timer.start()
 
     def _loading_tick(self):
-        self.status.setText(f"Loading… {self._load_clock.elapsed() // 1000}s")
+        text = f"Loading… {self._load_clock.elapsed() // 1000}s"
+        self.status.setText(text)
+        if self.stack.currentWidget() is self.loading_page:
+            self.loading_page.show_busy(text)
 
     def set_error(self, message):
         self._load_timer.stop()
         self.status.setText(f"Load failed: {message}")
+        if not self.model.rowCount():  # nothing else on screen: say it where the list would be
+            self.loading_page.show_failed(f"Load failed: {message}")
+            self.stack.setCurrentWidget(self.loading_page)
 
     def set_rows(self, rows):
         self._load_timer.stop()
+        self.stack.setCurrentWidget(self.view)
         self.model.set_rows(rows)
         self.view.resizeColumnsToContents()
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
