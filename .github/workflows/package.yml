@@ -22,8 +22,8 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip  # reuses downloaded wheels (PySide6 is ~100 MB); keyed on the requirements files
@@ -45,7 +45,7 @@ jobs:
       - name: Build (zip + installer, self-tested)
         shell: powershell
         run: ./packaging/windows/build.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -62,8 +62,8 @@ jobs:
           - { os: macos-15-intel, arch: x86_64 }   # Intel
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip  # reuses downloaded wheels (PySide6 is ~100 MB); keyed on the requirements files
@@ -73,7 +73,7 @@ jobs:
       - name: Build (app + dmg, self-tested)
         # Without signing secrets the app is ad-hoc signed only; see packaging/README.md for Developer ID and notarization.
         run: bash packaging/macos/build.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: dist/Klotse-*.dmg
@@ -86,7 +86,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Create a draft release
