@@ -39,7 +39,7 @@ Both scripts finish by running the packaged app's own self-test (below), and fai
 
 - **Actions → Package → Run workflow** builds everything and keeps the files as downloadable artifacts.
 - **Pushing a tag** such as `v0.1.0` does the same and then creates a **draft** release with the files and a
-  `SHA256SUMS.txt` attached. Nothing is public until you publish the draft. The version comes from the tag
+  `SHA256SUMS.txt` attached (this worked for `v0.1.0`). Nothing is public until you publish the draft. The version comes from the tag
   (`v0.2.0` becomes `0.2.0`), so there is no file to edit; a tag that is not a plain `vX.Y.Z` stops the build.
 
 To release: merge to `master`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Builds from any other commit get a
