@@ -127,3 +127,21 @@ def test_the_clock_only_ticks_while_it_is_on_screen_and_draws(qtbot):
     assert not pane.clock.grab().isNull()  # painting does not raise
     pane.hide()
     assert not pane.clock._timer.isActive()
+
+
+def test_the_hands_keep_their_place_when_the_clock_is_hidden_shown_or_the_text_changes(qtbot, monkeypatch):
+    from klotse.ui import loading_pane
+    now = [1000.0]
+    monkeypatch.setattr(loading_pane, "monotonic", lambda: now[0])
+    pane = loading_pane.LoadingPane()
+    qtbot.addWidget(pane)
+    pane.show_busy("Loading… 0s")
+    pane.show()
+    now[0] += 0.5
+    before = pane.clock.angles()
+    pane.hide()  # a tab switch, a redraw, a relayout...
+    pane.show()
+    pane.show_busy("Loading… 1s")  # the once-a-second tick
+    assert pane.clock.angles() == before  # same moment, same hands: nothing restarted
+    now[0] += 0.5
+    assert pane.clock.angles() != before  # and time still moves them on

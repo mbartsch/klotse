@@ -1,4 +1,6 @@
-from PySide6.QtCore import QElapsedTimer, QPointF, Qt, QTimer
+from time import monotonic
+
+from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
@@ -8,25 +10,28 @@ MINUTE_HAND_TURN_MS = 2000  # the minute hand goes round once in this time; the 
 
 
 def hand_angles(elapsed_ms):
-    """(hour hand, minute hand) in degrees clockwise from 12 o'clock after `elapsed_ms` of loading."""
+    """(hour hand, minute hand) in degrees clockwise from 12 o'clock at `elapsed_ms` on a clock that never stops."""
     minute = (elapsed_ms / MINUTE_HAND_TURN_MS * 360.0) % 360.0
     return (minute / 12.0) % 360.0, minute
 
 
 class ClockSpinner(QWidget):
-    """An old analog clock whose hands keep moving while something loads. It only animates while it is on screen."""
+    """An old analog clock whose hands keep moving while something loads. It only animates while it is on screen.
+    The hands show the time on one continuous clock (never restarted), so hiding, showing or re-laying out the widget
+    cannot send them back to 12: they simply carry on from where they would be."""
 
     SIZE = 96
 
     def __init__(self):
         super().__init__()
         self.setFixedSize(self.SIZE, self.SIZE)
-        self._elapsed = QElapsedTimer()
         self._timer = QTimer(self, interval=40)
         self._timer.timeout.connect(self.update)
 
+    def angles(self):
+        return hand_angles(monotonic() * 1000.0)
+
     def showEvent(self, event):
-        self._elapsed.start()
         self._timer.start()
         super().showEvent(event)
 
@@ -35,7 +40,7 @@ class ClockSpinner(QWidget):
         super().hideEvent(event)
 
     def paintEvent(self, _event):
-        hour, minute = hand_angles(self._elapsed.elapsed() if self._elapsed.isValid() else 0)
+        hour, minute = self.angles()
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.translate(self.width() / 2, self.height() / 2)
@@ -81,7 +86,8 @@ class LoadingPane(QWidget):
 
     def show_busy(self, text):
         self.label.setText(text)
-        self.clock.show()
+        if self.clock.isHidden():  # not on every tick: a needless show() could restart things
+            self.clock.show()
 
     def show_failed(self, text):
         self.label.setText(text)
