@@ -48,13 +48,16 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
 
 ## Install
 
-Native installers for Windows and macOS are being set up (see [`packaging/README.md`](packaging/README.md)); none
-has been published yet. Until then, run it from source as described below.
+Native packages are built for Windows (an installer and a portable `.zip`) and macOS (a `.dmg` for Apple Silicon and
+one for Intel). None has been published yet; once they are, they will be on the project's
+[Releases](https://github.com/mbartsch/klotse/releases) page. Until then, run Klotse from source (below) or build the
+packages yourself (see [Development](#development)).
 
-Once they are published the files will be on the project's
-[Releases](https://github.com/mbartsch/klotse/releases) page. They are not signed yet, so expect a warning on first
-start: on Windows choose **More info → Run anyway**, on macOS right-click the app and choose **Open**.
-`kubectl` still has to be installed separately.
+- The Windows installer has been built and tested here (install, run, uninstall). The macOS builds are set up but have
+  not been tested yet.
+- The packages are not signed yet, so expect a warning on first start: on Windows choose **More info → Run anyway**,
+  on macOS right-click the app and choose **Open**.
+- `kubectl` is not included and has to be installed separately.
 
 ## Run
 
@@ -120,6 +123,16 @@ real settings. `run_tests.sh` / `run_tests.bat` wrap the same command.
 
 After all tests pass the pytest process can still exit non-zero (a crash during Qt teardown in some test orders).
 This is a known, unresolved issue that predates recent work, so check the pass count and the exit status separately.
+
+To build the native packages (details, signing and releases in [`packaging/README.md`](packaging/README.md)):
+
+```sh
+powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1   # Windows: zip, plus installer if Inno Setup is installed
+packaging/macos/build.sh                                               # macOS: Klotse.app and a .dmg
+```
+
+A packaged app can check itself: `Klotse --version` and `Klotse --self-test [REPORT_FILE]`. GitHub Actions builds
+everything on a version tag (`v0.1.0`) or on demand and drafts a release.
 
 [`AGENTS.md`](AGENTS.md) documents the architecture, file map and behavior to preserve; read it before larger
 changes. Work goes through pull requests from a branch; do not commit to `master` directly.
