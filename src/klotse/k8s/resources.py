@@ -251,7 +251,7 @@ SPECS = [
     Spec("configmaps", "ConfigMaps", "ConfigMap", "config_map", "core", True,
          (("Name", "name"), NS, ("Keys", "keys"), AGE), map_configmap),
     Spec("secrets", "Secrets", "Secret", "secret", "core", True,
-         (("Name", "name"), NS, ("Type", "type"), ("Keys", "keys"), AGE), map_secret, editable=False),
+         (("Name", "name"), NS, ("Type", "type"), ("Keys", "keys"), AGE), map_secret),
     Spec("services", "Services", "Service", "service", "core", True,
          (("Name", "name"), NS, ("Type", "type"), ("Cluster IP", "cluster_ip"), ("External IP", "external_ip"),
           ("Ports", "ports"), ("Selector", "selector"), AGE), map_service),

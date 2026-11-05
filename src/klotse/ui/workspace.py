@@ -28,6 +28,7 @@ from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, 
 from .resource_table import ResourceTable
 from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky
 from .service_account_editor import ServiceAccountEditDialog
+from .data_editor import DATA_KINDS, DataEditDialog, new_manifest
 from .workload_editor import WorkloadEditDialog
 from .workload_model import CREATABLE_KINDS, EDIT_KINDS, skeleton
 from .scale_monitor import ScaleMonitor
@@ -165,7 +166,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.pods_table.action_requested.connect(self.pod_action)
                 widget.pods_table.bulk_requested.connect(self.bulk_action)
             if isinstance(widget, ResourceTable):
-                if widget.kind in CREATABLE_KINDS:  # Deployments, DaemonSets, StatefulSets and Pods can be created here
+                if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS):  # these kinds can be created from their list
                     widget.enable_new()
                     widget.new_requested.connect(lambda *_a, k=widget.kind: self.create_resource(k))
                 widget.customize_requested.connect(self.customize_requested)
@@ -649,29 +650,34 @@ class ClusterWorkspace(QMainWindow):
     def _has_form(self, kind, raw):
         """Whether the kind has a form editor for this manifest (an aggregated role's rules are overwritten, so no)."""
         return (kind in RULE_KINDS and not raw.get("aggregationRule")) or kind in BINDING_KINDS \
-            or kind == "ServiceAccount" or kind in EDIT_KINDS
+            or kind == "ServiceAccount" or kind in EDIT_KINDS or kind in DATA_KINDS
 
-    def _form_for(self, kind, raw, namespace, creating=False):
+    def _form_for(self, kind, raw, namespace, creating=False, secret_data=None):
         if kind in RULE_KINDS:
             return RoleEditDialog(kind, raw, self.api_loader(), self)
         if kind in BINDING_KINDS:
             return BindingEditDialog(kind, raw, self.account_directory(), self)
         if kind == "ServiceAccount":
             return ServiceAccountEditDialog(kind, raw, self.secret_directory(namespace), self)
+        if kind in DATA_KINDS:
+            return DataEditDialog(kind, raw, self, secret_data=secret_data, create=creating,
+                                  namespaces=self._namespace_names())
         return WorkloadEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names())
 
     def _namespace_names(self):
         return [self.ns_combo.itemText(i) for i in range(self.ns_combo.count()) if self.ns_combo.itemText(i) != ALL_NS]
 
     def edit_resource(self, kind, row):
-        self._edit_flow(kind, row.raw, row.name, row.namespace)
+        self._edit_flow(kind, row.raw, row.name, row.namespace, secret_data=getattr(row, "secret_data", None))
 
     def create_resource(self, kind):
-        """New Deployment / DaemonSet / StatefulSet / Pod: the form (or YAML) starts from a skeleton in the chosen namespace."""
-        namespace = self.namespace()
-        self._edit_flow(kind, skeleton(kind, DEFAULT_NS if namespace == ALL_NS else namespace), "", "", creating=True)
+        """New Deployment, DaemonSet, StatefulSet, Pod, ConfigMap or Secret: the form (or YAML) starts from a skeleton in the
+        chosen namespace."""
+        namespace = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
+        raw = new_manifest(kind, namespace) if kind in DATA_KINDS else skeleton(kind, namespace)
+        self._edit_flow(kind, raw, "", "", creating=True)
 
-    def _edit_flow(self, kind, raw, name, namespace, creating=False):
+    def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None):
         """The form and the YAML editor are two views of one manifest: each hands its current (pending) changes to the
         other, until one of them saves or the user cancels."""
         current, from_yaml = raw, False
@@ -680,7 +686,7 @@ class ClusterWorkspace(QMainWindow):
             if self._has_form(kind, current):
                 try:
                     form = self._form_for(kind, current, namespace or (current.get("metadata") or {}).get("namespace", ""),
-                                          creating)
+                                          creating, secret_data)
                 except Exception as error:  # noqa: BLE001 - YAML typed by hand that the form cannot show
                     if not from_yaml:
                         raise
@@ -690,7 +696,7 @@ class ClusterWorkspace(QMainWindow):
                 accepted = form.exec() == QDialog.Accepted
                 form.deleteLater()
                 if accepted:
-                    self._submit(kind, name, form.result_body, creating)
+                    self._submit(kind, name, form.result_body, creating, namespace)
                     return
                 if not form.wants_yaml:
                     return
@@ -709,8 +715,12 @@ class ClusterWorkspace(QMainWindow):
                 return
             current, from_yaml = dlg.pending_body, True  # the YAML as typed, shown in the form
 
-    def _submit(self, kind, name, body, creating):
+    def _submit(self, kind, name, body, creating, namespace=""):
         name = name or (body.get("metadata") or {}).get("name", "")
+        if kind == "Secret" and not creating:  # the form hands over a patch with only what changed, never the whole Secret
+            self.message.emit(f"Saving Secret {name}…")
+            self._run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)
+            return
         if creating:
             self.message.emit(f"Creating {kind} {name}…")
             self._run(self.service.create, lambda _: self._created(kind, name), kind, body)

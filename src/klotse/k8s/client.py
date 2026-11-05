@@ -169,7 +169,8 @@ class KubeService:
         return map_namespace(self._core.create_namespace(body))
 
     def create(self, kind, body):
-        """Create a Deployment, DaemonSet, StatefulSet or Pod from a manifest (like `kubectl create`); returns the stored row."""
+        """Create a Deployment, DaemonSet, StatefulSet, Pod, ConfigMap or Secret from a manifest (like `kubectl create`);
+        returns the stored row."""
         ns = (body.get("metadata") or {}).get("namespace") or "default"
         if kind == "Pod":
             return map_pod(self._core.create_namespaced_pod(ns, body))
@@ -179,7 +180,16 @@ class KubeService:
             return map_statefulset(self._apps.create_namespaced_stateful_set(ns, body))
         if kind == "DaemonSet":
             return SPEC_BY_KIND["DaemonSet"].mapper(self._apps.create_namespaced_daemon_set(ns, body))
+        if kind == "ConfigMap":
+            return SPEC_BY_KIND["ConfigMap"].mapper(self._core.create_namespaced_config_map(ns, body))
+        if kind == "Secret":
+            return SPEC_BY_KIND["Secret"].mapper(self._core.create_namespaced_secret(ns, body))
         raise ValueError(f"Creating {kind} is not supported")
+
+    def patch_secret(self, namespace, name, patch):
+        """Change a Secret with a merge patch that holds only what changed (a key set to None is removed). The values that
+        were not touched are never sent back."""
+        return SPEC_BY_KIND["Secret"].mapper(self._core.patch_namespaced_secret(name, namespace, patch))
 
     def replace(self, kind, body):
         """Replace a resource with an edited manifest (like `kubectl replace`); returns the stored row."""

@@ -358,7 +358,7 @@ def test_generic_views_lazy_and_namespace_scoped(qtbot):
     ws.tabs.setCurrentWidget(ws.views["persistentvolumes"][0])  # switching by clicking a tab reloads it too
     qtbot.waitUntil(lambda: ("persistentvolumes", None) in svc.requested, timeout=5000)
     # read-only kinds expose no Edit action
-    assert not ws.views["secrets"][0].editable and not ws.views["events"][0].editable
+    assert ws.views["secrets"][0].editable and not ws.views["events"][0].editable  # secrets: form editor only
     assert ws.views["services"][0].editable
 
 
