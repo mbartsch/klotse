@@ -46,7 +46,7 @@ def short(error):
 def fetch_json(endpoint, form, timeout=20):
     """POST a form to the federation endpoint and return its JSON answer. Errors say what failed, never what was sent."""
     request = urllib.request.Request(require_https(endpoint), data=urllib.parse.urlencode(form).encode(), method="POST",
-                                     headers={"User-Agent": "Klotse-aws-nodes"})
+                                     headers={"User-Agent": "Klotse-aws"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - https only, checked above
             return json.loads(response.read(1_000_000))

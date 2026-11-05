@@ -5,7 +5,7 @@ from klotse.plugins import Plugin, Setting
 from klotse.ui.cluster_settings_dialog import ClusterSettingsDialog
 from klotse.ui.customizations import LabelSettings
 from klotse.ui.main_window import MainWindow
-from klotse_plugins.aws_nodes import AwsNodes, console
+from klotse_plugins.aws import AwsPlugin, console
 from test_app import FakeService, open_active
 from test_plugins import manager_with, store
 
@@ -48,7 +48,7 @@ def test_aws_profile_and_account_follow_the_cluster_settings():
 
 
 def test_the_aws_plugin_declares_a_profile_and_an_account_per_cluster():
-    assert [s.key for s in AwsNodes.cluster_settings] == ["cluster_profile", "cluster_account"]
+    assert [s.key for s in AwsPlugin.cluster_settings] == ["cluster_profile", "cluster_account"]
 
 
 def test_the_dialog_saves_validates_and_cancels(qtbot, tmp_path, monkeypatch):

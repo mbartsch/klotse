@@ -9,13 +9,13 @@ from PySide6.QtCore import QSettings
 
 from klotse.plugins import ActionRequest, EnrichRequest, ResourceInfo
 from klotse.plugins.manager import PluginManager
-from klotse_plugins.aws_nodes import AwsNodes, console, pricing
-from klotse_plugins.aws_nodes import ec2 as ec2_module
-from klotse_plugins.aws_nodes import native as native_module
-from klotse_plugins.aws_nodes.awscreds import (REFRESH_BEFORE_S, AwsCredentials, CredentialSource, CredentialsError)
-from klotse_plugins.aws_nodes.ec2 import Ec2, Ec2Error, Ec2Unavailable, default_ec2
-from klotse_plugins.aws_nodes.native import AwsHttpError, NativeEc2Client
-from klotse_plugins.aws_nodes.sigv4 import sign
+from klotse_plugins.aws import AwsPlugin, console, pricing
+from klotse_plugins.aws import ec2 as ec2_module
+from klotse_plugins.aws import native as native_module
+from klotse_plugins.aws.awscreds import (REFRESH_BEFORE_S, AwsCredentials, CredentialSource, CredentialsError)
+from klotse_plugins.aws.ec2 import Ec2, Ec2Error, Ec2Unavailable, default_ec2
+from klotse_plugins.aws.native import AwsHttpError, NativeEc2Client
+from klotse_plugins.aws.sigv4 import sign
 
 NS = 'xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"'
 
@@ -244,7 +244,7 @@ def test_without_boto3_the_built_in_client_is_used_with_cli_credentials(monkeypa
         def get(self):
             return AwsCredentials("a", "b", "c")
 
-    monkeypatch.setattr("klotse_plugins.aws_nodes.awscreds.CredentialSource", Source)
+    monkeypatch.setattr("klotse_plugins.aws.awscreds.CredentialSource", Source)
     api = default_ec2("work")
     assert isinstance(api, Ec2) and made == ["work"]
     assert isinstance(api.client("eu-west-1"), NativeEc2Client)
@@ -260,7 +260,7 @@ def test_missing_credentials_fail_once_when_the_api_is_made(monkeypatch):
         def get(self):
             raise CredentialsError("no AWS credentials: install the AWS CLI")
 
-    monkeypatch.setattr("klotse_plugins.aws_nodes.awscreds.CredentialSource", Source)
+    monkeypatch.setattr("klotse_plugins.aws.awscreds.CredentialSource", Source)
     with pytest.raises(Ec2Error, match="no AWS credentials"):
         default_ec2("")
 
@@ -294,11 +294,11 @@ def node(name, iid="i-0abc1", zone="eu-west-1a"):
 
 @pytest.fixture
 def prices(monkeypatch):
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices", lambda *a, **k: pricing.PriceTable({"m5.large": 0.096}))
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices", lambda *a, **k: pricing.PriceTable({"m5.large": 0.096}))
 
 
 def plugin_recording_profiles():
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     asked = []
 
     def api(profile):
@@ -314,19 +314,19 @@ SETTINGS = {"use_aws_api": True, "aws_profile": "default-one", "profile_map": "p
 
 def test_the_clusters_profile_is_the_one_used_for_its_nodes(prices, tmp_path):
     plugin, asked = plugin_recording_profiles()
-    plugin.enrich(EnrichRequest("aws-nodes", "Node", "prod-eu", [node("n1")], SETTINGS, cache_dir=tmp_path / "a"))
-    plugin.enrich(EnrichRequest("aws-nodes", "Node", "other", [node("n1")], SETTINGS, cache_dir=tmp_path / "b"))
+    plugin.enrich(EnrichRequest("aws", "Node", "prod-eu", [node("n1")], SETTINGS, cache_dir=tmp_path / "a"))
+    plugin.enrich(EnrichRequest("aws", "Node", "other", [node("n1")], SETTINGS, cache_dir=tmp_path / "b"))
     assert asked == ["prod-profile", "default-one"]
 
 
 def test_the_cost_estimate_uses_the_clusters_profile_too(prices, tmp_path):
     plugin, asked = plugin_recording_profiles()
-    plugin.run(ActionRequest("aws-nodes", "cost", "Node", "prod-eu", [node("n1")], SETTINGS, cache_dir=tmp_path))
+    plugin.run(ActionRequest("aws", "cost", "Node", "prod-eu", [node("n1")], SETTINGS, cache_dir=tmp_path))
     assert asked == ["prod-profile"]
 
 
 def test_the_automatic_sign_in_uses_the_clusters_profile(prices):
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     asked = []
 
     def factory(profile):
@@ -334,12 +334,12 @@ def test_the_automatic_sign_in_uses_the_clusters_profile(prices):
         raise Ec2Error("denied")
 
     plugin.session_factory = factory
-    request = ActionRequest("aws-nodes", "console", "Node", "prod-eu", [node("n1")], {**SETTINGS, "auto_login": True})
+    request = ActionRequest("aws", "console", "Node", "prod-eu", [node("n1")], {**SETTINGS, "auto_login": True})
     plugin.run(request)
     assert asked == ["prod-profile"]
 
 
 def test_the_profile_is_part_of_the_setting_list_and_the_maps_are_multiline():
-    kinds = {s.key: s.kind for s in AwsNodes.settings}
+    kinds = {s.key: s.kind for s in AwsPlugin.settings}
     assert kinds["profile_map"] == "multiline" and kinds["account_map"] == "multiline" and kinds["aws_profile"] == "text"
-    assert AwsNodes.requires_api == 6
+    assert AwsPlugin.requires_api == 6

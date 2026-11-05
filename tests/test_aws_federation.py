@@ -6,10 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from klotse.plugins import ActionRequest, Message, OpenUrl, ResourceInfo
-from klotse_plugins.aws_nodes import AwsNodes
-from klotse_plugins.aws_nodes import federation
-from klotse_plugins.aws_nodes.ec2 import Ec2Error, Ec2Unavailable
-from klotse_plugins.aws_nodes.federation import Credentials, FederationError, console_credentials, login_url
+from klotse_plugins.aws import AwsPlugin
+from klotse_plugins.aws import federation
+from klotse_plugins.aws.ec2 import Ec2Error, Ec2Unavailable
+from klotse_plugins.aws.federation import Credentials, FederationError, console_credentials, login_url
 
 ARN = "arn:aws:eks:eu-west-1:123456789012:cluster/prod"
 SECRET = "SECRETKEYVALUE+/abc"
@@ -169,7 +169,7 @@ def test_credential_problems_are_readable_and_hold_no_secret():
 
 # ---- the plugin action ----------------------------------------------------------------------------------
 def make_plugin(session=None, signin=None, error=None):
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     plugin.federation_fetch = signin or FakeSignin()
 
     def factory(profile):
@@ -186,7 +186,7 @@ def make_plugin(session=None, signin=None, error=None):
 def run(plugin, context=ARN, **settings):
     values = {"multi_account": False, "sso_start_url": "", "role_name": "", "account_map": "", "auto_login": True,
               "use_aws_api": False, "aws_profile": "work", **settings}
-    return plugin.run(ActionRequest("aws-nodes", "console", "Node", context, [node()], values))
+    return plugin.run(ActionRequest("aws", "console", "Node", context, [node()], values))
 
 
 def test_automatic_sign_in_opens_the_one_time_login_link():

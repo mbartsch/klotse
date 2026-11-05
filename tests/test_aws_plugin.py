@@ -8,12 +8,12 @@ from PySide6.QtCore import QSettings
 
 from klotse.plugins import ActionRequest, EnrichRequest, ResourceInfo
 from klotse.plugins.manager import BUNDLED_MODULES, PluginManager
-from klotse_plugins.aws_nodes import AwsNodes, console_url, per_hour, per_month, when
-from klotse_plugins.aws_nodes import ec2 as ec2_module
-from klotse_plugins.aws_nodes import pricing
-from klotse_plugins.aws_nodes.ec2 import Ec2, Ec2Error, Ec2Unavailable
-from klotse_plugins.aws_nodes.nodeinfo import parse_node
-from klotse_plugins.aws_nodes.pricing import PriceError, REGION_NAMES, on_demand_prices, parse_price_file, price_url
+from klotse_plugins.aws import AwsPlugin, console_url, per_hour, per_month, when
+from klotse_plugins.aws import ec2 as ec2_module
+from klotse_plugins.aws import pricing
+from klotse_plugins.aws.ec2 import Ec2, Ec2Error, Ec2Unavailable
+from klotse_plugins.aws.nodeinfo import parse_node
+from klotse_plugins.aws.pricing import PriceError, REGION_NAMES, on_demand_prices, parse_price_file, price_url
 
 
 def node(name, instance="i-0abc123", zone="eu-west-1a", itype="m5.large", capacity=None, extra=None, os_name=None,
@@ -236,8 +236,8 @@ def test_without_boto3_the_session_says_so(monkeypatch):
 
 # ---- the plugin ---------------------------------------------------------------------------------------
 def make_plugin(prices=None, ec2=None, down=False):
-    """An AwsNodes whose price list and AWS API are fakes."""
-    plugin = AwsNodes()
+    """An AwsPlugin whose price list and AWS API are fakes."""
+    plugin = AwsPlugin()
     if ec2 is not None:
         plugin._api = lambda profile: ec2
     else:
@@ -257,7 +257,7 @@ def fake_prices(monkeypatch):
             raise PriceError("no price list is known for the region eu-nowhere-1")
         return pricing.PriceTable(dict(table), "")
 
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices", fake)
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices", fake)
     return table
 
 
@@ -315,7 +315,7 @@ def test_aws_failures_warn_but_the_columns_still_fill_in(fake_prices):
     def broken(profile):
         raise Ec2Error("The config profile (nope) could not be found")
 
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     plugin._api = broken
     values, warnings = collect(plugin, [node("n1")])
     assert warnings == ["AWS API: The config profile (nope) could not be found (using the cluster data and the public prices instead)"]
@@ -360,7 +360,7 @@ def test_a_region_without_a_price_list_warns_and_leaves_the_prices_blank(fake_pr
 
 
 def test_a_stale_price_table_is_a_warning(monkeypatch):
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices",
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices",
                         lambda *a, **k: pricing.PriceTable({"m5.large": 0.1}, "using prices from 9 days ago: down"))
     plugin, _ = make_plugin()
     values, warnings = collect(plugin, [node("n1")])
@@ -374,7 +374,7 @@ def test_each_region_and_os_is_priced_from_its_own_table(monkeypatch):
         asked.append((region, os_name))
         return pricing.PriceTable({"m5.large": 0.5 if os_name == "Windows" else 0.1})
 
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices", fake)
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices", fake)
     plugin, _ = make_plugin()
     values, _ = collect(plugin, [node("a", zone="eu-west-1a"), node("b", "i-2", zone="us-east-1b"),
                                  node("c", "i-3", zone="eu-west-1a", os_name="windows")])
@@ -384,7 +384,7 @@ def test_each_region_and_os_is_priced_from_its_own_table(monkeypatch):
 
 def test_enrich_uses_the_request(fake_prices):
     plugin, _ = make_plugin()
-    request = EnrichRequest("aws-nodes", "Node", "ctx", [node("n1")], {"use_aws_api": False}, cache_dir=None)
+    request = EnrichRequest("aws", "Node", "ctx", [node("n1")], {"use_aws_api": False}, cache_dir=None)
     assert plugin.enrich(request)["n1"]["price_od"] == 0.096 and request.warnings == []
 
 
@@ -399,17 +399,17 @@ def test_value_formats_and_the_console_link():
 
 
 def test_actions_are_only_offered_for_ec2_nodes():
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     assert plugin.applies(plugin.actions[0], node("n1")) and not plugin.applies(plugin.actions[0], node("n", provider=False))
     assert [(a.key, a.multi) for a in plugin.actions] == [("copy-id", True), ("console", False), ("cost", True)]
 
 
 def request_for(action, resources, **kwargs):
-    return ActionRequest("aws-nodes", action, "Node", "ctx", resources, {"use_aws_api": False, "aws_profile": ""}, **kwargs)
+    return ActionRequest("aws", action, "Node", "ctx", resources, {"use_aws_api": False, "aws_profile": ""}, **kwargs)
 
 
 def test_copy_and_console_actions():
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     copied = plugin.run(request_for("copy-id", [node("a", "i-1"), node("b", "i-2"), node("c", provider=False)]))
     assert copied.text == "i-1\ni-2"
     link = plugin.run(request_for("console", [node("a", "i-9")]))
@@ -418,7 +418,7 @@ def test_copy_and_console_actions():
 
 
 def test_the_cost_action_totals_the_nodes_and_says_what_it_could_not_price(fake_prices):
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
     shown = plugin.run(request_for("cost", [node("a", "i-1"), node("b", "i-2", itype="c6g.xlarge"),
                                             node("s", "i-3", capacity="spot"), node("odd", "i-4", itype="zz9.huge")]))
     text = shown.text
@@ -429,38 +429,38 @@ def test_the_cost_action_totals_the_nodes_and_says_what_it_could_not_price(fake_
 
 
 def test_the_cost_report_includes_the_notes(monkeypatch):
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices",
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices",
                         lambda *a, **k: pricing.PriceTable({"m5.large": 0.1}, "using prices from 9 days ago: down"))
-    shown = AwsNodes().run(request_for("cost", [node("a")]))
+    shown = AwsPlugin().run(request_for("cost", [node("a")]))
     assert "Notes:" in shown.text and "using prices from 9 days ago" in shown.text
 
 
 # ---- how it is bundled ---------------------------------------------------------------------------------------
 def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(tmp_path):
-    assert "klotse_plugins.aws_nodes" in BUNDLED_MODULES
+    assert "klotse_plugins.aws" in BUNDLED_MODULES
     manager = PluginManager(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat), entry_points=False)
-    found = next(f for f in manager.loaded if f.id == "aws-nodes")
-    assert found.source == "bundled" and found.error == "" and not manager.is_enabled("aws-nodes")
+    found = next(f for f in manager.loaded if f.id == "aws")
+    assert found.source == "bundled" and found.error == "" and not manager.is_enabled("aws")
     assert manager.columns_for("Node") == []
-    manager.set_enabled("aws-nodes", True)
+    manager.set_enabled("aws", True)
     assert [c[0] for c in manager.columns_for("Node")] == [
         "Instance ID", "Instance type", "Capacity", "AMI", "On-demand $/h", "Price $/h", "Price $/month", "Launched"]
     assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost"]
-    assert manager.settings_for("aws-nodes") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
+    assert manager.settings_for("aws") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
                                                  "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": "", "profile_map": ""}
 
 
 def test_the_cache_folder_is_next_to_the_settings_file(tmp_path):
     manager = PluginManager(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat), entry_points=False)
-    assert manager.cache_dir("aws-nodes") == tmp_path / "plugin-cache" / "aws-nodes"
+    assert manager.cache_dir("aws") == tmp_path / "plugin-cache" / "aws"
 
 
 def test_the_host_warns_in_the_plugins_page_but_still_uses_the_values(qtbot, tmp_path, fake_prices, monkeypatch):
     from klotse.plugins.host import PluginHost
     from klotse.k8s.models import NodeRow
     manager = PluginManager(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat), entry_points=False)
-    manager.set_enabled("aws-nodes", True)
-    monkeypatch.setattr(manager.get("aws-nodes").plugin, "_api", lambda profile: (_ for _ in ()).throw(Ec2Error("denied")))
+    manager.set_enabled("aws", True)
+    monkeypatch.setattr(manager.get("aws").plugin, "_api", lambda profile: (_ for _ in ()).throw(Ec2Error("denied")))
     calls = []
     host = PluginHost(manager, "ctx", lambda fn, ok, *a, on_error=None: calls.append((fn, ok, on_error)))
     row = NodeRow("n1", "Ready", "worker", "v1", "10.0.0.1", 4.0, 16.0, "1d", node("n1").raw)
@@ -468,13 +468,13 @@ def test_the_host_warns_in_the_plugins_page_but_still_uses_the_values(qtbot, tmp
     fn, ok, _ = calls.pop()
     ok(fn())
     host.apply("Node", [row])
-    assert row.extra["plugin:aws-nodes:price_od"] == 0.096
-    assert "denied" in manager.errors["aws-nodes"]
+    assert row.extra["plugin:aws:price_od"] == 0.096
+    assert "denied" in manager.errors["aws"]
 
 
 # ---- several AWS accounts ---------------------------------------------------------------------------------------
 from klotse.plugins import Copy, Message, OpenUrl  # noqa: E402
-from klotse_plugins.aws_nodes import console  # noqa: E402
+from klotse_plugins.aws import console  # noqa: E402
 
 ARN = "arn:aws:eks:eu-west-1:123456789012:cluster/prod"
 PLAIN = "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#InstanceDetails:instanceId=i-0abc123"
@@ -538,13 +538,13 @@ def test_several_accounts_without_a_way_to_sign_in_says_what_to_set():
 
 
 def test_the_plugin_action_uses_the_context_and_its_settings():
-    plugin = AwsNodes()
-    request = ActionRequest("aws-nodes", "console", "Node", ARN, [node("a", "i-9")],
+    plugin = AwsPlugin()
+    request = ActionRequest("aws", "console", "Node", ARN, [node("a", "i-9")],
                             {"multi_account": True, "sso_start_url": "https://d-1.awsapps.com/start", "role_name": "R",
                              "account_map": "", "use_aws_api": False, "aws_profile": ""})
     [link] = plugin.run(request)
     assert link.url.startswith("https://d-1.awsapps.com/start/#/console?account_id=123456789012&role_name=R&destination=")
-    gov_request = ActionRequest("aws-nodes", "console", "Node", "arn:aws-us-gov:eks:us-gov-east-1:210987654321:cluster/x",
+    gov_request = ActionRequest("aws", "console", "Node", "arn:aws-us-gov:eks:us-gov-east-1:210987654321:cluster/x",
                                 [node("a", "i-9", zone="us-gov-east-1a")],
                                 {"multi_account": True, "role_name": "R", "account_map": "", "sso_start_url": ""})
     assert "signin.amazonaws-us-gov.com" in plugin.run(gov_request)[1].url

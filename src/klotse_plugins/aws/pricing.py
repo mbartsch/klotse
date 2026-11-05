@@ -73,7 +73,7 @@ def parse_price_file(raw):
 
 
 def download(url, timeout=30):
-    request = urllib.request.Request(require_https(url), headers={"User-Agent": "Klotse-aws-nodes", "Accept-Encoding": "gzip"})
+    request = urllib.request.Request(require_https(url), headers={"User-Agent": "Klotse-aws", "Accept-Encoding": "gzip"})
     with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - https only, checked above
         data = response.read(MAX_DOWNLOAD_BYTES + 1)
     if len(data) > MAX_DOWNLOAD_BYTES:

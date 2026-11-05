@@ -1,9 +1,9 @@
 from klotse.plugins import ActionRequest, OpenUrl
-from klotse_plugins.aws_nodes import AwsNodes
-from klotse_plugins.aws_nodes.awscreds import AwsCredentials
-from klotse_plugins.aws_nodes.ec2 import Ec2Error
-from klotse_plugins.aws_nodes.identity import native_account
-from klotse_plugins.aws_nodes.nodeinfo import parse_node
+from klotse_plugins.aws import AwsPlugin
+from klotse_plugins.aws.awscreds import AwsCredentials
+from klotse_plugins.aws.ec2 import Ec2Error
+from klotse_plugins.aws.identity import native_account
+from klotse_plugins.aws.nodeinfo import parse_node
 
 OK = (b'<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult>'
       b'<Arn>arn:aws:sts::222233334444:assumed-role/x/y</Arn><Account>222233334444</Account></GetCallerIdentityResult>'
@@ -46,11 +46,11 @@ def node_resource():
 
 
 def request(context, settings, logs):
-    return ActionRequest("aws-nodes", "console", "Node", context, [node_resource()], settings, log=logs.append)
+    return ActionRequest("aws", "console", "Node", context, [node_resource()], settings, log=logs.append)
 
 
 def test_the_console_asks_aws_for_the_account_only_when_nothing_else_knows_it():
-    plugin, calls, logs = AwsNodes(), [], []
+    plugin, calls, logs = AwsPlugin(), [], []
     plugin.account_lookup = staticmethod(lambda profile, region: calls.append((profile, region)) or "222233334444")
     info = parse_node(node_resource())
     base = {"multi_account": True, "sso_start_url": "https://d-1.awsapps.com/start", "role_name": "Admin",
@@ -66,7 +66,7 @@ def test_the_console_asks_aws_for_the_account_only_when_nothing_else_knows_it():
 
 
 def test_a_failed_lookup_falls_back_to_the_usual_message():
-    plugin, logs = AwsNodes(), []
+    plugin, logs = AwsPlugin(), []
 
     def fail(profile, region):
         raise Ec2Error("expired")

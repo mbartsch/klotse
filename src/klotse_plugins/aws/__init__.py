@@ -38,8 +38,8 @@ def console_url(info):
     return f"https://{host}/ec2/home?region={info.region}#InstanceDetails:instanceId={info.instance_id}"
 
 
-class AwsNodes(Plugin):
-    id = "aws-nodes"
+class AwsPlugin(Plugin):
+    id = "aws"
     name = "AWS Plugin"
     version = "0.1"
     requires_api = 6
@@ -312,4 +312,4 @@ class AwsNodes(Plugin):
         return "\n".join(lines)
 
 
-plugin = AwsNodes()
+plugin = AwsPlugin()

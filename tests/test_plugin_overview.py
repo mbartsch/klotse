@@ -7,7 +7,7 @@ from klotse.plugins.host import RETRY_AFTER_S, PluginHost
 from klotse.plugins.manager import Loaded, PluginManager, _as_plugin
 from klotse.ui.overview import CLUSTER_CARDS, OverviewView
 from klotse.ui.workspace import ClusterWorkspace
-from klotse_plugins.aws_nodes import AwsNodes, pricing
+from klotse_plugins.aws import AwsPlugin, pricing
 from test_plugins import Runner, node, store
 
 DATA = {"counts": {"nodes": 3}, "events": [], "lists": {}}
@@ -266,7 +266,7 @@ def test_changing_a_plugin_setting_recomputes_the_cards_at_once(qtbot, tmp_path)
 # ---- the AWS plugin's cards ------------------------------------------------------------------------------------
 @pytest.fixture
 def prices(monkeypatch):
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices",
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices",
                         lambda *a, **k: pricing.PriceTable({"m5.large": 0.096, "c6g.xlarge": 0.136}))
 
 
@@ -280,8 +280,8 @@ def aws_node(name, iid, itype="m5.large", capacity=None, provider=None):
 
 def overview_of(nodes, **settings):
     from klotse.plugins import OverviewRequest
-    plugin = AwsNodes()
-    request = OverviewRequest("aws-nodes", "ctx", nodes, {"use_aws_api": False, **settings})
+    plugin = AwsPlugin()
+    request = OverviewRequest("aws", "ctx", nodes, {"use_aws_api": False, **settings})
     return plugin.overview(request), request
 
 
@@ -302,4 +302,4 @@ def test_a_cluster_with_no_aws_nodes_gets_no_cards(prices):
 
 
 def test_the_aws_plugin_declares_its_cards_and_needs_api_5():
-    assert [c.key for c in AwsNodes.overview_cards] == ["cost_hour", "cost_month", "priced"] and AwsNodes.requires_api == 6
+    assert [c.key for c in AwsPlugin.overview_cards] == ["cost_hour", "cost_month", "priced"] and AwsPlugin.requires_api == 6

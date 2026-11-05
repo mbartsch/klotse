@@ -1,10 +1,10 @@
 import pytest
 
 from klotse.plugins import ResourceInfo
-from klotse_plugins.aws_nodes import identity, native, safe
-from klotse_plugins.aws_nodes.awscreds import AwsCredentials
-from klotse_plugins.aws_nodes.ec2 import Ec2Error
-from klotse_plugins.aws_nodes.nodeinfo import parse_node
+from klotse_plugins.aws import identity, native, safe
+from klotse_plugins.aws.awscreds import AwsCredentials
+from klotse_plugins.aws.ec2 import Ec2Error
+from klotse_plugins.aws.nodeinfo import parse_node
 
 HOSTILE = ["x.evil.example#", "eu-west-1.evil.example", "eu-west-1/../x", "EU-WEST-1", "eu-west-1\n", "", "a" * 40,
            "us-east-1@evil", "us-east-1:443", "eu west 1", "-1", "eu-west-"]

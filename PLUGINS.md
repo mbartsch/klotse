@@ -129,7 +129,7 @@ makes every open list and Overview ask the plugin again. They are stored in `[pl
 
 ## The bundled plugin: AWS Plugin
 
-Klotse ships one plugin of its own, **AWS Plugin** (`klotse_plugins/aws_nodes`; its id stays `aws-nodes`, so saved settings keep working), written against this same API. It is off
+Klotse ships one plugin of its own, **AWS Plugin** (`klotse_plugins/aws`; id `aws`), written against this same API. It is off
 until you enable it. For nodes that are EC2 instances (an `aws:///zone/i-...` providerID, which EKS and Karpenter set) it
 adds these columns to the Nodes list:
 

@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 import pytest
 
 from klotse.plugins import ResourceInfo
-from klotse_plugins.aws_nodes import AwsNodes
-from klotse_plugins.aws_nodes import pricing
-from klotse_plugins.aws_nodes.ec2 import Ec2, Ec2Error, Ec2Unavailable
-from klotse_plugins.aws_nodes.instances import TOUCH_AFTER_S, UNSEEN_DAYS, InstanceCache
+from klotse_plugins.aws import AwsPlugin
+from klotse_plugins.aws import pricing
+from klotse_plugins.aws.ec2 import Ec2, Ec2Error, Ec2Unavailable
+from klotse_plugins.aws.instances import TOUCH_AFTER_S, UNSEEN_DAYS, InstanceCache
 
 DAY = 86400
 
@@ -123,12 +123,12 @@ def node(name, iid, capacity=None, itype="m5.large", zone="eu-west-1a"):
 
 @pytest.fixture(autouse=True)
 def public_prices(monkeypatch):
-    monkeypatch.setattr("klotse_plugins.aws_nodes.on_demand_prices",
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices",
                         lambda *a, **k: pricing.PriceTable({"m5.large": 0.096}))
 
 
 def plugin_with(client=None, boto3_missing=False):
-    plugin = AwsNodes()
+    plugin = AwsPlugin()
 
     def api(profile):
         if boto3_missing:

@@ -12,7 +12,7 @@ from ..ui.settings_store import default_store
 from .api import API_VERSION, Action, Column, OverviewCard, Plugin, Setting, column_attr, valid_id
 
 ENTRY_POINT_GROUP = "klotse.plugins"
-BUNDLED_MODULES = ("klotse_plugins.aws_nodes",)  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
+BUNDLED_MODULES = ("klotse_plugins.aws",)  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
 
 
 @dataclass
