@@ -65,8 +65,6 @@ def _header(kind, raw):
     if facts:
         lines.append("<p style='margin:4px 0 0 0'>" + " &nbsp;·&nbsp; ".join(
             f"<span style='color:{theme.MUTED}'>{_e(k)}</span> {_e(v)}" for k, v in facts) + "</p>")
-    if meta.get("uid"):  # on a line of its own: it is long and would wrap the line above
-        lines.append(f"<p style='margin:2px 0 4px 0'><span style='color:{theme.MUTED}'>UID</span> {_e(meta['uid'])}</p>")
     return "".join(lines)
 
 
@@ -134,11 +132,11 @@ def render(kind, raw):
     """HTML for `kind` (one of RBAC_KINDS) built from its manifest dict."""
     if kind not in RBAC_KINDS or not isinstance(raw, dict):
         raise ValueError(f"No formatted view for {kind}")
-    body = _header(kind, raw)
+    body = _header(kind, raw) + _metadata(raw)  # labels and annotations first, then what the object grants
     if kind in ("Role", "ClusterRole"):
         body += _aggregation(raw) + _rules(raw)
     elif kind in ("RoleBinding", "ClusterRoleBinding"):
         body += _binding(raw)
     else:
         body += _serviceaccount(raw)
-    return f"<div style='font-size:13px'>{body}{_metadata(raw)}</div>"  # no <hr>: Qt draws it white, whatever the theme
+    return f"<div style='font-size:13px'>{body}</div>"  # no <hr>: Qt draws it white, whatever the theme

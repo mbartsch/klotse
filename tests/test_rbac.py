@@ -207,8 +207,14 @@ def test_details_show_a_readable_time_and_no_white_rule():
     assert "<hr" not in html and "00:00 UTC" in html  # Qt draws <hr> white on every theme
 
 
-def test_uid_is_on_its_own_line_below_namespace_and_created():
-    html = rbac_view.render("Role", to_dict(client.V1Role(metadata=meta("r", "dev"))))
-    first, second = html.index("Namespace"), html.index("UID")
-    assert first < second and "</p>" in html[first:second]  # a paragraph ends between them
-    assert html.count(">UID<") == 1
+def test_formatted_view_has_no_uid_and_lists_labels_before_rules():
+    role = client.V1Role(metadata=client.V1ObjectMeta(name="r", namespace="dev", uid="u-secret-id", labels={"a": "b"},
+                                                      annotations={"n": "m"}), rules=[rule(["get"], ["pods"], [""])])
+    html = rbac_view.render("Role", to_dict(role))
+    assert "UID" not in html and "u-secret-id" not in html  # still in the YAML view
+    assert html.index("Labels") < html.index("Annotations") < html.index("Rules")
+    ref = client.V1RoleRef(kind="Role", name="r", api_group="rbac.authorization.k8s.io")
+    binding = client.V1RoleBinding(metadata=client.V1ObjectMeta(name="b", namespace="dev", labels={"a": "b"}),
+                                   role_ref=ref, subjects=[client.RbacV1Subject(kind="User", name="u")])
+    html = rbac_view.render("RoleBinding", to_dict(binding))
+    assert html.index("Labels") < html.index("Grants role")
