@@ -1,6 +1,8 @@
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                               QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
+
+from . import theme
 
 WARNING = ("Plugins are code that runs with your permissions and can see everything Klotse shows. "
            "Enable only plugins you trust. Changes on this page take effect immediately.")
@@ -44,7 +46,11 @@ class PluginsPanel(QWidget):
         self.empty.setWordWrap(True)
         body = QHBoxLayout()
         body.addWidget(self.list)
-        body.addWidget(details, 1)
+        scroll = QScrollArea()  # the settings can be taller than the dialog; scrolling keeps long notes from being squeezed
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(details)
+        body.addWidget(scroll, 1)
         folder = QPushButton("Open plugins folder")
         folder.clicked.connect(self.open_plugins_folder)
         reload_button = QPushButton("Reload plugins")
@@ -146,6 +152,13 @@ class PluginsPanel(QWidget):
             return
         values = self.manager.settings_for(plugin.id)
         for setting in plugin.settings:
+            if setting.kind == "note":  # a warning box that belongs to the settings below it; it holds no value
+                note = QLabel(setting.label)
+                note.setWordWrap(True)
+                note.setTextFormat(Qt.RichText)
+                note.setStyleSheet(theme.warning_style() + " padding:12px; font-size:14px;")
+                self.settings_form.addRow(note)
+                continue
             if setting.kind == "bool":
                 box = QCheckBox(setting.label)
                 box.setChecked(bool(values[setting.key]))
@@ -164,6 +177,8 @@ class PluginsPanel(QWidget):
                 label = setting.label
             else:
                 widget = QLineEdit(str(values[setting.key]))
+                if setting.kind == "password":
+                    widget.setEchoMode(QLineEdit.Password)
                 widget.editingFinished.connect(lambda w=widget, s=setting: self._save_setting(plugin.id, s.key, w.text()))
                 label = setting.label
             if setting.help:

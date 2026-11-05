@@ -342,4 +342,4 @@ def test_the_automatic_sign_in_uses_the_clusters_profile(prices):
 def test_the_profile_is_part_of_the_setting_list_and_the_maps_are_multiline():
     kinds = {s.key: s.kind for s in AwsPlugin.settings}
     assert kinds["profile_map"] == "multiline" and kinds["account_map"] == "multiline" and kinds["aws_profile"] == "text"
-    assert AwsPlugin.requires_api == 6
+    assert AwsPlugin.requires_api == 7

@@ -95,7 +95,7 @@ def test_actions_and_the_required_api_are_validated():
             _as_plugin(bad)
     with pytest.raises(ValueError, match="needs plugin API"):
         _as_plugin(TooNew)
-    assert _as_plugin(Acts).actions[0].key == "copy" and API_VERSION == 6
+    assert _as_plugin(Acts).actions[0].key == "copy" and API_VERSION == 7
 
 
 def test_actions_for_follows_kind_multi_selection_and_enabling(tmp_path):

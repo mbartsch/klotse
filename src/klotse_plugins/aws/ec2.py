@@ -3,6 +3,8 @@ instance, and current spot prices. Everything here may fail; the plugin keeps go
 public price list gave it."""
 from datetime import datetime, timezone
 
+from .awscreds import AwsCredentials
+
 CHUNK = 100  # instance ids per DescribeInstances call
 
 
@@ -20,6 +22,9 @@ def boto3_session(profile=""):
     except ImportError as error:
         raise Ec2Unavailable("boto3 is not installed") from error
     try:
+        if isinstance(profile, AwsCredentials):  # keys typed into the plugin's settings
+            return boto3.Session(aws_access_key_id=profile.access_key, aws_secret_access_key=profile.secret_key,
+                                 aws_session_token=profile.token or None)
         return boto3.Session(profile_name=profile or None)
     except Exception as error:  # an unknown profile name, for example
         raise Ec2Error(str(error)) from error

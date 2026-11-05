@@ -42,7 +42,7 @@ class AwsPlugin(Plugin):
     id = "aws"
     name = "AWS Plugin"
     version = "0.1"
-    requires_api = 6
+    requires_api = 7  # password and note settings
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
                    "Works without a login (the cluster's own data plus AWS's public price list); with boto3 and AWS "
@@ -77,6 +77,15 @@ class AwsPlugin(Plugin):
         Setting("profile_map", "AWS profile for each cluster", "", kind="multiline",
                 help="Clusters in other accounts need their own profile. One per line, as context = profile; the context is "
                      "the cluster's name in your kubeconfig. A cluster that is not listed uses the default profile above."),
+        Setting("keys_warning", "<b style=\"font-size:16px\">Warning: a typed access key is stored unprotected</b><br>The key is saved as <b>plain text</b> in Klotse's settings file on this computer. Anyone who can read that file, this computer, or a backup or synced copy of it can use the key. <b>The Klotse authors accept no responsibility for any loss, cost or damage that results from using it</b>: this is your choice and your risk.<br>Prefer an AWS profile or IAM Identity Center (the AWS CLI keeps those safer). If you do use a key, make it a dedicated read-only one (EC2 describe and STS only), never a root or administrator key, and prefer temporary keys with a session token.", kind="note"),
+        Setting("access_key_id", "AWS access key ID (optional)", "",
+                help="Instead of a profile. Needs the secret access key too. When both are filled in they are used for "
+                     "every cluster and replace all profiles. Read the warning above first."),
+        Setting("secret_access_key", "AWS secret access key", "", kind="password",
+                help="Saved as plain text in the settings file. Read the warning above first."),
+        Setting("session_token", "AWS session token (optional)", "", kind="password",
+                help="Only for temporary keys (access key IDs starting with ASIA). Leave empty for long-lived keys. "
+                     "Temporary keys expire: paste new ones here when they do."),
         Setting("multi_account", "I use several AWS accounts in the console", False, kind="bool",
                 help="Then \"Open in the EC2 console\" has to say which account to open. Fill in the three settings below."),
         Setting("sso_start_url", "IAM Identity Center start URL", "",

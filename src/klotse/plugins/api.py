@@ -37,7 +37,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 6  # 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
+API_VERSION = 7  # 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -97,8 +97,8 @@ class OverviewCard:
 
 @dataclass(frozen=True)
 class Setting:
-    """A setting the Plugins dialog shows for a plugin. kind is "text" (one line), "multiline" (a text box for lists, one
-    entry per line) or "bool"; values reach `enrich()` and `run()` in `request.settings` (defaults filled in)."""
+    """A setting the Plugins dialog shows for a plugin. kind is "text" (one line), "note" (no value: its label is shown as a large warning box), "password" (one line, typed text hidden;
+    stored like the others, in the settings file), "multiline" (a text box for lists, one entry per line) or "bool"; values reach `enrich()` and `run()` in `request.settings` (defaults filled in)."""
 
     key: str
     label: str

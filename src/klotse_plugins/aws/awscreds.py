@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 REFRESH_BEFORE_S = 300  # credentials are fetched again this long before they expire
@@ -27,9 +27,12 @@ class CredentialsError(Exception):
 @dataclass(frozen=True)
 class AwsCredentials:
     access_key: str
-    secret_key: str
-    token: str = ""
+    secret_key: str = field(repr=False)
+    token: str = field(default="", repr=False)
     expires: float = 0.0  # epoch seconds; 0 = does not expire
+
+    def __str__(self):  # what messages show instead of a profile name: never the secret or the token
+        return f"access key {self.access_key}"
 
 
 def _from_environment(environ):
@@ -74,14 +77,18 @@ class CredentialSource:
     """Credentials for one AWS profile, fetched when needed and reused until shortly before they expire.
 
     With a profile name the CLI is asked for that profile. Without one the environment variables are used when they are
-    set, otherwise the CLI's default credentials."""
+    set, otherwise the CLI's default credentials. `profile` can also be an `AwsCredentials` (keys typed into the plugin's
+    settings): then those are used as they are and nothing is run."""
 
     def __init__(self, profile="", run=subprocess.run, which=shutil.which, environ=None, now=time.time):
-        self.profile = profile or ""
+        self.keys = profile if isinstance(profile, AwsCredentials) else None
+        self.profile = "" if self.keys else (profile or "")
         self._run, self._which, self._environ, self._now = run, which, os.environ if environ is None else environ, now
         self._cached, self._lock = None, threading.Lock()
 
     def get(self):
+        if self.keys is not None:
+            return self.keys
         with self._lock:
             now = self._now()
             if self._cached is not None and (self._cached.expires == 0 or now < self._cached.expires - REFRESH_BEFORE_S):

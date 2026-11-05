@@ -16,6 +16,8 @@ import urllib.parse
 
 from klotse.plugins import Copy, Message, OpenUrl
 
+from .awscreds import AwsCredentials
+
 CONTEXT_ARN = re.compile(r"^arn:aws[a-z-]*:eks:[a-z0-9-]+:(?P<account>\d{12}):cluster/")
 ACCOUNT_ID = re.compile(r"\d{12}")
 
@@ -43,9 +45,22 @@ def parse_account_map(text):
     return parse_pairs(text, lambda value: ACCOUNT_ID.fullmatch(value) is not None)
 
 
+def keys_from(settings):
+    """The access key typed into the plugin's settings as `AwsCredentials` (the session token is optional), or None when
+    the key id or the secret is missing."""
+    key, secret = str(settings.get("access_key_id") or "").strip(), str(settings.get("secret_access_key") or "").strip()
+    if not key or not secret:
+        return None
+    return AwsCredentials(key, secret, str(settings.get("session_token") or "").strip())
+
+
 def profile_for(context, settings):
-    """The AWS profile for a cluster: what was set for it in the Plugins menu, else its entry in "AWS profile for each
-    cluster", else the default profile ("" = the default credentials)."""
+    """What identifies the AWS credentials of a cluster: an access key typed into the settings (it replaces every profile),
+    else what was set for the cluster in the Plugins menu, else its entry in "AWS profile for each cluster", else the
+    default profile ("" = the default credentials). Anything but a name is an `AwsCredentials`: str() is safe to show."""
+    keys = keys_from(settings)
+    if keys is not None:
+        return keys
     return (str(settings.get("cluster_profile") or "").strip() or parse_pairs(settings.get("profile_map")).get(context)
             or str(settings.get("aws_profile") or ""))
 

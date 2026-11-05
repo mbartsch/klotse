@@ -302,4 +302,4 @@ def test_a_cluster_with_no_aws_nodes_gets_no_cards(prices):
 
 
 def test_the_aws_plugin_declares_its_cards_and_needs_api_5():
-    assert [c.key for c in AwsPlugin.overview_cards] == ["cost_hour", "cost_month", "priced"] and AwsPlugin.requires_api == 6
+    assert [c.key for c in AwsPlugin.overview_cards] == ["cost_hour", "cost_month", "priced"] and AwsPlugin.requires_api == 7
