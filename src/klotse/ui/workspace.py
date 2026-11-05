@@ -805,8 +805,16 @@ class ClusterWorkspace(QMainWindow):
 
     def scale_resource(self, kind, row):
         current = (row.raw.get("spec") or {}).get("replicas", 1)
-        n, ok = QInputDialog.getInt(self, f"Scale {kind}", f"Replicas for {row.name}:", current, 0, 10000)
+        text, ok = QInputDialog.getText(
+            self, f"Scale {kind}",
+            f"New replicas for {row.name} (now {current}):\n\nEnter a number, or change the current count:\n"
+            "*2 double   /2 halve (rounds up)   +2 add two   -2 remove two", text=str(current))
         if not ok:
+            return
+        try:
+            n = parse_scale(text, current)
+        except ValueError as e:
+            QMessageBox.warning(self, "Scale", str(e))
             return
         self.message.emit(f"Scaling {kind} {row.name} to {n}…")
         self._run(self.service.scale, lambda _: self._scaled(kind, row, current, n), kind, row.name, row.namespace, n)

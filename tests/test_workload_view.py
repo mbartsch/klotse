@@ -155,3 +155,10 @@ def test_the_yaml_highlighter_colours_keys_and_comments(qtbot):
     colors = {f.start: f.format.foreground().color().name() for f in block.layout().formats()}
     assert 0 in colors  # the key is coloured
     assert any(f.start >= 8 for f in block.layout().formats())  # the comment is coloured
+
+
+def test_labels_and_annotations_come_right_after_the_header_before_the_summary():
+    page = wv.render("Deployment", DEPLOY)
+    created, labels, annotations, summary, containers = (page.index(x) for x in ("2026-01-02", ">Labels<", ">Annotations<", ">Summary<",
+                                                                                 ">Containers"))
+    assert created < labels < annotations < summary < containers

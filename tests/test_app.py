@@ -239,7 +239,7 @@ def test_scale_flow_calls_service(qtbot, monkeypatch):
     calls = []
     svc = FakeService()
     svc.scale = lambda *a: calls.append(a)
-    monkeypatch.setattr(QInputDialog, "getInt", lambda *a, **k: (3, True))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("3", True))
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
     open_active(win)
@@ -594,7 +594,7 @@ def test_workspace_scale_opens_monitor_and_tracks_to_completion(qtbot, monkeypat
     from klotse.ui import scale_monitor as sm
 
     monkeypatch.setattr(sm, "POLL_MS", 20)
-    monkeypatch.setattr(QInputDialog, "getInt", lambda *a, **k: (2, True))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("2", True))
     svc = FakeService()
     scaled = []
     svc.scale = lambda *a: scaled.append(a)
