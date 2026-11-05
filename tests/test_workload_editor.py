@@ -238,11 +238,10 @@ def test_edit_as_yaml_rejects_and_flags_it(qtbot):
     assert dlg.wants_yaml and dlg.result_body is None and dlg.result() == QDialog.Rejected
 
 
-def test_build_body_does_not_change_its_input():
+def test_build_body_does_not_change_its_input(qtbot):
     raw = deepcopy(DEPLOYMENT)
-    v = values(replicas=9, containers=[{"name": "app", "field": "containers", "index": 0, "image": "x:2", "pull": "",
-                                         "requests": {}, "limits": {}, "env": []}], strategy_type="Recreate",
-               labels={}, annotations={})
+    v = make(qtbot).values()
+    v["replicas"], v["strategy_type"] = 9, "Recreate"
     build_body("Deployment", raw, v)
     assert raw == DEPLOYMENT
 
