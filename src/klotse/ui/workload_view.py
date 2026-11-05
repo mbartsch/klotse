@@ -378,6 +378,12 @@ def _volume_source(volume):
     return ""
 
 
+def _default_toleration(t):
+    """The two NoExecute tolerations (not-ready, unreachable; 300 s) that Kubernetes adds to every pod: not worth a row."""
+    group = str(t.get("key", "")).partition("/")[0]  # a taint key's prefix, not a web address
+    return t.get("effect") == "NoExecute" and group == "node.kubernetes.io" and t.get("tolerationSeconds") == 300
+
+
 def _scheduling(kind, raw):
     pod = _pod_spec(kind, raw)
     out = ""
@@ -386,8 +392,7 @@ def _scheduling(kind, raw):
         out += _section(f"Volumes ({len(volumes)})", _table(("Name", "Source"), [(f"<b>{_e(v.get('name', ''))}</b>", _volume_source(v))
                                                                                for v in volumes]))
     tolerations = pod.get("tolerations") or []
-    visible = [t for t in tolerations if not (t.get("effect") == "NoExecute" and t.get("key", "").startswith("node.kubernetes.io/")
-                                              and t.get("tolerationSeconds") == 300)]
+    visible = [t for t in tolerations if not _default_toleration(t)]
     if visible:
         rows = [(_e(t.get("key", "") or "(all)"), _e(t.get("operator", "Equal")), _e(t.get("value", "") or "–"),
                  _e(t.get("effect", "") or "any")) for t in visible]
