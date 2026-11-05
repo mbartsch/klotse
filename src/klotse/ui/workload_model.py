@@ -19,6 +19,8 @@ from copy import deepcopy
 from .service_account_editor import validate_pairs
 
 WORKLOAD_KINDS = ("Deployment", "DaemonSet", "StatefulSet")
+EDIT_KINDS = (*WORKLOAD_KINDS, "Pod")  # kinds the form edits
+CREATABLE_KINDS = EDIT_KINDS  # and creates
 HAS_REPLICAS = ("Deployment", "StatefulSet")
 PULL_POLICIES = ("", "Always", "IfNotPresent", "Never")  # "" = not set (Kubernetes picks from the image tag)
 # kind -> (spec field, strategy types, [(rollingUpdate key, label, kind of number)])
@@ -88,15 +90,61 @@ def env_source(entry):
     return "another source"
 
 
-def pod_spec_of(raw):
+def pod_spec_of(raw, kind=""):
+    """The pod spec: `spec` of a Pod, `spec.template.spec` of a workload."""
+    if kind == "Pod":
+        return raw.get("spec") or {}
     return ((raw.get("spec") or {}).get("template") or {}).get("spec") or {}
 
 
-def container_lists(raw):
+def container_lists(raw, kind=""):
     """[(field, index, container)] for the init containers and then the regular ones."""
-    spec = pod_spec_of(raw)
+    spec = pod_spec_of(raw, kind)
     return [(field, i, c) for field in ("initContainers", "containers") for i, c in enumerate(spec.get(field) or [])
             if isinstance(c, dict)]
+
+
+def skeleton(kind, namespace):
+    """The manifest the New… form starts from: one container, the labels and selector are filled in from the name."""
+    meta = {"name": "", "namespace": namespace}
+    pod_spec = {"containers": [{"name": "app", "image": "nginx:1.27"}]}
+    if kind == "Pod":
+        return {"apiVersion": "v1", "kind": "Pod", "metadata": meta, "spec": pod_spec}
+    spec = {"selector": {"matchLabels": {"app": ""}}, "template": {"metadata": {"labels": {"app": ""}}, "spec": pod_spec}}
+    if kind in HAS_REPLICAS:
+        spec["replicas"] = 1
+    if kind == "StatefulSet":
+        spec["serviceName"] = ""
+    return {"apiVersion": "apps/v1", "kind": kind, "metadata": meta, "spec": spec}
+
+
+def finalize_new(kind, body, service_name=""):
+    """Tie a new workload together: the selector and the pod label `app` follow the name, a StatefulSet's service name
+    defaults to it. (The selector cannot be changed after creation, which is why it is not a form field.)"""
+    name = (body.get("metadata") or {}).get("name", "")
+    if kind == "Pod":
+        return body
+    spec = body.setdefault("spec", {})
+    spec["selector"] = {"matchLabels": {"app": name}}
+    spec.setdefault("template", {}).setdefault("metadata", {}).setdefault("labels", {})["app"] = name
+    if kind == "StatefulSet":
+        spec["serviceName"] = service_name.strip() or name
+    return body
+
+
+def validate_new(kind, new):
+    """Problems with the name, namespace and (StatefulSet) service name typed for a new object."""
+    out = []
+    name, namespace, service = new["name"].strip(), new["namespace"].strip(), new.get("service_name", "").strip()
+    if not name:
+        out.append("Enter a name")
+    elif not DNS_LABEL.fullmatch(name) or len(name) > 63:
+        out.append("The name must be lowercase letters, digits and '-', at most 63 characters")
+    if not namespace:
+        out.append("Enter a namespace")
+    if kind == "StatefulSet" and service and (not DNS_LABEL.fullmatch(service) or len(service) > 63):
+        out.append("The service name must be lowercase letters, digits and '-', at most 63 characters")
+    return out
 
 
 def workload_warnings(kind, raw):
@@ -261,7 +309,7 @@ def validate_security(label, s):
 def validate(kind, values, raw=None):
     """Problems with the edited values (a list of sentences; empty = fine)."""
     problems = []
-    if values.get("strategy_type") == "RollingUpdate":
+    if values.get("strategy_type") == "RollingUpdate" and kind in STRATEGIES:
         for key, label, number in STRATEGIES[kind][2]:
             text = values.get("knobs", {}).get(key, "").strip()
             percent = number == "count_or_percent"
@@ -274,6 +322,10 @@ def validate(kind, values, raw=None):
             problems.append(f"{label}: enter a whole number or leave it empty")
     problems += validate_pairs(values.get("annotations_pairs", []), "annotation")
     problems += validate_pairs(values.get("labels_pairs", []), "label")
+    if values.get("new") is not None:
+        problems += validate_new(kind, values["new"])
+    if values.get("deadline", "").strip() and not valid_count(values["deadline"]):
+        problems.append("Active deadline: enter a whole number of seconds or leave it empty")
     pod = values.get("pod")
     if pod is not None:
         problems += _validate_pod(raw or {}, pod)
@@ -324,6 +376,8 @@ def _validate_pod(raw, pod):
 
 def _validate_container(c, volumes):
     out, name = [], c["name"]
+    if "container_name" in c and (not DNS_LABEL.fullmatch(c["container_name"].strip()) or len(c["container_name"].strip()) > 63):
+        out.append("The container name must be lowercase letters, digits and '-'")
     if not c["image"].strip():
         out.append(f"{name}: enter an image")
     numbers = {}
@@ -393,10 +447,35 @@ def _int_or_none(text):
     return int(text) if str(text).strip() else None
 
 
-def build_body(kind, raw, values):
-    """The manifest with the edited fields; everything else is copied (see the module notes for `values`)."""
+def build_running_pod(raw, values):
+    """A running pod accepts only new container images, `activeDeadlineSeconds`, added tolerations and labels or
+    annotations: every other field is left exactly as it is."""
     body = deepcopy(raw)
     spec = body.setdefault("spec", {})
+    for c in values.get("containers", []):
+        spec[c["field"]][c["index"]]["image"] = c["image"].strip()
+    _set_or_pop(spec, "activeDeadlineSeconds", _int_or_none(values.get("deadline", "")))
+    if values.get("pod") is not None:
+        _set_or_pop(spec, "tolerations", deepcopy(values["pod"]["tolerations"]))
+    meta = body.setdefault("metadata", {})
+    for key in ("labels", "annotations"):
+        _set_or_pop(meta, key, dict(values.get(key) or {}))
+    return body
+
+
+def build_body(kind, raw, values, running=False):
+    """The manifest with the edited fields; everything else is copied (see the module notes for `values`). `running`:
+    the Pod exists already, so only what a pod update may change is applied."""
+    if kind == "Pod" and running:
+        return build_running_pod(raw, values)
+    body = deepcopy(raw)
+    new = values.get("new")
+    if new is not None:
+        meta = body.setdefault("metadata", {})
+        meta["name"], meta["namespace"] = new["name"].strip(), new["namespace"].strip()
+    spec = body.setdefault("spec", {})
+    if kind == "Pod":
+        _set_or_pop(spec, "activeDeadlineSeconds", _int_or_none(values.get("deadline", "")))
     if kind in HAS_REPLICAS and values.get("replicas") is not None:
         spec["replicas"] = int(values["replicas"])
     _set_or_pop(spec, "minReadySeconds", _int_or_none(values.get("min_ready", "")))
@@ -407,31 +486,37 @@ def build_body(kind, raw, values):
             spec.pop("paused", None)
         else:
             spec["paused"] = bool(values["paused"])
-    field, types, knobs = STRATEGIES[kind]
-    strategy = spec.get(field) or {}
-    strategy["type"] = values["strategy_type"]
-    if values["strategy_type"] == "RollingUpdate":
-        rolling = strategy.get("rollingUpdate") or {}
-        for key, _label, _number in knobs:
-            text = values.get("knobs", {}).get(key, "").strip()
-            _set_or_pop(rolling, key, number_or_text(text) if text else None)
-        _set_or_pop(strategy, "rollingUpdate", rolling or None)
+    if kind in STRATEGIES:
+        field, types, knobs = STRATEGIES[kind]
+        strategy = spec.get(field) or {}
+        strategy["type"] = values["strategy_type"]
+        if values["strategy_type"] == "RollingUpdate":
+            rolling = strategy.get("rollingUpdate") or {}
+            for key, _label, _number in knobs:
+                text = values.get("knobs", {}).get(key, "").strip()
+                _set_or_pop(rolling, key, number_or_text(text) if text else None)
+            _set_or_pop(strategy, "rollingUpdate", rolling or None)
+        else:
+            strategy.pop("rollingUpdate", None)
+        if strategy != {"type": types[0]} or field in spec:  # not set before and still the default: leave it unset
+            spec[field] = strategy
+    if kind == "Pod":
+        template, pod = body, spec
     else:
-        strategy.pop("rollingUpdate", None)
-    if strategy != {"type": types[0]} or field in spec:  # not set before and still the default: leave it unset
-        spec[field] = strategy
-    template = spec.setdefault("template", {})
-    pod = template.setdefault("spec", {})
-    _build_pod(template, pod, values.get("pod"))
+        template = spec.setdefault("template", {})
+        pod = template.setdefault("spec", {})
+    _build_pod(kind, template, pod, values.get("pod"))
     for c in values.get("containers", []):
         _build_container(pod[c["field"]][c["index"]], c)
     meta = body.setdefault("metadata", {})
     for key in ("labels", "annotations"):
         _set_or_pop(meta, key, dict(values.get(key) or {}))
+    if new is not None:
+        finalize_new(kind, body, new.get("service_name", ""))
     return body
 
 
-def _build_pod(template, pod, p):
+def _build_pod(kind, template, pod, p):
     if p is None:
         return
     _set_or_pop(pod, "serviceAccountName", p["service_account"].strip())
@@ -442,6 +527,8 @@ def _build_pod(template, pod, p):
     _set_or_pop(pod, "imagePullSecrets", [{"name": n} if not isinstance(n, dict) else deepcopy(n) for n in p["pull_secrets"]])
     _set_or_pop(pod, "volumes", deepcopy(p["volumes"]))
     _set_or_pop(pod, "securityContext", build_security(pod.get("securityContext"), p["security"]))
+    if kind == "Pod":  # a Pod's labels are its own metadata, edited on the first tab
+        return
     meta = template.setdefault("metadata", {})
     _set_or_pop(meta, "labels", dict(p["template_labels"]))
     _set_or_pop(meta, "annotations", dict(p["template_annotations"]))
@@ -450,6 +537,8 @@ def _build_pod(template, pod, p):
 
 
 def _build_container(target, c):
+    if c.get("container_name", "").strip():
+        target["name"] = c["container_name"].strip()
     target["image"] = c["image"].strip()
     _set_or_pop(target, "imagePullPolicy", c["pull"])
     resources = target.get("resources") or {}

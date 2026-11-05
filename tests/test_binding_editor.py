@@ -384,7 +384,7 @@ def test_edit_as_yaml_from_the_binding_form_opens_the_yaml_editor_with_the_note(
     class YamlDialog:
         Accepted = 1
 
-        def __init__(self, title, raw, parent=None, note=""):
+        def __init__(self, title, raw, parent=None, note="", **_kw):
             opened.append((title, note))
 
         def exec(self):

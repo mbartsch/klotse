@@ -168,6 +168,19 @@ class KubeService:
     def create_namespace(self, body):
         return map_namespace(self._core.create_namespace(body))
 
+    def create(self, kind, body):
+        """Create a Deployment, DaemonSet, StatefulSet or Pod from a manifest (like `kubectl create`); returns the stored row."""
+        ns = (body.get("metadata") or {}).get("namespace") or "default"
+        if kind == "Pod":
+            return map_pod(self._core.create_namespaced_pod(ns, body))
+        if kind == "Deployment":
+            return map_deployment(self._apps.create_namespaced_deployment(ns, body))
+        if kind == "StatefulSet":
+            return map_statefulset(self._apps.create_namespaced_stateful_set(ns, body))
+        if kind == "DaemonSet":
+            return SPEC_BY_KIND["DaemonSet"].mapper(self._apps.create_namespaced_daemon_set(ns, body))
+        raise ValueError(f"Creating {kind} is not supported")
+
     def replace(self, kind, body):
         """Replace a resource with an edited manifest (like `kubectl replace`); returns the stored row."""
         meta, api = body["metadata"], self._core

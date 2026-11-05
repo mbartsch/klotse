@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
 
 from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
 from . import theme
+from .edit_dialog import leave_for_yaml
 
 LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 ANNOTATION_SUGGESTIONS = (
@@ -307,9 +308,14 @@ class ServiceAccountEditDialog(QDialog):
         problems = self._problems()
         self.hint.setText(f"<span style='color:{theme.WARN}'>{escape(problems[0])}</span>" if problems else "")
 
+    def pending_body(self):
+        """The manifest with the form's values as they are now (not validated)."""
+        automount = AUTOMOUNT_CHOICES[self.automount.currentIndex()][1]
+        return build_body(self._raw, automount, self.secrets.values(), self.pull_secrets.values(),
+                          self.labels.items(), self.annotations.items())
+
     def _as_yaml(self):
-        self.wants_yaml = True
-        self.reject()
+        leave_for_yaml(self)
 
     def _save(self):
         problems = self._problems()

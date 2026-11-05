@@ -81,7 +81,9 @@ class ResourceTable(QWidget):
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context_menu)
         top = QHBoxLayout()
+        self._top = top
         top.addWidget(self.filter, 1)
+        self.new_button = None  # see enable_new()
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
@@ -120,6 +122,14 @@ class ResourceTable(QWidget):
         if not self.model.rowCount():  # nothing else on screen: say it where the list would be
             self.loading_page.show_failed(f"Load failed: {message}")
             self.stack.setCurrentWidget(self.loading_page)
+
+    def enable_new(self):
+        """Offer a "New…" button next to the filter (and in the right-click menu) for kinds that can be created here."""
+        if self.new_button is None:
+            self.new_button = QPushButton("New…")
+            self.new_button.setToolTip(f"Create a new {self.kind}")
+            self.new_button.clicked.connect(lambda: self.new_requested.emit())
+            self._top.insertWidget(1, self.new_button)
 
     def set_rows(self, rows):
         self._load_timer.stop()
@@ -325,6 +335,8 @@ class ResourceTable(QWidget):
             if idx.isValid():
                 menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
             menu.addAction("New namespace…", self.new_requested.emit)
+        if self.new_button is not None:
+            menu.addAction(f"New {self.kind}…", self.new_requested.emit)
         if idx.isValid():  # plugin entries come last, after the built-in ones
             self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
         if not menu.isEmpty():

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
                                QSplitter, QToolButton, QToolTip, QVBoxLayout, QWidget)
 from . import theme
+from .edit_dialog import leave_for_yaml
 
 RESULT_LIMIT = 200
 SEARCH_DELAY_MS = 150
@@ -610,9 +611,15 @@ class RoleEditDialog(QDialog):
         self.hint.setText(f"<span style='color:{theme.WARN}'>{text}</span>" if text else "")
 
     # ---- result ----
+    def pending_body(self):
+        """The manifest with the rules as they are in the form now (not validated: the YAML editor shows them as they are)."""
+        self._commit()
+        body = deepcopy(self._raw)
+        body["rules"] = [normalize_rule(r) for r in self.rules]
+        return body
+
     def _as_yaml(self):
-        self.wants_yaml = True
-        self.reject()
+        leave_for_yaml(self)
 
     def _save(self):
         self._commit()

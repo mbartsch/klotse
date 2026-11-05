@@ -175,7 +175,14 @@ def test_edit_flow_calls_replace(qtbot, monkeypatch):
         def exec(self):
             return 1
 
+    class FakeForm(FakeDialog):  # a Pod has a form now; this one accepts at once
+        wants_yaml = False
+
+        def deleteLater(self):
+            pass
+
     monkeypatch.setattr(mw, "EditDialog", FakeDialog)
+    monkeypatch.setattr(mw, "WorkloadEditDialog", FakeForm)
     win = MainWindow(lambda: svc)
     qtbot.addWidget(win)
     open_active(win)

@@ -364,7 +364,7 @@ def test_aggregated_roles_and_other_kinds_use_the_yaml_editor(qtbot, monkeypatch
     class YamlDialog:
         Accepted = 1
 
-        def __init__(self, title, raw, parent=None, note=""):
+        def __init__(self, title, raw, parent=None, note="", **_kw):
             opened.append(title)
 
         def exec(self):
@@ -396,7 +396,7 @@ def test_edit_as_yaml_from_the_form_opens_the_yaml_editor(qtbot, monkeypatch):
     class YamlDialog:
         Accepted = 1
 
-        def __init__(self, title, raw, parent=None, note=""):
+        def __init__(self, title, raw, parent=None, note="", **_kw):
             opened.append(title)
 
         def exec(self):
@@ -484,7 +484,7 @@ def test_yaml_editor_gets_the_aggregation_note_and_a_confirmation(qtbot, monkeyp
     class YamlDialog:
         Accepted = 1
 
-        def __init__(self, title, raw, parent=None, note=""):
+        def __init__(self, title, raw, parent=None, note="", **_kw):
             notes.append(note)
             self.result_body = raw
 

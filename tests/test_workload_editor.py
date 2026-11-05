@@ -255,7 +255,7 @@ def test_workspace_edits_workloads_with_the_form(qtbot, monkeypatch, kind):
     ws.refresh = lambda: None
 
     class FakeForm:
-        def __init__(self, k, raw, parent=None):
+        def __init__(self, k, raw, parent=None, **_kw):
             seen.append(k)
             self.result_body, self.wants_yaml = {"metadata": {"name": "web"}}, False
 
@@ -289,7 +289,7 @@ def test_edit_as_yaml_from_the_workload_form_opens_the_yaml_editor(qtbot, monkey
     class Yaml:
         Accepted = 1
 
-        def __init__(self, title, raw, parent, note=""):
+        def __init__(self, title, raw, parent, note="", **_kw):
             opened.append(title)
 
         def exec(self):

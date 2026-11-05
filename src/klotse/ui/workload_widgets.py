@@ -331,9 +331,10 @@ class ContainerForm(QWidget):
 
     changed = Signal()
 
-    def __init__(self, field, index, container):
+    def __init__(self, field, index, container, create=False, locked=False):
         super().__init__()
         self.field, self.index, self.name = field, index, container.get("name", f"#{index + 1}")
+        self.container_name = QLineEdit(self.name) if create else None  # a new object names its container
         self.image = QLineEdit(str(container.get("image", "")))
         self.pull = QComboBox()
         self.pull.addItems([p or "Not set" for p in PULL_POLICIES])
@@ -343,6 +344,8 @@ class ContainerForm(QWidget):
         self.command = LinesEdit(container.get("command") or [], "Replaces the image's entrypoint; one word per line")
         self.args = LinesEdit(container.get("args") or [], "Arguments; one per line")
         main = QFormLayout()
+        if self.container_name is not None:
+            main.addRow("Container name", self.container_name)
         main.addRow("Image", self.image)
         main.addRow("Pull policy", self.pull)
         main.addRow("Command", self.command)
@@ -395,7 +398,7 @@ class ContainerForm(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.sub)
 
-        for edit in (self.image, *self.boxes.values(), *self.ids.values()):
+        for edit in (self.image, *self.boxes.values(), *self.ids.values(), *([self.container_name] if create else [])):
             edit.textChanged.connect(self._changed)
         self.pull.currentIndexChanged.connect(self._changed)
         for lines in (self.command, self.args):
@@ -404,6 +407,11 @@ class ContainerForm(QWidget):
             editor.changed.connect(self._changed)
         for box in self.flags.values():
             box.currentIndexChanged.connect(self._changed)
+        if locked:  # a running pod: only the image can change
+            for widget in (self.pull, self.command, self.args):
+                widget.setEnabled(False)
+            for _title, widget in self._pages[1:]:
+                widget.setEnabled(False)
         self._titles()
 
     def _changed(self, *_args):
@@ -422,7 +430,8 @@ class ContainerForm(QWidget):
             self.sub.setTabText(i, title + (f" ({n})" if n else ""))
 
     def values(self):
-        return {"name": self.name, "field": self.field, "index": self.index, "image": self.image.text(),
+        extra = {"container_name": self.container_name.text()} if self.container_name is not None else {}
+        return {**extra, "name": self.name, "field": self.field, "index": self.index, "image": self.image.text(),
                 "pull": PULL_POLICIES[self.pull.currentIndex()],
                 "command": self.command.lines(), "args": self.args.lines(),
                 "requests": {res: self.boxes["requests", res].text() for res, _l, _h in RESOURCES},
@@ -439,8 +448,9 @@ class PodForm(QWidget):
 
     changed = Signal()
 
-    def __init__(self, template):
+    def __init__(self, template, is_pod=False, locked=False):
         super().__init__()
+        self.is_pod = is_pod
         pod = template.get("spec") or {}
         meta = template.get("metadata") or {}
         self.service_account = QLineEdit(str(pod.get("serviceAccountName", "")), placeholderText="default")
@@ -494,6 +504,8 @@ class PodForm(QWidget):
                        ("Volumes", page(self.volumes, grow=True)),
                        ("Pod labels", page(labels_note, self.template_labels, self.template_annotations)),
                        ("Security", page(security))]
+        if is_pod:  # a Pod's labels are its own, on the first tab
+            self._unused_page = self._pages.pop(2)  # kept alive: it owns the label editors
         for title, widget in self._pages:
             self.sub.addTab(widget, title)
         lay = QVBoxLayout(self)
@@ -505,6 +517,10 @@ class PodForm(QWidget):
         for editor in (self.node_selector, self.tolerations, self.pull_secrets, self.volumes, self.template_labels,
                        self.template_annotations):
             editor.changed.connect(self._changed)
+        if locked:  # a running pod: tolerations can only be added, nothing else here changes
+            for widget in (self.service_account, self.priority, self.grace, self.node_selector, self.pull_secrets,
+                           self.volumes, *self.ids.values(), self.non_root):
+                widget.setEnabled(False)
         self._titles()
 
     def _changed(self, *_args):

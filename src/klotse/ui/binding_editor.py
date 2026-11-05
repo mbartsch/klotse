@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter, QDialog
                                QTableWidget, QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
 
 from . import theme
+from .edit_dialog import leave_for_yaml
 from .role_editor import (AUTOUPDATE, DEFAULTS_LABEL, RESULT_LIMIT, RULE_KINDS, Picker, confirm_risky, role_warnings)
 from .service_account_editor import service_account_warnings
 
@@ -376,9 +377,18 @@ class BindingEditDialog(QDialog):
         self.accounts.query.clear()
 
     # ---- result ----
+    def pending_body(self):
+        """The manifest with the subjects as they are in the form now (not validated)."""
+        body = deepcopy(self._raw)
+        subjects = unique_subjects(self.subjects)
+        if subjects:
+            body["subjects"] = subjects
+        else:
+            body.pop("subjects", None)
+        return body
+
     def _as_yaml(self):
-        self.wants_yaml = True
-        self.reject()
+        leave_for_yaml(self)
 
     def _save(self):
         problems = validate_subjects(self.subjects)

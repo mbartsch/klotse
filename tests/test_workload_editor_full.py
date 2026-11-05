@@ -60,7 +60,7 @@ def test_a_rich_manifest_comes_back_unchanged_when_nothing_is_edited(qtbot):
 
 def test_the_form_has_sections_and_sub_tabs_with_counts(qtbot):
     dlg = make(qtbot)
-    assert [dlg.sections.tabText(i) for i in range(3)] == ["Workload", "Pod", "Containers"]
+    assert [dlg.sections.tabText(i) for i in range(3)] == ["Workload", "Pod template", "Containers"]
     form = dlg.forms[0]
     titles = [form.sub.tabText(i) for i in range(form.sub.count())]
     assert titles == ["Image and command", "Resources", "Environment (2)", "Ports (2)", "Probes (3)", "Volume mounts (2)", "Security (1)"]
