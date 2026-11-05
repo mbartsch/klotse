@@ -127,6 +127,31 @@ class RowsEditor(QWidget):
         self.add_button.clicked.connect(self._add)
         self.remove_button.clicked.connect(self._remove)
         self.table.itemChanged.connect(lambda _item: None if self._loading else self.changed.emit())
+        self._existing_locked = False
+        self.table.itemSelectionChanged.connect(self._update_remove)
+
+    def lock_existing(self, why="These entries already exist and cannot be changed or removed; new ones can be added."):
+        """Rows that were already there become read-only and cannot be removed (a running pod only accepts additions); rows
+        added afterwards stay editable. Remove is greyed out unless only added rows are selected."""
+        self._existing_locked, self._lock_why = True, why
+        for r in range(self.table.rowCount()):
+            if self._is_existing(r):
+                for c in range(self.table.columnCount()):
+                    item = self.table.item(r, c)
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsUserCheckable)
+        self._update_remove()
+
+    def _is_existing(self, row):
+        item = self.table.item(row, 0)
+        return item is not None and item.data(Qt.UserRole) is not None
+
+    def _update_remove(self):
+        if not self._existing_locked:
+            return
+        rows = {i.row() for i in self.table.selectedIndexes()}
+        usable = bool(rows) and not any(self._is_existing(r) for r in rows)
+        self.remove_button.setEnabled(usable)
+        self.remove_button.setToolTip("" if usable else self._lock_why)
 
     def _append(self, entry, existing):
         texts = self.load(entry)
@@ -154,7 +179,8 @@ class RowsEditor(QWidget):
 
     def _remove(self):
         for row in sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True):
-            self.table.removeRow(row)
+            if not (self._existing_locked and self._is_existing(row)):
+                self.table.removeRow(row)
         self.changed.emit()
 
     def count(self):
@@ -715,6 +741,8 @@ class PodForm(QWidget):
                        self.template_annotations):
             editor.changed.connect(self._changed)
         if locked:  # a running pod: tolerations can only be added, nothing else here changes
+            self.tolerations.lock_existing("A running pod only accepts added tolerations: the ones it has cannot be changed or "
+                                           "removed.")
             for widget in (self.service_account, self.priority, self.grace, self.node_selector, self.pull_secrets,
                            self.volumes, *self.ids.values(), self.non_root, *([self.restart] if self.restart else [])):
                 widget.setEnabled(False)
