@@ -72,15 +72,15 @@ def _mix(a, b, weight=0.5):
 
 
 CLASSIC = Theme("Classic", bg="#1e2127", base="#16181d", border="#2b2f38", text="#d7dae0", muted="#9aa3b2",
-                accent="#3d7eff", accent_hi="#3d7eff", selected_row="#26406f", hover="#394050", input_border=_mix("#2b2f38", "#9aa3b2"))
+                accent="#3d7eff", accent_hi="#3d7eff", selected_row="#2b5099", hover="#394050", input_border=_mix("#2b2f38", "#9aa3b2"))
 # Neutrals tinted toward the logo's deep teal-navy, one teal accent from the uniform. Amber (#f5a524) is deliberately
 # not an accent: the app uses it for warnings (banners, hints, states).
 HARBOUR = Theme("Harbour", bg="#16232b", base="#101b22", border="#25383f", text="#dde5e3", muted="#8da4a8",
-                accent="#197f7d", accent_hi="#35b5b0", selected_row="#1b4448", hover="#33505a", input_border=_mix("#25383f", "#8da4a8"))
+                accent="#197f7d", accent_hi="#35b5b0", selected_row="#176666", hover="#33505a", input_border=_mix("#25383f", "#8da4a8"))
 # The light theme: paper-white lists on a cool grey window, the same teal accent (white text on it stays readable) and
 # a dark amber for warnings (the dark theme's bright amber would be unreadable on white).
 DAYLIGHT = Theme("Daylight", bg="#eef2f3", base="#ffffff", border="#d3dadd", text="#1d2a30", muted="#4f636b",
-                 accent="#197f7d", accent_hi="#197f7d", selected_row="#cbe6e4", hover="#c2ccd0",
+                 accent="#197f7d", accent_hi="#197f7d", selected_row="#6aacaa", hover="#c2ccd0",
                  input_border="#7d8c93", warn="#8a4b00", warn_bg="#fdf0d3", ok="#17794a", bad="#c4302b")
 BUILTIN = (HARBOUR, CLASSIC, DAYLIGHT)
 DEFAULT = HARBOUR
@@ -184,7 +184,7 @@ QToolBar QToolButton:hover {{ background: {t.border}; }}
 QStatusBar {{ background: {t.bg}; color: {t.muted}; border-top: 1px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: 0; outline: 0; }}
 QTreeView::item {{ padding: 4px 2px; margin: 0 6px; border-radius: 5px; }}
-QTreeView::item:hover {{ background: {t.border}; }}
+QTreeView::item:hover:!selected {{ background: {t.border}; }}
 QTreeView::item:selected {{ background: {t.accent}; color: white; }}
 QTabWidget::pane {{ border: 0; border-top: 1px solid {t.border}; }}
 QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 7px 14px; border: 0; border-bottom: 2px solid transparent; }}
@@ -194,7 +194,7 @@ QHeaderView::section {{ background: {t.bg}; color: {t.muted}; border: 0; border-
                         padding: 6px 8px; font-weight: 600; }}
 QTableView {{ background: {t.base}; gridline-color: transparent; border: 0; selection-background-color: {t.selected_row}; selection-color: {t.text}; }}
 QTableView::item {{ padding: 3px 6px; }}
-QTableView::item:hover {{ background: {t.border}; }}
+QTableView::item:hover:!selected {{ background: {t.border}; }}
 QMenuBar QToolBar {{ border: 0; padding: 0; }}
 QDockWidget {{ titlebar-close-icon: none; }}
 QDockWidget::title {{ background: {t.bg}; padding: 6px 8px; border-bottom: 1px solid {t.border}; }}

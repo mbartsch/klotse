@@ -222,3 +222,16 @@ def test_warn_colours_are_optional_in_a_file_and_can_be_set():
     assert parse_theme(MINIMAL).warn == "#f5a524"
     t = parse_theme(MINIMAL + "warn = #884400" + chr(10) + "warn_bg = #ffeecc" + chr(10))
     assert (t.warn, t.warn_bg) == ("#884400", "#ffeecc")
+
+
+def test_the_selected_row_stands_out_and_keeps_readable_text_in_every_built_in_theme():
+    # the row stays selected when focus moves to Details, so it must be easy to find again (3:1 is for edges; a
+    # filled row needs at least 2:1 against the list) and the text on it must stay readable
+    for t in theme.BUILTIN:
+        assert _ratio(t.selected_row, t.base) >= 2.0, t.name
+        assert _ratio(t.text, t.selected_row) >= 4.5, t.name
+
+
+def test_hovering_a_selected_row_does_not_hide_the_selection():
+    sheet = theme.stylesheet(HARBOUR)
+    assert "QTableView::item:hover:!selected" in sheet and "QTreeView::item:hover:!selected" in sheet

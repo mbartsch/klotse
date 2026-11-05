@@ -1,4 +1,4 @@
-from PySide6.QtCore import QElapsedTimer, QSortFilterProxyModel, Qt, Signal, QTimer
+from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QSortFilterProxyModel, Qt, Signal, QTimer
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QStackedWidget,
                                QTableView, QVBoxLayout, QWidget)
 
@@ -125,10 +125,50 @@ class ResourceTable(QWidget):
         self._load_timer.stop()
         self.stack.setCurrentWidget(self.view)
         self.rows_incoming.emit(rows)  # before the columns are measured: a refresh must not blank or shrink plugin columns
+        kept = self._selection_to_keep()
         self.model.set_rows(rows)
         self.view.resizeColumnsToContents()
+        self._restore_selection(*kept)
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
         self.rows_set.emit(self.model.rows)
+
+    @staticmethod
+    def _row_key(row):
+        """What identifies a row across reloads: its uid, else namespace/name."""
+        uid = ((getattr(row, "raw", None) or {}).get("metadata") or {}).get("uid")
+        return uid or f"{getattr(row, 'namespace', '')}/{getattr(row, 'name', '')}"
+
+    def _selection_to_keep(self):
+        """(selected keys, current key, scroll position): a reload replaces every row, which would clear all three."""
+        selection = self.view.selectionModel()
+        keys = {self._row_key(self.model.rows[self.proxy.mapToSource(i).row()]) for i in selection.selectedRows()}
+        current = selection.currentIndex()
+        current_key = (self._row_key(self.model.rows[self.proxy.mapToSource(current).row()])
+                       if current.isValid() else None)
+        return keys, current_key, self.view.verticalScrollBar().value()
+
+    def _restore_selection(self, keys, current_key, scroll):
+        """Select the same objects again, silently: nothing changed for the user, so the Details pane (and its
+        decoded secret keys) must not be redrawn or cleared."""
+        if not keys and current_key is None:
+            return
+        selection = self.view.selectionModel()
+        selection.blockSignals(True)
+        try:
+            for source_row, row in enumerate(self.model.rows):
+                key = self._row_key(row)
+                if key not in keys and key != current_key:
+                    continue
+                index = self.proxy.mapFromSource(self.model.index(source_row, 0))
+                if not index.isValid():  # hidden by the filter
+                    continue
+                if key in keys:
+                    selection.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+                if key == current_key:
+                    selection.setCurrentIndex(index, QItemSelectionModel.NoUpdate)
+        finally:
+            selection.blockSignals(False)
+        self.view.verticalScrollBar().setValue(scroll)
 
     def fit_plugin_columns(self):
         """Widen the plugin columns to their values (done when values arrive, not on every refresh)."""
