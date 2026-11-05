@@ -184,10 +184,9 @@ QToolBar QToolButton:hover {{ background: {t.border}; }}
 QStatusBar {{ background: {t.bg}; color: {t.muted}; border-top: 1px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: 0; outline: 0; }}
 QTreeView::item {{ padding: 4px 2px; }}
-QTreeView::item:hover:!selected, QTreeView::branch:hover:!selected {{ background: {t.border}; }}
-QTreeView::item:selected, QTreeView::branch:selected {{ background: {t.accent}; color: white; }}
-QTreeView#navigator::item:selected, QTreeView#navigator::branch:selected,
-QTreeView#navigator::item:hover, QTreeView#navigator::branch:hover, QTreeView#navigator::item {{ background: transparent; }}
+QTreeView::item:hover:!selected {{ background: {t.border}; }}
+QTreeView::item:selected {{ background: {t.accent}; color: white; }}
+QTreeView#navigator::item:selected, QTreeView#navigator::item:hover, QTreeView#navigator::item {{ background: transparent; }}
 QTreeView#navigator {{ selection-background-color: transparent; }}
 QTabWidget::pane {{ border: 0; border-top: 1px solid {t.border}; }}
 QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 7px 14px; border: 0; border-bottom: 2px solid transparent; }}

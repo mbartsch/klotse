@@ -4,7 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
-                               QTabWidget, QToolBar, QWidget)
+                               QTabWidget, QWidget)
 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
@@ -70,11 +70,6 @@ class MainWindow(QMainWindow):
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
         self.menuBar().addMenu("Help").addAction(self.about_action)
-        self.exit_toolbar = QToolBar("Application", self)
-        self.exit_toolbar.setMovable(False)
-        self.exit_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.exit_toolbar.addAction(self.exit_action)
-        self.menuBar().setCornerWidget(self.exit_toolbar, Qt.TopRightCorner)  # no row of its own
 
         self.clusters = QTabWidget()
         self.clusters.setTabsClosable(True)

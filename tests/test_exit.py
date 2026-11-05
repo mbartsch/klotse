@@ -22,12 +22,11 @@ def test_exit_action_closes_window_and_shutdown_is_idempotent(qtbot, monkeypatch
     win = MainWindow(EmptyService)
     qtbot.addWidget(win)
     win.show()
-    exit_button = win.exit_toolbar.widgetForAction(win.exit_action)
-    assert exit_button.isVisible()
-    assert exit_button.text() == "Exit"
+    assert not hasattr(win, "exit_toolbar")  # no Exit button on the right; File > Exit and the quit shortcut remain
+    assert win.exit_action.text() == "Exit"
     closing = []
     win.closing.connect(lambda: closing.append(True))
-    qtbot.mouseClick(exit_button, Qt.LeftButton)
+    win.exit_action.trigger()
     assert not win.isVisible()
     assert closing == [True]
     assert stopped == [True]
