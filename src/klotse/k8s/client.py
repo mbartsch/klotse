@@ -280,6 +280,27 @@ class KubeService:
             if not token:
                 return names
 
+    def list_pod_labels(self, namespace):
+        """[(key, value)] of the labels on the pods of a namespace, for the selector boxes (metadata only, paged)."""
+        accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+        pairs, token = set(), None
+        while True:
+            reply = self._core.list_namespaced_pod(namespace, limit=500, _continue=token, _request_timeout=30,
+                                                   _preload_content=False, _headers={"Accept": accept})
+            page = json.loads(reply.data)
+            for item in page.get("items") or []:
+                pairs.update(((item.get("metadata") or {}).get("labels") or {}).items())
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return sorted(pairs)
+
+    def list_ingress_class_names(self):
+        """[(name, is_default)] of the cluster's IngressClasses, for the Ingress editor's class box."""
+        flag = "ingressclass.kubernetes.io/is-default-class"
+        found = self._apis["net"].list_ingress_class(_request_timeout=30)
+        return [(c.metadata.name, ((c.metadata.annotations or {}).get(flag) == "true"))
+                for c in found.items or []]
+
     def delete_resource(self, kind, name, namespace, uid):
         """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
         reused the name from being deleted."""

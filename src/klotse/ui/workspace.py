@@ -11,7 +11,7 @@ from ..k8s.api_index import ApiIndex
 from ..k8s.resources import DELETABLE_KINDS, SPECS
 from ..plugins.host import PluginHost
 from ..workers import Worker
-from .account_directory import AccountDirectory, SecretDirectory
+from .account_directory import AccountDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory
 from .api_index_loader import ApiIndexLoader
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
@@ -649,6 +649,21 @@ class ClusterWorkspace(QMainWindow):
         directories[namespace].start()
         return directories[namespace]
 
+    def ingress_class_directory(self):
+        """The cluster's IngressClasses for the Ingress editor: loaded once, in the background."""
+        if getattr(self, "_ingress_classes", None) is None:
+            self._ingress_classes = IngressClassDirectory(self.service, self._run, parent=self)
+        self._ingress_classes.start()
+        return self._ingress_classes
+
+    def label_directory(self, namespace):
+        """The labels on the pods of one namespace for the selector boxes: loaded once per namespace."""
+        directories = self.__dict__.setdefault("_label_directories", {})
+        if namespace not in directories:
+            directories[namespace] = LabelDirectory(self.service, self._run, namespace, parent=self)
+        directories[namespace].start()
+        return directories[namespace]
+
     def _has_form(self, kind, raw):
         """Whether the kind has a form editor for this manifest (an aggregated role's rules are overwritten, so no)."""
         return (kind in RULE_KINDS and not raw.get("aggregationRule")) or kind in BINDING_KINDS \
@@ -662,7 +677,10 @@ class ClusterWorkspace(QMainWindow):
         if kind == "ServiceAccount":
             return ServiceAccountEditDialog(kind, raw, self.secret_directory(namespace), self)
         if kind in NETWORK_KINDS:
-            return NetworkEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names())
+            return NetworkEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names(),
+                                     classes=self.ingress_class_directory() if kind == "Ingress" else None,
+                                     labels=self.label_directory((raw.get("metadata") or {}).get("namespace") or namespace)
+                                     if kind != "Ingress" else None)
         if kind in DATA_KINDS:
             return DataEditDialog(kind, raw, self, secret_data=secret_data, create=creating,
                                   namespaces=self._namespace_names())

@@ -157,7 +157,7 @@ def test_an_ingress_shows_one_row_per_path_and_keeps_resource_backends(qtbot):
     assert [(r["host"], r["path"], r["service"], r["port"]) for r in rows] == [
         ("a.example.com", "/", "web", "80"), ("a.example.com", "/api", "api", "http"),
         ("a.example.com", "/img", "(resource Bucket/img)", ""), ("b.example.com", "/", "web", "80")]
-    assert dlg.ingress_class.text() == "nginx" and dlg.default_service.text() == "fallback"
+    assert dlg.ingress_class.currentText() == "nginx" and dlg.default_service.text() == "fallback"
     assert dlg.tls.texts() == [{"hosts": "a.example.com, b.example.com", "secretName": "site-tls"}]
 
 
@@ -316,13 +316,13 @@ def test_new_and_edit_route_to_the_network_dialog(qtbot, monkeypatch):
     from klotse.k8s.resources import Row
 
     created, replaced, seen = [], [], []
-    ws = ClusterWorkspace(SimpleNamespace(create=lambda k, b: created.append((k, b)), replace=lambda k, b: replaced.append((k, b))), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(create=lambda k, b: created.append((k, b)), replace=lambda k, b: replaced.append((k, b)), list_ingress_class_names=lambda: [], list_pod_labels=lambda ns: []), "ctx")
     qtbot.addWidget(ws)
     ws.refresh = lambda: None
     ws.set_namespace("default")
 
     class Form:
-        def __init__(self, kind, raw, parent=None, create=False, namespaces=()):
+        def __init__(self, kind, raw, parent=None, create=False, namespaces=(), **_kw):
             seen.append((kind, create, raw["metadata"]["namespace"]))
             self.wants_yaml, self.result_body = False, {"metadata": {"name": "n", "namespace": "default"}}
 
@@ -354,3 +354,101 @@ def test_the_service_creates_services_ingresses_and_policies():
         except AttributeError:
             pass  # the fake object lacks fields the row mapper reads; the API call is what matters
     assert calls == [("service", "ns"), ("ingress", "ns"), ("policy", "ns")]
+
+
+# ---- ingress classes ---------------------------------------------------------------------------------------
+class ClassList:
+    """Stands in for IngressClassDirectory."""
+
+    def __init__(self, entries, state="done"):
+        from PySide6.QtCore import QObject, Signal
+
+        class Emitter(QObject):
+            finished = Signal()
+        self._e = Emitter()
+        self.finished = self._e.finished
+        self.entries, self.state, self.error = entries, state, ""
+
+    names = lambda self: [n for n, _d in self.entries]  # noqa: E731
+    default = lambda self: next((n for n, d in self.entries if d), "")  # noqa: E731
+    status_text = lambda self: f"{len(self.entries)} ingress classes"  # noqa: E731
+
+
+def test_the_ingress_class_box_lists_the_clusters_classes(qtbot):
+    classes = ClassList([("alb", False), ("nginx", True)])
+    dlg = NetworkEditDialog("Ingress", deepcopy(INGRESS), classes=classes)
+    qtbot.addWidget(dlg)
+    box = dlg.ingress_class
+    assert [box.itemText(i) for i in range(box.count())] == ["", "alb", "nginx"]
+    assert "Default class: nginx" in dlg.class_note.text() and box.currentText() == INGRESS["spec"].get("ingressClassName", "")
+
+
+def test_the_ingress_class_list_arrives_later_and_keeps_what_was_typed(qtbot):
+    classes = ClassList([], state="loading")
+    dlg = NetworkEditDialog("Ingress", deepcopy(INGRESS), classes=classes)
+    qtbot.addWidget(dlg)
+    dlg.ingress_class.setCurrentText("custom")
+    classes.entries = [("nginx", True)]
+    classes.finished.emit()
+    assert dlg.ingress_class.currentText() == "custom" and dlg.ingress_class.findText("nginx") >= 0
+
+
+def test_the_service_lists_ingress_classes_and_marks_the_default():
+    flag = "ingressclass.kubernetes.io/is-default-class"
+    items = [SimpleNamespace(metadata=SimpleNamespace(name="a", annotations={flag: "true"})),
+             SimpleNamespace(metadata=SimpleNamespace(name="b", annotations=None))]
+    svc = object.__new__(KubeService)
+    svc._apis = {"net": SimpleNamespace(list_ingress_class=lambda **kw: SimpleNamespace(items=items))}
+    assert svc.list_ingress_class_names() == [("a", True), ("b", False)]
+
+
+# ---- pod labels in the selector boxes ------------------------------------------------------------------------
+class LabelList:
+    def __init__(self, entries, state="done"):
+        from PySide6.QtCore import QObject, Signal
+
+        class Emitter(QObject):
+            finished = Signal()
+        self._e = Emitter()
+        self.finished = self._e.finished
+        self.entries, self.state = entries, state
+
+    def choices(self):
+        out = {}
+        for k, v in self.entries:
+            out.setdefault(k, []).append(v)
+        return out
+
+
+def test_the_service_selector_offers_the_pod_labels_of_the_namespace(qtbot):
+    labels = LabelList([("app", "api"), ("app", "web"), ("tier", "back")], state="loading")
+    dlg = NetworkEditDialog("Service", deepcopy(SERVICE), labels=labels)
+    qtbot.addWidget(dlg)
+    labels.state = "done"
+    labels.finished.emit()
+    box = dlg.selector.key_box
+    assert [box.itemText(i) for i in range(box.count())] == ["app", "tier"]
+    box.setCurrentText("app")
+    assert dlg.selector.value_completer.model().stringList() == ["api", "web"]
+    assert dlg.selector.value_arrow.isVisible() or not dlg.selector.isVisible()
+    box.setCurrentText("unknown")
+    assert dlg.selector.value_completer.model().stringList() == []
+
+
+def test_a_typed_selector_still_works_with_labels_offered(qtbot):
+    dlg = NetworkEditDialog("Service", deepcopy(SERVICE), labels=LabelList([("app", "api")]))
+    qtbot.addWidget(dlg)
+    dlg.selector.key_box.setCurrentText("custom")
+    dlg.selector.value_edit.setText("x")
+    dlg.selector._add()
+    assert dlg.selector.items()["custom"] == "x"
+
+
+def test_the_service_lists_the_distinct_pod_labels(monkeypatch):
+    import json
+    pages = [json.dumps({"items": [{"metadata": {"labels": {"app": "a", "t": "1"}}}, {"metadata": {}}],
+                         "metadata": {"continue": "c"}}),
+             json.dumps({"items": [{"metadata": {"labels": {"app": "a", "t": "2"}}}], "metadata": {}})]
+    svc = object.__new__(KubeService)
+    svc._core = SimpleNamespace(list_namespaced_pod=lambda ns, **kw: SimpleNamespace(data=pages.pop(0)))
+    assert svc.list_pod_labels("shop") == [("app", "a"), ("t", "1"), ("t", "2")]

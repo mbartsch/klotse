@@ -54,6 +54,25 @@ class AccountDirectory(QObject):
         return f"{len(self.entries):,} service accounts"
 
 
+class IngressClassDirectory(AccountDirectory):
+    """The cluster's IngressClasses as (name, is_default), loaded in the background for the Ingress editor's class box."""
+
+    _call = "list_ingress_class_names"
+
+    def names(self):
+        return [name for name, _default in self.entries]
+
+    def default(self):
+        return next((name for name, is_default in self.entries if is_default), "")
+
+    def status_text(self):
+        if self.state == "failed":
+            return f"Could not list the ingress classes: {self.error}. You can still type a name."
+        if self.state == "loading":
+            return "Loading ingress classes…"
+        return f"{len(self.entries):,} ingress classes"
+
+
 class SecretDirectory(AccountDirectory):
     """The names of the secrets of one namespace (names only, no secret data), loaded in the background like the
     service accounts; entries are plain names."""
@@ -84,3 +103,22 @@ class SecretDirectory(AccountDirectory):
         if self.state == "loading":
             return "Loading secret names…"
         return f"{len(self.entries):,} secrets in {self.namespace}"
+
+
+class LabelDirectory(SecretDirectory):
+    """The (key, value) labels on the pods of one namespace, for the selector boxes of a Service or NetworkPolicy."""
+
+    _call = "list_pod_labels"
+
+    def choices(self):
+        out = {}
+        for key, value in self.entries:
+            out.setdefault(key, []).append(value)
+        return out
+
+    def status_text(self):
+        if self.state == "failed":
+            return f"Could not list the pod labels: {self.error}. You can still type them."
+        if self.state == "loading":
+            return "Loading pod labels…"
+        return f"{len(self.choices())} label keys on the pods of {self.namespace}"

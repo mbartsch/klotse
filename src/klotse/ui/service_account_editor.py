@@ -7,11 +7,11 @@ from the table but preserved."""
 from copy import deepcopy
 from html import escape
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QStringListModel, QTimer, Signal
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView,
-                               QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTableWidget,
-                               QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView,
+                               QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QStyle,
+                               QTableWidget, QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
 
 from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
 from . import theme
@@ -119,6 +119,17 @@ class KeyValueEditor(QWidget):
         self.value_edit = QLineEdit(placeholderText="Value")
         self.add_button = QPushButton("Add / update")
         self.remove_button = QPushButton("Remove selected")
+        self.choices = {}  # key -> values known in the cluster, offered by the boxes (set_choices)
+        self.value_completer = QCompleter([], self.value_edit)
+        self.value_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.value_completer.setFilterMode(Qt.MatchContains)
+        self.value_edit.setCompleter(self.value_completer)
+        self.value_arrow = self.value_edit.addAction(self.style().standardIcon(QStyle.SP_ArrowDown),
+                                                     QLineEdit.TrailingPosition)
+        self.value_arrow.setToolTip("Show the values this key has in the cluster")
+        self.value_arrow.setVisible(False)
+        self.value_arrow.triggered.connect(self._show_values)
+        self.key_box.currentTextChanged.connect(self._key_changed)
         add_row = QHBoxLayout()
         add_row.addWidget(self.key_box, 1)
         add_row.addWidget(self.value_edit, 1)
@@ -133,6 +144,28 @@ class KeyValueEditor(QWidget):
         self.add_button.clicked.connect(self._add)
         self.value_edit.returnPressed.connect(self._add)
         self.remove_button.clicked.connect(self._remove)
+
+    def set_choices(self, choices):
+        """Offer keys (the key box) and, for the chosen key, its values (a drop-down arrow in the value box) from
+        {key: [values]}; typing anything else stays possible."""
+        self.choices = {k: sorted(v) for k, v in choices.items()}
+        typed = self.key_box.currentText()
+        self.key_box.blockSignals(True)
+        self.key_box.clear()
+        self.key_box.addItems(sorted(self.choices))
+        self.key_box.setCurrentIndex(-1)
+        self.key_box.setEditText(typed)
+        self.key_box.blockSignals(False)
+        self._key_changed(typed)
+
+    def _key_changed(self, key):
+        values = self.choices.get(key.strip(), [])
+        self.value_completer.setModel(QStringListModel(values, self.value_completer))
+        self.value_arrow.setVisible(bool(values))
+
+    def _show_values(self):
+        self.value_completer.setCompletionPrefix("")
+        self.value_completer.complete()
 
     def set_items(self, mapping):
         self._hidden = {k: v for k, v in mapping.items() if k in self.hidden_keys}

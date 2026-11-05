@@ -52,9 +52,10 @@ class ObjectDialog(QDialog):
     annotation_suggestions = ANNOTATION_SUGGESTIONS
     create_note = ""
 
-    def __init__(self, kind, raw, parent=None, create=False, namespaces=()):
+    def __init__(self, kind, raw, parent=None, create=False, namespaces=(), classes=None, labels=None):
         super().__init__(parent)
-        self.kind, self._raw, self.create = kind, raw, create
+        self.kind, self._raw, self.create, self.classes = kind, raw, create, classes
+        self.labels_dir = labels
         self.result_body, self.wants_yaml, self.pending = None, False, None
         meta = raw.get("metadata") or {}
         self.setWindowTitle(f"New {kind}" if create else f"Edit {kind} {meta.get('name', '')}")
@@ -91,6 +92,7 @@ class ObjectDialog(QDialog):
         for title, widget in self.build_pages(raw):
             self.tabs.addTab(widget, title)
         self.tabs.addTab(page(self.labels, self.annotations), "Labels and annotations")
+        self._offer_pod_labels()
 
         self.hint = QLabel()
         self.hint.setWordWrap(True)
@@ -160,6 +162,18 @@ class ObjectDialog(QDialog):
             return self.build(self.values(), self._new())
         except (ValueError, KeyError, IndexError, TypeError):
             return None
+
+    def _offer_pod_labels(self):
+        """The selector tables offer the labels found on the namespace's pods once they are loaded."""
+        editor = getattr(self, "selector", None) or getattr(self, "pod_selector", None)
+        if self.labels_dir is None or editor is None:
+            return
+
+        def fill():
+            if self.labels_dir.state == "done":
+                editor.set_choices(self.labels_dir.choices())
+        self.labels_dir.finished.connect(fill)
+        fill()
 
     def _hint(self, *_args):
         if not hasattr(self, "hint"):  # a signal fired while the tabs were still being built
@@ -321,7 +335,14 @@ class IngressDialog(ObjectDialog):
 
     def build_pages(self, raw):
         spec = raw.get("spec") or {}
-        self.ingress_class = QLineEdit(str(spec.get("ingressClassName", "")), placeholderText="e.g. nginx (empty = the cluster default)")
+        self.ingress_class = QComboBox()
+        self.ingress_class.setEditable(True)
+        self.ingress_class.lineEdit().setPlaceholderText("e.g. nginx (empty = the cluster default)")
+        self.ingress_class.setCurrentText(str(spec.get("ingressClassName", "")))
+        self.class_note = muted("")
+        self._fill_classes()
+        if self.classes is not None:
+            self.classes.finished.connect(self._fill_classes)
         self.rules = RowsEditor(
             "Rules", [("host", "Host", "text", ()), ("path", "Path", "text", ()), ("pathType", "Path type", "choice", PATH_TYPES),
                       ("service", "Service", "text", ()), ("port", "Port", "port", ())],
@@ -339,14 +360,30 @@ class IngressDialog(ObjectDialog):
                                                "ingress's namespace.")
         top = QFormLayout()
         top.addRow("Ingress class", self.ingress_class)
+        top.addRow("", self.class_note)
         top.addRow("Default backend service", self.default_service)
         top.addRow("Default backend port", self.default_port)
-        self.track(self.ingress_class.textChanged, self.rules.changed, self.default_service.textChanged,
+        self.track(self.ingress_class.editTextChanged, self.rules.changed, self.default_service.textChanged,
                    self.default_port.textChanged, self.tls.changed)
         return [("Rules", scrolled(page(top, self.rules))), ("TLS", page(self.tls))]
 
+    def _fill_classes(self):
+        """List the cluster's IngressClasses in the box (the typed or current name stays; the first entry is empty = the
+        cluster's default class). The default class is named in the note under the box."""
+        if self.classes is None:
+            self.class_note.setVisible(False)
+            return
+        current = self.ingress_class.currentText()
+        self.ingress_class.blockSignals(True)
+        self.ingress_class.clear()
+        self.ingress_class.addItems(["", *self.classes.names()])
+        self.ingress_class.setCurrentText(current)
+        self.ingress_class.blockSignals(False)
+        default = self.classes.default()
+        self.class_note.setText(self.classes.status_text() + (f". Default class: {default}." if default else "."))
+
     def collect(self):
-        return {"class": self.ingress_class.text(), "rows": self.rules.entries(),
+        return {"class": self.ingress_class.currentText(), "rows": self.rules.entries(),
                 "default_backend": {"service": self.default_service.text(), "port": self.default_port.text()},
                 "tls": self.tls.entries()}
 
@@ -510,6 +547,6 @@ class PolicyDialog(ObjectDialog):
 DIALOGS = {"Service": ServiceDialog, "Ingress": IngressDialog, "NetworkPolicy": PolicyDialog}
 
 
-def NetworkEditDialog(kind, raw, parent=None, create=False, namespaces=()):  # noqa: N802 - used like a class
+def NetworkEditDialog(kind, raw, parent=None, create=False, namespaces=(), classes=None, labels=None):  # noqa: N802 - used like a class
     """The editor for a Service, Ingress or NetworkPolicy."""
-    return DIALOGS[kind](kind, raw, parent, create=create, namespaces=namespaces)
+    return DIALOGS[kind](kind, raw, parent, create=create, namespaces=namespaces, classes=classes, labels=labels)
