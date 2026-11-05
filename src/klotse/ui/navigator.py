@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QModelIndex, QRect, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
 
@@ -64,6 +64,9 @@ class Navigator(QTreeWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("navigator")
+        self.setMouseTracking(True)
+        self._hover = QModelIndex()
         self.setHeaderHidden(True)
         self.setIndentation(14)
         self._clusters = {}
@@ -76,6 +79,31 @@ class Navigator(QTreeWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
+
+    def mouseMoveEvent(self, event):
+        hover = self.indexAt(event.position().toPoint())
+        if hover != self._hover:
+            self._hover = hover
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover = QModelIndex()
+        self.viewport().update()
+        super().leaveEvent(event)
+
+    def drawRow(self, painter, option, index):
+        """Selection and hover are one rounded pill across the whole row, indent included (the style sheet can only
+        colour the item part, which left the pill cut off at the arrow column)."""
+        selected = self.selectionModel().isSelected(index)
+        if selected or index == self._hover:
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme.ACCENT if selected else theme.BORDER))
+            painter.drawRoundedRect(QRect(6, option.rect.y() + 1, self.viewport().width() - 12, option.rect.height() - 2), 5, 5)
+            painter.restore()
+        super().drawRow(painter, option, index)
 
     def set_contexts(self, names, groups=None):
         self.clear()
