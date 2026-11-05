@@ -18,7 +18,7 @@ Only the latest release receives fixes.
 - Klotse runs with **your** permissions: your kubeconfig, your `kubectl` and cloud-login helpers, and your cloud
   credentials. It has no server component and sends nothing anywhere except to the clusters and the AWS endpoints you use.
 - **Plugins are trusted code** that runs inside Klotse with the same permissions. They are off until you enable them; enable
-  only plugins you trust. The bundled AWS nodes plugin uses AWS credentials only to call EC2 and STS (and, if you turn it on, the
+  only plugins you trust. The bundled AWS Plugin uses AWS credentials only to call EC2 and STS (and, if you turn it on, the
   console sign-in).
 - **A cluster is not trusted input.** Names, labels and other data from a cluster are displayed and, where Klotse builds an
   address or a command from them, validated first (for example the AWS region from a node label). A cluster that makes Klotse

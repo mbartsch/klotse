@@ -127,9 +127,9 @@ setting; an empty box means "not set for this cluster". The values reach `enrich
 general settings). `Setting.pattern`, if given, is a regular expression a non-empty value must match completely. Saving
 makes every open list and Overview ask the plugin again. They are stored in `[plugin_<id>_clusters]` of the settings file.
 
-## The bundled plugin: AWS nodes
+## The bundled plugin: AWS Plugin
 
-Klotse ships one plugin of its own, **AWS nodes** (`klotse_plugins/aws_nodes`), written against this same API. It is off
+Klotse ships one plugin of its own, **AWS Plugin** (`klotse_plugins/aws_nodes`; its id stays `aws-nodes`, so saved settings keep working), written against this same API. It is off
 until you enable it. For nodes that are EC2 instances (an `aws:///zone/i-...` providerID, which EKS and Karpenter set) it
 adds these columns to the Nodes list:
 
@@ -170,7 +170,7 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
   is not listed uses *AWS profile (default for all clusters)*. The profile of the cluster a node belongs to is used for the
   EC2 lookups, the cost estimate and the automatic console sign-in. Changing a setting makes the plugin ask again for
   what it showed (the details it already kept for good are not asked again).
-- **Profile and account from the menu.** With the plugin enabled and a cluster in front, **Plugins → AWS nodes: settings
+- **Profile and account from the menu.** With the plugin enabled and a cluster in front, **Plugins → AWS Plugin: settings
   for this cluster…** sets that cluster's *AWS profile* and, optionally, *AWS account ID* (12 digits). The profile wins
   over the per-cluster list in the plugin's settings and the default profile. The account is normally not needed: for
   "Open in the EC2 console" with several accounts it is taken from the menu, the per-cluster account list, the EKS ARN in

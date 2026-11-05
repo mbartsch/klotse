@@ -1,4 +1,4 @@
-"""AWS nodes: what the nodes of an EKS (or other AWS) cluster are and cost, as columns and right-click actions.
+"""AWS Plugin: what the nodes of an EKS (or other AWS) cluster are and cost, as columns and right-click actions.
 
 Without any login it shows, from the Node objects, the instance ID, instance type, capacity (on-demand or spot) and, on
 managed node groups, the AMI; and, from AWS's public price list, the on-demand price per hour and per month. If boto3 is
@@ -40,7 +40,7 @@ def console_url(info):
 
 class AwsNodes(Plugin):
     id = "aws-nodes"
-    name = "AWS nodes"
+    name = "AWS Plugin"
     version = "0.1"
     requires_api = 6
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
@@ -94,7 +94,7 @@ class AwsNodes(Plugin):
                 help="Which account a cluster is in, one per line as context = 123456789012. Only needed when the "
                      "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
     )
-    cluster_settings = (  # Plugins menu -> AWS nodes -> settings for the cluster in front
+    cluster_settings = (  # Plugins menu -> AWS Plugin -> settings for the cluster in front
         Setting("cluster_profile", "AWS profile", "",
                 help="The profile from your AWS config used for this cluster's EC2 lookups, cost estimate and console "
                      "sign-in. Empty uses the entry in the plugin's settings, or the default profile."),
