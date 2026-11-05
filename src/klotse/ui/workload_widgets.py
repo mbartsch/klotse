@@ -4,14 +4,15 @@ from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                               QLineEdit, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
+                               QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
 from .service_account_editor import KeyValueEditor
 from .workload_model import (CONTAINER_FLAGS, CONTAINER_IDS, OTHER_VOLUME, RESTART_POLICIES, PROBE_MODES, PROBE_NAMES, PROBE_TIMINGS,
                              PROTOCOLS, PULL_POLICIES, RESOURCES, TAINT_EFFECTS, TOLERATION_OPERATORS, VOLUME_TYPES,
-                             build_env_from, build_volume, env_from_row, env_source, probe_values,
+                             ENV_FIELD_PATHS, ENV_FROM_SOURCES, ENV_RESOURCES, ENV_SOURCES, build_env_entry, build_env_from,
+                             build_volume, env_from_row, env_ref, probe_values,
                              volume_row)
 
 
@@ -184,24 +185,76 @@ class RowsEditor(QWidget):
         return out
 
 
+ROW_OTHER = "Other"  # a valueFrom this editor does not know: shown, kept as it was
+
+
+class SourceDelegate(ComboDelegate):
+    """The Source column: every kind of variable, except a source this editor does not know."""
+
+    def createEditor(self, parent, option, index):
+        return None if index.data() == ROW_OTHER else super().createEditor(parent, option, index)
+
+
+class ValueDelegate(QStyledItemDelegate):
+    """The Value column: a drop-down of the usual field paths / resources for those sources, plain text otherwise."""
+
+    def createEditor(self, parent, option, index):
+        source = index.sibling(index.row(), 0).data()
+        choices = {"Field": ENV_FIELD_PATHS, "Resource": ENV_RESOURCES}.get(source)
+        if not choices:
+            return super().createEditor(parent, option, index)
+        box = QComboBox(parent)
+        box.setEditable(True)
+        box.addItems(list(choices))
+        return box
+
+    def setEditorData(self, editor, index):
+        if isinstance(editor, QComboBox):
+            editor.setCurrentText(str(index.data() or ""))
+        else:
+            super().setEditorData(editor, index)
+
+    def setModelData(self, editor, model, index):
+        if isinstance(editor, QComboBox):
+            model.setData(index, editor.currentText())
+        else:
+            super().setModelData(editor, model, index)
+
+
 class EnvEditor(QWidget):
-    """Environment variables of one container. A variable that comes from a Secret, ConfigMap or field is listed read-only
-    and kept exactly as it was."""
+    """The environment of one container in one table. The Source column says what a row is: a plain Value, a Field of the
+    pod (POD_NAMESPACE from metadata.namespace), a key of a Secret or ConfigMap, a Resource limit/request, or all keys of a
+    ConfigMap or Secret (`envFrom`; Name is then the ConfigMap/Secret and Value the optional prefix). Change the Source of a
+    row to change its kind. What the form does not show (apiVersion, optional, divisor, ...) is kept."""
 
     changed = Signal()
 
-    def __init__(self, entries):
+    def __init__(self, entries, from_entries=()):
         super().__init__()
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Name", "Value"])
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Source", "Name", "Value / reference"])
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setMinimumHeight(110)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.setMinimumHeight(150)
+        self.table.setItemDelegateForColumn(0, SourceDelegate(ENV_SOURCES, self.table))
+        self.table.setItemDelegateForColumn(2, ValueDelegate(self.table))
         self.add_button = QPushButton("Add variable")
+        self.add_from_button = QToolButton(text="Add from…")
+        self.add_from_button.setToolTip("Add a variable that comes from a pod field, a Secret or ConfigMap key, a resource "
+                                        "limit, or all keys of a ConfigMap/Secret")
+        self.add_from_button.setPopupMode(QToolButton.InstantPopup)
+        self.add_menu = QMenu(self.add_from_button)
+        for source, text in (("Field", "Pod field (name, namespace, node, IP…)"), ("Secret key", "Secret key"),
+                             ("ConfigMap key", "ConfigMap key"), ("Resource", "Resource limit or request"),
+                             ("ConfigMap, all keys", "All keys of a ConfigMap"), ("Secret, all keys", "All keys of a Secret")):
+            self.add_menu.addAction(text).triggered.connect(lambda _c=False, s=source: self.add_row(s))
+        self.add_from_button.setMenu(self.add_menu)
         self.remove_button = QPushButton("Remove selected")
         buttons = QHBoxLayout()
         buttons.addWidget(self.add_button)
+        buttons.addWidget(self.add_from_button)
         buttons.addWidget(self.remove_button)
         buttons.addStretch(1)
         lay = QVBoxLayout(self)
@@ -209,29 +262,63 @@ class EnvEditor(QWidget):
         lay.addWidget(QLabel("<b>Environment variables</b>"))
         lay.addWidget(self.table)
         lay.addLayout(buttons)
+        self._loading = True
         for entry in entries:
             self._append(entry)
-        self.add_button.clicked.connect(self._add_blank)
+        for entry in from_entries:
+            self._append_from(entry)
+        self._loading = False
+        self.add_button.clicked.connect(lambda: self.add_row("Value"))
         self.remove_button.clicked.connect(self._remove)
-        self.table.itemChanged.connect(lambda _item: self.changed.emit())
+        self.table.itemChanged.connect(self._item_changed)
 
-    def _append(self, entry):
+    def _item_changed(self, item):
+        if self._loading:
+            return
+        if item.column() == 0:
+            self._tip(item.row())
+        self.changed.emit()
+
+    def _tip(self, row):
+        source = self.table.item(row, 0).text()
+        tips = {"Field": "A field of the pod: metadata.name, metadata.namespace, spec.nodeName, status.podIP…",
+                "Secret key": "The Secret and its key, as  name / key", "ConfigMap key": "The ConfigMap and its key, as  name / key",
+                "Resource": "A limit or request of this container, e.g. limits.memory",
+                "ConfigMap, all keys": "Optional prefix added in front of every variable name",
+                "Secret, all keys": "Optional prefix added in front of every variable name"}
+        self.table.item(row, 2).setToolTip(tips.get(source, ""))
+
+    def _row(self, source, name, value, original=None, locked=False):
         row = self.table.rowCount()
         self.table.setRowCount(row + 1)
-        name = QTableWidgetItem(str(entry.get("name", "")))
-        if "value" in entry or "valueFrom" not in entry:
-            value = QTableWidgetItem(str(entry.get("value", "")))
-        else:  # not a plain value: shown, never edited
-            value = QTableWidgetItem(f"(from {env_source(entry)})")
-            value.setFlags(value.flags() & ~Qt.ItemIsEditable)
-            name.setFlags(name.flags() & ~Qt.ItemIsEditable)
-            name.setData(Qt.UserRole, deepcopy(entry))
-        self.table.setItem(row, 0, name)
-        self.table.setItem(row, 1, value)
+        src = QTableWidgetItem(source)
+        src.setData(Qt.UserRole, deepcopy(original) if original else None)
+        if locked:
+            for item in (src, name, value):
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        self.table.setItem(row, 0, src)
+        self.table.setItem(row, 1, name)
+        self.table.setItem(row, 2, value)
+        self._tip(row)
+        return row
 
-    def _add_blank(self):
-        self._append({"name": "", "value": ""})
-        self.table.editItem(self.table.item(self.table.rowCount() - 1, 0))
+    def _append(self, entry):
+        label, detail = env_ref(entry) if ("valueFrom" in entry and "value" not in entry) else ("Value", str(entry.get("value", "")))
+        self._row(label, QTableWidgetItem(str(entry.get("name", ""))), QTableWidgetItem(detail), entry,
+                  locked=label == ROW_OTHER)
+
+    def _append_from(self, entry):
+        row = env_from_row(entry)
+        self._row(f"{row['source']}, all keys", QTableWidgetItem(row["name"]), QTableWidgetItem(row["prefix"]), entry)
+
+    def add_row(self, source):
+        """A new row of that Source, with its name ready to type."""
+        self._loading = True
+        row = self._row(source, QTableWidgetItem(""), QTableWidgetItem(""))
+        self._loading = False
+        self.table.selectRow(row)
+        self.table.editItem(self.table.item(row, 1))
+        self.changed.emit()
 
     def _remove(self):
         for row in sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True):
@@ -241,13 +328,27 @@ class EnvEditor(QWidget):
     def count(self):
         return self.table.rowCount()
 
-    def entries(self):
-        out = []
+    def _rows(self, wanted):
         for r in range(self.table.rowCount()):
-            name, value = self.table.item(r, 0), self.table.item(r, 1)
-            kept = name.data(Qt.UserRole)
-            out.append(deepcopy(kept) if kept else {"name": name.text().strip(), "value": value.text() if value else ""})
+            src = self.table.item(r, 0)
+            if wanted(src.text()):
+                yield src, self.table.item(r, 1), self.table.item(r, 2)
+
+    def entries(self):
+        """The `env` list: each row built from its Source (a source this editor does not know comes back as it was)."""
+        out = []
+        for src, name, value in self._rows(lambda s: s not in ENV_FROM_SOURCES):
+            if src.text() == ROW_OTHER:
+                out.append(deepcopy(src.data(Qt.UserRole)))
+            else:
+                out.append(build_env_entry(src.data(Qt.UserRole), src.text(), name.text(), value.text()))
         return out
+
+    def from_entries(self):
+        """The `envFrom` list: each entry keeps the fields the table does not show."""
+        return [build_env_from(src.data(Qt.UserRole), {"source": "Secret" if src.text().startswith("Secret") else "ConfigMap",
+                                                       "name": name.text(), "prefix": prefix.text()})
+                for src, name, prefix in self._rows(lambda s: s in ENV_FROM_SOURCES)]
 
 
 class LinesEdit(QPlainTextEdit):
@@ -384,13 +485,7 @@ class ContainerForm(QWidget):
                 self.boxes[group, res] = box
                 res_form.addRow(f"{label} {group[:-1]}", box)
 
-        self.env = EnvEditor(container.get("env") or [])
-        self.env_from = RowsEditor(
-            "Environment from", [("source", "From", "choice", ("ConfigMap", "Secret")), ("name", "Name", "text", ()),
-                                 ("prefix", "Prefix (optional)", "text", ())],
-            container.get("envFrom") or [], new_entry={"configMapRef": {"name": ""}}, add_text="Add source",
-            load=env_from_row, dump=build_env_from, height=80,
-            note="Adds every key of a ConfigMap or Secret as a variable.")
+        self.env = EnvEditor(container.get("env") or [], container.get("envFrom") or [])
         self.ports = RowsEditor("Ports", [("name", "Name", "text", ()), ("containerPort", "Container port", "int", ()),
                                           ("protocol", "Protocol", "choice", ("", *PROTOCOLS))],
                                 container.get("ports") or [], new_entry={"containerPort": 80}, add_text="Add port")
@@ -412,7 +507,7 @@ class ContainerForm(QWidget):
 
         self.sub = QTabWidget()
         self._pages = [("Image and command", page(main)), ("Resources", page(res_form)),
-                       ("Environment", page(self.env, self.env_from)), ("Ports", page(self.ports, grow=True)),
+                       ("Environment", page(self.env, grow=True)), ("Ports", page(self.ports, grow=True)),
                        ("Probes", scrolled(page(*self.probe_editors.values()))),
                        ("Volume mounts", page(self.mounts, grow=True)), ("Security", page(security))]
         for _title, widget in self._pages:
@@ -426,7 +521,7 @@ class ContainerForm(QWidget):
         self.pull.currentIndexChanged.connect(self._changed)
         for lines in (self.command, self.args):
             lines.textChanged.connect(self._changed)
-        for editor in (self.env, self.env_from, self.ports, self.mounts, *self.probe_editors.values()):
+        for editor in (self.env, self.ports, self.mounts, *self.probe_editors.values()):
             editor.changed.connect(self._changed)
         for box in self.flags.values():
             box.currentIndexChanged.connect(self._changed)
@@ -447,7 +542,7 @@ class ContainerForm(QWidget):
         probes = sum(1 for p in self.probe_editors.values() if p.mode.currentText() != "None")
         secure = any(e.text().strip() for e in self.ids.values()) or any(b.value() is not None for b in self.flags.values())
         resources = sum(1 for b in self.boxes.values() if b.text().strip())
-        counts = {"Resources": resources, "Environment": self.env.count() + self.env_from.count(),
+        counts = {"Resources": resources, "Environment": self.env.count(),
                   "Ports": self.ports.count(), "Probes": probes, "Volume mounts": self.mounts.count(),
                   "Security": 1 if secure else 0}
         for i, (title, _w) in enumerate(self._pages):
@@ -461,7 +556,7 @@ class ContainerForm(QWidget):
                 "command": self.command.lines(), "args": self.args.lines(),
                 "requests": {res: self.boxes["requests", res].text() for res, _l, _h in RESOURCES},
                 "limits": {res: self.boxes["limits", res].text() for res, _l, _h in RESOURCES},
-                "env": self.env.entries(), "env_from": self.env_from.entries(), "ports": self.ports.entries(),
+                "env": self.env.entries(), "env_from": self.env.from_entries(), "ports": self.ports.entries(),
                 "mounts": self.mounts.entries(),
                 "probes": {key: editor.values() for key, editor in self.probe_editors.items()},
                 "security": {**{key: edit.text() for key, edit in self.ids.items()},
