@@ -26,9 +26,10 @@ from . import theme
 from .edit_dialog import leave_for_yaml
 from .role_editor import confirm_risky
 from .service_account_editor import ANNOTATION_SUGGESTIONS, LAST_APPLIED, KeyValueEditor
-from .workload_model import (CREATABLE_KINDS, EDIT_KINDS, HAS_REPLICAS, STRATEGIES, WORKLOAD_KINDS, build_body,  # noqa: F401
-                             container_lists, env_source, image_hints, number_or_text, quantity_value, skeleton,
-                             template_changed, valid_count, valid_quantity, validate, workload_warnings)
+from .workload_model import (COMPLETION_MODES, CONCURRENCY, CREATABLE_KINDS, EDIT_KINDS, HAS_REPLICAS,  # noqa: F401
+                             JOB_KINDS, STRATEGIES, WORKLOAD_KINDS, build_body, container_lists, env_source, image_hints,
+                             job_spec_of, number_or_text, quantity_value, skeleton, template_changed, template_of,
+                             valid_count, valid_quantity, validate, workload_warnings)
 from .workload_widgets import ContainerForm, PodForm, TriCombo, page, scrolled
 
 STRATEGY_TIPS = {
@@ -39,11 +40,15 @@ STRATEGY_TIPS = {
 ROLLOUT_NOTE = ("Changing the pod template (containers, pod labels, volumes, scheduling) makes Kubernetes start a rolling "
                 "update and replace the pods.")
 REPLICAS_NOTE = "If a HorizontalPodAutoscaler manages this workload, it will set the replica count again."
+RUNNING_JOB_NOTE = ("A Job's pod template cannot be changed once it exists (it is shown but disabled). What can change: "
+                    "parallelism, suspending it, the active deadline and how long it is kept after it finishes. To run "
+                    "something different, create a new Job.")
+CRONJOB_NOTE = "Changes apply to the Jobs it creates from now on; Jobs it already created are not touched."
 RUNNING_POD_NOTE = ("A running pod can only change these: container images, the active deadline, added tolerations, "
                     "labels and annotations. Everything else is shown but cannot be edited (Kubernetes would refuse it). "
                     "To change anything else, edit the Deployment or StatefulSet that owns the pod, or delete the pod.")
-NEW_NOTE = ("Fill in the name and the containers. The selector and the pod label app follow the name. Fields not "
-            "in this form can be added with Edit as YAML… (the changes made here come along).")
+NEW_NOTE = ("Fill in the name and the containers. For workloads the selector and the pod label app follow the name. "
+            "Fields not in this form can be added with Edit as YAML… (the changes made here come along).")
 
 
 class WorkloadEditDialog(QDialog):
@@ -53,7 +58,7 @@ class WorkloadEditDialog(QDialog):
     def __init__(self, kind, raw, parent=None, create=False, namespaces=()):
         super().__init__(parent)
         self.kind, self._raw, self.create = kind, raw, create
-        self.running = kind == "Pod" and not create  # a Pod that exists: almost nothing can change
+        self.running = kind in ("Pod", "Job") and not create  # these exist already: almost nothing can change
         self.result_body, self.wants_yaml, self.pending = None, False, None
         is_pod = kind == "Pod"
         meta, spec = raw.get("metadata") or {}, raw.get("spec") or {}
@@ -65,7 +70,8 @@ class WorkloadEditDialog(QDialog):
         else:
             intro = (f"{escape(kind)} <b>{escape(str(meta.get('name', '')))}</b> in namespace "
                      f"<b>{escape(str(meta.get('namespace', '')))}</b>. Only the fields in this form change; the rest "
-                     "of the manifest is kept. " + escape(RUNNING_POD_NOTE if self.running else ROLLOUT_NOTE))
+                     "of the manifest is kept. " + escape({"Pod": RUNNING_POD_NOTE, "Job": RUNNING_JOB_NOTE,
+                                                           "CronJob": CRONJOB_NOTE}.get(kind, ROLLOUT_NOTE)))
         self.head = QLabel(intro)
         self.head.setWordWrap(True)
         self.banner = QLabel("<b>Take care:</b> " + "<br><br>".join(escape(w) for w in self.warnings))
@@ -103,6 +109,32 @@ class WorkloadEditDialog(QDialog):
         self.deadline = QLineEdit("" if spec.get("activeDeadlineSeconds") is None else str(spec["activeDeadlineSeconds"]))
         for edit in (self.min_ready, self.history, self.progress, self.deadline):
             edit.setPlaceholderText("not set")
+        # Jobs and CronJobs
+        job_spec = job_spec_of(raw, kind)
+        self.job_edits, self.cron_edits = {}, {}
+        self.completion_mode = QComboBox()
+        self.completion_mode.addItems(["Not set (NonIndexed)" if m == "" else m for m in COMPLETION_MODES])
+        self.completion_mode.setCurrentIndex(COMPLETION_MODES.index(job_spec["completionMode"])
+                                             if job_spec.get("completionMode") in COMPLETION_MODES else 0)
+        self.suspend = TriCombo(spec.get("suspend"))
+        self.schedule = QLineEdit(str(spec.get("schedule", "")), placeholderText="*/5 * * * *  or  @hourly")
+        self.time_zone = QLineEdit(str(spec.get("timeZone", "")), placeholderText="the controller's (usually UTC)")
+        self.concurrency = QComboBox()
+        self.concurrency.addItems(CONCURRENCY)
+        self.concurrency.setCurrentText(spec.get("concurrencyPolicy", "Allow") if spec.get("concurrencyPolicy") in CONCURRENCY
+                                        else "Allow")
+        for key, label in (("parallelism", "parallelism"), ("completions", "completions"), ("backoff", "backoffLimit"),
+                           ("active_deadline", "activeDeadlineSeconds"), ("ttl", "ttlSecondsAfterFinished")):
+            value = job_spec.get(label)
+            self.job_edits[key] = QLineEdit("" if value is None else str(value), placeholderText="not set")
+        for key, label in (("starting_deadline", "startingDeadlineSeconds"), ("success_history", "successfulJobsHistoryLimit"),
+                           ("failure_history", "failedJobsHistoryLimit")):
+            value = spec.get(label)
+            self.cron_edits[key] = QLineEdit("" if value is None else str(value), placeholderText="not set")
+        self.schedule_note = QLabel("Minute, hour, day of month, month, day of week. For example 0 3 * * * is every day at "
+                                    "03:00.")
+        self.schedule_note.setWordWrap(True)
+        theme.muted(self.schedule_note)
         if kind in STRATEGIES:
             field, types, knobs = STRATEGIES[kind]
             strategy = spec.get(field) or {}
@@ -124,8 +156,24 @@ class WorkloadEditDialog(QDialog):
             if kind == "Deployment":
                 general.addRow("Progress deadline (s)", self.progress)
                 general.addRow("Paused", self.paused)
-        else:
+        elif kind == "Pod":
             general.addRow("Active deadline (s)", self.deadline)
+        else:  # Job, CronJob
+            if kind == "CronJob":
+                general.addRow("Schedule", self.schedule)
+                general.addRow("", self.schedule_note)
+                general.addRow("Time zone", self.time_zone)
+                general.addRow("If one is still running", self.concurrency)
+                general.addRow("Starting deadline (s)", self.cron_edits["starting_deadline"])
+                general.addRow("Successful jobs kept", self.cron_edits["success_history"])
+                general.addRow("Failed jobs kept", self.cron_edits["failure_history"])
+            general.addRow("Suspended", self.suspend)
+            general.addRow("Parallelism", self.job_edits["parallelism"])
+            general.addRow("Completions", self.job_edits["completions"])
+            general.addRow("Backoff limit (retries)", self.job_edits["backoff"])
+            general.addRow("Active deadline (s)", self.job_edits["active_deadline"])
+            general.addRow("Delete after finished (s)", self.job_edits["ttl"])
+            general.addRow("Completion mode", self.completion_mode)
         self.annotations = KeyValueEditor("Annotations", ANNOTATION_SUGGESTIONS, hidden_keys=(LAST_APPLIED,), height=90)
         self.labels = KeyValueEditor("Labels", height=90)
         self.annotations.set_items(dict(meta.get("annotations") or {}))
@@ -137,14 +185,16 @@ class WorkloadEditDialog(QDialog):
         workload_page = scrolled(page(general, self.labels, self.annotations, labels_note))
 
         # ---- the pod (a Pod's own spec, or a workload's template)
-        template = {"spec": spec, "metadata": {}} if is_pod else (spec.get("template") or {})
-        self.pod = PodForm(template, is_pod=is_pod, locked=self.running)
+        template = {"spec": spec, "metadata": {}} if is_pod else template_of(raw, kind)
+        self.pod = PodForm(template, is_pod=is_pod, locked=self.running, jobs=kind in JOB_KINDS,
+                           all_locked=kind == "Job" and not create)
 
         # ---- containers
         self.tabs = QTabWidget()
         self.forms = []
         for field_name, index, container in container_lists(raw, kind):
-            form_widget = ContainerForm(field_name, index, container, create=create, locked=self.running)
+            form_widget = ContainerForm(field_name, index, container, create=create, locked=self.running,
+                                        image_locked=kind == "Job" and not create)
             self.forms.append(form_widget)
             form_widget.changed.connect(self._hint)
             self.tabs.addTab(form_widget, form_widget.name + (" (init)" if field_name == "initContainers" else ""))
@@ -175,13 +225,16 @@ class WorkloadEditDialog(QDialog):
         if self.strategy is not None:
             self.strategy.currentIndexChanged.connect(self._strategy_changed)
         self.yaml_button.clicked.connect(self._as_yaml)
-        typed = [*self.knobs.values(), self.min_ready, self.history, self.progress, self.deadline]
+        typed = [*self.knobs.values(), self.min_ready, self.history, self.progress, self.deadline, self.schedule,
+                 self.time_zone, *self.job_edits.values(), *self.cron_edits.values()]
         typed += [e for e in (self.name_edit, self.service_edit) if e is not None]
         for edit in typed:
             edit.textChanged.connect(self._hint)
         if self.namespace_edit is not None:
             self.namespace_edit.currentTextChanged.connect(self._hint)
         self.paused.currentIndexChanged.connect(self._hint)
+        for box in (self.suspend, self.completion_mode, self.concurrency):
+            box.currentIndexChanged.connect(self._hint)
         for editor in (self.annotations, self.labels, self.pod):
             editor.changed.connect(self._hint)
         self._strategy_changed()
@@ -196,6 +249,14 @@ class WorkloadEditDialog(QDialog):
                   "labels_pairs": self.labels.pairs(), "annotations_pairs": self.annotations.pairs()}
         if self.strategy is not None:
             values["strategy_type"] = self.strategy.currentText()
+        if self.kind in JOB_KINDS:
+            values["job"] = {**{key: edit.text() for key, edit in self.job_edits.items()},
+                             "completion_mode": COMPLETION_MODES[self.completion_mode.currentIndex()],
+                             "suspend": self.suspend.value()}
+        if self.kind == "CronJob":
+            values["cron"] = {"schedule": self.schedule.text(), "time_zone": self.time_zone.text(),
+                              "concurrency": self.concurrency.currentText(),
+                              **{key: edit.text() for key, edit in self.cron_edits.items()}}
         if self.create:
             values["new"] = {"name": self.name_edit.text(), "namespace": self.namespace_edit.currentText(),
                              "service_name": self.service_edit.text() if self.service_edit is not None else ""}

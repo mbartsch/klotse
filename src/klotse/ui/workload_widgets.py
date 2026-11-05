@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QGroup
 
 from . import theme
 from .service_account_editor import KeyValueEditor
-from .workload_model import (CONTAINER_FLAGS, CONTAINER_IDS, OTHER_VOLUME, PROBE_MODES, PROBE_NAMES, PROBE_TIMINGS,
+from .workload_model import (CONTAINER_FLAGS, CONTAINER_IDS, OTHER_VOLUME, RESTART_POLICIES, PROBE_MODES, PROBE_NAMES, PROBE_TIMINGS,
                              PROTOCOLS, PULL_POLICIES, RESOURCES, TAINT_EFFECTS, TOLERATION_OPERATORS, VOLUME_TYPES,
                              build_env_from, build_volume, env_from_row, env_source, probe_values,
                              volume_row)
@@ -331,7 +331,7 @@ class ContainerForm(QWidget):
 
     changed = Signal()
 
-    def __init__(self, field, index, container, create=False, locked=False):
+    def __init__(self, field, index, container, create=False, locked=False, image_locked=False):
         super().__init__()
         self.field, self.index, self.name = field, index, container.get("name", f"#{index + 1}")
         self.container_name = QLineEdit(self.name) if create else None  # a new object names its container
@@ -412,6 +412,8 @@ class ContainerForm(QWidget):
                 widget.setEnabled(False)
             for _title, widget in self._pages[1:]:
                 widget.setEnabled(False)
+        if image_locked:  # a Job's template cannot change at all
+            self.image.setEnabled(False)
         self._titles()
 
     def _changed(self, *_args):
@@ -448,9 +450,10 @@ class PodForm(QWidget):
 
     changed = Signal()
 
-    def __init__(self, template, is_pod=False, locked=False):
+    def __init__(self, template, is_pod=False, locked=False, jobs=False, all_locked=False):
         super().__init__()
         self.is_pod = is_pod
+        self.restart = None
         pod = template.get("spec") or {}
         meta = template.get("metadata") or {}
         self.service_account = QLineEdit(str(pod.get("serviceAccountName", "")), placeholderText="default")
@@ -470,6 +473,14 @@ class PodForm(QWidget):
         identity.addRow("Service account", self.service_account)
         identity.addRow("Priority class", self.priority)
         identity.addRow("Termination grace (s)", self.grace)
+        if jobs:  # a Job's pods must not restart forever: Never or OnFailure
+            self.restart = QComboBox()
+            current = str(pod.get("restartPolicy", "Never"))
+            self.restart.addItems([*RESTART_POLICIES, *([current] if current not in RESTART_POLICIES else [])])
+            self.restart.setCurrentText(current)
+            self.restart.setToolTip("Never: a failed pod is replaced by a new one. OnFailure: the container is restarted "
+                                    "in the same pod.")
+            identity.addRow("Restart policy", self.restart)
 
         self.volumes = RowsEditor(
             None, [("name", "Name", "text", ()), ("type", "Type", "choice", VOLUME_TYPES),
@@ -519,8 +530,12 @@ class PodForm(QWidget):
             editor.changed.connect(self._changed)
         if locked:  # a running pod: tolerations can only be added, nothing else here changes
             for widget in (self.service_account, self.priority, self.grace, self.node_selector, self.pull_secrets,
-                           self.volumes, *self.ids.values(), self.non_root):
+                           self.volumes, *self.ids.values(), self.non_root, *([self.restart] if self.restart else [])):
                 widget.setEnabled(False)
+        if all_locked:  # a Job's template is fixed, tolerations included
+            self.tolerations.setEnabled(False)
+            for editor in (self.template_labels, self.template_annotations):
+                editor.setEnabled(False)
         self._titles()
 
     def _changed(self, *_args):
@@ -545,4 +560,5 @@ class PodForm(QWidget):
                 "template_labels": self.template_labels.items(), "template_labels_pairs": self.template_labels.pairs(),
                 "template_annotations": self.template_annotations.items(),
                 "template_annotations_pairs": self.template_annotations.pairs(),
+                "restart_policy": self.restart.currentText() if self.restart is not None else "",
                 "security": {**{key: edit.text() for key, edit in self.ids.items()}, "runAsNonRoot": self.non_root.value()}}

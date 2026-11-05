@@ -180,6 +180,10 @@ class KubeService:
             return map_statefulset(self._apps.create_namespaced_stateful_set(ns, body))
         if kind == "DaemonSet":
             return SPEC_BY_KIND["DaemonSet"].mapper(self._apps.create_namespaced_daemon_set(ns, body))
+        if kind in ("Job", "CronJob"):
+            batch = self._apis["batch"]
+            create = batch.create_namespaced_job if kind == "Job" else batch.create_namespaced_cron_job
+            return SPEC_BY_KIND[kind].mapper(create(ns, body))
         if kind == "ConfigMap":
             return SPEC_BY_KIND["ConfigMap"].mapper(self._core.create_namespaced_config_map(ns, body))
         if kind == "Secret":

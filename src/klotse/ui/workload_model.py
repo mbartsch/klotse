@@ -19,8 +19,18 @@ from copy import deepcopy
 from .service_account_editor import validate_pairs
 
 WORKLOAD_KINDS = ("Deployment", "DaemonSet", "StatefulSet")
-EDIT_KINDS = (*WORKLOAD_KINDS, "Pod")  # kinds the form edits
+JOB_KINDS = ("Job", "CronJob")
+EDIT_KINDS = (*WORKLOAD_KINDS, "Pod", *JOB_KINDS)  # kinds the form edits
 CREATABLE_KINDS = EDIT_KINDS  # and creates
+CONCURRENCY = ("Allow", "Forbid", "Replace")
+COMPLETION_MODES = ("", "NonIndexed", "Indexed")
+RESTART_POLICIES = ("Never", "OnFailure")
+SCHEDULE_MACROS = ("@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly")
+CRON_FIELD = re.compile(r"[0-9A-Za-z*/,\-?#LW]+")
+JOB_FIELDS = (("parallelism", "parallelism"), ("completions", "completions"), ("backoff", "backoffLimit"),
+              ("active_deadline", "activeDeadlineSeconds"), ("ttl", "ttlSecondsAfterFinished"))
+CRON_FIELDS = (("starting_deadline", "startingDeadlineSeconds"), ("success_history", "successfulJobsHistoryLimit"),
+               ("failure_history", "failedJobsHistoryLimit"))
 HAS_REPLICAS = ("Deployment", "StatefulSet")
 PULL_POLICIES = ("", "Always", "IfNotPresent", "Never")  # "" = not set (Kubernetes picks from the image tag)
 # kind -> (spec field, strategy types, [(rollingUpdate key, label, kind of number)])
@@ -90,11 +100,24 @@ def env_source(entry):
     return "another source"
 
 
+def job_spec_of(raw, kind):
+    """The Job spec: `spec` of a Job, `spec.jobTemplate.spec` of a CronJob."""
+    spec = raw.get("spec") or {}
+    return (spec.get("jobTemplate") or {}).get("spec") or {} if kind == "CronJob" else spec
+
+
+def template_of(raw, kind):
+    """The pod template of a workload, Job or CronJob (for a Pod: the Pod itself)."""
+    if kind == "Pod":
+        return raw
+    return job_spec_of(raw, kind).get("template") or {}
+
+
 def pod_spec_of(raw, kind=""):
-    """The pod spec: `spec` of a Pod, `spec.template.spec` of a workload."""
+    """The pod spec: `spec` of a Pod, the template's `spec` of everything else."""
     if kind == "Pod":
         return raw.get("spec") or {}
-    return ((raw.get("spec") or {}).get("template") or {}).get("spec") or {}
+    return template_of(raw, kind).get("spec") or {}
 
 
 def container_lists(raw, kind=""):
@@ -110,6 +133,13 @@ def skeleton(kind, namespace):
     pod_spec = {"containers": [{"name": "app", "image": "nginx:1.27"}]}
     if kind == "Pod":
         return {"apiVersion": "v1", "kind": "Pod", "metadata": meta, "spec": pod_spec}
+    if kind == "Job":
+        return {"apiVersion": "batch/v1", "kind": "Job", "metadata": meta,
+                "spec": {"template": {"spec": {"restartPolicy": "Never", **pod_spec}}}}
+    if kind == "CronJob":
+        return {"apiVersion": "batch/v1", "kind": "CronJob", "metadata": meta,
+                "spec": {"schedule": "0 * * * *",
+                         "jobTemplate": {"spec": {"template": {"spec": {"restartPolicy": "OnFailure", **pod_spec}}}}}}
     spec = {"selector": {"matchLabels": {"app": ""}}, "template": {"metadata": {"labels": {"app": ""}}, "spec": pod_spec}}
     if kind in HAS_REPLICAS:
         spec["replicas"] = 1
@@ -122,7 +152,7 @@ def finalize_new(kind, body, service_name=""):
     """Tie a new workload together: the selector and the pod label `app` follow the name, a StatefulSet's service name
     defaults to it. (The selector cannot be changed after creation, which is why it is not a form field.)"""
     name = (body.get("metadata") or {}).get("name", "")
-    if kind == "Pod":
+    if kind == "Pod" or kind in JOB_KINDS:  # a Job's selector is made by Kubernetes
         return body
     spec = body.setdefault("spec", {})
     spec["selector"] = {"matchLabels": {"app": name}}
@@ -140,6 +170,8 @@ def validate_new(kind, new):
         out.append("Enter a name")
     elif not DNS_LABEL.fullmatch(name) or len(name) > 63:
         out.append("The name must be lowercase letters, digits and '-', at most 63 characters")
+    if kind == "CronJob" and len(name) > 52:
+        out.append("A CronJob name can have at most 52 characters (the Jobs it creates add a suffix)")
     if not namespace:
         out.append("Enter a namespace")
     if kind == "StatefulSet" and service and (not DNS_LABEL.fullmatch(service) or len(service) > 63):
@@ -322,6 +354,8 @@ def validate(kind, values, raw=None):
             problems.append(f"{label}: enter a whole number or leave it empty")
     problems += validate_pairs(values.get("annotations_pairs", []), "annotation")
     problems += validate_pairs(values.get("labels_pairs", []), "label")
+    if values.get("job") is not None:
+        problems += _validate_job(values["job"], values.get("cron"))
     if values.get("new") is not None:
         problems += validate_new(kind, values["new"])
     if values.get("deadline", "").strip() and not valid_count(values["deadline"]):
@@ -332,6 +366,40 @@ def validate(kind, values, raw=None):
     for c in values.get("containers", []):
         problems += _validate_container(c, volume_names(raw or {}, values) if raw is not None else None)
     return problems
+
+
+def valid_schedule(text):
+    """A cron schedule: five fields, or one of the @macros (what Kubernetes accepts, apart from the field ranges)."""
+    text = text.strip()
+    if text in SCHEDULE_MACROS:
+        return True
+    fields = text.split()
+    return len(fields) == 5 and all(CRON_FIELD.fullmatch(f) for f in fields)
+
+
+def _validate_job(job, cron):
+    out = []
+    labels = {"parallelism": "Parallelism", "completions": "Completions", "backoff": "Backoff limit",
+              "active_deadline": "Active deadline", "ttl": "Delete after finished"}
+    for key, label in labels.items():
+        text = job.get(key, "").strip()
+        if text and not valid_count(text):
+            out.append(f"{label}: enter a whole number or leave it empty")
+    if job.get("completion_mode") not in (None, *COMPLETION_MODES):
+        out.append("The completion mode is NonIndexed or Indexed")
+    if cron is not None:
+        if not valid_schedule(cron["schedule"]):
+            out.append("Schedule: use five fields (minute hour day month weekday), for example */5 * * * *, or @hourly, @daily...")
+        if cron["time_zone"].strip() and not re.fullmatch(r"[A-Za-z0-9_+\-/]+", cron["time_zone"].strip()):
+            out.append("Time zone: use a name such as Europe/Berlin or UTC")
+        if cron["concurrency"] not in CONCURRENCY:
+            out.append("The concurrency policy is Allow, Forbid or Replace")
+        for key, label in (("starting_deadline", "Starting deadline"), ("success_history", "Successful jobs kept"),
+                           ("failure_history", "Failed jobs kept")):
+            text = cron.get(key, "").strip()
+            if text and not valid_count(text):
+                out.append(f"{label}: enter a whole number or leave it empty")
+    return out
 
 
 def _validate_pod(raw, pod):
@@ -364,6 +432,8 @@ def _validate_pod(raw, pod):
         row = volume_row(v)
         if row["type"] in VOLUME_KEYS and not row["detail"].strip():
             out.append(f"Volume {name or '?'}: enter the {VOLUME_KEYS[row['type']]}")
+    if pod.get("restart_policy") and pod["restart_policy"] not in (*RESTART_POLICIES, "Always"):
+        out.append("The restart policy of a Job's pods is Never or OnFailure")
     out += validate_security("Pod security", pod["security"])
     selector = ((raw.get("spec") or {}).get("selector") or {}).get("matchLabels") or {}
     labels = pod["template_labels"]
@@ -463,11 +533,53 @@ def build_running_pod(raw, values):
     return body
 
 
+def build_running_job(raw, values):
+    """A Job that exists accepts only parallelism, suspend, the active deadline and the clean-up time (its pod template is
+    fixed); labels and annotations too. Every other field is left exactly as it is."""
+    body = deepcopy(raw)
+    spec = body.setdefault("spec", {})
+    job = values.get("job") or {}
+    for key, field in (("parallelism", "parallelism"), ("active_deadline", "activeDeadlineSeconds"),
+                       ("ttl", "ttlSecondsAfterFinished")):
+        _set_or_pop(spec, field, _int_or_none(job.get(key, "")))
+    if job.get("suspend") is None:
+        spec.pop("suspend", None)
+    else:
+        spec["suspend"] = bool(job["suspend"])
+    meta = body.setdefault("metadata", {})
+    for key in ("labels", "annotations"):
+        _set_or_pop(meta, key, dict(values.get(key) or {}))
+    return body
+
+
+def _build_job(kind, spec, values):
+    """Job (and CronJob) fields. `spec` is the object's own spec; a CronJob's job settings live in its job template."""
+    job, cron = values.get("job") or {}, values.get("cron")
+    holder = spec.setdefault("jobTemplate", {}).setdefault("spec", {}) if kind == "CronJob" else spec
+    for key, field in JOB_FIELDS:
+        _set_or_pop(holder, field, _int_or_none(job.get(key, "")))
+    _set_or_pop(holder, "completionMode", job.get("completion_mode", ""))
+    if job.get("suspend") is None:
+        spec.pop("suspend", None)
+    else:
+        spec["suspend"] = bool(job["suspend"])
+    if cron is not None:
+        spec["schedule"] = cron["schedule"].strip()
+        _set_or_pop(spec, "timeZone", cron["time_zone"].strip())
+        if cron["concurrency"] != "Allow" or "concurrencyPolicy" in spec:  # Allow is the default: leave it unset
+            spec["concurrencyPolicy"] = cron["concurrency"]
+        for key, field in CRON_FIELDS:
+            _set_or_pop(spec, field, _int_or_none(cron.get(key, "")))
+    return holder
+
+
 def build_body(kind, raw, values, running=False):
     """The manifest with the edited fields; everything else is copied (see the module notes for `values`). `running`:
-    the Pod exists already, so only what a pod update may change is applied."""
-    if kind == "Pod" and running:
+    the Pod or Job exists already, so only what an update may change is applied."""
+    if running and kind == "Pod":
         return build_running_pod(raw, values)
+    if running and kind == "Job":
+        return build_running_job(raw, values)
     body = deepcopy(raw)
     new = values.get("new")
     if new is not None:
@@ -503,7 +615,8 @@ def build_body(kind, raw, values, running=False):
     if kind == "Pod":
         template, pod = body, spec
     else:
-        template = spec.setdefault("template", {})
+        holder = _build_job(kind, spec, values) if kind in JOB_KINDS else spec
+        template = holder.setdefault("template", {})
         pod = template.setdefault("spec", {})
     _build_pod(kind, template, pod, values.get("pod"))
     for c in values.get("containers", []):
@@ -527,6 +640,8 @@ def _build_pod(kind, template, pod, p):
     _set_or_pop(pod, "imagePullSecrets", [{"name": n} if not isinstance(n, dict) else deepcopy(n) for n in p["pull_secrets"]])
     _set_or_pop(pod, "volumes", deepcopy(p["volumes"]))
     _set_or_pop(pod, "securityContext", build_security(pod.get("securityContext"), p["security"]))
+    if p.get("restart_policy"):  # only a Job's or CronJob's pods have this choice
+        pod["restartPolicy"] = p["restart_policy"]
     if kind == "Pod":  # a Pod's labels are its own metadata, edited on the first tab
         return
     meta = template.setdefault("metadata", {})
