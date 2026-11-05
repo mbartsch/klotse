@@ -318,3 +318,38 @@ def test_deleting_the_default_account_repeats_the_warning(qtbot, monkeypatch):
     raw = {"metadata": {"name": "default", "namespace": "dev", "uid": "u"}}
     ws.delete_resource("ServiceAccount", Row("default", "dev", raw))
     assert "Pods that use it can no longer be created" in asked[0] and "recreates it" in asked[0]
+
+
+def test_key_value_editor_keeps_multiline_values_whole(qtbot, monkeypatch):
+    from klotse.ui import service_account_editor as sae
+    text = "server {\n  listen 80;\n}\n"
+    kv = sae.KeyValueEditor("Annotations")
+    qtbot.addWidget(kv)
+    kv.set_items({"snippet": text, "plain": "x"})
+    cell = kv.table.item(0, 1)
+    assert cell.text().startswith("Edit…") and "server {" in cell.toolTip() and not cell.flags() & sae.Qt.ItemIsEditable
+    assert kv.items() == {"snippet": text, "plain": "x"}  # untouched: identical
+    monkeypatch.setattr(sae.TextValueDialog, "ask", staticmethod(lambda parent, key, value: value + "more\n"))
+    kv.table.selectRow(0)
+    kv.edit_button.click()
+    assert kv.items()["snippet"] == text + "more\n"
+    monkeypatch.setattr(sae.TextValueDialog, "ask", staticmethod(lambda parent, key, value: "one line"))
+    kv.edit_button.click()
+    assert kv.items()["snippet"] == "one line" and kv.table.item(0, 1).flags() & sae.Qt.ItemIsEditable
+    kv.set_items({"a": "1"})
+    monkeypatch.setattr(sae.TextValueDialog, "ask", staticmethod(lambda parent, key, value: "l1\nl2"))
+    kv.table.selectRow(0)
+    kv.edit_button.click()
+    assert kv.items() == {"a": "l1\nl2"}
+
+
+def test_a_multiline_annotation_survives_a_service_editor_round_trip(qtbot):
+    from copy import deepcopy
+    from klotse.ui.network_editor import NetworkEditDialog
+    snippet = "if ($a) {\n  return 403;\n}\n"
+    raw = {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "s", "namespace": "n", "annotations": {"x/snippet": snippet}},
+           "spec": {"ports": [{"port": 80}]}}
+    dlg = NetworkEditDialog("Service", deepcopy(raw))
+    qtbot.addWidget(dlg)
+    dlg._save()
+    assert dlg.result_body["metadata"]["annotations"] == {"x/snippet": snippet}

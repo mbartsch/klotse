@@ -10,7 +10,7 @@ from html import escape
 from PySide6.QtCore import Qt, QStringListModel, QTimer, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView,
-                               QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QStyle,
+                               QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStyle,
                                QTableWidget, QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
 
 from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
@@ -94,6 +94,31 @@ def build_body(raw, automount, secrets, pull_secrets, labels, annotations):
 
 
 # ---- widgets ----------------------------------------------------------------------
+MULTI = Qt.UserRole + 1  # item data: the full text of a value that spans several lines
+
+
+def show_value(item, value):
+    """Put a value into a table cell. A value with several lines (a YAML block like `key: |`) is shown as "Edit… (N lines)"
+    (its text in the tooltip), kept whole in the item and edited in a text window (double-click or Edit value…), so it is never flattened into one line."""
+    if "\n" in value:
+        item.setData(MULTI, value)
+        item.setText(f"Edit… ({value.count(chr(10)) + 1} lines)")
+        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        item.setToolTip(value[:1000])
+    else:
+        item.setData(MULTI, None)
+        item.setText(value)
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+        item.setToolTip("")
+
+
+def value_of(item):
+    if item is None:
+        return ""
+    whole = item.data(MULTI)
+    return whole if whole is not None else item.text()
+
+
 class KeyValueEditor(QWidget):
     """An editable table of key/value pairs plus a row for adding one (the key box suggests known keys)."""
 
@@ -119,6 +144,8 @@ class KeyValueEditor(QWidget):
         self.value_edit = QLineEdit(placeholderText="Value")
         self.add_button = QPushButton("Add / update")
         self.remove_button = QPushButton("Remove selected")
+        self.edit_button = QPushButton("Edit…")
+        self.edit_button.setToolTip("Edit the selected value in a text window (for values with several lines)")
         self.choices = {}  # key -> values known in the cluster, offered by the boxes (set_choices)
         self.value_completer = QCompleter([], self.value_edit)
         self.value_completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -134,6 +161,7 @@ class KeyValueEditor(QWidget):
         add_row.addWidget(self.key_box, 1)
         add_row.addWidget(self.value_edit, 1)
         add_row.addWidget(self.add_button)
+        add_row.addWidget(self.edit_button)
         add_row.addWidget(self.remove_button)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -144,6 +172,8 @@ class KeyValueEditor(QWidget):
         self.add_button.clicked.connect(self._add)
         self.value_edit.returnPressed.connect(self._add)
         self.remove_button.clicked.connect(self._remove)
+        self.edit_button.clicked.connect(self._edit_selected)
+        self.table.cellDoubleClicked.connect(self._double_clicked)
 
     def set_choices(self, choices):
         """Offer keys (the key box) and, for the chosen key, its values (a drop-down arrow in the value box) from
@@ -175,7 +205,9 @@ class KeyValueEditor(QWidget):
             self.table.setRowCount(len(shown))
             for row, (key, value) in enumerate(shown):
                 self.table.setItem(row, 0, QTableWidgetItem(str(key)))
-                self.table.setItem(row, 1, QTableWidgetItem(str(value)))
+                cell = QTableWidgetItem()
+                self.table.setItem(row, 1, cell)
+                show_value(cell, str(value))
         finally:
             self._loading = False
 
@@ -183,7 +215,7 @@ class KeyValueEditor(QWidget):
         rows = []
         for r in range(self.table.rowCount()):
             key, value = self.table.item(r, 0), self.table.item(r, 1)
-            rows.append((key.text() if key else "", value.text() if value else ""))
+            rows.append((key.text() if key else "", value_of(value)))
         return rows
 
     def items(self):
@@ -199,19 +231,43 @@ class KeyValueEditor(QWidget):
         for r in range(self.table.rowCount()):
             item = self.table.item(r, 0)
             if item and item.text().strip() == key:
-                self.table.item(r, 1).setText(value)  # an existing key is updated, not repeated
+                self._loading = True
+                show_value(self.table.item(r, 1), value)  # an existing key is updated, not repeated
+                self._loading = False
+                self.changed.emit()
                 break
         else:
             self._loading = True
             row = self.table.rowCount()
             self.table.setRowCount(row + 1)
             self.table.setItem(row, 0, QTableWidgetItem(key))
-            self.table.setItem(row, 1, QTableWidgetItem(value))
+            cell = QTableWidgetItem()
+            self.table.setItem(row, 1, cell)
+            show_value(cell, value)
             self._loading = False
             self.changed.emit()
         self.key_box.setCurrentIndex(-1)
         self.key_box.clearEditText()
         self.value_edit.clear()
+
+    def _double_clicked(self, row, column):
+        if column == 1 and self.table.item(row, 1) is not None and self.table.item(row, 1).data(MULTI) is not None:
+            self._edit_row(row)
+
+    def _edit_selected(self):
+        rows = sorted({i.row() for i in self.table.selectedIndexes()})
+        if rows:
+            self._edit_row(rows[0])
+
+    def _edit_row(self, row):
+        key, cell = self.table.item(row, 0), self.table.item(row, 1)
+        text = TextValueDialog.ask(self, key.text() if key else "", value_of(cell))
+        if text is None or text == value_of(cell):
+            return
+        self._loading = True
+        show_value(cell, text)
+        self._loading = False
+        self.changed.emit()
 
     def _remove(self):
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -219,6 +275,32 @@ class KeyValueEditor(QWidget):
             self.table.removeRow(row)
         if rows:
             self.changed.emit()
+
+
+class TextValueDialog(QDialog):
+    """A window for a value with several lines (monospace, exact text; nothing is wrapped or re-flowed)."""
+
+    def __init__(self, key, text, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Value of {key}" if key else "Value")
+        self.resize(640, 420)
+        self.edit = QPlainTextEdit(text)
+        self.edit.setLineWrapMode(QPlainTextEdit.NoWrap)
+        font = self.edit.font()
+        font.setFamily("monospace")
+        font.setStyleHint(font.StyleHint.Monospace)
+        self.edit.setFont(font)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.edit)
+        lay.addWidget(buttons)
+
+    @staticmethod
+    def ask(parent, key, text):
+        dlg = TextValueDialog(key, text, parent)
+        return dlg.edit.toPlainText() if dlg.exec() == QDialog.Accepted else None
 
 
 class ServiceAccountEditDialog(QDialog):
