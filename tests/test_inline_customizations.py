@@ -37,7 +37,11 @@ def test_button_requests_customization_for_its_kind(qtbot):
     assert asked == ["Node", "Pod", "Pod"]
 
 
-def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab(qtbot, monkeypatch):
+def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab(qtbot, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from klotse.plugins.manager import PluginManager
+
     shown = []
 
     class FakeDialog:
@@ -51,7 +55,9 @@ def test_main_window_has_no_global_customizations_menu_and_opens_dialog_from_tab
             pass
 
     monkeypatch.setattr(main_module, "LabelColumnsDialog", FakeDialog)
-    win = MainWindow(FakeService)
+    # no plugins: the machine's own settings may enable one (the Plugins menu appears with a cluster-settings plugin)
+    manager = PluginManager(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat), folder=None, bundled=(), entry_points=False)
+    win = MainWindow(FakeService, plugin_manager=manager)
     qtbot.addWidget(win)
     open_active(win)
     assert [a.text() for a in win.menuBar().actions() if a.isVisible()] == ["File", "Edit", "View", "Help"]
