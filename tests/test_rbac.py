@@ -205,3 +205,10 @@ def test_details_show_a_readable_time_and_no_white_rule():
     role = client.V1Role(metadata=meta("r", "dev"))
     html = rbac_view.render("Role", {**to_dict(role)})
     assert "<hr" not in html and "00:00 UTC" in html  # Qt draws <hr> white on every theme
+
+
+def test_uid_is_on_its_own_line_below_namespace_and_created():
+    html = rbac_view.render("Role", to_dict(client.V1Role(metadata=meta("r", "dev"))))
+    first, second = html.index("Namespace"), html.index("UID")
+    assert first < second and "</p>" in html[first:second]  # a paragraph ends between them
+    assert html.count(">UID<") == 1

@@ -62,11 +62,11 @@ def _header(kind, raw):
         facts.append(("Namespace", meta["namespace"]))
     if meta.get("creationTimestamp"):
         facts.append(("Created", _when(meta["creationTimestamp"])))
-    if meta.get("uid"):
-        facts.append(("UID", meta["uid"]))
     if facts:
-        lines.append("<p style='margin:4px 0'>" + " &nbsp;·&nbsp; ".join(
+        lines.append("<p style='margin:4px 0 0 0'>" + " &nbsp;·&nbsp; ".join(
             f"<span style='color:{theme.MUTED}'>{_e(k)}</span> {_e(v)}" for k, v in facts) + "</p>")
+    if meta.get("uid"):  # on a line of its own: it is long and would wrap the line above
+        lines.append(f"<p style='margin:2px 0 4px 0'><span style='color:{theme.MUTED}'>UID</span> {_e(meta['uid'])}</p>")
     return "".join(lines)
 
 
