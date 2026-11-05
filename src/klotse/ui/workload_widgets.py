@@ -4,14 +4,14 @@ from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
+                               QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme
 from .service_account_editor import KeyValueEditor
 from .workload_model import (CONTAINER_FLAGS, CONTAINER_IDS, OTHER_VOLUME, RESTART_POLICIES, PROBE_MODES, PROBE_NAMES, PROBE_TIMINGS,
                              PROTOCOLS, PULL_POLICIES, RESOURCES, TAINT_EFFECTS, TOLERATION_OPERATORS, VOLUME_TYPES,
-                             ENV_FIELD_PATHS, ENV_FROM_SOURCES, ENV_RESOURCES, ENV_SOURCES, build_env_entry, build_env_from,
+                             ENV_ADD_HINTS, ENV_FIELD_PATHS, ENV_FROM_SOURCES, ENV_RESOURCES, ENV_SOURCES, build_env_entry, build_env_from,
                              build_volume, env_from_row, env_ref, probe_values,
                              volume_row)
 
@@ -240,37 +240,61 @@ class EnvEditor(QWidget):
         self.table.setMinimumHeight(150)
         self.table.setItemDelegateForColumn(0, SourceDelegate(ENV_SOURCES, self.table))
         self.table.setItemDelegateForColumn(2, ValueDelegate(self.table))
-        self.add_button = QPushButton("Add variable")
-        self.add_from_button = QToolButton(text="Add from…")
-        self.add_from_button.setToolTip("Add a variable that comes from a pod field, a Secret or ConfigMap key, a resource "
-                                        "limit, or all keys of a ConfigMap/Secret")
-        self.add_from_button.setPopupMode(QToolButton.InstantPopup)
-        self.add_menu = QMenu(self.add_from_button)
-        for source, text in (("Field", "Pod field (name, namespace, node, IP…)"), ("Secret key", "Secret key"),
-                             ("ConfigMap key", "ConfigMap key"), ("Resource", "Resource limit or request"),
-                             ("ConfigMap, all keys", "All keys of a ConfigMap"), ("Secret, all keys", "All keys of a Secret")):
-            self.add_menu.addAction(text).triggered.connect(lambda _c=False, s=source: self.add_row(s))
-        self.add_from_button.setMenu(self.add_menu)
+        # One add row: pick what kind of variable, type its name and value, press Add (Enter does too)
+        self.new_source = QComboBox()
+        self.new_source.addItems(list(ENV_SOURCES))
+        self.new_source.setToolTip("What the variable is: a plain value, a pod field, a Secret or ConfigMap key, a resource "
+                                   "limit, or all keys of a ConfigMap/Secret")
+        self.new_name = QLineEdit()
+        self.new_value = QComboBox()
+        self.new_value.setEditable(True)
+        self.add_button = QPushButton("Add")
+        self.add_button.setEnabled(False)
         self.remove_button = QPushButton("Remove selected")
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.add_button)
-        buttons.addWidget(self.add_from_button)
-        buttons.addWidget(self.remove_button)
-        buttons.addStretch(1)
+        add_row = QHBoxLayout()
+        add_row.addWidget(self.new_source)
+        add_row.addWidget(self.new_name, 1)
+        add_row.addWidget(self.new_value, 1)
+        add_row.addWidget(self.add_button)
+        add_row.addWidget(self.remove_button)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(QLabel("<b>Environment variables</b>"))
         lay.addWidget(self.table)
-        lay.addLayout(buttons)
+        lay.addLayout(add_row)
         self._loading = True
         for entry in entries:
             self._append(entry)
         for entry in from_entries:
             self._append_from(entry)
         self._loading = False
-        self.add_button.clicked.connect(lambda: self.add_row("Value"))
+        self.new_source.currentTextChanged.connect(self._new_source_changed)
+        self.new_name.textChanged.connect(lambda text: self.add_button.setEnabled(bool(text.strip())))
+        self.new_name.returnPressed.connect(self._add_typed)
+        self.new_value.lineEdit().returnPressed.connect(self._add_typed)
+        self.add_button.clicked.connect(self._add_typed)
         self.remove_button.clicked.connect(self._remove)
         self.table.itemChanged.connect(self._item_changed)
+        self._new_source_changed(self.new_source.currentText())
+
+    def _new_source_changed(self, source):
+        """The add row's hints follow the chosen kind, and Field/Resource offer their usual values."""
+        name_hint, value_hint = ENV_ADD_HINTS[source]
+        self.new_name.setPlaceholderText(name_hint)
+        self.new_value.clear()
+        self.new_value.addItems(list({"Field": ENV_FIELD_PATHS, "Resource": ENV_RESOURCES}.get(source, ())))
+        self.new_value.setCurrentIndex(-1)
+        self.new_value.lineEdit().setPlaceholderText(value_hint)
+
+    def _add_typed(self):
+        name = self.new_name.text().strip()
+        if not name:
+            return
+        self.add_row(self.new_source.currentText(), name, self.new_value.currentText())
+        self.new_name.clear()
+        self.new_value.setCurrentIndex(-1)
+        self.new_value.clearEditText()
+        self.new_name.setFocus()
 
     def _item_changed(self, item):
         if self._loading:
@@ -311,13 +335,15 @@ class EnvEditor(QWidget):
         row = env_from_row(entry)
         self._row(f"{row['source']}, all keys", QTableWidgetItem(row["name"]), QTableWidgetItem(row["prefix"]), entry)
 
-    def add_row(self, source):
-        """A new row of that Source, with its name ready to type."""
+    def add_row(self, source, name="", value=""):
+        """A new row of that Source; without a name its name cell opens for typing."""
         self._loading = True
-        row = self._row(source, QTableWidgetItem(""), QTableWidgetItem(""))
+        row = self._row(source, QTableWidgetItem(name), QTableWidgetItem(value))
         self._loading = False
         self.table.selectRow(row)
-        self.table.editItem(self.table.item(row, 1))
+        self.table.scrollToItem(self.table.item(row, 1))
+        if not name:
+            self.table.editItem(self.table.item(row, 1))
         self.changed.emit()
 
     def _remove(self):

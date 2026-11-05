@@ -103,6 +103,14 @@ def env_source(entry):
 ENV_FROM_SOURCES = ("ConfigMap, all keys", "Secret, all keys")  # envFrom entries
 ENV_SOURCES = ("Value", "Field", "Secret key", "ConfigMap key", "Resource", *ENV_FROM_SOURCES)
 ENV_REF_KEYS = {"Field": "fieldRef", "Secret key": "secretKeyRef", "ConfigMap key": "configMapKeyRef", "Resource": "resourceFieldRef"}
+ENV_ADD_HINTS = {  # (name hint, value hint) of the Environment add row, per Source
+    "Value": ("Name, e.g. LOG_LEVEL", "Value"),
+    "Field": ("Name, e.g. POD_NAMESPACE", "Pod field, e.g. metadata.namespace"),
+    "Secret key": ("Name, e.g. DB_PASSWORD", "Secret / key"),
+    "ConfigMap key": ("Name, e.g. LOG_LEVEL", "ConfigMap / key"),
+    "Resource": ("Name, e.g. MEMORY_LIMIT", "Resource, e.g. limits.memory"),
+    "ConfigMap, all keys": ("ConfigMap name", "Prefix (optional)"),
+    "Secret, all keys": ("Secret name", "Prefix (optional)")}
 ENV_FIELD_PATHS = ("metadata.name", "metadata.namespace", "metadata.uid", "spec.nodeName", "spec.serviceAccountName",
                    "status.hostIP", "status.podIP")
 ENV_RESOURCES = ("limits.cpu", "limits.memory", "limits.ephemeral-storage", "requests.cpu", "requests.memory",

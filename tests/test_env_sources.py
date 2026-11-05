@@ -113,3 +113,37 @@ def test_incomplete_references_are_refused(qtbot, monkeypatch, source, name, det
     assert any(message in p for p in wm.validate("Deployment", dlg.values(), dlg._raw))
     dlg._save()
     assert dlg.result_body is None
+
+
+def test_one_add_row_adds_any_kind_of_variable(qtbot):
+    dlg = make(qtbot)
+    env = dlg.forms[0].env
+    assert not env.add_button.isEnabled()
+    env.new_source.setCurrentText("Field")
+    assert "POD_NAMESPACE" in env.new_name.placeholderText()
+    assert [env.new_value.itemText(i) for i in range(env.new_value.count())][:2] == ["metadata.name", "metadata.namespace"]
+    env.new_name.setText("POD_NODE")
+    assert env.add_button.isEnabled()
+    env.new_value.setCurrentText("spec.nodeName")
+    env.add_button.click()
+    assert env.new_name.text() == "" and not env.add_button.isEnabled()  # ready for the next one
+    env.new_source.setCurrentText("Secret key")
+    env.new_name.setText("TOKEN")
+    env.new_value.setCurrentText("creds / token")
+    env.new_name.returnPressed.emit()  # Enter adds too
+    env.new_source.setCurrentText("ConfigMap, all keys")
+    env.new_name.setText("shared")
+    env.new_value.setCurrentText("S_")
+    env.add_button.click()
+    got = env_of(dlg)
+    assert got["env"][-2:] == [{"name": "POD_NODE", "valueFrom": {"fieldRef": {"apiVersion": "v1", "fieldPath": "spec.nodeName"}}},
+                               {"name": "TOKEN", "valueFrom": {"secretKeyRef": {"name": "creds", "key": "token"}}}]
+    assert got["envFrom"][-1] == {"configMapRef": {"name": "shared"}, "prefix": "S_"}
+
+
+def test_the_add_row_ignores_an_empty_name(qtbot):
+    dlg = make(qtbot)
+    env = dlg.forms[0].env
+    before = env.count()
+    env._add_typed()
+    assert env.count() == before
