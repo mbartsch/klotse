@@ -50,7 +50,6 @@ POD_COLUMNS = [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"),
 # cards that drill down when clicked: counts key -> (title, which table shows the rows)
 DRILL_DOWN = {"pending": ("Pending pods", "pods"), "failed": ("Failed pods", "pods"),
               "warnings": ("Warning events", "events")}
-BAD = "#e5484d"
 COLUMNS = 5
 
 
@@ -72,7 +71,7 @@ class Card(QFrame):
 
     def set_value(self, v):
         self.value.setText(str(v))
-        color = {"warn": theme.WARN, "bad": BAD}.get(self.tone) if v not in (0, "0", "–") else None
+        color = {"warn": theme.WARN, "bad": theme.BAD}.get(self.tone) if v not in (0, "0", "–") else None
         self.value.setStyleSheet(f"font-size: 22px; font-weight: 600;{f' color: {color};' if color else ''}")
 
     def set_clickable(self, on):
@@ -125,7 +124,7 @@ class UsageBar(QWidget):
         p.setBrush(QColor(theme.BORDER))
         p.drawRoundedRect(QRectF(0, 18, self.width(), 10), 5, 5)
         fraction = self.fraction
-        p.setBrush(QColor("#e5484d" if fraction > 0.9 else "#f5a524" if fraction > 0.7 else "#30a46c"))
+        p.setBrush(QColor(theme.BAD if fraction > 0.9 else theme.WARN if fraction > 0.7 else theme.OK))
         p.drawRoundedRect(QRectF(0, 18, self.width() * fraction, 10), 5, 5)
 
 

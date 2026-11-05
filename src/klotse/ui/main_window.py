@@ -73,11 +73,8 @@ class MainWindow(QMainWindow):
         self.exit_toolbar = QToolBar("Application", self)
         self.exit_toolbar.setMovable(False)
         self.exit_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.exit_toolbar.addWidget(spacer)
         self.exit_toolbar.addAction(self.exit_action)
-        self.addToolBar(self.exit_toolbar)
+        self.menuBar().setCornerWidget(self.exit_toolbar, Qt.TopRightCorner)  # no row of its own
 
         self.clusters = QTabWidget()
         self.clusters.setTabsClosable(True)

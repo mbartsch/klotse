@@ -11,14 +11,16 @@ checked against a strict pattern because they end up in a style sheet.
 """
 import configparser
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPalette, QPen
 
 REQUIRED = ("bg", "base", "border", "text", "muted", "accent")
-OPTIONAL = ("accent_hi", "selected_row", "hover", "input_border", "warn", "warn_bg")  # left out: accent, accent, border, border/muted mix, amber, dark amber
+OPTIONAL = ("accent_hi", "selected_row", "hover", "input_border", "warn", "warn_bg", "ok", "bad")  # left out: accent, accent, border, border/muted mix, amber, dark amber
 COLOR_KEYS = REQUIRED + OPTIONAL
 DESCRIPTIONS = {
     "bg": "window, toolbars, tab bar, menus",
@@ -30,6 +32,8 @@ DESCRIPTIONS = {
     "accent_hi": "thin marks: active tab underline, focus ring",
     "selected_row": "selected table row",
     "hover": "hovered buttons and scroll bars",
+    "ok": "healthy states: Running, Ready, Bound",
+    "bad": "failing states: CrashLoopBackOff, Failed, NotReady",
     "warn": "text of warnings (banners, hints, highlighted rules)",
     "warn_bg": "background of warning banners",
     "input_border": "edge of text boxes and drop-downs (keep it 3:1 against base)",
@@ -57,6 +61,8 @@ class Theme:
     input_border: str
     warn: str = "#f5a524"
     warn_bg: str = "#3a2c0f"
+    ok: str = "#4cc38a"
+    bad: str = "#ff7b72"
     source: str = ""  # the file it was loaded from; empty for the built-in themes
 
 
@@ -75,7 +81,7 @@ HARBOUR = Theme("Harbour", bg="#16232b", base="#101b22", border="#25383f", text=
 # a dark amber for warnings (the dark theme's bright amber would be unreadable on white).
 DAYLIGHT = Theme("Daylight", bg="#eef2f3", base="#ffffff", border="#d3dadd", text="#1d2a30", muted="#4f636b",
                  accent="#197f7d", accent_hi="#197f7d", selected_row="#cbe6e4", hover="#c2ccd0",
-                 input_border="#7d8c93", warn="#8a4b00", warn_bg="#fdf0d3")
+                 input_border="#7d8c93", warn="#8a4b00", warn_bg="#fdf0d3", ok="#17794a", bad="#c4302b")
 BUILTIN = (HARBOUR, CLASSIC, DAYLIGHT)
 DEFAULT = HARBOUR
 
@@ -113,6 +119,8 @@ def parse_theme(text, source="", default_name="Theme"):
     given.setdefault("hover", given["border"])
     given.setdefault("warn", "#f5a524")
     given.setdefault("warn_bg", "#3a2c0f")
+    given.setdefault("ok", "#4cc38a")
+    given.setdefault("bad", "#ff7b72")
     given.setdefault("input_border", _mix(given["border"], given["muted"], 0.75))  # visible against the list colour
     return Theme(name=name, source=str(source), **given)
 
@@ -137,30 +145,65 @@ def template_text(theme):
     return "\n".join(lines) + "\n"
 
 
+def _close_icon(color):
+    """A small X as a PNG file for the style sheet (QSS can only take images from files); cached by colour."""
+    folder = Path(tempfile.gettempdir()) / "klotse-icons"
+    path = folder / f"close-{color.lstrip('#')}.png"
+    if not path.is_file():
+        image = QImage(28, 28, QImage.Format_ARGB32)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor(color), 3, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(8, 8, 20, 20)
+        painter.drawLine(20, 8, 8, 20)
+        painter.end()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            image.save(str(path))
+        except OSError:
+            return None
+    return path.as_posix() if path.is_file() else None
+
+
 def stylesheet(t):
+    quiet, loud = _close_icon(t.muted), _close_icon(t.text)
+    close = (f"QTabBar::close-button {{ image: url('{quiet}'); subcontrol-position: right; margin: 0 0 0 6px; "
+             f"padding: 2px; border-radius: 4px; }}\n"
+             f"QTabBar::close-button:hover {{ image: url('{loud}'); background: {t.hover}; }}") if quiet and loud else ""
+    return _sheet(t) + close + "\n"
+
+
+def _sheet(t):
     return f"""
 QMainWindow, QDialog {{ background: {t.bg}; }}
 QToolBar {{ background: {t.bg}; border: 0; border-bottom: 1px solid {t.border}; spacing: 6px; padding: 4px; }}
-QToolBar QToolButton {{ padding: 4px 10px; border-radius: 4px; }}
+QToolBar QToolButton {{ padding: 4px 10px; border: 1px solid transparent; border-radius: 4px; }}
+QToolBar QToolButton:focus {{ border-color: {t.accent_hi}; }}
 QToolBar QToolButton:hover {{ background: {t.border}; }}
 QStatusBar {{ background: {t.bg}; color: {t.muted}; border-top: 1px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: 0; outline: 0; }}
-QTreeView::item {{ padding: 4px 2px; }}
+QTreeView::item {{ padding: 4px 2px; margin: 0 6px; border-radius: 5px; }}
+QTreeView::item:hover {{ background: {t.border}; }}
 QTreeView::item:selected {{ background: {t.accent}; color: white; }}
 QTabWidget::pane {{ border: 0; border-top: 1px solid {t.border}; }}
 QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 7px 14px; border: 0; border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: {t.text}; border-bottom: 2px solid {t.accent_hi}; }}
 QTabBar::tab:hover {{ color: {t.text}; }}
 QHeaderView::section {{ background: {t.bg}; color: {t.muted}; border: 0; border-bottom: 1px solid {t.border};
-                        padding: 4px 8px; font-weight: normal; }}
+                        padding: 6px 8px; font-weight: 600; }}
 QTableView {{ background: {t.base}; gridline-color: transparent; border: 0; selection-background-color: {t.selected_row}; selection-color: {t.text}; }}
-QTableView::item {{ padding: 0 6px; }}
+QTableView::item {{ padding: 3px 6px; }}
+QTableView::item:hover {{ background: {t.border}; }}
+QMenuBar QToolBar {{ border: 0; padding: 0; }}
 QDockWidget {{ titlebar-close-icon: none; }}
 QDockWidget::title {{ background: {t.bg}; padding: 6px 8px; border-bottom: 1px solid {t.border}; }}
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {{ background: {t.base}; border: 1px solid {t.input_border}; border-radius: 4px; padding: 3px 6px; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {t.accent_hi}; }}
 QPlainTextEdit {{ border-radius: 0; }}
-QPushButton {{ background: {t.border}; border: 0; border-radius: 4px; padding: 5px 12px; }}
+QPlainTextEdit[readOnly="true"] {{ border: 0; }}
+QPushButton {{ background: {t.border}; border: 1px solid transparent; border-radius: 4px; padding: 4px 12px; }}
+QPushButton:focus {{ border-color: {t.accent_hi}; }}
 QPushButton:hover {{ background: {t.hover}; }}
 QPushButton:checked {{ background: {t.accent}; color: white; }}
 QMenu {{ background: {t.bg}; border: 1px solid {t.border}; padding: 4px; }}
@@ -178,11 +221,11 @@ QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
 def use(t):
     """Make `t` the active theme: set the module constants views read when they draw."""
-    global current, BG, BASE, BORDER, TEXT, MUTED, ACCENT, ACCENT_HI, SELECTED_ROW, HOVER, WARN, WARN_BG
+    global current, BG, BASE, BORDER, TEXT, MUTED, ACCENT, ACCENT_HI, SELECTED_ROW, HOVER, WARN, WARN_BG, OK, BAD
     current = t
     BG, BASE, BORDER, TEXT, MUTED = t.bg, t.base, t.border, t.text, t.muted
     ACCENT, ACCENT_HI, SELECTED_ROW, HOVER = t.accent, t.accent_hi, t.selected_row, t.hover
-    WARN, WARN_BG = t.warn, t.warn_bg
+    WARN, WARN_BG, OK, BAD = t.warn, t.warn_bg, t.ok, t.bad
 
 
 use(DEFAULT)

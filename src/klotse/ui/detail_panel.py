@@ -16,6 +16,7 @@ class DetailPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.editor = QPlainTextEdit(readOnly=True)
+        self.editor.setPlaceholderText("Select a resource to see its details.")
         self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.editor.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.decode_button = QToolButton(text="Decode values…")

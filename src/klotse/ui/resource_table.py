@@ -65,6 +65,7 @@ class ResourceTable(QWidget):
         self.view.setSelectionMode(QAbstractItemView.ExtendedSelection)  # Ctrl/Shift-click for bulk actions
         self.view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.view.horizontalHeader().setStretchLastSection(True)
+        self.view.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         # Column sizing runs on the GUI thread. Sample a bounded number of rows.
         self.view.horizontalHeader().setResizeContentsPrecision(100)
         self.view.verticalHeader().hide()

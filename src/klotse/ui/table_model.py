@@ -1,6 +1,10 @@
 import re
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtGui import QBrush, QColor
+
+from . import theme
+from .status_tone import TONE_ATTRS, status_tone
 
 
 ANNOTATION_CELL_LIMIT = 200  # annotation values can be kilobytes (last-applied-configuration): the cell shows the start
@@ -63,7 +67,18 @@ class TableModel(QAbstractTableModel):
     def columnCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.columns)
 
+    def _tone_brush(self, index):
+        """Healthy / in progress / failing status words are drawn in the theme's ok / warn / bad colour."""
+        col = self.columns[index.column()]
+        if col[1] not in TONE_ATTRS:
+            return None
+        tone = status_tone(getattr(self.rows[index.row()], col[1], ""))
+        color = {"ok": theme.OK, "warn": theme.WARN, "bad": theme.BAD}.get(tone)
+        return QBrush(QColor(color)) if color else None
+
     def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.ForegroundRole:
+            return self._tone_brush(index) if index.isValid() else None
         if not index.isValid() or role not in (Qt.DisplayRole, Qt.EditRole, Qt.ToolTipRole, self.SearchRole):
             return None
         col = self.columns[index.column()]

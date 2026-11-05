@@ -6,6 +6,7 @@ from klotse.k8s.client import format_age, map_node, map_pod, pod_buckets
 from klotse.k8s.resources import Row
 from klotse.k8s.models import (DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
                                 StatefulSetRow)
+from klotse.ui import theme as theme_module
 from klotse.ui.theme import ACCENT, BORDER
 from klotse.ui.main_window import MainWindow
 
@@ -316,7 +317,7 @@ def test_overview_cards_and_events(qtbot):
     qtbot.waitUntil(lambda: ws.overview.cards["failed"].value.text() == "2", timeout=5000)
     assert ws.overview.cards["cpu"].value.text() == "4 cores"
     assert ws.overview.cards["warnings"].value.text() == "–"  # key absent from counts
-    assert "#e5484d" in ws.overview.cards["failed"].value.styleSheet()  # non-zero failures are flagged
+    assert theme_module.BAD in ws.overview.cards["failed"].value.styleSheet()  # non-zero failures are flagged
     ws.overview.events_table.view.selectRow(0)
     assert "kind: Event" in ws.detail.toPlainText()
     ws.open_view("workloads")
