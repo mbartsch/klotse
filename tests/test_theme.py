@@ -133,7 +133,7 @@ def test_rbac_view_reads_the_active_theme_when_it_renders():
     assert CLASSIC.accent in rbac_view.render("Role", raw)
     theme.use(HARBOUR)
     html = rbac_view.render("Role", raw)
-    assert HARBOUR.accent in html and CLASSIC.accent not in html
+    assert HARBOUR.accent_hi in html and CLASSIC.accent not in html
 
 
 def dialog(qtbot, tmp_path):

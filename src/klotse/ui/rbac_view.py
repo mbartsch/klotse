@@ -33,7 +33,7 @@ def _table(headers, rows):
 
 
 def _section(title, inner):
-    return (f"<h3 style='color:{theme.ACCENT}; margin:14px 0 4px 0'>{_e(title)}</h3>{inner}")
+    return (f"<h3 style='color:{theme.ACCENT_HI}; margin:14px 0 4px 0'>{_e(title)}</h3>{inner}")
 
 
 def _pairs(mapping):
@@ -42,14 +42,26 @@ def _pairs(mapping):
     return "<br>".join(f"<span style='color:{theme.MUTED}'>{_e(k)}</span> = {_e(v)}" for k, v in sorted(mapping.items()))
 
 
+def _when(value):
+    """2026-01-01T00:00:00+00:00 (or ...Z) as '2026-01-01 00:00 UTC'; anything else is shown as it came."""
+    from datetime import datetime, timezone
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(timezone.utc)
+    return moment.strftime("%Y-%m-%d %H:%M") + (" UTC" if moment.tzinfo is not None else "")
+
+
 def _header(kind, raw):
     meta = raw.get("metadata") or {}
-    lines = [f"<h2 style='margin:0'>{_e(kind)} <span style='color:{theme.ACCENT}'>{_e(meta.get('name', ''))}</span></h2>"]
+    lines = [f"<h2 style='margin:0'>{_e(kind)} <span style='color:{theme.ACCENT_HI}'>{_e(meta.get('name', ''))}</span></h2>"]
     facts = []
     if meta.get("namespace"):
         facts.append(("Namespace", meta["namespace"]))
     if meta.get("creationTimestamp"):
-        facts.append(("Created", meta["creationTimestamp"]))
+        facts.append(("Created", _when(meta["creationTimestamp"])))
     if meta.get("uid"):
         facts.append(("UID", meta["uid"]))
     if facts:
@@ -129,5 +141,4 @@ def render(kind, raw):
         body += _binding(raw)
     else:
         body += _serviceaccount(raw)
-    return (f"<div style='font-size:13px'>{body}{_metadata(raw)}"
-            f"<hr style='border-color:{theme.BORDER}'></div>")
+    return f"<div style='font-size:13px'>{body}{_metadata(raw)}</div>"  # no <hr>: Qt draws it white, whatever the theme
