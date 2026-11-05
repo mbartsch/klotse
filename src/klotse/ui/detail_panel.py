@@ -69,8 +69,6 @@ class DetailPanel(QWidget):
         modes.setExclusive(True)
         modes.addButton(self.formatted_button)
         modes.addButton(self.yaml_button)
-        for b in (self.formatted_button, self.yaml_button):
-            b.setStyleSheet("QPushButton:checked { background: #3d7eff; color: white; }")  # theme.ACCENT
         self.formatted_button.setChecked(True)
         self.formatted_button.toggled.connect(self._show_mode)
         self.view_bar.hide()

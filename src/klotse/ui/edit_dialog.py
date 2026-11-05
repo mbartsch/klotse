@@ -2,6 +2,7 @@ import yaml
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMessageBox, QPlainTextEdit, QVBoxLayout
 
+from . import theme
 from .manifest import dump_manifest
 
 
@@ -24,7 +25,7 @@ class EditDialog(QDialog):
         if note:  # something to know before changing this object (RBAC: aggregated or system roles)
             warning = QLabel(note)
             warning.setWordWrap(True)
-            warning.setStyleSheet("background:#3a2c0f; color:#f5a524; padding:6px; border-radius:4px;")
+            warning.setStyleSheet(theme.warning_style())
             lay.addWidget(warning)
         lay.addWidget(self.editor)
         lay.addWidget(buttons)

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter, QDialog
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QStackedWidget,
                                QTableWidget, QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
 
+from . import theme
 from .role_editor import (AUTOUPDATE, DEFAULTS_LABEL, RESULT_LIMIT, RULE_KINDS, Picker, confirm_risky, role_warnings)
 from .service_account_editor import service_account_warnings
 
@@ -179,7 +180,7 @@ class BindingEditDialog(QDialog):
 
         self.banner = QLabel("<b>Take care:</b> " + "<br><br>".join(escape(w) for w in self.warnings))
         self.banner.setWordWrap(True)
-        self.banner.setStyleSheet("background:#3a2c0f; color:#f5a524; padding:6px; border-radius:4px;")
+        self.banner.setStyleSheet(theme.warning_style())
         self.banner.setVisible(bool(self.warnings))
 
         self.table = QTableWidget(0, 3)
@@ -333,7 +334,7 @@ class BindingEditDialog(QDialog):
     def _hint(self):
         text = "; ".join([p.split(": ", 1)[1] for p in validate_subjects(self.subjects)[:1]] +
                          subject_notes(self.subjects)[:1])
-        self.hint.setText(f"<span style='color:#f5a524'>{escape(text)}</span>" if text else "")
+        self.hint.setText(f"<span style='color:{theme.WARN}'>{escape(text)}</span>" if text else "")
 
     # ---- adding ----
     def _kind_page(self, *_):

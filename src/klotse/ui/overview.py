@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushBu
 from ..k8s.resources import SPEC_BY_KEY
 from .loading_pane import LoadingPane
 from .resource_table import ResourceTable
-from .theme import ACCENT, BORDER, MUTED
+from . import theme
 
 # (counts key, caption, tone when the value is non-zero)
 CLUSTER_CARDS = [("nodes", "Nodes", ""), ("nodes_ready", "Nodes ready", ""), ("namespaces", "Namespaces", ""),
@@ -50,7 +50,7 @@ POD_COLUMNS = [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"),
 # cards that drill down when clicked: counts key -> (title, which table shows the rows)
 DRILL_DOWN = {"pending": ("Pending pods", "pods"), "failed": ("Failed pods", "pods"),
               "warnings": ("Warning events", "events")}
-TONES = {"warn": "#f5a524", "bad": "#e5484d"}
+BAD = "#e5484d"
 COLUMNS = 5
 
 
@@ -63,7 +63,7 @@ class Card(QFrame):
         self._clickable = self._selected = False
         self.value = QLabel("–")
         caption = QLabel(title)
-        caption.setStyleSheet(f"color: {MUTED};")
+        theme.muted(caption)
         lay = QVBoxLayout(self)
         lay.addWidget(self.value)
         lay.addWidget(caption)
@@ -72,7 +72,7 @@ class Card(QFrame):
 
     def set_value(self, v):
         self.value.setText(str(v))
-        color = TONES.get(self.tone) if v not in (0, "0", "–") else None
+        color = {"warn": theme.WARN, "bad": BAD}.get(self.tone) if v not in (0, "0", "–") else None
         self.value.setStyleSheet(f"font-size: 22px; font-weight: 600;{f' color: {color};' if color else ''}")
 
     def set_clickable(self, on):
@@ -86,8 +86,8 @@ class Card(QFrame):
         self._restyle()
 
     def _restyle(self):
-        border = ACCENT if self._selected else BORDER
-        hover = f"Card:hover {{ border-color: {ACCENT}; }}" if self._clickable else ""
+        border = theme.ACCENT if self._selected else theme.BORDER
+        hover = f"Card:hover {{ border-color: {theme.ACCENT}; }}" if self._clickable else ""
         self.setStyleSheet(f"Card {{ border: 1px solid {border}; border-radius: 6px; }} {hover}")
 
     def mousePressEvent(self, event):
@@ -119,10 +119,10 @@ class UsageBar(QWidget):
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(QColor(MUTED))
+        p.setPen(QColor(theme.MUTED))
         p.drawText(0, 12, f"{self.caption}  {self.text}")
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(BORDER))
+        p.setBrush(QColor(theme.BORDER))
         p.drawRoundedRect(QRectF(0, 18, self.width(), 10), 5, 5)
         fraction = self.fraction
         p.setBrush(QColor("#e5484d" if fraction > 0.9 else "#f5a524" if fraction > 0.7 else "#30a46c"))

@@ -1,3 +1,4 @@
+from PySide6.QtCore import QSettings
 import pytest
 from PySide6.QtGui import QColor, QImage
 
@@ -53,7 +54,7 @@ def test_png_is_preferred_and_a_corrupt_file_is_ignored(qtbot, assets):
     assert branding.square_logo().isNull() and branding.app_icon().isNull()  # unreadable: no icon, no crash
 
 
-def test_startup_sets_the_icon_and_shows_no_splash(qtbot, monkeypatch):
+def test_startup_sets_the_icon_and_shows_no_splash(qtbot, monkeypatch, tmp_path):
     import klotse.__main__ as entry
 
     events = []
@@ -100,7 +101,8 @@ def test_startup_sets_the_icon_and_shows_no_splash(qtbot, monkeypatch):
 
     monkeypatch.setattr(entry, "QApplication", FakeApp)
     monkeypatch.setattr(entry, "MainWindow", FakeWindow)
-    monkeypatch.setattr(entry.theme, "apply", lambda app: None)
+    monkeypatch.setattr(entry.theme, "apply", lambda app, chosen=None: None)
+    monkeypatch.setattr(entry, "default_store", lambda: QSettings(str(tmp_path / "Klotse.ini"), QSettings.IniFormat))
     assert not hasattr(entry.branding, "make_splash")
     with pytest.raises(SystemExit):
         entry.main([])  # no command-line arguments, whatever pytest was started with

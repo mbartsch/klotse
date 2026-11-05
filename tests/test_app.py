@@ -6,6 +6,7 @@ from klotse.k8s.client import format_age, map_node, map_pod, pod_buckets
 from klotse.k8s.resources import Row
 from klotse.k8s.models import (DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
                                 StatefulSetRow)
+from klotse.ui.theme import ACCENT, BORDER
 from klotse.ui.main_window import MainWindow
 
 NOW = datetime.now(timezone.utc)
@@ -811,8 +812,8 @@ def test_overview_cards_drill_down_on_click(qtbot):
     assert view.title.text() == "Failed pods (2)" and view.pods_table.model.rowCount() == 2
     assert [r.status for r in view.pods_table.model.rows] == ["CrashLoopBackOff"] * 2
     assert view.back.isVisible()
-    assert c["failed"].styleSheet().startswith("Card { border: 1px solid #3d7eff")  # the open card is outlined
-    assert c["warnings"].styleSheet().startswith("Card { border: 1px solid #2b2f38")  # the others keep the normal border
+    assert c["failed"].styleSheet().startswith(f"Card {{ border: 1px solid {ACCENT}")  # the open card is outlined
+    assert c["warnings"].styleSheet().startswith(f"Card {{ border: 1px solid {BORDER}")  # the others keep the normal border
 
     qtbot.mouseClick(c["warnings"], Qt.LeftButton)  # switch straight to another card
     assert view.focus == "warnings" and view.stack.currentWidget() is view.warnings_table

@@ -504,11 +504,14 @@ def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path,
     class FakeDialog:
         Accepted = 1
 
-        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None):
+        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None, themes=None):
             seen.update(terminal=terminal, plugins=plugins)
 
         def exec(self):
             return 0
+
+        def chosen_theme(self):
+            return None
 
         def chosen_kubeconfig(self):
             return None

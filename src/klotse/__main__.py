@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 from . import cli
 from .k8s.client import KubeService
 from .ui import branding, environment, log_view, theme, watcher
+from .ui.settings_store import default_store
 from .ui.main_window import MainWindow
 
 THREAD_GRACE_MS = 1000  # how long a thread that is winding down may take before the process stops waiting for it
@@ -42,7 +43,7 @@ def main(argv=None):
     branding.set_windows_app_id()
     branding.set_macos_app_name()  # menu bar says Klotse, not Python, when run through the interpreter
     app = QApplication(sys.argv)
-    theme.apply(app)
+    theme.apply(app, theme.ThemeSettings(default_store()).selected())
     app.setApplicationName("Klotse")
     app.setDesktopFileName("klotse")  # Wayland matches the window to klotse.desktop (see desktop_entry.py)
     app.setWindowIcon(branding.app_icon())

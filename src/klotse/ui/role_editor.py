@@ -10,6 +10,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGroupBox, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
                                QSplitter, QToolButton, QToolTip, QVBoxLayout, QWidget)
+from . import theme
 
 RESULT_LIMIT = 200
 SEARCH_DELAY_MS = 150
@@ -361,7 +362,7 @@ class RoleEditDialog(QDialog):
         self.warnings = role_warnings(raw)
         self.banner = QLabel("<b>Take care:</b> " + "<br><br>".join(self.warnings))
         self.banner.setWordWrap(True)
-        self.banner.setStyleSheet("background:#3a2c0f; color:#f5a524; padding:6px; border-radius:4px;")
+        self.banner.setStyleSheet(theme.warning_style())
         self.banner.setVisible(bool(self.warnings))
         form = QWidget()
         form_lay = QVBoxLayout(form)
@@ -606,7 +607,7 @@ class RoleEditDialog(QDialog):
             text = "This rule grants every verb on every resource of the chosen API groups."
         if not text:
             text = "; ".join(rule_notes(rule)).capitalize()
-        self.hint.setText(f"<span style='color:#f5a524'>{text}</span>" if text else "")
+        self.hint.setText(f"<span style='color:{theme.WARN}'>{text}</span>" if text else "")
 
     # ---- result ----
     def _as_yaml(self):

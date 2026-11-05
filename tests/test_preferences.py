@@ -227,6 +227,9 @@ def test_preferences_action_applies_the_dialog_choice(qtbot, tmp_path, monkeypat
         def exec(self):
             return QDialog.Accepted
 
+        def chosen_theme(self):
+            return None
+
         def chosen_kubeconfig(self):
             return path
 

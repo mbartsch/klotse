@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from kubernetes import client
 
+from klotse.ui import theme
 from klotse.k8s.client import KubeService
 from klotse.k8s.resources import (DELETABLE_KINDS, SPEC_BY_KEY, SPEC_BY_KIND, map_binding, map_clusterrole, map_role,
                                   map_serviceaccount)
@@ -147,7 +148,7 @@ def test_render_role_lists_rules_and_flags_risky_ones():
         rule(["get"], ["pods"], [""]), rule(["*"], ["secrets"], [""], names=["db"])])
     html = rbac_view.render("Role", to_dict(role))
     assert "pods" in html and "db" in html and "(core)" in html
-    assert html.count(rbac_view.WARN) >= 3  # the '*' verb, 'secrets' and the legend; plain get/pods are not flagged
+    assert html.count(theme.WARN) >= 3  # the '*' verb, 'secrets' and the legend; plain get/pods are not flagged
     assert "No rules" in rbac_view.render("Role", to_dict(client.V1Role(metadata=meta("e", "dev"))))
 
 

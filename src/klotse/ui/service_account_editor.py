@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
                                QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
 
 from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
+from . import theme
 
 LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 ANNOTATION_SUGGESTIONS = (
@@ -205,7 +206,7 @@ class ServiceAccountEditDialog(QDialog):
         head.setWordWrap(True)
         self.banner = QLabel("<b>Take care:</b> " + "<br><br>".join(escape(w) for w in self.warnings))
         self.banner.setWordWrap(True)
-        self.banner.setStyleSheet("background:#3a2c0f; color:#f5a524; padding:6px; border-radius:4px;")
+        self.banner.setStyleSheet(theme.warning_style())
         self.banner.setVisible(bool(self.warnings))
 
         self.automount = QComboBox()
@@ -304,7 +305,7 @@ class ServiceAccountEditDialog(QDialog):
 
     def _hint(self):
         problems = self._problems()
-        self.hint.setText(f"<span style='color:#f5a524'>{escape(problems[0])}</span>" if problems else "")
+        self.hint.setText(f"<span style='color:{theme.WARN}'>{escape(problems[0])}</span>" if problems else "")
 
     def _as_yaml(self):
         self.wants_yaml = True

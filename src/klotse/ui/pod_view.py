@@ -2,7 +2,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from ..k8s.resources import Row
-from .theme import MUTED
+from . import theme
 
 CONTAINER_COLUMNS = [("Name", "name"), ("Type", "type"), ("State", "state"), ("Ready", "ready"),
                      ("Restarts", "restarts"), ("Image", "image")]
@@ -45,7 +45,7 @@ class PodActionBar(QWidget):
         self.title = QLabel()
         self.title.setStyleSheet("font-weight: 600;")
         self.state = QLabel()
-        self.state.setStyleSheet(f"color: {MUTED};")
+        theme.muted(self.state)
         self.buttons = []
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)

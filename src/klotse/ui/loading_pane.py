@@ -4,7 +4,7 @@ from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .theme import ACCENT, MUTED
+from . import theme
 
 MINUTE_HAND_TURN_MS = 8000  # the minute hand goes round once in this time; the hour hand takes 12 times as long
 MAX_STEP_DEG = 15.0  # per frame: after a stall (a busy GUI thread) the hands move on a little, they never leap
@@ -60,7 +60,7 @@ class ClockSpinner(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.translate(self.width() / 2, self.height() / 2)
         p.scale(self.width() / 100.0, self.height() / 100.0)  # draw on a 100 x 100 face, centered on 0,0
-        face = QColor(MUTED)
+        face = QColor(theme.MUTED)
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(face, 4))
         p.drawEllipse(QPointF(0, 0), 46, 46)
@@ -73,11 +73,11 @@ class ClockSpinner(QWidget):
         for angle, length, width in ((hour, 24, 5), (minute, 34, 3)):
             p.save()
             p.rotate(angle)
-            p.setPen(QPen(QColor(ACCENT), width, Qt.SolidLine, Qt.RoundCap))
+            p.setPen(QPen(QColor(theme.ACCENT), width, Qt.SolidLine, Qt.RoundCap))
             p.drawLine(QPointF(0, 4), QPointF(0, -length))
             p.restore()
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(ACCENT))
+        p.setBrush(QColor(theme.ACCENT))
         p.drawEllipse(QPointF(0, 0), 4, 4)
 
 
@@ -91,7 +91,8 @@ class LoadingPane(QWidget):
         self.label = QLabel()
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setWordWrap(True)
-        self.label.setStyleSheet(f"color: {MUTED}; font-size: 22px; font-weight: 600;")
+        theme.muted(self.label)
+        self.label.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout = QVBoxLayout(self)
         layout.addStretch(1)
         layout.addWidget(self.clock, 0, Qt.AlignHCenter)

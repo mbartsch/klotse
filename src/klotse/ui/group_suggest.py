@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDia
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
 from .cluster_groups import SEPARATOR, clean_path, lineage
-from .theme import MUTED
+from . import theme
 
 DEFAULT_SEPARATORS = "./:_@"  # a "-" is usually inside a word (group-of-cluster), so it is opt-in
 SEPARATOR_CHOICES = "./:_@-"
@@ -248,7 +248,7 @@ class SuggestGroupsDialog(QDialog):
         else:
             tested = bool(self.pattern.text())
         self.context_view.clear()
-        muted = QBrush(QColor(MUTED))
+        muted = QBrush(QColor(theme.MUTED))
         matching = 0
         for name in self.contexts:
             path = paths[name]

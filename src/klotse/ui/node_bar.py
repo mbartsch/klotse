@@ -1,7 +1,7 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
-from .theme import MUTED
+from . import theme
 
 
 class NodeActionBar(QWidget):
@@ -16,7 +16,7 @@ class NodeActionBar(QWidget):
         self.title = QLabel()
         self.title.setStyleSheet("font-weight: 600;")
         self.state = QLabel()
-        self.state.setStyleSheet(f"color: {MUTED};")
+        theme.muted(self.state)
         self.cordon = QPushButton("Cordon")
         self.cordon.clicked.connect(lambda: self.action_requested.emit("uncordon" if self.cordoned else "cordon"))
         self.buttons = [self.cordon]

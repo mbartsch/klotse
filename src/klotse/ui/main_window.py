@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
+from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
                                QTabWidget, QToolBar, QWidget)
 
 from .about import AboutDialog
@@ -16,6 +16,8 @@ from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
 from .preferences import KubeconfigSettings, PreferencesDialog
+from . import theme
+from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
 
@@ -36,6 +38,7 @@ class MainWindow(QMainWindow):
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
+        self.theme_settings = ThemeSettings(self.label_settings.store)
         self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
         # plugins: bundled, pip (entry points) and the plugins folder next to the settings file; all off until enabled
         self.plugins = plugin_manager if plugin_manager is not None else PluginManager(
@@ -201,12 +204,25 @@ class MainWindow(QMainWindow):
         # Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings if sys.platform == "darwin" else None,
-                                   plugins=self.plugins)
+                                   plugins=self.plugins, themes=self.theme_settings)
         accepted = dialog.exec() == PreferencesDialog.Accepted
         chosen = dialog.chosen_kubeconfig()
+        chosen_theme = dialog.chosen_theme()
         dialog.deleteLater()
+        if accepted and chosen_theme and chosen_theme != self.theme_settings.selected().name:
+            self.apply_theme(chosen_theme)
         if accepted and chosen != self.kubeconfig_settings.path:
             self.apply_kubeconfig(chosen)
+
+    def apply_theme(self, name):
+        """Save the chosen theme and apply it to the running application (no restart)."""
+        try:
+            self.theme_settings.set(name)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Cannot save preferences", str(error))
+            return False
+        theme.apply(QApplication.instance(), self.theme_settings.selected())
+        return True
 
     def apply_kubeconfig(self, path):
         """Switch to another kubeconfig (None = default): close open clusters, then reload the context list."""

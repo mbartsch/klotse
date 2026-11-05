@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox, QTreeWi
 
 from .cluster_groups import clean_path, inside, leaf_name, parent_path
 from .group_suggest import SuggestGroupsDialog
+from . import theme
 
 ACTIVE_STATES = ("connecting", "connected")  # shown in the Connected section
 STATE_COLORS = {"idle": "#6b7280", "connecting": "#f5a524", "connected": "#2fbf71", "failed": "#e5484d"}
@@ -140,7 +141,7 @@ class Navigator(QTreeWidget):
         f = h.font(0)
         f.setBold(True)
         h.setFont(0, f)
-        h.setForeground(0, QBrush(QColor("#9aa3b2")))
+        h.setForeground(0, QBrush(QColor(theme.MUTED)))
         self.addTopLevelItem(h)
         h.setExpanded(True)
         return h
