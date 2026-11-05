@@ -180,6 +180,12 @@ class KubeService:
             return map_statefulset(self._apps.create_namespaced_stateful_set(ns, body))
         if kind == "DaemonSet":
             return SPEC_BY_KIND["DaemonSet"].mapper(self._apps.create_namespaced_daemon_set(ns, body))
+        if kind == "Service":
+            return SPEC_BY_KIND["Service"].mapper(self._core.create_namespaced_service(ns, body))
+        if kind in ("Ingress", "NetworkPolicy"):
+            net = self._apis["net"]
+            create = net.create_namespaced_ingress if kind == "Ingress" else net.create_namespaced_network_policy
+            return SPEC_BY_KIND[kind].mapper(create(ns, body))
         if kind in ("Job", "CronJob"):
             batch = self._apis["batch"]
             create = batch.create_namespaced_job if kind == "Job" else batch.create_namespaced_cron_job

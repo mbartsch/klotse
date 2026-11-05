@@ -29,6 +29,8 @@ from .resource_table import ResourceTable
 from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky
 from .service_account_editor import ServiceAccountEditDialog
 from .data_editor import DATA_KINDS, DataEditDialog, new_manifest
+from .network_editor import NetworkEditDialog, new_manifest as network_manifest
+from .network_model import NETWORK_KINDS
 from .workload_editor import WorkloadEditDialog
 from .workload_model import CREATABLE_KINDS, EDIT_KINDS, skeleton
 from .scale_monitor import ScaleMonitor
@@ -166,7 +168,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.pods_table.action_requested.connect(self.pod_action)
                 widget.pods_table.bulk_requested.connect(self.bulk_action)
             if isinstance(widget, ResourceTable):
-                if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS):  # these kinds can be created from their list
+                if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS, *NETWORK_KINDS):  # these kinds can be created from their list
                     widget.enable_new()
                     widget.new_requested.connect(lambda *_a, k=widget.kind: self.create_resource(k))
                 widget.customize_requested.connect(self.customize_requested)
@@ -650,7 +652,7 @@ class ClusterWorkspace(QMainWindow):
     def _has_form(self, kind, raw):
         """Whether the kind has a form editor for this manifest (an aggregated role's rules are overwritten, so no)."""
         return (kind in RULE_KINDS and not raw.get("aggregationRule")) or kind in BINDING_KINDS \
-            or kind == "ServiceAccount" or kind in EDIT_KINDS or kind in DATA_KINDS
+            or kind == "ServiceAccount" or kind in EDIT_KINDS or kind in DATA_KINDS or kind in NETWORK_KINDS
 
     def _form_for(self, kind, raw, namespace, creating=False, secret_data=None):
         if kind in RULE_KINDS:
@@ -659,6 +661,8 @@ class ClusterWorkspace(QMainWindow):
             return BindingEditDialog(kind, raw, self.account_directory(), self)
         if kind == "ServiceAccount":
             return ServiceAccountEditDialog(kind, raw, self.secret_directory(namespace), self)
+        if kind in NETWORK_KINDS:
+            return NetworkEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names())
         if kind in DATA_KINDS:
             return DataEditDialog(kind, raw, self, secret_data=secret_data, create=creating,
                                   namespaces=self._namespace_names())
@@ -674,7 +678,8 @@ class ClusterWorkspace(QMainWindow):
         """New Deployment, DaemonSet, StatefulSet, Pod, ConfigMap or Secret: the form (or YAML) starts from a skeleton in the
         chosen namespace."""
         namespace = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
-        raw = new_manifest(kind, namespace) if kind in DATA_KINDS else skeleton(kind, namespace)
+        raw = (new_manifest(kind, namespace) if kind in DATA_KINDS else
+               network_manifest(kind, namespace) if kind in NETWORK_KINDS else skeleton(kind, namespace))
         self._edit_flow(kind, raw, "", "", creating=True)
 
     def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None):

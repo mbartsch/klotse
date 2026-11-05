@@ -287,7 +287,7 @@ def test_the_lists_of_creatable_kinds_have_a_new_button(qtbot):
     for key, kind in (("deployments", "Deployment"), ("pods", "Pod"), ("statefulsets", "StatefulSet"), ("daemonsets", "DaemonSet")):
         table = ws.views[key][0]
         assert table.kind == kind and table.new_button is not None, key
-    assert ws.views["services"][0].new_button is None and ws.views["replicasets"][0].new_button is None
+    assert ws.views["persistentvolumes"][0].new_button is None and ws.views["replicasets"][0].new_button is None
 
 
 def test_the_service_creates_each_kind():
@@ -305,4 +305,4 @@ def test_the_service_creates_each_kind():
             pass  # the fake API object does not carry every field the row mapper reads; the call itself is what is checked
     assert [m[0] for m in made] == ["pod", "deployment", "sts", "ds"] and all(m[1:] == ("ns", "n") for m in made)
     with pytest.raises(ValueError):
-        svc.create("Service", {"metadata": {"name": "n"}})
+        svc.create("PersistentVolume", {"metadata": {"name": "n"}})

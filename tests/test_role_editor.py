@@ -373,8 +373,8 @@ def test_aggregated_roles_and_other_kinds_use_the_yaml_editor(qtbot, monkeypatch
     monkeypatch.setattr("klotse.ui.workspace.EditDialog", YamlDialog)
     monkeypatch.setattr("klotse.ui.workspace.RoleEditDialog", lambda *a, **k: pytest.fail("form must not open"))
     ws.edit_resource("ClusterRole", Row("agg", "", {"aggregationRule": {"clusterRoleSelectors": []}, "rules": []}))
-    ws.edit_resource("Service", Row("svc", "ns", {"metadata": {"name": "svc"}}))  # no form editor for this kind
-    assert opened == ["Edit ClusterRole agg", "Edit Service svc"]
+    ws.edit_resource("PersistentVolumeClaim", Row("pvc", "ns", {"metadata": {"name": "pvc"}}))  # no form editor for this kind
+    assert opened == ["Edit ClusterRole agg", "Edit PersistentVolumeClaim pvc"]
 
 
 def test_edit_as_yaml_from_the_form_opens_the_yaml_editor(qtbot, monkeypatch):

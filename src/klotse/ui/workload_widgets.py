@@ -58,7 +58,7 @@ def default_dump(columns):
             text = str(value).strip()
             if not text:
                 entry.pop(key, None)
-            elif kind == "int":
+            elif kind in ("int", "port"):  # "port": a number, or a port name that stays text
                 entry[key] = int(text) if text.isdigit() else text  # a bad number stays text: validation reports it
             else:
                 entry[key] = text
@@ -146,6 +146,17 @@ class RowsEditor(QWidget):
 
     def count(self):
         return self.table.rowCount()
+
+    def texts(self):
+        """The cells as typed, one dict per row (before they are turned into entries, which drops what cannot be parsed)."""
+        out = []
+        for r in range(self.table.rowCount()):
+            row = {}
+            for col, (key, _title, kind, _choices) in enumerate(self.columns):
+                item = self.table.item(r, col)
+                row[key] = item.checkState() == Qt.Checked if kind == "bool" else item.text()
+            out.append(row)
+        return out
 
     def entries(self):
         out = []
