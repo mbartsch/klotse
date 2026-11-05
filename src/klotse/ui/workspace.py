@@ -28,6 +28,7 @@ from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, 
 from .resource_table import ResourceTable
 from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky
 from .service_account_editor import ServiceAccountEditDialog
+from .workload_editor import WORKLOAD_KINDS, WorkloadEditDialog
 from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
 from .terminal_settings import TerminalSettings
@@ -652,6 +653,8 @@ class ClusterWorkspace(QMainWindow):
             form = BindingEditDialog(kind, row.raw, self.account_directory(), self)
         elif kind == "ServiceAccount":
             form = ServiceAccountEditDialog(kind, row.raw, self.secret_directory(row.namespace), self)
+        elif kind in WORKLOAD_KINDS:
+            form = WorkloadEditDialog(kind, row.raw, self)
         if form is not None:
             accepted = form.exec() == QDialog.Accepted
             form.deleteLater()
