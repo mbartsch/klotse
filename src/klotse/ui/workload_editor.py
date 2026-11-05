@@ -55,7 +55,7 @@ class WorkloadEditDialog(QDialog):
     """Edit or create a Deployment, DaemonSet, StatefulSet or Pod. After Save, `result_body` is the manifest; "Edit as
     YAML…" sets `wants_yaml` (with the form's manifest in `pending`) and rejects the dialog."""
 
-    def __init__(self, kind, raw, parent=None, create=False, namespaces=()):
+    def __init__(self, kind, raw, parent=None, create=False, namespaces=(), ref_names=None):
         super().__init__(parent)
         self.kind, self._raw, self.create = kind, raw, create
         self.running = kind in ("Pod", "Job") and not create  # these exist already: almost nothing can change
@@ -194,7 +194,7 @@ class WorkloadEditDialog(QDialog):
         self.forms = []
         for field_name, index, container in container_lists(raw, kind):
             form_widget = ContainerForm(field_name, index, container, create=create, locked=self.running,
-                                        image_locked=kind == "Job" and not create)
+                                        image_locked=kind == "Job" and not create, ref_names=ref_names)
             self.forms.append(form_widget)
             form_widget.changed.connect(self._hint)
             self.tabs.addTab(form_widget, form_widget.name + (" (init)" if field_name == "initContainers" else ""))

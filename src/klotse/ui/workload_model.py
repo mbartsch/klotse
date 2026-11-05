@@ -100,6 +100,61 @@ def env_source(entry):
     return "another source"
 
 
+ENV_FROM_SOURCES = ("ConfigMap, all keys", "Secret, all keys")  # envFrom entries
+ENV_SOURCES = ("Value", "Field", "Secret key", "ConfigMap key", "Resource", *ENV_FROM_SOURCES)
+ENV_REF_KEYS = {"Field": "fieldRef", "Secret key": "secretKeyRef", "ConfigMap key": "configMapKeyRef", "Resource": "resourceFieldRef"}
+ENV_ADD_HINTS = {  # (name hint, value hint) of the Environment add row, per Source
+    "Value": ("Name, e.g. LOG_LEVEL", "Value"),
+    "Field": ("Name, e.g. POD_NAMESPACE", "Pod field, e.g. metadata.namespace"),
+    "Secret key": ("Name, e.g. DB_PASSWORD", "Secret / key"),
+    "ConfigMap key": ("Name, e.g. LOG_LEVEL", "ConfigMap / key"),
+    "Resource": ("Name, e.g. MEMORY_LIMIT", "Resource, e.g. limits.memory"),
+    "ConfigMap, all keys": ("ConfigMap name", "Prefix (optional)"),
+    "Secret, all keys": ("Secret name", "Prefix (optional)")}
+ENV_FIELD_PATHS = ("metadata.name", "metadata.namespace", "metadata.uid", "spec.nodeName", "spec.serviceAccountName",
+                   "status.hostIP", "status.podIP")
+ENV_RESOURCES = ("limits.cpu", "limits.memory", "limits.ephemeral-storage", "requests.cpu", "requests.memory",
+                 "requests.ephemeral-storage")
+
+
+def env_ref(entry):
+    """(source, detail) of an env entry for the Source and Value columns; "Other" for a valueFrom this editor does not know."""
+    ref = entry.get("valueFrom") or {}
+    for label, key in ENV_REF_KEYS.items():
+        if key in ref:
+            body = ref[key] or {}
+            if key == "fieldRef":
+                return label, body.get("fieldPath", "")
+            if key == "resourceFieldRef":
+                return label, body.get("resource", "")
+            return label, f"{body.get('name', '')} / {body.get('key', '')}"
+    return "Other", "another source"
+
+
+def build_env_entry(original, source, name, detail):
+    """One `env` entry from a table row: a plain value, or a valueFrom of the chosen source. Fields of the original that the
+    form does not show (apiVersion, optional, divisor, containerName) are kept when the source is unchanged."""
+    name = name.strip()
+    if source == "Value":
+        return {"name": name, "value": detail}
+    key = ENV_REF_KEYS[source]
+    old = (original or {}).get("valueFrom") or {}
+    entry = deepcopy(original) if original and key in old else {"name": name}
+    entry["name"] = name
+    entry.pop("value", None)
+    ref = dict(old.get(key) or {}) if key in old else {}
+    if key == "fieldRef":
+        ref.setdefault("apiVersion", "v1")
+        ref["fieldPath"] = detail.strip()
+    elif key == "resourceFieldRef":
+        ref["resource"] = detail.strip()
+    else:
+        ref_name, _slash, ref_key = detail.partition("/")
+        ref["name"], ref["key"] = ref_name.strip(), ref_key.strip()
+    entry["valueFrom"] = {key: ref}
+    return entry
+
+
 def job_spec_of(raw, kind):
     """The Job spec: `spec` of a Job, `spec.jobTemplate.spec` of a CronJob."""
     spec = raw.get("spec") or {}
@@ -295,6 +350,20 @@ def build_volume(original, row):
     return volume
 
 
+def _validate_env_source(container, var, entry):
+    """Problems with the valueFrom of one variable (a plain value has none)."""
+    ref = entry.get("valueFrom") or {}
+    problems = []
+    if "fieldRef" in ref and not (ref["fieldRef"] or {}).get("fieldPath"):
+        problems.append(f"{container}: {var} needs a pod field, e.g. metadata.namespace")
+    if "resourceFieldRef" in ref and not (ref["resourceFieldRef"] or {}).get("resource"):
+        problems.append(f"{container}: {var} needs a resource, e.g. limits.memory")
+    for key, label in (("secretKeyRef", "Secret"), ("configMapKeyRef", "ConfigMap")):
+        if key in ref and not ((ref[key] or {}).get("name") and (ref[key] or {}).get("key")):
+            problems.append(f"{container}: {var} needs a {label} name and a key, written as  name / key")
+    return problems
+
+
 def env_from_row(entry):
     ref = "secretRef" if "secretRef" in entry else "configMapRef"
     return {"source": "Secret" if ref == "secretRef" else "ConfigMap", "name": (entry.get(ref) or {}).get("name", ""),
@@ -470,6 +539,7 @@ def _validate_container(c, volumes):
         elif var in seen:
             out.append(f"{name}: the variable {var} is listed twice")
         seen.add(var)
+        out += _validate_env_source(name, var, entry)
     for entry in c.get("env_from", []):
         if not env_from_row(entry)["name"].strip():
             out.append(f"{name}: an \"environment from\" entry needs a ConfigMap or Secret name")

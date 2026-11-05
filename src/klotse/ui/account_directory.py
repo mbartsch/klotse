@@ -118,6 +118,19 @@ class ServiceDirectory(SecretDirectory):
         return f"{len(self.entries):,} services in {self.namespace}"
 
 
+class ConfigMapDirectory(SecretDirectory):
+    """The names of the config maps of one namespace, for the Environment table's pickers."""
+
+    _call = "list_configmap_names"
+
+    def status_text(self):
+        if self.state == "failed":
+            return f"Could not list the config maps: {self.error}. You can still type a name."
+        if self.state == "loading":
+            return "Loading config map names…"
+        return f"{len(self.entries):,} config maps in {self.namespace}"
+
+
 class LabelDirectory(SecretDirectory):
     """The (key, value) labels on the pods of one namespace, for the selector boxes of a Service or NetworkPolicy."""
 

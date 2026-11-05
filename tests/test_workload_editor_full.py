@@ -148,8 +148,9 @@ def test_container_fields_command_ports_mounts_envfrom(qtbot):
     f.ports.table.item(0, 2).setText("UDP")
     f.mounts.table.item(0, 1).setText("/etc/new")
     f.mounts.table.item(1, 3).setCheckState(__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.Checked)
-    f.env_from.table.item(0, 1).setText("renamed")
-    f.env_from.table.item(1, 0).setText("ConfigMap")
+    all_keys = [r for r in range(f.env.table.rowCount()) if "all keys" in f.env.table.item(r, 0).text()]
+    f.env.table.item(all_keys[0], 1).setText("renamed")
+    f.env.table.item(all_keys[1], 0).setText("ConfigMap, all keys")
     c = saved(dlg)["spec"]["template"]["spec"]["containers"][0]
     assert c["command"] == ["/bin/other"] and "args" not in c
     assert c["ports"] == [{"name": "http", "containerPort": 8080, "protocol": "UDP"}, {"containerPort": 9091}]
@@ -220,7 +221,9 @@ def test_workload_level_fields_for_deployments(qtbot):
     (lambda d: d.forms[0].ports.table.item(0, 0).setText("Not Valid"), "port name"),
     (lambda d: d.forms[0].mounts.table.item(0, 1).setText("relative"), "absolute path"),
     (lambda d: d.forms[0].ids["runAsUser"].setText("root"), "runAsUser"),
-    (lambda d: d.forms[0].env_from.table.item(1, 1).setText(""), "ConfigMap or Secret name"),
+    (lambda d: d.forms[0].env.table.item(
+        [r for r in range(d.forms[0].env.table.rowCount()) if "all keys" in d.forms[0].env.table.item(r, 0).text()][1], 1).setText(""),
+     "ConfigMap or Secret name"),
 ])
 def test_validation_blocks_bad_values(qtbot, monkeypatch, change, message):
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: None)

@@ -183,7 +183,7 @@ def test_the_yaml_editor_goes_back_to_the_form_with_its_text(qtbot, monkeypatch)
 
 # ---- the workspace flow -------------------------------------------------------------------------------
 def make_ws(qtbot, **service):
-    ws = ClusterWorkspace(SimpleNamespace(**service), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(list_secret_names=lambda ns: [], list_configmap_names=lambda ns: [], **service), "ctx")
     qtbot.addWidget(ws)
     ws.refresh = lambda: None
     return ws
@@ -266,7 +266,7 @@ def test_new_creates_through_the_service_with_the_chosen_namespace(qtbot, monkey
     ws.set_namespace("default")
 
     class Form:
-        def __init__(self, kind, raw, parent=None, create=False, namespaces=()):
+        def __init__(self, kind, raw, parent=None, create=False, namespaces=(), **_kw):
             seen.append((kind, raw["metadata"]["namespace"], create))
             self.wants_yaml, self.result_body = False, {"metadata": {"name": "api", "namespace": "default"}}
 

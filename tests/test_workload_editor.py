@@ -72,7 +72,7 @@ def test_the_dialog_shows_what_the_manifest_has(qtbot):
     app = dlg.forms[1]
     assert app.image.text() == "nginx:1.25" and app.pull.currentText() == "Always"
     assert app.boxes["requests", "cpu"].text() == "100m" and app.boxes["limits", "memory"].text() == "1Gi"
-    assert app.env.table.rowCount() == 2 and app.env.table.item(1, 1).text() == "(from Secret db, key pw)"
+    assert app.env.table.rowCount() == 2 and app.env.table.item(1, 0).text() == "Secret key" and app.env.table.item(1, 2).text() == "db / pw"
     assert dlg.labels.items() == {"app": "web"} and dlg.annotations.items()[LAST_APPLIED] == "{huge}"
 
 
@@ -116,10 +116,10 @@ def test_a_replica_only_change_does_not_touch_the_pod_template(qtbot):
 def test_environment_variables_from_secrets_survive_and_plain_ones_edit(qtbot):
     dlg = make(qtbot)
     env = dlg.forms[1].env
-    env.table.item(0, 1).setText("2")
-    env._add_blank()
-    env.table.item(2, 0).setText("NEW")
-    env.table.item(2, 1).setText("v")
+    env.table.item(0, 2).setText("2")
+    env.add_row("Value")
+    env.table.item(2, 1).setText("NEW")
+    env.table.item(2, 2).setText("v")
     dlg._save()
     got = dlg.result_body["spec"]["template"]["spec"]["containers"][0]["env"]
     assert got == [{"name": "A", "value": "2"},
@@ -250,7 +250,7 @@ def test_build_body_does_not_change_its_input(qtbot):
 @pytest.mark.parametrize("kind", ["Deployment", "DaemonSet", "StatefulSet"])
 def test_workspace_edits_workloads_with_the_form(qtbot, monkeypatch, kind):
     saved, seen = [], []
-    ws = ClusterWorkspace(SimpleNamespace(replace=lambda k, body: saved.append((k, body))), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(replace=lambda k, body: saved.append((k, body)), list_secret_names=lambda ns: [], list_configmap_names=lambda ns: []), "ctx")
     qtbot.addWidget(ws)
     ws.refresh = lambda: None
 
@@ -272,7 +272,7 @@ def test_workspace_edits_workloads_with_the_form(qtbot, monkeypatch, kind):
 
 
 def test_edit_as_yaml_from_the_workload_form_opens_the_yaml_editor(qtbot, monkeypatch):
-    ws = ClusterWorkspace(SimpleNamespace(), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(list_secret_names=lambda ns: [], list_configmap_names=lambda ns: []), "ctx")
     qtbot.addWidget(ws)
     opened = []
 
