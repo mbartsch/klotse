@@ -148,6 +148,8 @@ class ClusterWorkspace(QMainWindow):
         self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
+        self.detail_dock.dockLocationChanged.connect(self._limit_dock)
+        self.detail_dock.topLevelChanged.connect(self._limit_dock)
 
         # bottom: log tabs, hidden until the first logs are opened
         self.log_tabs = QTabWidget()
@@ -640,6 +642,25 @@ class ClusterWorkspace(QMainWindow):
             self._accounts = AccountDirectory(self.service, self._run, parent=self)
         self._accounts.start()
         return self._accounts
+
+    MAX_DOCK_SHARE = 0.5  # the Details dock may take at most this much of the window, so it never covers the lists
+
+    def _limit_dock(self, *_args):
+        """Cap the Details dock at half the window (width at the sides, height at the top or bottom); a floating one is free."""
+        dock = self.detail_dock
+        free = 16777215  # QWIDGETSIZE_MAX
+        if dock.isFloating():
+            dock.setMaximumSize(free, free)
+            return
+        area = self.dockWidgetArea(dock)
+        if area in (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea):
+            dock.setMaximumSize(max(320, int(self.width() * self.MAX_DOCK_SHARE)), free)
+        else:
+            dock.setMaximumSize(free, max(200, int(self.height() * self.MAX_DOCK_SHARE)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._limit_dock()
 
     def secret_directory(self, namespace):
         """The secret names of one namespace for the service account editor's pickers: loaded once per namespace."""

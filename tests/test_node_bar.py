@@ -21,7 +21,7 @@ def make_ws(qtbot):
 
 
 def texts(bar):
-    return [b.text() for b in bar.buttons]
+    return [b.text() for b in bar.items]
 
 
 def test_pods_tab_has_node_action_bar(qtbot):
@@ -41,8 +41,8 @@ def test_buttons_trigger_node_actions_on_the_current_node_row(qtbot):
     ws.node_action = lambda action, row: done.append((action, row.name, row.raw["metadata"]["uid"]))
     ws.open_node_pods("n1", node("n1"))
     bar = ws._node_bars["n1"][0]
-    for button in bar.buttons:
-        button.click()
+    for button in bar.items:
+        button.trigger()
     assert done == [("cordon", "n1", "u-n1"), ("drain", "n1", "u-n1"), ("node-shell", "n1", "u-n1"),
                     ("delete-node", "n1", "u-n1"), ("force-delete-node", "n1", "u-n1")]
 
@@ -55,14 +55,14 @@ def test_cordon_button_follows_node_state_and_nodes_reload(qtbot):
     bar = ws._node_bars["n1"][0]
     ws._set_nodes([node("n1", cordoned=True)])  # the Nodes list reloaded and the node is now cordoned
     assert bar.cordon.text() == "Uncordon" and "SchedulingDisabled" in bar.state.text()
-    bar.cordon.click()
+    bar.cordon.trigger()
     assert done == ["uncordon"]
     ws._set_nodes([node("n1")])
     assert bar.cordon.text() == "Cordon"
     ws._set_nodes([node("other")])  # node deleted
-    assert not any(b.isEnabled() for b in bar.buttons) and "no longer" in bar.state.text()
+    assert not any(b.isEnabled() for b in bar.items) and "no longer" in bar.state.text()
     ws.open_node_pods("n1")  # reopening the tab keeps it consistent with the list
-    assert not any(b.isEnabled() for b in bar.buttons) or bar.state.text() == ""
+    assert not any(b.isEnabled() for b in bar.items) or bar.state.text() == ""
 
 
 def test_action_without_loaded_node_row_uses_row_it_was_opened_from(qtbot):

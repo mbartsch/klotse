@@ -1,8 +1,9 @@
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from ..k8s.resources import Row
 from . import theme
+from .action_bar import ElidedLabel, actions_button
 
 CONTAINER_COLUMNS = [("Name", "name"), ("Type", "type"), ("State", "state"), ("Ready", "ready"),
                      ("Restarts", "restarts"), ("Image", "image")]
@@ -36,37 +37,36 @@ def container_rows(raw):
 
 
 class PodActionBar(QWidget):
-    """Header of a pod's tab: the pod's own actions (container actions are on the rows below)."""
+    """Header of a pod's tab: the pod's name and state (cut with … when the tab is narrow, never covered) and one Actions menu
+    with the pod's own actions (container actions are on the rows below)."""
 
     action_requested = Signal(str)  # logs | edit | terminate | force-terminate
 
     def __init__(self):
         super().__init__()
-        self.title = QLabel()
+        self.title = ElidedLabel()
         self.title.setStyleSheet("font-weight: 600;")
-        self.state = QLabel()
+        self.state = ElidedLabel()
         theme.muted(self.state)
-        self.buttons = []
+        self.menu_button, self.items = actions_button(
+            [("Logs", "logs"), ("Edit…", "edit"), None, ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
+            self.action_requested.emit)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.title)
-        lay.addWidget(self.state)
-        lay.addStretch(1)
-        for text, action in (("Logs", "logs"), ("Edit…", "edit"), ("Terminate…", "terminate"),
-                             ("Force terminate…", "force-terminate")):
-            button = QPushButton(text)
-            button.clicked.connect(lambda _=False, a=action: self.action_requested.emit(a))
-            self.buttons.append(button)
-            lay.addWidget(button)
+        lay.addWidget(self.title, 2)
+        lay.addWidget(self.state, 3)
+        lay.addWidget(self.menu_button)
 
     def set_row(self, row):
         self.title.setText(f"Pod {row.namespace}/{row.name}")
         self.state.setText(f"— {row.status}" + (f" on {row.node}" if row.node else ""))
-        for button in self.buttons:
-            button.setEnabled(True)
+        self.menu_button.setEnabled(True)
+        for action in self.items:
+            action.setEnabled(True)
 
     def set_gone(self, name):
         self.title.setText(f"Pod {name}")
         self.state.setText("— no longer in the cluster")
-        for button in self.buttons:
-            button.setEnabled(False)
+        self.menu_button.setEnabled(False)
+        for action in self.items:
+            action.setEnabled(False)

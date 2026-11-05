@@ -61,8 +61,8 @@ def test_pod_bar_actions(qtbot, monkeypatch):
     ws.edit_resource = lambda kind, row: seen.append(("edit", kind, row.name))
     ws.open_pod_tab(pod())
     bar = ws._pod_tabs["pod:team/web"]["bar"]
-    for button in bar.buttons:
-        button.click()
+    for button in bar.items:
+        button.trigger()
     assert seen == [("logs", "web"), ("edit", "Pod", "web"), ("terminate", "web"), ("force-terminate", "web")]
 
 
@@ -87,12 +87,12 @@ def test_tab_refreshes_containers_and_handles_deleted_pod(qtbot):
     state["pod"] = None
     assert fetch(None) is None
     sink(None)
-    assert not any(b.isEnabled() for b in tab["bar"].buttons) and "no longer" in tab["bar"].state.text()
+    assert not any(b.isEnabled() for b in tab["bar"].items) and "no longer" in tab["bar"].state.text()
     assert len(tab["table"].model.rows) == 2  # last known containers stay visible
 
     state["pod"] = pod()  # a pod with the same name came back (e.g. StatefulSet): actions work again
     sink(fetch(None))
-    assert all(b.isEnabled() for b in tab["bar"].buttons)
+    assert all(b.isEnabled() for b in tab["bar"].items)
 
 
 def test_other_errors_are_not_treated_as_deleted(qtbot):

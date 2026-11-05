@@ -95,6 +95,7 @@ Native Windows/macOS packages are built with PyInstaller (`packaging/`, see the 
 | `src/klotse/ui/log_view.py` | Background log streaming, container selection, search/follow, and stream shutdown. |
 | `src/klotse/ui/pod_view.py` | A pod's own tab: regular/init/ephemeral container rows, pod action bar, and container-specific Logs/Shell/Attach. |
 | `src/klotse/ui/node_bar.py` | Node action bar (cordon, drain, shell, delete) shown above a node's pods tab. |
+| `src/klotse/ui/action_bar.py` | Shared by the pod and node bars: `ElidedLabel` (one line, cut with … when narrow, size hint independent of its text, full text in `text()` and the tooltip) and `actions_button(entries, emit)` (one **Actions** menu instead of a row of buttons; the bars keep their `QAction`s in `items` and the button in `menu_button`). The pod bar's menu is Logs, Edit…, then Terminate… and Force terminate…; the node bar's is Cordon/Uncordon, Drain…, Shell (nsenter)…, then Delete node… and Force delete…. |
 | `src/klotse/ui/node_dialogs.py` | Drain options and privileged nsenter debug-shell options. |
 | `src/klotse/ui/command_view.py` | QProcess-backed drain output, completion/error reporting, and local process cancellation. |
 | `src/klotse/ui/terminal.py` | Explicit-context kubectl argv and platform-specific terminal launching. |
@@ -132,6 +133,7 @@ Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, an
 - Open views load asynchronously. Refresh and namespace changes reload the foreground tab (plus the namespace list for Refresh); other tabs reload when they come to the front (see auto-refresh below).
 - Keep loading/error states visible and prevent stale callbacks from updating disconnected workspaces. Coalesce repeated refreshes rather than starting duplicate loads for a view.
 - The shared API pagination helper requests pages of 500, preserves selectors/scope, and uses a 30-second request timeout. Connections request gzip and use a short initial discovery timeout.
+- The Details dock is capped at half the window (`ClusterWorkspace._limit_dock`: width at the sides, height at the top/bottom, none while floating), so it cannot be dragged over the lists or the pod/node bars.
 - Preserve bounded overview lists, deferred serialization where used, and the inexpensive `include_raw=False` summary paths. Do not eagerly serialize all event or pod manifests just to count them.
 - Tables initially preserve API order. Column sizing samples at most 100 rows; filtering is debounced by 200 ms. Avoid introducing unbounded GUI-thread sizing or rendering work.
 
@@ -221,7 +223,7 @@ example.com/team = Team
 - Avoid duplicate concurrent drains for the same node. Stopping/closing a drain kills the local kubectl process; already admitted evictions are not rolled back and the node can remain cordoned.
 - nsenter follows the Linux defaults from the installed kubectl-node-shell v1.11.0 script (verified with stubbed kubectl): `kubectl run` creates a uniquely named privileged pod pinned with `nodeName`, sharing host PID/IPC/network namespaces and tolerating CriticalAddonsOnly/NoExecute taints. It runs `nsenter --target 1 --mount --uts --ipc --net --pid bash -l`, defaults to namespace `default` and image `docker.io/library/alpine`, and requires a Linux host with bash. Namespace/image are configurable; the image needs nsenter. `--restart=Never --rm -it` attaches and removes the pod when the session exits; abrupt terminal termination or connection loss may require manual pod cleanup. The plugin does not need to be installed. Source: https://github.com/kvaps/kubectl-node-shell/blob/master/kubectl-node_shell. Optional plugin modes (Windows HostProcess, X-mode, PVC mounts, quota probing) are not implemented.
 - List pods on this node (or double-clicking a node) opens/reuses `node-pods:<node>` with a server-side `spec.nodeName=<node>` selector across all namespaces. The workspace namespace filter intentionally does not restrict these tabs. They retain normal pod actions and label customization.
-- That tab has an action bar (`node_bar.py`): Cordon/Uncordon, Drain, Shell (nsenter), Delete node, Force delete, using the same confirmations as the Nodes menu. After a node action the Nodes list is reloaded even in the background so the bar follows the node's state; if the node disappears the bar's actions are disabled.
+- That tab has an action bar (`node_bar.py`, one Actions menu): Cordon/Uncordon, Drain, Shell (nsenter), Delete node, Force delete, using the same confirmations as the Nodes menu. After a node action the Nodes list is reloaded even in the background so the bar follows the node's state; if the node disappears the bar's actions are disabled.
 
 ### Pod/container actions and terminals
 
