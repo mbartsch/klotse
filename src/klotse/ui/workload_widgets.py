@@ -18,12 +18,14 @@ from .workload_model import (CONTAINER_FLAGS, CONTAINER_IDS, OTHER_VOLUME, RESTA
 class ComboDelegate(QStyledItemDelegate):
     """A drop-down for a table column with a fixed list of values (the first, empty one means "not set")."""
 
-    def __init__(self, choices, parent=None):
+    def __init__(self, choices, parent=None, editable=False):
         super().__init__(parent)
-        self.choices = choices
+        self.choices = choices  # a list can be replaced later (RowsEditor.set_choices) for editable columns
+        self.editable = editable
 
     def createEditor(self, parent, option, index):
         box = QComboBox(parent)
+        box.setEditable(self.editable)
         box.addItems(list(self.choices))
         return box
 
@@ -73,6 +75,14 @@ class RowsEditor(QWidget):
 
     changed = Signal()
 
+    def set_choices(self, key, values):
+        """Offer `values` in the drop-down of a "suggest" column; anything else can still be typed."""
+        for col, column in enumerate(self.columns):
+            if column[0] == key:
+                delegate = self.table.itemDelegateForColumn(col)
+                if isinstance(delegate, ComboDelegate):
+                    delegate.choices = ["", *values]
+
     def __init__(self, title, columns, entries, new_entry=None, add_text="Add", load=None, dump=None,
                  existing_readonly=(), height=110, note=""):
         super().__init__()
@@ -90,6 +100,8 @@ class RowsEditor(QWidget):
         for col, (_key, _title, kind, choices) in enumerate(columns):
             if kind == "choice":
                 self.table.setItemDelegateForColumn(col, ComboDelegate(choices, self.table))
+            elif kind == "suggest":  # text with a drop-down of values known in the cluster (set_choices)
+                self.table.setItemDelegateForColumn(col, ComboDelegate([], self.table, editable=True))
         self.add_button = QPushButton(add_text)
         self.remove_button = QPushButton("Remove selected")
         buttons = QHBoxLayout()

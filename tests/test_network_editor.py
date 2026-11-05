@@ -157,7 +157,7 @@ def test_an_ingress_shows_one_row_per_path_and_keeps_resource_backends(qtbot):
     assert [(r["host"], r["path"], r["service"], r["port"]) for r in rows] == [
         ("a.example.com", "/", "web", "80"), ("a.example.com", "/api", "api", "http"),
         ("a.example.com", "/img", "(resource Bucket/img)", ""), ("b.example.com", "/", "web", "80")]
-    assert dlg.ingress_class.currentText() == "nginx" and dlg.default_service.text() == "fallback"
+    assert dlg.ingress_class.currentText() == "nginx" and dlg.default_service.currentText() == "fallback"
     assert dlg.tls.texts() == [{"hosts": "a.example.com, b.example.com", "secretName": "site-tls"}]
 
 
@@ -169,7 +169,7 @@ def test_an_ingress_edit_regroups_by_host_and_keeps_the_rest(qtbot):
     last = dlg.rules.count() - 1
     for col, text in enumerate(["b.example.com", "/docs", "Exact", "docs", "80"]):
         dlg.rules.table.item(last, col).setText(text)
-    dlg.default_service.setText("")
+    dlg.default_service.setCurrentText("")
     dlg.tls.table.item(0, 0).setText("a.example.com")
     spec = saved(dlg)["spec"]
     a, b, empty = spec["rules"]
@@ -316,7 +316,7 @@ def test_new_and_edit_route_to_the_network_dialog(qtbot, monkeypatch):
     from klotse.k8s.resources import Row
 
     created, replaced, seen = [], [], []
-    ws = ClusterWorkspace(SimpleNamespace(create=lambda k, b: created.append((k, b)), replace=lambda k, b: replaced.append((k, b)), list_ingress_class_names=lambda: [], list_pod_labels=lambda ns: []), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(create=lambda k, b: created.append((k, b)), replace=lambda k, b: replaced.append((k, b)), list_ingress_class_names=lambda: [], list_pod_labels=lambda ns: [], list_service_names=lambda ns: []), "ctx")
     qtbot.addWidget(ws)
     ws.refresh = lambda: None
     ws.set_namespace("default")
@@ -452,3 +452,37 @@ def test_the_service_lists_the_distinct_pod_labels(monkeypatch):
     svc = object.__new__(KubeService)
     svc._core = SimpleNamespace(list_namespaced_pod=lambda ns, **kw: SimpleNamespace(data=pages.pop(0)))
     assert svc.list_pod_labels("shop") == [("app", "a"), ("t", "1"), ("t", "2")]
+
+
+# ---- services in the ingress backends -------------------------------------------------------------------------
+class NameList:
+    def __init__(self, entries, state="done"):
+        from PySide6.QtCore import QObject, Signal
+
+        class Emitter(QObject):
+            finished = Signal()
+        self._e = Emitter()
+        self.finished = self._e.finished
+        self.entries, self.state = entries, state
+
+
+def test_the_ingress_offers_the_namespaces_services_in_rules_and_default_backend(qtbot):
+    services = NameList([], state="loading")
+    dlg = NetworkEditDialog("Ingress", deepcopy(INGRESS), services=services)
+    qtbot.addWidget(dlg)
+    dlg.default_service.setCurrentText("typed")
+    services.entries, services.state = ["web", "api"], "done"
+    services.finished.emit()
+    box = dlg.default_service
+    assert [box.itemText(i) for i in range(box.count())] == ["", "api", "web"] and box.currentText() == "typed"
+    col = [c[0] for c in dlg.rules.columns].index("service")
+    assert dlg.rules.table.itemDelegateForColumn(col).choices == ["", "api", "web"]
+    assert dlg.rules.table.itemDelegateForColumn(col).editable
+
+
+def test_the_service_lists_service_names():
+    svc = object.__new__(KubeService)
+    svc._core = SimpleNamespace(list_namespaced_service=lambda ns, **kw: SimpleNamespace(
+        items=[SimpleNamespace(metadata=SimpleNamespace(name="a")), SimpleNamespace(metadata=SimpleNamespace(name="b"))],
+        metadata=SimpleNamespace(_continue=None)))
+    assert svc.list_service_names("shop") == ["a", "b"]

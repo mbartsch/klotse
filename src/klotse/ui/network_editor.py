@@ -52,10 +52,10 @@ class ObjectDialog(QDialog):
     annotation_suggestions = ANNOTATION_SUGGESTIONS
     create_note = ""
 
-    def __init__(self, kind, raw, parent=None, create=False, namespaces=(), classes=None, labels=None):
+    def __init__(self, kind, raw, parent=None, create=False, namespaces=(), classes=None, labels=None, services=None):
         super().__init__(parent)
         self.kind, self._raw, self.create, self.classes = kind, raw, create, classes
-        self.labels_dir = labels
+        self.labels_dir, self.services_dir = labels, services
         self.result_body, self.wants_yaml, self.pending = None, False, None
         meta = raw.get("metadata") or {}
         self.setWindowTitle(f"New {kind}" if create else f"Edit {kind} {meta.get('name', '')}")
@@ -345,14 +345,20 @@ class IngressDialog(ObjectDialog):
             self.classes.finished.connect(self._fill_classes)
         self.rules = RowsEditor(
             "Rules", [("host", "Host", "text", ()), ("path", "Path", "text", ()), ("pathType", "Path type", "choice", PATH_TYPES),
-                      ("service", "Service", "text", ()), ("port", "Port", "port", ())],
+                      ("service", "Service", "suggest", ()), ("port", "Port", "port", ())],
             ingress_rows(spec), new_entry={"host": "", "path": {"path": "/", "pathType": "Prefix",
                                                                   "backend": {"service": {"name": "", "port": {"number": 80}}}}},
             add_text="Add rule", load=_rule_load, dump=_rule_dump, height=170,
             note="Host: empty matches every host. Port: a number or the service's port name. Prefix matches the path and "
                  "everything below it; Exact only that path.")
         name, port = backend_texts(spec.get("defaultBackend"))
-        self.default_service = QLineEdit(name, placeholderText="service name (empty = none)")
+        self.default_service = QComboBox()
+        self.default_service.setEditable(True)
+        self.default_service.lineEdit().setPlaceholderText("service name (empty = none)")
+        self.default_service.setCurrentText(name)
+        self._fill_services()
+        if self.services_dir is not None:
+            self.services_dir.finished.connect(self._fill_services)
         self.default_port = QLineEdit(port, placeholderText="80 or a port name")
         self.tls = RowsEditor("TLS", [("hosts", "Hosts (comma separated)", "text", ()), ("secretName", "Secret", "text", ())],
                               spec.get("tls") or [], new_entry={}, add_text="Add TLS entry", load=_tls_load, dump=_tls_dump,
@@ -363,9 +369,22 @@ class IngressDialog(ObjectDialog):
         top.addRow("", self.class_note)
         top.addRow("Default backend service", self.default_service)
         top.addRow("Default backend port", self.default_port)
-        self.track(self.ingress_class.editTextChanged, self.rules.changed, self.default_service.textChanged,
+        self.track(self.ingress_class.editTextChanged, self.rules.changed, self.default_service.editTextChanged,
                    self.default_port.textChanged, self.tls.changed)
         return [("Rules", scrolled(page(top, self.rules))), ("TLS", page(self.tls))]
+
+    def _fill_services(self):
+        """The namespace's services in the rule table's Service column and the default backend box (typing stays possible)."""
+        if self.services_dir is None or self.services_dir.state != "done":
+            return
+        names = sorted(self.services_dir.entries)
+        self.rules.set_choices("service", names)
+        current = self.default_service.currentText()
+        self.default_service.blockSignals(True)
+        self.default_service.clear()
+        self.default_service.addItems(["", *names])
+        self.default_service.setCurrentText(current)
+        self.default_service.blockSignals(False)
 
     def _fill_classes(self):
         """List the cluster's IngressClasses in the box (the typed or current name stays; the first entry is empty = the
@@ -384,7 +403,7 @@ class IngressDialog(ObjectDialog):
 
     def collect(self):
         return {"class": self.ingress_class.currentText(), "rows": self.rules.entries(),
-                "default_backend": {"service": self.default_service.text(), "port": self.default_port.text()},
+                "default_backend": {"service": self.default_service.currentText(), "port": self.default_port.text()},
                 "tls": self.tls.entries()}
 
     def validate(self, values):
@@ -547,6 +566,6 @@ class PolicyDialog(ObjectDialog):
 DIALOGS = {"Service": ServiceDialog, "Ingress": IngressDialog, "NetworkPolicy": PolicyDialog}
 
 
-def NetworkEditDialog(kind, raw, parent=None, create=False, namespaces=(), classes=None, labels=None):  # noqa: N802 - used like a class
+def NetworkEditDialog(kind, raw, parent=None, create=False, namespaces=(), classes=None, labels=None, services=None):  # noqa: N802 - used like a class
     """The editor for a Service, Ingress or NetworkPolicy."""
-    return DIALOGS[kind](kind, raw, parent, create=create, namespaces=namespaces, classes=classes, labels=labels)
+    return DIALOGS[kind](kind, raw, parent, create=create, namespaces=namespaces, classes=classes, labels=labels, services=services)

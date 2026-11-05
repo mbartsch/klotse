@@ -105,6 +105,19 @@ class SecretDirectory(AccountDirectory):
         return f"{len(self.entries):,} secrets in {self.namespace}"
 
 
+class ServiceDirectory(SecretDirectory):
+    """The names of the services of one namespace, for the backend boxes of an Ingress."""
+
+    _call = "list_service_names"
+
+    def status_text(self):
+        if self.state == "failed":
+            return f"Could not list the services: {self.error}. You can still type a name."
+        if self.state == "loading":
+            return "Loading services…"
+        return f"{len(self.entries):,} services in {self.namespace}"
+
+
 class LabelDirectory(SecretDirectory):
     """The (key, value) labels on the pods of one namespace, for the selector boxes of a Service or NetworkPolicy."""
 

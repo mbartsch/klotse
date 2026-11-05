@@ -11,7 +11,7 @@ from ..k8s.api_index import ApiIndex
 from ..k8s.resources import DELETABLE_KINDS, SPECS
 from ..plugins.host import PluginHost
 from ..workers import Worker
-from .account_directory import AccountDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory
+from .account_directory import AccountDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
 from .api_index_loader import ApiIndexLoader
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
@@ -656,6 +656,14 @@ class ClusterWorkspace(QMainWindow):
         self._ingress_classes.start()
         return self._ingress_classes
 
+    def service_directory(self, namespace):
+        """The service names of one namespace for the Ingress editor: loaded once per namespace."""
+        directories = self.__dict__.setdefault("_service_directories", {})
+        if namespace not in directories:
+            directories[namespace] = ServiceDirectory(self.service, self._run, namespace, parent=self)
+        directories[namespace].start()
+        return directories[namespace]
+
     def label_directory(self, namespace):
         """The labels on the pods of one namespace for the selector boxes: loaded once per namespace."""
         directories = self.__dict__.setdefault("_label_directories", {})
@@ -680,7 +688,9 @@ class ClusterWorkspace(QMainWindow):
             return NetworkEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names(),
                                      classes=self.ingress_class_directory() if kind == "Ingress" else None,
                                      labels=self.label_directory((raw.get("metadata") or {}).get("namespace") or namespace)
-                                     if kind != "Ingress" else None)
+                                     if kind != "Ingress" else None,
+                                     services=self.service_directory((raw.get("metadata") or {}).get("namespace") or namespace)
+                                     if kind == "Ingress" else None)
         if kind in DATA_KINDS:
             return DataEditDialog(kind, raw, self, secret_data=secret_data, create=creating,
                                   namespaces=self._namespace_names())

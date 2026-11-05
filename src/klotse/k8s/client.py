@@ -280,6 +280,10 @@ class KubeService:
             if not token:
                 return names
 
+    def list_service_names(self, namespace):
+        """Names of the services of a namespace, for the Ingress editor's backend boxes."""
+        return [s.metadata.name for s in self._iter_list(self._core.list_namespaced_service, namespace)]
+
     def list_pod_labels(self, namespace):
         """[(key, value)] of the labels on the pods of a namespace, for the selector boxes (metadata only, paged)."""
         accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
