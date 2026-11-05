@@ -2,10 +2,10 @@
 workload_model.py; these classes only show the manifest's values and give them back (`values()`)."""
 from copy import deepcopy
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QStringListModel, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                               QCompleter, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
+                               QStyle, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme
 from .service_account_editor import KeyValueEditor
@@ -195,12 +195,16 @@ class SourceDelegate(ComboDelegate):
         return None if index.data() == ROW_OTHER else super().createEditor(parent, option, index)
 
 
-class ValueDelegate(QStyledItemDelegate):
-    """The Value column: a drop-down of the usual field paths / resources for those sources, plain text otherwise."""
+class ChoiceDelegate(QStyledItemDelegate):
+    """A column whose cells get an editable drop-down (known values, anything else can be typed) on the rows for which
+    `choices_for(source)` returns a list, and plain text editing on the others. `column_source` is the Source cell's column."""
+
+    def __init__(self, choices_for, parent=None):
+        super().__init__(parent)
+        self.choices_for = choices_for
 
     def createEditor(self, parent, option, index):
-        source = index.sibling(index.row(), 0).data()
-        choices = {"Field": ENV_FIELD_PATHS, "Resource": ENV_RESOURCES}.get(source)
+        choices = self.choices_for(index.sibling(index.row(), 0).data())
         if not choices:
             return super().createEditor(parent, option, index)
         box = QComboBox(parent)
@@ -221,6 +225,9 @@ class ValueDelegate(QStyledItemDelegate):
             super().setModelData(editor, model, index)
 
 
+ValueDelegate = NameDelegate = ChoiceDelegate  # the Value column offers field paths / "name / " ; the Name column offers names
+
+
 class EnvEditor(QWidget):
     """The environment of one container in one table. The Source column says what a row is: a plain Value, a Field of the
     pod (POD_NAMESPACE from metadata.namespace), a key of a Secret or ConfigMap, a Resource limit/request, or all keys of a
@@ -229,8 +236,9 @@ class EnvEditor(QWidget):
 
     changed = Signal()
 
-    def __init__(self, entries, from_entries=()):
+    def __init__(self, entries, from_entries=(), ref_names=None):
         super().__init__()
+        self.ref_names = ref_names or {}  # {"Secret": directory, "ConfigMap": directory}: the names that exist (may load later)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Source", "Name", "Value / reference"])
         self.table.verticalHeader().hide()
@@ -239,13 +247,22 @@ class EnvEditor(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.setMinimumHeight(150)
         self.table.setItemDelegateForColumn(0, SourceDelegate(ENV_SOURCES, self.table))
-        self.table.setItemDelegateForColumn(2, ValueDelegate(self.table))
+        self.table.setItemDelegateForColumn(1, NameDelegate(self._name_choices, self.table))
+        self.table.setItemDelegateForColumn(2, ValueDelegate(self._value_choices, self.table))
         # One add row: pick what kind of variable, type its name and value, press Add (Enter does too)
         self.new_source = QComboBox()
         self.new_source.addItems(list(ENV_SOURCES))
         self.new_source.setToolTip("What the variable is: a plain value, a pod field, a Secret or ConfigMap key, a resource "
                                    "limit, or all keys of a ConfigMap/Secret")
         self.new_name = QLineEdit()
+        self.name_completer = QCompleter([], self.new_name)
+        self.name_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.name_completer.setFilterMode(Qt.MatchContains)
+        self.new_name.setCompleter(self.name_completer)
+        self.name_arrow = self.new_name.addAction(self.style().standardIcon(QStyle.SP_ArrowDown), QLineEdit.TrailingPosition)
+        self.name_arrow.setToolTip("Show the names that exist in this namespace (you can type one that does not exist yet)")
+        self.name_arrow.setVisible(False)
+        self.name_arrow.triggered.connect(lambda: (self.name_completer.setCompletionPrefix(""), self.name_completer.complete()))
         self.new_value = QComboBox()
         self.new_value.setEditable(True)
         self.add_button = QPushButton("Add")
@@ -269,6 +286,8 @@ class EnvEditor(QWidget):
             self._append_from(entry)
         self._loading = False
         self.new_source.currentTextChanged.connect(self._new_source_changed)
+        for directory in self.ref_names.values():
+            directory.finished.connect(lambda: self._new_source_changed(self.new_source.currentText()))
         self.new_name.textChanged.connect(lambda text: self.add_button.setEnabled(bool(text.strip())))
         self.new_name.returnPressed.connect(self._add_typed)
         self.new_value.lineEdit().returnPressed.connect(self._add_typed)
@@ -281,8 +300,11 @@ class EnvEditor(QWidget):
         """The add row's hints follow the chosen kind, and Field/Resource offer their usual values."""
         name_hint, value_hint = ENV_ADD_HINTS[source]
         self.new_name.setPlaceholderText(name_hint)
+        names = self._name_choices(source)
+        self.name_completer.setModel(QStringListModel(names, self.name_completer))
+        self.name_arrow.setVisible(bool(names))
         self.new_value.clear()
-        self.new_value.addItems(list({"Field": ENV_FIELD_PATHS, "Resource": ENV_RESOURCES}.get(source, ())))
+        self.new_value.addItems(self._value_choices(source))
         self.new_value.setCurrentIndex(-1)
         self.new_value.lineEdit().setPlaceholderText(value_hint)
 
@@ -295,6 +317,26 @@ class EnvEditor(QWidget):
         self.new_value.setCurrentIndex(-1)
         self.new_value.clearEditText()
         self.new_name.setFocus()
+
+    def _known(self, source):
+        """Names of the Secrets or ConfigMaps that exist, for a Source about one of them."""
+        kind = "Secret" if source.startswith("Secret") else "ConfigMap" if source.startswith("ConfigMap") else None
+        directory = self.ref_names.get(kind)
+        return sorted(directory.entries) if directory is not None else []
+
+    def _name_choices(self, source):
+        """The Name cell lists existing ConfigMaps/Secrets for an all-keys row; anything else is typed."""
+        return self._known(source) if source in ENV_FROM_SOURCES else []
+
+    def _value_choices(self, source):
+        """The Value cell: usual field paths and resources, or "name / " for each existing Secret/ConfigMap key row."""
+        if source == "Field":
+            return list(ENV_FIELD_PATHS)
+        if source == "Resource":
+            return list(ENV_RESOURCES)
+        if source in ("Secret key", "ConfigMap key"):
+            return [f"{name} / " for name in self._known(source)]
+        return []
 
     def _item_changed(self, item):
         if self._loading:
@@ -481,7 +523,7 @@ class ContainerForm(QWidget):
 
     changed = Signal()
 
-    def __init__(self, field, index, container, create=False, locked=False, image_locked=False):
+    def __init__(self, field, index, container, create=False, locked=False, image_locked=False, ref_names=None):
         super().__init__()
         self.field, self.index, self.name = field, index, container.get("name", f"#{index + 1}")
         self.container_name = QLineEdit(self.name) if create else None  # a new object names its container
@@ -511,7 +553,7 @@ class ContainerForm(QWidget):
                 self.boxes[group, res] = box
                 res_form.addRow(f"{label} {group[:-1]}", box)
 
-        self.env = EnvEditor(container.get("env") or [], container.get("envFrom") or [])
+        self.env = EnvEditor(container.get("env") or [], container.get("envFrom") or [], ref_names)
         self.ports = RowsEditor("Ports", [("name", "Name", "text", ()), ("containerPort", "Container port", "int", ()),
                                           ("protocol", "Protocol", "choice", ("", *PROTOCOLS))],
                                 container.get("ports") or [], new_entry={"containerPort": 80}, add_text="Add port")

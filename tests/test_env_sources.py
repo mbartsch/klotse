@@ -147,3 +147,83 @@ def test_the_add_row_ignores_an_empty_name(qtbot):
     before = env.count()
     env._add_typed()
     assert env.count() == before
+
+
+# ---- known Secrets and ConfigMaps --------------------------------------------------------------------------------
+class Names:
+    def __init__(self, entries):
+        from PySide6.QtCore import QObject, Signal
+
+        class Emitter(QObject):
+            finished = Signal()
+        self._e = Emitter()
+        self.finished = self._e.finished
+        self.entries = entries
+
+
+def with_names(qtbot, secrets=("db", "tls"), configmaps=("common",)):
+    names = {"Secret": Names(list(secrets)), "ConfigMap": Names(list(configmaps))}
+    dlg = WorkloadEditDialog("Deployment", deepcopy(DEPLOY), namespaces=["shop"], ref_names=names)
+    qtbot.addWidget(dlg)
+    return dlg, dlg.forms[0].env, names
+
+
+def test_the_add_row_offers_existing_secret_and_configmap_names(qtbot):
+    dlg, env, names = with_names(qtbot)
+    env.new_source.setCurrentText("Secret, all keys")
+    assert env.name_completer.model().stringList() == ["db", "tls"]
+    env.new_source.setCurrentText("ConfigMap, all keys")
+    assert env.name_completer.model().stringList() == ["common"]
+    env.new_source.setCurrentText("Secret key")
+    assert [env.new_value.itemText(i) for i in range(env.new_value.count())] == ["db / ", "tls / "]
+    env.new_source.setCurrentText("Value")
+    assert env.name_completer.model().stringList() == [] and env.new_value.count() == 0
+
+
+def test_a_name_that_does_not_exist_can_still_be_added(qtbot):
+    dlg, env, names = with_names(qtbot)
+    env.new_source.setCurrentText("Secret, all keys")
+    env.new_name.setText("not-created-yet")
+    env.add_button.click()
+    env.new_source.setCurrentText("ConfigMap key")
+    env.new_name.setText("LEVEL")
+    env.new_value.setCurrentText("future-cm / level")
+    env.add_button.click()
+    got = env_of(dlg)
+    assert got["envFrom"][-1] == {"secretRef": {"name": "not-created-yet"}}
+    assert got["env"][-1]["valueFrom"] == {"configMapKeyRef": {"name": "future-cm", "key": "level"}}
+
+
+def test_names_that_load_later_reach_the_add_row(qtbot):
+    dlg, env, names = with_names(qtbot, secrets=())
+    env.new_source.setCurrentText("Secret, all keys")
+    assert env.name_completer.model().stringList() == []
+    names["Secret"].entries = ["late"]
+    names["Secret"].finished.emit()
+    assert env.name_completer.model().stringList() == ["late"]
+
+
+def test_the_table_cells_offer_names_too(qtbot):
+    dlg, env, names = with_names(qtbot)
+    value_delegate, name_delegate = env.table.itemDelegateForColumn(2), env.table.itemDelegateForColumn(1)
+    assert value_delegate.choices_for("Secret key") == ["db / ", "tls / "]
+    assert value_delegate.choices_for("Field")[0] == "metadata.name" and not value_delegate.choices_for("Value")
+    assert name_delegate.choices_for("ConfigMap, all keys") == ["common"] and not name_delegate.choices_for("Value")
+
+
+def test_without_a_directory_nothing_is_offered_and_nothing_breaks(qtbot):
+    dlg = make(qtbot)
+    env = dlg.forms[0].env
+    env.new_source.setCurrentText("Secret, all keys")
+    assert env.name_completer.model().stringList() == []
+
+
+def test_the_service_lists_secret_and_configmap_names():
+    import json
+    from types import SimpleNamespace
+    from klotse.k8s.client import KubeService
+    page = json.dumps({"items": [{"metadata": {"name": "a"}}, {"metadata": {"name": "b"}}], "metadata": {}})
+    svc = object.__new__(KubeService)
+    svc._core = SimpleNamespace(list_namespaced_secret=lambda ns, **kw: SimpleNamespace(data=page),
+                                list_namespaced_config_map=lambda ns, **kw: SimpleNamespace(data=page))
+    assert svc.list_secret_names("n") == ["a", "b"] and svc.list_configmap_names("n") == ["a", "b"]

@@ -11,7 +11,7 @@ from ..k8s.api_index import ApiIndex
 from ..k8s.resources import DELETABLE_KINDS, SPECS
 from ..plugins.host import PluginHost
 from ..workers import Worker
-from .account_directory import AccountDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
+from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
 from .api_index_loader import ApiIndexLoader
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
@@ -656,6 +656,14 @@ class ClusterWorkspace(QMainWindow):
         self._ingress_classes.start()
         return self._ingress_classes
 
+    def configmap_directory(self, namespace):
+        """The config map names of one namespace for the Environment table: loaded once per namespace."""
+        directories = self.__dict__.setdefault("_configmap_directories", {})
+        if namespace not in directories:
+            directories[namespace] = ConfigMapDirectory(self.service, self._run, namespace, parent=self)
+        directories[namespace].start()
+        return directories[namespace]
+
     def service_directory(self, namespace):
         """The service names of one namespace for the Ingress editor: loaded once per namespace."""
         directories = self.__dict__.setdefault("_service_directories", {})
@@ -694,7 +702,9 @@ class ClusterWorkspace(QMainWindow):
         if kind in DATA_KINDS:
             return DataEditDialog(kind, raw, self, secret_data=secret_data, create=creating,
                                   namespaces=self._namespace_names())
-        return WorkloadEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names())
+        ns = (raw.get("metadata") or {}).get("namespace") or namespace
+        return WorkloadEditDialog(kind, raw, self, create=creating, namespaces=self._namespace_names(),
+                                  ref_names={"Secret": self.secret_directory(ns), "ConfigMap": self.configmap_directory(ns)})
 
     def _namespace_names(self):
         return [self.ns_combo.itemText(i) for i in range(self.ns_combo.count()) if self.ns_combo.itemText(i) != ALL_NS]

@@ -86,6 +86,14 @@ class FakeService:
     def load_contexts():
         return ["ctx"], "ctx"
 
+    @staticmethod
+    def list_secret_names(namespace):
+        return []
+
+    @staticmethod
+    def list_configmap_names(namespace):
+        return []
+
     def connect(self, ctx):
         pass
 

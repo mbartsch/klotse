@@ -250,7 +250,7 @@ def test_build_body_does_not_change_its_input(qtbot):
 @pytest.mark.parametrize("kind", ["Deployment", "DaemonSet", "StatefulSet"])
 def test_workspace_edits_workloads_with_the_form(qtbot, monkeypatch, kind):
     saved, seen = [], []
-    ws = ClusterWorkspace(SimpleNamespace(replace=lambda k, body: saved.append((k, body))), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(replace=lambda k, body: saved.append((k, body)), list_secret_names=lambda ns: [], list_configmap_names=lambda ns: []), "ctx")
     qtbot.addWidget(ws)
     ws.refresh = lambda: None
 
@@ -272,7 +272,7 @@ def test_workspace_edits_workloads_with_the_form(qtbot, monkeypatch, kind):
 
 
 def test_edit_as_yaml_from_the_workload_form_opens_the_yaml_editor(qtbot, monkeypatch):
-    ws = ClusterWorkspace(SimpleNamespace(), "ctx")
+    ws = ClusterWorkspace(SimpleNamespace(list_secret_names=lambda ns: [], list_configmap_names=lambda ns: []), "ctx")
     qtbot.addWidget(ws)
     opened = []
 

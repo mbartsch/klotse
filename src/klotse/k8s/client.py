@@ -269,11 +269,19 @@ class KubeService:
         """Names of the secrets in a namespace, for the service account editor's pickers. Only metadata is requested
         from the API server (PartialObjectMetadataList), so no secret data is transferred. A client that cannot send
         the header makes this fail rather than download the secrets."""
+        return self._metadata_names(self._core.list_namespaced_secret, namespace)
+
+    def list_configmap_names(self, namespace):
+        """Names of the config maps in a namespace (metadata only, like the secret names)."""
+        return self._metadata_names(self._core.list_namespaced_config_map, namespace)
+
+    @staticmethod
+    def _metadata_names(list_fn, namespace):
         accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
         names, token = [], None
         while True:
-            reply = self._core.list_namespaced_secret(namespace, limit=500, _continue=token, _request_timeout=30,
-                                                      _preload_content=False, _headers={"Accept": accept})
+            reply = list_fn(namespace, limit=500, _continue=token, _request_timeout=30,
+                            _preload_content=False, _headers={"Accept": accept})
             page = json.loads(reply.data)
             names += [item["metadata"]["name"] for item in page.get("items") or []]
             token = (page.get("metadata") or {}).get("continue")
