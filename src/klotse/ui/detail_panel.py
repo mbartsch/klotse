@@ -2,20 +2,47 @@ import base64
 import binascii
 from copy import deepcopy
 
-from PySide6.QtGui import QFontDatabase
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
+from PySide6.QtCore import QRegularExpression, Qt
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
-from . import rbac_view
+from . import rbac_view, theme, workload_view
 from .manifest import dump_manifest
+
+
+class YamlHighlighter(QSyntaxHighlighter):
+    """Light syntax colours for the read-only YAML view: keys, comments and plain scalars (numbers, true/false, null).
+    Colours come from the active theme at the time the text is set, so a theme switch needs no restart."""
+
+    KEY = QRegularExpression(r"^(\s*(?:-\s+)*)([^\s#:][^:#]*?)(:)(?=\s|$)")
+    SCALAR = QRegularExpression(r"(?<=:\s|-\s)(-?\d+(?:\.\d+)?|true|false|null|~)\s*$")
+    COMMENT = QRegularExpression(r"(?<![\"'\w])#.*$")
+
+    def highlightBlock(self, text):
+        key = QTextCharFormat()
+        key.setForeground(QColor(theme.ACCENT_HI))
+        scalar = QTextCharFormat()
+        scalar.setForeground(QColor(theme.OK))
+        comment = QTextCharFormat()
+        comment.setForeground(QColor(theme.MUTED))
+        m = self.KEY.match(text)
+        if m.hasMatch():
+            self.setFormat(m.capturedStart(2), m.capturedLength(2), key)
+        m = self.SCALAR.match(text)
+        if m.hasMatch():
+            self.setFormat(m.capturedStart(1), m.capturedLength(1), scalar)
+        m = self.COMMENT.match(text)
+        if m.hasMatch():
+            self.setFormat(m.capturedStart(), m.capturedLength(), comment)
 
 
 class DetailPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.editor = QPlainTextEdit(readOnly=True)
+        self.highlighter = YamlHighlighter(self.editor.document())
         self.editor.setPlaceholderText("Select a resource to see its details.")
         self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.editor.setLineWrapMode(QPlainTextEdit.NoWrap)
@@ -73,11 +100,30 @@ class DetailPanel(QWidget):
         self.formatted_button.setChecked(True)
         self.formatted_button.toggled.connect(self._show_mode)
         self.view_bar.hide()
+        # Tools for the YAML text: find (Enter = next, Shift+Enter = previous), copy and line wrap
+        self.find_edit = QLineEdit(placeholderText="Find in YAML…", clearButtonEnabled=True)
+        self.find_edit.setMaximumWidth(260)
+        self.find_edit.returnPressed.connect(self._find_next)
+        self.find_edit.textChanged.connect(lambda _t: self._find_from_start())
+        self.copy_button = QPushButton("Copy YAML")
+        self.copy_button.clicked.connect(self._copy_yaml)
+        self.wrap_box = QCheckBox("Wrap lines")
+        self.wrap_box.toggled.connect(lambda on: self.editor.setLineWrapMode(
+            QPlainTextEdit.WidgetWidth if on else QPlainTextEdit.NoWrap))
+        self.yaml_tools = QWidget()
+        tools = QHBoxLayout(self.yaml_tools)
+        tools.setContentsMargins(0, 0, 0, 0)
+        tools.addWidget(self.find_edit)
+        tools.addWidget(self.copy_button)
+        tools.addWidget(self.wrap_box)
+        tools.addStretch(1)
+        self.yaml_tools.hide()
         self.formatted.hide()
         self._formatted_ok = False  # the current row has a formatted view
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.view_bar)
+        layout.addWidget(self.yaml_tools)
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
         layout.addWidget(self.formatted)
@@ -106,11 +152,13 @@ class DetailPanel(QWidget):
         self._render_formatted(row)
 
     def _render_formatted(self, row):
-        kind = getattr(row, "rbac_kind", None)
+        kind, view = getattr(row, "rbac_kind", None), rbac_view
+        if kind not in rbac_view.RBAC_KINDS:
+            kind, view = workload_view.kind_of(row.raw), workload_view
         self._formatted_ok = False
-        if kind in rbac_view.RBAC_KINDS:
+        if kind is not None:
             try:
-                self.formatted.setHtml(rbac_view.render(kind, row.raw))
+                self.formatted.setHtml(view.render(kind, row.raw))
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
@@ -121,6 +169,29 @@ class DetailPanel(QWidget):
         formatted = self._formatted_ok and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
         self.editor.setVisible(not formatted)
+        self.yaml_tools.setVisible(not formatted and self._secret_row is not None)
+
+    def _find_from_start(self):
+        cursor = self.editor.textCursor()
+        cursor.setPosition(0)
+        self.editor.setTextCursor(cursor)
+        self._find_next()
+
+    def _find_next(self):
+        text = self.find_edit.text()
+        if not text:
+            return
+        if not self.editor.find(text):  # wrap around once
+            cursor = self.editor.textCursor()
+            cursor.setPosition(0)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(text)
+
+    def _copy_yaml(self):
+        QGuiApplication.clipboard().setText(self.editor.toPlainText())
+        self.copy_button.setText("Copied")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1200, lambda: self.copy_button.setText("Copy YAML"))
 
     def set_show_managed_fields(self, show):
         """Include or hide metadata.managedFields in Details; the shown resource is redrawn, scroll kept."""
