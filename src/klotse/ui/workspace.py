@@ -1380,7 +1380,8 @@ class ClusterWorkspace(QMainWindow):
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
-            self.loaders[key] = (lambda _: self.service.list_node_pods(node), False, table.set_rows)
+            self.loaders[key] = (lambda _: self.service.list_node_pods(node), False,
+                                 lambda rows, t=table, b=bar: (t.set_rows(rows), b.set_pods(rows)))
         self.open_view(key)
 
     def pod_action(self, action, row):
