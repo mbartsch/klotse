@@ -18,6 +18,7 @@ class ResourceTable(QWidget):
     edit_requested = Signal(str, object)  # kind, row dataclass
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
+    history_requested = Signal(str, object)  # a Deployment's rollout history / undo
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
@@ -347,6 +348,8 @@ class ResourceTable(QWidget):
                 menu.addAction("Scale…", lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:
                 menu.addAction("Restart…", lambda: self.restart_requested.emit(self.kind, row))
+            if self.kind == "Deployment":
+                menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS:
                 menu.addAction("Delete…", lambda: self.action_requested.emit("delete", row))
             if self.kind == "Node":

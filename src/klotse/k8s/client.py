@@ -8,6 +8,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
+from . import rollout
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object
@@ -336,6 +337,26 @@ class KubeService:
         if method is None:
             raise ValueError(f"Restarting {kind} is not supported")
         getattr(self._apps, method)(name, namespace, body)
+
+    def deployment_history(self, namespace, name):
+        """The revisions of a Deployment, newest first (see k8s.rollout.history): its ReplicaSets, found through the
+        Deployment's selector and kept only if it owns them."""
+        deployment = _raw(self._apps.read_namespaced_deployment(name, namespace))
+        selector = rollout.match_selector(((deployment.get("spec") or {}).get("selector") or {}).get("matchLabels"))
+        sets = [_raw(rs) for rs in self._iter_list(self._apps.list_namespaced_replica_set, namespace, label_selector=selector)]
+        return rollout.history(deployment, sets)
+
+    @mutating
+    def rollback_deployment(self, namespace, name, replica_set_name):
+        """`kubectl rollout undo --to-revision`: put the pod template of one of the Deployment's own ReplicaSets back on the
+        Deployment (a JSON patch replacing /spec/template, as kubectl does), which starts a normal rollout and becomes a
+        new revision. A ReplicaSet the Deployment does not own is refused."""
+        deployment = _raw(self._apps.read_namespaced_deployment(name, namespace))
+        replica_set = _raw(self._apps.read_namespaced_replica_set(replica_set_name, namespace))
+        if not rollout.owned_by(replica_set, deployment):
+            raise ValueError(f"ReplicaSet {replica_set_name} does not belong to Deployment {name}.")
+        template = rollout.rollback_template(replica_set)
+        self._apps.patch_namespaced_deployment(name, namespace, [{"op": "replace", "path": "/spec/template", "value": template}])
 
     def open_log_stream(self, namespace, pod, container=None, tail=500):
         """Returns a streaming urllib3 response (follow=True); the caller reads and closes it."""
