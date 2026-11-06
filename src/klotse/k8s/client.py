@@ -1,3 +1,4 @@
+import datetime
 import json
 from heapq import heappush, heapreplace
 
@@ -236,6 +237,19 @@ class KubeService:
         if fn is None:
             raise ValueError(f"Scaling {kind} is not supported")
         fn(name, namespace, body)
+
+    RESTART_ANNOTATION = "kubectl.kubernetes.io/restartedAt"
+
+    def restart(self, kind, name, namespace):
+        """Rollout restart, like `kubectl rollout restart`: stamp the pod template so the controller replaces the pods
+        one by one with its normal update strategy."""
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        body = {"spec": {"template": {"metadata": {"annotations": {self.RESTART_ANNOTATION: stamp}}}}}
+        method = {"Deployment": "patch_namespaced_deployment", "StatefulSet": "patch_namespaced_stateful_set",
+                  "DaemonSet": "patch_namespaced_daemon_set"}.get(kind)
+        if method is None:
+            raise ValueError(f"Restarting {kind} is not supported")
+        getattr(self._apps, method)(name, namespace, body)
 
     def open_log_stream(self, namespace, pod, container=None, tail=500):
         """Returns a streaming urllib3 response (follow=True); the caller reads and closes it."""

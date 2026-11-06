@@ -150,8 +150,9 @@ Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, an
 
 ### Bulk actions
 
-- Tables use extended selection (Ctrl/Shift/Ctrl-A). Right-clicking an unselected row selects only that row; with two or more rows selected the menu shows only bulk actions, per kind: Scale (Deployments, ReplicaSets, StatefulSets), Terminate/Force terminate (Pods), Cordon/Uncordon/Delete/Force delete (Nodes). Edit and the other single-row actions are not offered.
+- Tables use extended selection (Ctrl/Shift/Ctrl-A). Right-clicking an unselected row selects only that row; with two or more rows selected the menu shows only bulk actions, per kind: Scale (Deployments, ReplicaSets, StatefulSets), Restart (Deployments, StatefulSets, DaemonSets), Terminate/Force terminate (Pods), Cordon/Uncordon/Delete/Force delete (Nodes). Edit and the other single-row actions are not offered.
 - A bulk action confirms once for the whole group and runs in one worker; one failing row does not stop the others, and failures are listed at the end. Node deletion asks Yes/No (default No) and still sends each node's UID precondition.
+- Restart (one row, and bulk; Deployments, StatefulSets, DaemonSets) is a rollout restart like `kubectl rollout restart`: `KubeService.restart` stamps `kubectl.kubernetes.io/restartedAt` on the pod template, after a Yes/No question (default No) that says pods are replaced one by one and connections drop. Undo and revision history are not built yet (issue #51 stays open).
 - Scale (one row, and bulk) asks for text: a number, or an operation relative to each workload's own count (`*2`, `/2` rounds up, `+1`, `-1`; `x`/`×` also multiply). Results clamp to 0–10000. Each scaled workload gets its own scale monitor.
 
 ### Tables, ages, and labels

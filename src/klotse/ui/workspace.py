@@ -177,6 +177,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
+                widget.restart_requested.connect(self.restart_resource)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
@@ -840,6 +841,20 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Scaling {kind} {row.name} to {n}…")
         self._run(self.service.scale, lambda _: self._scaled(kind, row, current, n), kind, row.name, row.namespace, n)
 
+    RESTART_NOTE = ("Restart replaces the pods one by one with the workload's own update strategy "
+                    "(like kubectl rollout restart). Pods are recreated, so connections to them are dropped.")
+
+    def restart_resource(self, kind, row):
+        if QMessageBox.question(self, f"Restart {kind}", f"Cluster: {self.context}\nRestart {kind} {row.namespace}/{row.name}?\n\n"
+                                f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.message.emit(f"Restarting {kind} {row.name}…")
+        self._run(self.service.restart, lambda _: self._restarted(kind, row.name), kind, row.name, row.namespace)
+
+    def _restarted(self, kind, name):
+        self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")
+        self.refresh()
+
     # ---- bulk actions (several rows selected) ---------------------------
     @staticmethod
     def _names(rows, limit=10):
@@ -870,6 +885,11 @@ class ClusterWorkspace(QMainWindow):
             self._bulk(f"Scaling {n} {kind}s ({text.strip()})", rows,
                        lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
                        lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
+        elif action == "restart":
+            if QMessageBox.question(self, f"Restart {kind}s", f"Cluster: {self.context}\nRestart {n} {kind}s?\n\n{names}\n\n"
+                                    f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._bulk(f"Restarting {n} {kind}s", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
         elif action == "delete" and kind in DELETABLE_KINDS:
             missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
             if missing:
