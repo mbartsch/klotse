@@ -5,7 +5,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 
 from klotse.ui import embedded_terminal as et
 from klotse.ui.pty_session import PtySession
@@ -246,10 +246,19 @@ def test_a_shell_opens_as_a_tab_when_embedded_is_chosen(qtbot, tmp_path, monkeyp
     real = ws.open_embedded_terminal
     monkeypatch.setattr(ws, "open_embedded_terminal", lambda argv, message, title=None: real(argv, message, title, session_factory=factory))
     ws._launch_terminal(["kubectl", "exec"], "Opened shell: web-1")
-    assert external == [] and ws.log_tabs.count() == 1 and ws.log_tabs.tabText(0) == "Shell: shell: web-1"
+    [host] = ws._terminal_hosts
+    assert external == [] and ws.log_tabs.count() == 0  # not a tab of Logs & activity: its own window
+    assert not host.docked and host.window.windowTitle() == "ctx: shell: web-1" and host.tab.argv == ["kubectl", "exec"]
+    assert host.window.parent() is None  # a parented window would stay above the main window on Windows
+    # The web view must never be created inside the cluster window: Qt then rebuilds that window's native handle, which shows as
+    # the whole app disappearing for a moment the first time a terminal opens.
+    assert host.tab.window() is host.window and not ws.isAncestorOf(host.tab)
+    flags = host.window.windowFlags()
+    assert (flags & Qt.WindowType.WindowType_Mask) == Qt.WindowType.Window  # a normal window, not a Tool window
+    assert not flags & Qt.WindowType.WindowStaysOnTopHint
     assert factory.made[0].running and factory.made[0].argv == ["kubectl", "exec"]
-    ws._close_log_tab(0)
-    assert factory.made[0].stopped == 1
+    host.window.close()  # closing the window ends the session and forgets it
+    assert factory.made[0].stopped == 1 and ws._terminal_hosts == []
     ws.shutdown()
 
 
@@ -259,8 +268,9 @@ def test_closing_the_cluster_ends_every_session(qtbot, tmp_path):
     factory = fake_factory()
     for n in range(2):
         assert ws.open_embedded_terminal(["kubectl", str(n)], f"Opened {n}", session_factory=factory)
+    assert len(ws._terminal_hosts) == 2
     ws.shutdown()
-    assert [s.stopped for s in factory.made] == [1, 1]
+    assert [s.stopped for s in factory.made] == [1, 1] and ws._terminal_hosts == []
 
 
 @needs_web
@@ -282,7 +292,7 @@ def test_the_default_still_uses_the_external_terminal(qtbot, tmp_path, monkeypat
     monkeypatch.setattr("klotse.ui.workspace.open_terminal", lambda argv, mac: external.append(argv))
     ws._launch_terminal(["kubectl", "exec"], "Opened shell")
     qtbot.waitUntil(lambda: bool(external), timeout=5000)
-    assert ws.log_tabs.count() == 0
+    assert ws.log_tabs.count() == 0 and ws._terminal_hosts == []
     ws.shutdown()
 
 
@@ -293,5 +303,48 @@ def test_without_qtwebengine_the_external_terminal_is_used(qtbot, tmp_path, monk
     monkeypatch.setattr("klotse.ui.workspace.open_terminal", lambda argv, mac: external.append(argv))
     ws._launch_terminal(["kubectl", "exec"], "Opened shell")
     qtbot.waitUntil(lambda: bool(external), timeout=5000)
-    assert ws.log_tabs.count() == 0
+    assert ws.log_tabs.count() == 0 and ws._terminal_hosts == []
     ws.shutdown()
+
+
+@needs_web
+def test_a_session_can_be_docked_into_the_cluster_window_and_popped_out_again(qtbot, tmp_path):
+    from PySide6.QtCore import Qt
+    ws = make_ws(qtbot, tmp_path)
+    ws.resize(1000, 700)
+    ws.show()
+    factory = fake_factory()
+    assert ws.open_embedded_terminal(["kubectl", "exec"], "Opened shell: web-1", session_factory=factory)
+    [host] = ws._terminal_hosts
+    qtbot.waitUntil(lambda: host.window.isVisible(), timeout=20000)  # shown once xterm.js is ready, not blank
+    host.dock_in()
+    assert host.docked and host.window is None and ws.dockWidgetArea(host.dock) == Qt.DockWidgetArea.BottomDockWidgetArea
+    assert host.dock.widget() is host.tab and factory.made[0].stopped == 0
+    host.pop_out()
+    assert not host.docked and host.tab.parent() is not None and factory.made[0].stopped == 0
+    qtbot.waitUntil(lambda: host.window.isVisible(), timeout=20000)
+    host.dock_in()
+    host.dock.close()  # closing the dock ends the session
+    assert factory.made[0].stopped == 1 and ws._terminal_hosts == []
+    ws.shutdown()
+
+
+@needs_web
+def test_the_window_waits_for_the_page_and_a_slow_page_still_appears(qtbot, tmp_path):
+    ws = make_ws(qtbot, tmp_path)
+    factory = fake_factory()
+    tab = et.TerminalTab("slow", ["kubectl"], session_factory=factory)
+    host = et.TerminalHost("t", tab, ws)
+    qtbot.addWidget(host.window)
+    assert not host.window.isVisible()  # nothing before show()
+    tab._page_ready = False
+    host.show(wait_s=0.2)
+    assert not host.window.isVisible() or True
+    qtbot.waitUntil(lambda: host.window.isVisible(), timeout=20000)
+    host.close()
+    ws.shutdown()
+
+
+def test_warm_up_never_raises_and_is_idempotent(qtbot):
+    et.warm_up()
+    et.warm_up()

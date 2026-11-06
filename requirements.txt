@@ -4,6 +4,6 @@
 PySide6-Essentials>=6.6
 kubernetes>=29
 PyYAML>=6
-# The embedded terminal (also the `terminal` extra in pyproject.toml): QtWebEngine runs the bundled xterm.js; the app works without them
+# The embedded terminal: QtWebEngine (PySide6-Addons) runs the bundled xterm.js; pywinpty is its Windows pseudo-terminal
 PySide6-Addons>=6.6
 pywinpty>=2.0.1; platform_system == "Windows"

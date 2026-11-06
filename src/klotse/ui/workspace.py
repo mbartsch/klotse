@@ -118,6 +118,7 @@ class ClusterWorkspace(QMainWindow):
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
         self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
+        self._terminal_hosts = []  # embedded terminal sessions: each in its own window, or docked in this one
         self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
@@ -863,6 +864,8 @@ class ClusterWorkspace(QMainWindow):
         if getattr(self, "_search_dialog", None) is not None:
             self._search_dialog.close()  # stops a search still reading pages
         self.file_copies.cancel_all()  # nor a kubectl cp
+        for host in list(self._terminal_hosts):
+            host.close()  # ends its session, so no kubectl outlives the cluster
         self._auto_timer.stop()
         self._node_pods_timer.stop()
         self._stop_watchers()
@@ -1690,21 +1693,21 @@ class ClusterWorkspace(QMainWindow):
                   self.terminal_settings.mac_terminal)
 
     def open_embedded_terminal(self, argv, message, title=None, session_factory=None):
-        """A session tab in the Logs & activity dock; False when it could not start (the caller then uses the external terminal)."""
+        """A session in its own window (with a button to dock it into the cluster window); False when it could not start (the
+        caller then uses the external terminal)."""
         name = title or message.replace("Opened ", "")
         kwargs = {"session_factory": session_factory} if session_factory is not None else {}
         try:
-            tab = embedded_terminal.TerminalTab(name, argv, parent=self, **kwargs)
+            tab = embedded_terminal.TerminalTab(name, argv, **kwargs)
         except Exception:  # noqa: BLE001 - QtWebEngine trouble: use the external terminal
             return False
         if not tab.start():
             tab.deleteLater()
             return False
-        index = self.log_tabs.addTab(tab, f"Shell: {name}"[:40])
-        self.log_tabs.setTabToolTip(index, " ".join(argv))
-        self.log_tabs.setCurrentIndex(index)
-        self.log_dock.show()
-        tab.focus_terminal()
+        host = embedded_terminal.TerminalHost(f"{self.context}: {name}", tab, self)
+        host.closed.connect(lambda h=host: self._terminal_hosts.remove(h) if h in self._terminal_hosts else None)
+        self._terminal_hosts.append(host)
+        host.show(near=self)  # its own window; the button in it docks it into this cluster window
         self.message.emit(message)
         return True
 

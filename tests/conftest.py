@@ -1,9 +1,15 @@
+import tempfile
+
 import pytest
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QSettings, Qt
 from PySide6.QtWidgets import QMessageBox
 
 # QtWebEngine (the embedded terminal) needs this set before the QApplication that pytest-qt creates
 QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
+
+# Tests must never read or write the user's real preferences: the default settings store lives in a throw-away folder
+_SETTINGS_DIR = tempfile.mkdtemp(prefix="klotse-test-settings-")
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _SETTINGS_DIR)
 
 
 @pytest.fixture(autouse=True)

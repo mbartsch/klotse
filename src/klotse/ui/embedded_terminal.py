@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 from urllib.parse import urlencode
 
-from PySide6.QtCore import QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import theme
 from .pty_session import PtySession
@@ -94,6 +94,7 @@ class TerminalTab(QWidget):
     """One session. `key` marks it for the dock; closing the tab calls `stop()`, which ends the process (so no kubectl outlives its
     tab). `session_factory(argv, cols, rows)` is replaceable for tests. `finished` fires once, when the process has ended."""
     finished = Signal()
+    page_ready = Signal()  # xterm.js is up and has measured itself
     _program_output = Signal(bytes)
     _program_exited = Signal()
     COLS, ROWS = 100, 28
@@ -133,6 +134,12 @@ class TerminalTab(QWidget):
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
         self.view.setPage(self.page)
+        # the terminal's own colour from the first frame: a web view is white until its page paints, which showed as a white flash
+        self.page.setBackgroundColor(QColor(hex_color(theme.BASE, "#0f1b1f")))
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        palette.setColor(self.backgroundRole(), QColor(hex_color(theme.BASE, "#0f1b1f")))
+        self.setPalette(palette)
         self.channel = QWebChannel(self.page)
         self.channel.registerObject("bridge", self.bridge)
         self.page.setWebChannel(self.channel)
@@ -155,6 +162,7 @@ class TerminalTab(QWidget):
     def _on_ready(self, cols, rows):
         self._page_ready = True
         self.session.resize(cols, rows)
+        self.page_ready.emit()
         for chunk in self._pending:
             self.bridge.output.emit(base64.b64encode(chunk).decode("ascii"))
         self._pending.clear()
@@ -198,3 +206,162 @@ class TerminalTab(QWidget):
             self.session.stop()
         except Exception:  # noqa: BLE001 - already gone is fine
             pass
+
+
+class TerminalHost(QObject):
+    """Where one session lives: an ordinary top-level window (own taskbar entry, never forced above other windows) or, after
+    *Dock in Klotse window*, a dock inside the cluster window; *Pop out* goes back. Moving between the two only re-parents the
+    web view, so the session, its scrollback and the running program are untouched. Closing either ends the session."""
+    closed = Signal()
+
+    def __init__(self, title, tab, workspace):
+        super().__init__(workspace)
+        self.title, self.tab, self.workspace = title, tab, workspace
+        self.window = None
+        self.dock = None
+        self._closing = False
+        self._make_window()
+
+    # ---- the two homes ----------------------------------------------------------------------------------------
+    def _bar(self, label, button_text, handler):
+        bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(6, 2, 2, 2)
+        text = QLabel(label)
+        theme.muted(text)
+        button = QPushButton(button_text)
+        button.setFlat(True)
+        button.clicked.connect(handler)
+        row.addWidget(text, 1)
+        row.addWidget(button)
+        return bar
+
+    def _make_window(self):
+        class Window(QWidget):
+            def closeEvent(w, event):  # noqa: N805
+                self._end()
+                event.accept()
+        window = Window()  # no parent: a parented window stays above its owner on Windows
+        window.setWindowTitle(self.title)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        layout = QVBoxLayout(window)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._bar("Drag-free docking: use the button to put this terminal inside the Klotse window.",
+                                   "Dock in Klotse window", self.dock_in))
+        layout.addWidget(self.tab, 1)
+        self.window = window
+        self.dock = None
+
+    def show(self, near=None, wait_s=4.0):
+        """Show the window (first time: near `near`, a QWidget). It appears once xterm.js is ready, so no blank window flashes
+        up and the main window is not disturbed while the page loads; after `wait_s` seconds it is shown anyway."""
+        window = self.window
+        window.resize(900, 560)
+        if near is not None:
+            window.move(near.mapToGlobal(near.rect().topLeft()) + QPoint(80, 80))
+        done = []
+
+        def reveal():
+            if done or window is not self.window or self._closing:
+                return
+            done.append(1)
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            self.tab.focus_terminal()
+        if self.tab._page_ready:
+            reveal()
+        else:
+            self.tab.page_ready.connect(reveal)
+            QTimer.singleShot(int(wait_s * 1000), reveal)
+
+    def dock_in(self):
+        """Move the session from its own window into a dock of the cluster window."""
+        if self.window is None or self._closing:
+            return
+        window, self.window = self.window, None
+        dock = QDockWidget(self.title, self.workspace)
+        dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        dock.setTitleBarWidget(self._bar(self.title, "Pop out to a window", self.pop_out))
+        dock.setWidget(self.tab)
+        dock.installEventFilter(self)
+        self.dock = dock
+        self.workspace.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        dock.show()
+        window.removeEventFilter(self)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        window.hide()
+        window.deleteLater()
+        self.tab.focus_terminal()
+
+    def pop_out(self):
+        """Move the session from the dock back into its own window."""
+        if self.dock is None or self._closing:
+            return
+        dock, self.dock = self.dock, None
+        dock.removeEventFilter(self)
+        dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.tab.setParent(None)
+        self.workspace.removeDockWidget(dock)
+        dock.deleteLater()
+        self._make_window()
+        self.show(near=self.workspace)
+
+    @property
+    def docked(self):
+        return self.dock is not None
+
+    # ---- ending ---------------------------------------------------------------------------------------------
+    def eventFilter(self, obj, event):
+        if obj is self.dock and event.type() == QEvent.Type.Close:
+            self._end()
+        return False
+
+    def _end(self):
+        if self._closing:
+            return
+        self._closing = True
+        self.tab.stop()
+        self.closed.emit()
+
+    def close(self):
+        """End the session and close whichever home it has (used when the cluster closes)."""
+        self._end()
+        if self.window is not None:
+            self.window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            self.window.close()
+            self.window = None
+        if self.dock is not None:
+            self.dock.close()
+            self.dock = None
+
+
+_warm = None
+WARM_SHOWN_MS = 2500  # how long the invisible warm-up window stays up before it is hidden (it is kept for the process)
+
+
+def warm_up():
+    """Start QtWebEngine (renderer process, graphics and compositing set-up) in the background, so opening the first terminal
+    does not stall or make the main window blink. A view only does its graphics set-up when it is really shown, so this shows a
+    one-pixel, fully transparent, click-through tool window far off-screen for a couple of seconds, then hides it. Called a
+    moment after start-up, only when the embedded terminal is switched on. Idempotent; never raises."""
+    global _warm
+    if _warm is not None or not available():
+        return
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        view = QWebEngineView()
+        view.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowTransparentForInput
+                            | Qt.WindowType.WindowDoesNotAcceptFocus)
+        view.setWindowOpacity(0.0)
+        view.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        view.setUrl(QUrl("about:blank"))
+        view.resize(64, 64)
+        view.move(-32000, -32000)
+        view.show()
+        _warm = view
+        QTimer.singleShot(WARM_SHOWN_MS, view.hide)
+    except Exception:  # noqa: BLE001 - a warm-up is an optimisation only
+        _warm = None

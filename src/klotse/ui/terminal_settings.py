@@ -42,7 +42,7 @@ class TerminalPanel(QWidget):
         form = QFormLayout(self)
         from . import embedded_terminal
         hint = QLabel("Pod shells, attach sessions and node shells open in the place chosen here. Saved for all clusters and "
-                      "future sessions. Inside Klotse, a session is a tab in Logs && activity and ends when the tab is closed.")
+                      "future sessions. Inside Klotse, a session is its own window (not kept on top), with a button to dock it into the Klotse window, and it ends when you close it.")
         hint.setWordWrap(True)
         form.addRow(hint)
         self.where = QComboBox()
@@ -50,7 +50,7 @@ class TerminalPanel(QWidget):
         self.where.setCurrentIndex(1 if settings.embedded else 0)
         form.addRow("Open shells in", self.where)
         self.where_note = QLabel("" if embedded_terminal.available() else
-                                 "The embedded terminal needs QtWebEngine (pip install \"klotse[terminal]\"); until then an external terminal is used.")
+                                 "The embedded terminal (QtWebEngine) cannot start here, so an external terminal is used.")
         self.where_note.setWordWrap(True)
         self.where_note.setVisible(bool(self.where_note.text()))
         form.addRow(self.where_note)

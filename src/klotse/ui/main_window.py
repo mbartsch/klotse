@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QThreadPool, Qt, Signal
+from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
                                QTabWidget, QWidget)
@@ -17,7 +17,7 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from .preferences import KubeconfigSettings, PreferencesDialog
 from .read_only import ReadOnlyClusters
-from . import theme
+from . import embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
@@ -37,6 +37,8 @@ class MainWindow(QMainWindow):
         self.workspaces = {}  # context name -> ClusterWorkspace
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
+        if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
+            QTimer.singleShot(1500, embedded_terminal.warm_up)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
@@ -282,6 +284,8 @@ class MainWindow(QMainWindow):
         chosen = dialog.chosen_kubeconfig()
         chosen_theme = dialog.chosen_theme()
         dialog.deleteLater()
+        if accepted and self.terminal_settings.embedded:
+            QTimer.singleShot(500, embedded_terminal.warm_up)  # just switched on: start the engine now, not at the first shell
         if accepted and chosen_theme and chosen_theme != self.theme_settings.selected().name:
             self.apply_theme(chosen_theme)
         if accepted and chosen != self.kubeconfig_settings.path:
