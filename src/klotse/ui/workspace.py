@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -30,6 +31,7 @@ from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
 from .permissions_dialog import PermissionsDialog
+from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
 from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
@@ -114,6 +116,7 @@ class ClusterWorkspace(QMainWindow):
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
         self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
+        self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self._ready = False  # set once connected
@@ -208,6 +211,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.goto_requested.connect(self.go_to)
                 widget.port_forward_requested.connect(self.start_port_forward)
+                widget.copy_files_requested.connect(self.copy_files)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
                                                  "HelmRelease": self._helm_action,
@@ -854,6 +858,7 @@ class ClusterWorkspace(QMainWindow):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
         self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
+        self.file_copies.cancel_all()  # nor a kubectl cp
         self._auto_timer.stop()
         self._node_pods_timer.stop()
         self._stop_watchers()
@@ -903,6 +908,55 @@ class ClusterWorkspace(QMainWindow):
             panel = PortForwardPanel(self.port_forwards)
             self.log_tabs.setCurrentIndex(self.log_tabs.addTab(panel, "Port forwards"))
             self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab stops every forward")
+        self.log_dock.show()
+
+    def file_copy_dialog(self, row):
+        rows = pod_containers(row.raw)
+        names = [c[0] for c in rows if c[1] == "Container"] or [c[0] for c in rows]
+        return FileCopyDialog(row.name, row.namespace, names, self)
+
+    def copy_files(self, row):
+        """Right-click > Copy files… on a pod: ask direction, container and paths, then run `kubectl cp` and show the list. A
+        download changes nothing in the cluster, so read-only mode allows it; an upload writes into a container, so it does not."""
+        dialog = self.file_copy_dialog(row)
+        accepted = dialog.exec() == QDialog.Accepted
+        values = getattr(dialog, "result_values", None)
+        dialog.deleteLater()
+        if not accepted or values is None:
+            return None
+        direction, container, local, remote = values
+        if direction == UPLOAD:
+            if not self._writable("copy files into a container"):
+                return None
+            ask = QMessageBox.question(self, "Upload to container", f"Copy {local} to {row.name}:{remote}?\n\nAn existing file or "
+                                       "folder there is replaced.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ask != QMessageBox.Yes:
+                return None
+        elif os.path.exists(local):
+            ask = QMessageBox.question(self, "Replace local file", f"{local} already exists. Replace it?",
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ask != QMessageBox.Yes:
+                return None
+        try:
+            copy = self.file_copies.start(self.context, row.namespace, row.name, container, direction, local, remote,
+                                          kubeconfig=self.kubeconfig)
+        except ValueError as e:
+            QMessageBox.warning(self, "Copy files", str(e))
+            return None
+        self.message.emit(f"{self.context}: copying {copy.description}…")
+        self.show_file_copies()
+        return copy
+
+    def show_file_copies(self):
+        """Bring the File copies tab of the Logs & activity dock to the front, creating it on first use."""
+        for i in range(self.log_tabs.count()):
+            if getattr(self.log_tabs.widget(i), "key", None) == FileCopyPanel.key:
+                self.log_tabs.setCurrentIndex(i)
+                break
+        else:
+            panel = FileCopyPanel(self.file_copies)
+            self.log_tabs.setCurrentIndex(self.log_tabs.addTab(panel, "File copies"))
+            self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab cancels running copies")
         self.log_dock.show()
 
     def show_apply_yaml(self):
@@ -1555,6 +1609,7 @@ class ClusterWorkspace(QMainWindow):
             table.action_requested.connect(self.pod_action)
             table.permission_check = self.permission_for
             table.port_forward_requested.connect(self.start_port_forward)
+            table.copy_files_requested.connect(self.copy_files)
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
@@ -1644,6 +1699,8 @@ class ClusterWorkspace(QMainWindow):
         row = self._pod_tabs[key]["row"]
         if action == "edit":
             self.edit_resource("Pod", row)
+        elif action == "copy-files":
+            self.copy_files(row)
         else:
             self.pod_action(action, row)
 

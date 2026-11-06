@@ -40,7 +40,7 @@ class PodActionBar(QWidget):
     """Header of a pod's tab: the pod's name and state (cut with … when the tab is narrow, never covered) and one Actions menu
     with the pod's own actions (container actions are on the rows below)."""
 
-    action_requested = Signal(str)  # logs | edit | terminate | force-terminate
+    action_requested = Signal(str)  # logs | edit | copy-files | terminate | force-terminate
 
     def __init__(self):
         super().__init__()
@@ -49,7 +49,7 @@ class PodActionBar(QWidget):
         self.state = ElidedLabel()
         theme.muted(self.state)
         self.menu_button, self.items = actions_button(
-            [("Logs", "logs"), ("Edit…", "edit"), None, ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
+            [("Logs", "logs"), ("Edit…", "edit"), ("Copy files…", "copy-files"), None, ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
             self.action_requested.emit)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
