@@ -348,3 +348,14 @@ def test_the_window_waits_for_the_page_and_a_slow_page_still_appears(qtbot, tmp_
 def test_warm_up_never_raises_and_is_idempotent(qtbot):
     et.warm_up()
     et.warm_up()
+
+
+def test_the_self_test_only_reports_a_missing_terminal_in_a_pip_install_but_fails_a_packaged_app(monkeypatch):
+    from klotse import cli
+    check = dict(cli._self_test_checks())["embedded terminal"]
+    monkeypatch.setattr(et, "available", lambda: False)
+    monkeypatch.setattr(et, "unavailable_reason", lambda: "ImportError: libnss3.so: cannot open shared object file")
+    assert "external terminal is used" in check() and "libnss3" in check()  # a bare Linux machine: not a failure
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    with pytest.raises(RuntimeError, match="missing from the package"):
+        check()

@@ -25,19 +25,24 @@ MAX_PASTE = 1_000_000  # characters; a paste larger than this is cut (a runaway 
 MAX_KEYS = 1_000_000
 
 
-def available():
-    """True when QtWebEngine and the bundled xterm.js files can be used (and pywinpty on Windows)."""
+def unavailable_reason():
+    """'' when the embedded terminal can be used, else a short reason (what failed to import or is missing)."""
     try:
         if not (ASSETS / "terminal.html").is_file() or not (ASSETS / "xterm.js").is_file():
-            return False
+            return "the bundled xterm.js files are missing"
         from PySide6.QtWebChannel import QWebChannel  # noqa: F401
         from PySide6.QtWebEngineCore import QWebEnginePage  # noqa: F401
         from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
         if sys.platform == "win32":
             import winpty  # noqa: F401
-        return True
-    except Exception:  # noqa: BLE001 - an import error or a missing DLL; never fatal
-        return False
+        return ""
+    except Exception as e:  # noqa: BLE001 - an import error or a missing DLL/system library; never fatal
+        return f"{type(e).__name__}: {e}"[:200]
+
+
+def available():
+    """True when QtWebEngine and the bundled xterm.js files can be used (and pywinpty on Windows)."""
+    return not unavailable_reason()
 
 
 def hex_color(value, fallback):
