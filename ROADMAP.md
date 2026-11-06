@@ -2,7 +2,7 @@
 
 Features other Kubernetes desktop tools have and Klotse does not yet. Items marked **done** are merged; the others are not implemented. The list comes from comparing Klotse's source with Aptakube, Headlamp, Lens/Freelens and k9s (the first two from their public pages and release notes, the last two from memory, not re-checked). Each item is tracked as a GitHub issue labelled `enhancement` and is meant to be done gradually, one pull request each.
 
-**Status on 2026-11-06.** Done and merged: 1, 2, 3, 4, 5, 6, 8, 9, 13, 19, 30, 33, 34 and 35 (including the automatic-refresh defaults: only workloads and nodes refresh by themselves). Open issues: #57 (item 7, search), #60 (10, embedded terminal; termqt or xterm.js is the owner's decision), #61 (11, metrics charts), #62 (12, several clusters side by side), #63 and #64 (the Azure and GCP plugins). Ideas 14-18, 20-29, 31 and 32 have no issue yet: file one, with an effort label, before starting one. "Done" means merged with tests; none of it has been run against a live cluster. Every issue carries `enhancement` and an effort label.
+**Status on 2026-11-06.** Done and merged: 1, 2, 3, 4, 5, 6, 8, 9, 13, 19, 30, 33, 34 and 35 (including the automatic-refresh defaults: only workloads and nodes refresh by themselves). Open issues: #57 (item 7, search), #60 (10, embedded terminal; termqt or xterm.js is the owner's decision), #61 (11, metrics charts), #62 (12, several clusters side by side), #63 and #64 (the Azure and GCP plugins). Ideas 14-18, 20-29, 31, 32 and 36-38 have no issue yet: file one, with an effort label, before starting one. "Done" means merged with tests; none of it has been run against a live cluster. Every issue carries `enhancement` and an effort label.
 
 | # | Item | Seen in | Effort |
 | --- | --- | --- | --- |
@@ -41,7 +41,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 
 | # | Item | Effort |
 | --- | --- | --- |
-| 18 | Logs from many pods at once (Deployment or label selector, like `stern`), regex filter, time range, save | Medium |
+| 18 | Logs from many pods at once (Deployment or label selector, like `stern`), regex filter, time range, save. **Top priority**: logs per workload is among the most upvoted requests in Lens (36) and Freelens (12) | Medium |
 | 19 | Events timeline in Details for the selected object (**done**, #67) | Small |
 | 20 | Debug container (`kubectl debug`, ephemeral container) for pods | Small to medium |
 | 21 | Health check view (like k9s's Popeye): no limits or probes, `latest` tags, crash-looping pods, unbound PVCs; reuse the editor hints | Medium |
@@ -69,6 +69,9 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 33 | Custom Resources > Groups: list CRDs by API group, next to Definitions (**done**, issue #74; the groups are also sub items in the navigator) | Small to medium |
 | 34 | Node tab: overview of status, CPU and memory at the top, beside the pod list (**done**, issue #84) | Small to medium |
 | 35 | Manual refresh only for CRDs, Access Control and other rarely changing lists: no timer or watch, refresh by the toolbar button or a right-click entry (**done**, issue #86; now the default for every list except workloads and nodes, which stay automatic) | Small to medium |
+| 36 | Log viewer options: wrap lines (Lens users' second most upvoted request, 61 votes), show timestamps, previous container instance | Small |
+| 37 | Sign-in check for exec auth helpers (AWS SSO, `aws-iam-authenticator` with an MFA prompt, OIDC): the Python client runs the helper without a terminal, so a prompt can fail; test and report a clear error. Also honour the kubeconfig `proxy-url`. Requested often in Lens (72 votes) and Headlamp (SSO 16, 15; proxy 14) | Medium |
+| 38 | Metrics from Prometheus or VictoriaMetrics and clearer metrics-server messages: the most upvoted Freelens requests (40, 21, 16). Overlaps item 11 (charts); do the data source first | Medium to large |
 
 ### Undecided or not planned
 
