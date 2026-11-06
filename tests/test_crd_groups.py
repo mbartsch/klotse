@@ -1,6 +1,7 @@
 """Custom Resources > Groups: the CRDs listed by API group, next to Definitions."""
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtCore import QSettings
 
 from klotse.k8s.resources import KINDS_SHOWN, Row, crd_groups
@@ -120,3 +121,110 @@ def test_the_navigator_leaf_opens_the_view_in_a_window(qtbot, tmp_path):
     table = ws.views["crd-groups"][0]
     qtbot.waitUntil(lambda: table.model.rowCount() == 3, timeout=5000)
     assert ws.foreground_key() == "crd-groups"
+
+
+# ---- the sub items under Groups ----------------------------------------------------------------------------------
+from klotse.k8s.client import KubeService  # noqa: E402
+from klotse.ui.navigator import Navigator  # noqa: E402
+
+
+def test_the_service_counts_crds_per_group_from_their_names_only():
+    svc = object.__new__(KubeService)
+    seen = []
+
+    def listing(**kw):
+        seen.append(kw)
+        items = [{"metadata": {"name": n}} for n in ("certificates.cert-manager.io", "issuers.cert-manager.io", "nodepools.karpenter.sh", "odd")]
+        return SimpleNamespace(data=__import__("json").dumps({"items": items, "metadata": {}}))
+
+    svc._apis = {"ext": SimpleNamespace(list_custom_resource_definition=listing)}
+    assert svc.crd_group_names() == {"cert-manager.io": 2, "karpenter.sh": 1}  # a name without a group is left out
+    assert "PartialObjectMetadataList" in seen[0]["_headers"]["Accept"] and seen[0]["_preload_content"] is False  # no schemas are downloaded
+
+
+def nav_with_cluster(qtbot):
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["a"])
+    nav.set_state("a", "connected")
+    nav.show_views("a")
+    return nav
+
+
+def groups_item(nav):
+    return nav._find_view_item(nav.cluster_item("a"), "crd-groups")
+
+
+def test_groups_get_sub_items_in_alphabetical_order_with_a_count_tip(qtbot):
+    nav = nav_with_cluster(qtbot)
+    assert groups_item(nav).childCount() == 0
+    nav.show_crd_groups("a", [("crd-group:karpenter.sh", "karpenter.sh", "1 CRD"), ("crd-group:argoproj.io", "argoproj.io", "6 CRDs"),
+                              ("crd-group:Cert-manager.io", "Cert-manager.io", "3 CRDs")])
+    item = groups_item(nav)
+    assert [item.child(i).text(0) for i in range(item.childCount())] == ["argoproj.io", "Cert-manager.io", "karpenter.sh"]  # not case-sensitive
+    assert item.child(0).toolTip(0) == "6 CRDs" and not item.isExpanded()
+    nav.show_crd_groups("a", [("crd-group:z.io", "z.io", "1 CRD")])  # a new list replaces the old
+    assert [item.child(i).text(0) for i in range(item.childCount())] == ["z.io"]
+
+
+def test_clicking_a_group_asks_for_its_view_and_groups_itself_still_opens_the_list(qtbot):
+    nav = nav_with_cluster(qtbot)
+    nav.show_crd_groups("a", [("crd-group:argoproj.io", "argoproj.io", "6 CRDs")])
+    asked = []
+    nav.view_requested.connect(lambda ctx, key: asked.append(key))
+    item = groups_item(nav)
+    nav.itemClicked.emit(item.child(0), 0)
+    nav.itemClicked.emit(item, 0)
+    assert asked == ["crd-group:argoproj.io", "crd-groups"]
+
+
+def test_nothing_happens_for_an_unknown_or_unexpanded_cluster(qtbot):
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["a"])
+    nav.show_crd_groups("a", [("k", "x", "")])  # not connected: no views to put them under
+    nav.show_crd_groups("zzz", [("k", "x", "")])
+    assert nav.cluster_item("a").childCount() == 0
+
+
+def test_the_workspace_announces_the_groups_and_opens_one_lazily(qtbot):
+    service = SimpleNamespace(crd_group_names=lambda: {"karpenter.sh": 2, "argoproj.io": 1},
+                              list_resource=lambda key, ns=None: list(CRDS))
+    ws = ClusterWorkspace(service, "ctx")
+    qtbot.addWidget(ws)
+    got = []
+    ws.crd_groups_found.connect(got.append)
+    ws._find_crd_groups()
+    qtbot.waitUntil(lambda: bool(got), timeout=5000)
+    assert sorted(got[0]) == [("crd-group:argoproj.io", "argoproj.io", "1 CRD"), ("crd-group:karpenter.sh", "karpenter.sh", "2 CRDs")]
+    assert "crd-group:karpenter.sh" not in ws.views  # no widget per group until one is opened
+    ws.open_view("crd-group:karpenter.sh")  # what a click on the sub item asks for
+    assert ws.foreground_key() == "crd-group:karpenter.sh"
+
+
+@pytest.mark.parametrize("service", [{}, {"crd_group_names": lambda: {}},
+                                     {"crd_group_names": lambda: (_ for _ in ()).throw(RuntimeError("forbidden"))}])
+def test_no_crds_no_service_support_or_a_failure_is_silent(qtbot, monkeypatch, service):
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: pytest.fail("this quiet lookup must not interrupt"))
+    ws = ClusterWorkspace(SimpleNamespace(**service), "ctx")
+    qtbot.addWidget(ws)
+    got = []
+    ws.crd_groups_found.connect(got.append)
+    ws._find_crd_groups()
+    qtbot.waitUntil(lambda: not ws._workers, timeout=5000)
+    assert got == []
+
+
+def test_a_connected_window_lists_the_groups_under_groups(qtbot, tmp_path):
+    class Service(FakeService):
+        def crd_group_names(self):
+            return {"karpenter.sh": 2, "argoproj.io": 1}
+
+    win = MainWindow(Service, label_settings=LabelSettings(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat)))
+    qtbot.addWidget(win)
+    open_active(win)
+    def groups():
+        item = win.nav._find_view_item(win.nav.cluster_item("ctx"), "crd-groups")
+        return [item.child(i).text(0) for i in range(item.childCount())] if item is not None else []
+    qtbot.waitUntil(lambda: groups() == ["argoproj.io", "karpenter.sh"], timeout=5000)

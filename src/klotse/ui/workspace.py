@@ -86,6 +86,7 @@ class ClusterWorkspace(QMainWindow):
     state = Signal(str)  # connecting | connected | failed
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
+    crd_groups_found = Signal(list)  # [(view key, label, tooltip)]: the navigator lists them under Custom Resources > Groups
     karpenter_found = Signal(list)  # [(view key, label)] when the cluster runs Karpenter; the navigator shows a group
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
     read_only_changed = Signal(bool)
@@ -384,6 +385,9 @@ class ClusterWorkspace(QMainWindow):
             self._sync_watch()
 
     def open_view(self, key):
+        if key.startswith("crd-group:") and key not in self.views:  # a navigator sub item: its tab is made on first use
+            self.open_crd_group(key.partition(":")[2])
+            return
         self._opening = True  # open_view loads the view itself; don't also load from the tab-change signal
         try:
             self._show_view(key)
@@ -528,6 +532,18 @@ class ClusterWorkspace(QMainWindow):
             self.open_custom_resources(row)
         elif action == "open-crd-group":
             self.open_crd_group(row.name)
+
+    def _find_crd_groups(self):
+        """Ask (in the background, quietly, metadata only) which API groups the CRDs belong to, for the sub items of Custom
+        Resources > Groups in the navigator."""
+        find = getattr(self.service, "crd_group_names", None)
+        if find is not None:
+            self._run(find, self._crd_groups_found, on_error=lambda _msg: None)
+
+    def _crd_groups_found(self, groups):
+        entries = [(f"crd-group:{group}", group, f"{count} CRD{'s' if count != 1 else ''}") for group, count in (groups or {}).items()]
+        if entries:
+            self.crd_groups_found.emit(entries)
 
     def open_crd_group(self, group):
         """Open (or focus) a tab with the CRDs of one API group (double-click on a row of Custom Resources > Groups); from
@@ -1492,6 +1508,7 @@ class ClusterWorkspace(QMainWindow):
             self._node_pods_timer.start()
         self._sync_watch()
         self._find_karpenter()
+        self._find_crd_groups()
         self._load_permissions()
 
     def refresh(self):

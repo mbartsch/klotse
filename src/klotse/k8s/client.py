@@ -428,6 +428,19 @@ class KubeService:
             if not token:
                 return names
 
+    def crd_group_names(self):
+        """{API group: number of CRDs} for the navigator's Custom Resources > Groups sub items. Only metadata is requested
+        (PartialObjectMetadataList): a CRD object carries its whole OpenAPI schema and can be very large, but its name is
+        `<plural>.<group>`, which is all this needs."""
+        api = self._apis["ext"]
+        names = self._metadata_names(lambda _ns, **kw: api.list_custom_resource_definition(**kw), None)
+        groups = {}
+        for name in names:
+            group = name.partition(".")[2]
+            if group:
+                groups[group] = groups.get(group, 0) + 1
+        return groups
+
     def list_service_names(self, namespace):
         """Names of the services of a namespace, for the Ingress editor's backend boxes."""
         return [s.metadata.name for s in self._iter_list(self._core.list_namespaced_service, namespace)]

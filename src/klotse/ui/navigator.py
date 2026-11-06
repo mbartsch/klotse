@@ -248,11 +248,34 @@ class Navigator(QTreeWidget):
         item.insertChild(position, group)
         group.setExpanded(True)
 
+    def show_crd_groups(self, name, entries):
+        """Put the API groups of the cluster's CRDs under Custom Resources > Groups as sub items. `entries` is
+        [(view key, label, tooltip)], shown in alphabetical order (case-insensitive); an older list is replaced. They start
+        collapsed: a cluster can have a hundred groups."""
+        item = self._clusters.get(name)
+        parent = self._find_view_item(item, "crd-groups") if item is not None else None
+        if parent is None:
+            return
+        parent.takeChildren()
+        for key, label, tip in sorted(entries, key=lambda e: e[1].lower()):
+            self._leaf(parent, key, label).setToolTip(0, tip)
+
+    def _find_view_item(self, item, key):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.data(0, self.ROLE_KEY) == key and child.data(0, self.ROLE_KIND) == "view":
+                return child
+            found = self._find_view_item(child, key)
+            if found is not None:
+                return found
+        return None
+
     def _leaf(self, parent, key, label):
         it = QTreeWidgetItem([label])
         it.setData(0, self.ROLE_KIND, "view")
         it.setData(0, self.ROLE_KEY, key)
         parent.addChild(it)
+        return it
 
     def hide_views(self, name):
         item = self._clusters.get(name)
