@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLi
                                QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
-from . import events_view, rbac_view, theme, workload_view
+from ..k8s.related import KINDS as RELATED_KINDS
+from . import events_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
 
 
@@ -40,6 +41,8 @@ class YamlHighlighter(QSyntaxHighlighter):
 
 class DetailPanel(QWidget):
     events_requested = Signal(object)  # the row whose events the Events view wants; answer with show_events()
+    related_requested = Signal(object)  # the row whose owners and related objects the Related view wants; answer with show_related()
+    goto_object = Signal(str, str, str)  # kind, namespace, name: a link in the Related view was clicked
 
     def __init__(self):
         super().__init__()
@@ -91,21 +94,33 @@ class DetailPanel(QWidget):
         self.yaml_button = QPushButton("YAML", checkable=True)
         self.events_button = QPushButton("Events", checkable=True)
         self.events_button.setToolTip("What the cluster says happened to this object (kept by Kubernetes for about an hour)")
+        self.related_button = QPushButton("Related", checkable=True)
+        self.related_button.setToolTip("Owners, what it owns, and the objects it uses or is used by; click one to go there")
         self.view_bar = QWidget()
         bar = QHBoxLayout(self.view_bar)
         bar.setContentsMargins(0, 0, 0, 0)
         bar.addWidget(self.formatted_button)
         bar.addWidget(self.yaml_button)
         bar.addWidget(self.events_button)
+        bar.addWidget(self.related_button)
         bar.addStretch(1)
         modes = QButtonGroup(self)
         modes.setExclusive(True)
         modes.addButton(self.formatted_button)
         modes.addButton(self.yaml_button)
         modes.addButton(self.events_button)
+        modes.addButton(self.related_button)
         self.formatted_button.setChecked(True)
         self.formatted_button.toggled.connect(self._show_mode)
         self.events_button.toggled.connect(self._show_mode)
+        self.related_button.toggled.connect(self._show_mode)
+        self.related = QTextBrowser()
+        self.related.setOpenLinks(False)
+        self.related.setOpenExternalLinks(False)
+        self.related.anchorClicked.connect(self._related_clicked)
+        self.related.hide()
+        self._related_ok = False  # the current row is of a kind that has a Related view
+        self._related_row = None  # the row the Related view is waiting for or showing
         self.events = QTextBrowser()
         self.events.setOpenLinks(False)
         self.events.setOpenExternalLinks(False)
@@ -141,6 +156,7 @@ class DetailPanel(QWidget):
         layout.addWidget(self.hide_values_button)
         layout.addWidget(self.formatted)
         layout.addWidget(self.events)
+        layout.addWidget(self.related)
         layout.addWidget(self.editor)
 
     def toPlainText(self):
@@ -165,7 +181,23 @@ class DetailPanel(QWidget):
         self.editor.setPlainText(dump_manifest(self._displayed(row.raw)))
         self._events_ok = self._has_events(row)
         self._events_row = None
+        self._related_ok = getattr(row, "table_kind", None) in RELATED_KINDS and isinstance(getattr(row, "raw", None), dict)
+        self._related_row = None
         self._render_formatted(row)
+
+    def show_related(self, row, relations=None, error=None):
+        """Fill the Related view with the answer for `row` (ignored when another row is selected by now)."""
+        if row is not self._related_row:
+            return
+        if error:
+            self.related.setHtml(f"<p style='color:{theme.BAD}'>Cannot read the related objects: {events_view._e(error)}</p>")
+        else:
+            self.related.setHtml(related_view.render(relations or [], getattr(row, "name", "")))
+
+    def _related_clicked(self, url):
+        target = related_view.parse_link(url.toString())
+        if target is not None:
+            self.goto_object.emit(*target)
 
     @staticmethod
     def _has_events(row):
@@ -193,18 +225,27 @@ class DetailPanel(QWidget):
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
-        self.view_bar.setVisible(self._formatted_ok or self._events_ok)
+        self.view_bar.setVisible(self._formatted_ok or self._events_ok or self._related_ok)
         self.formatted_button.setVisible(self._formatted_ok)
         self.events_button.setVisible(self._events_ok)
+        self.related_button.setVisible(self._related_ok)
         self._show_mode()
 
     def _show_mode(self, *_):
-        events = self._events_ok and self.events_button.isChecked()
-        formatted = not events and self._formatted_ok and self.formatted_button.isChecked()
+        related = self._related_ok and self.related_button.isChecked()
+        events = not related and self._events_ok and self.events_button.isChecked()
+        formatted = not events and not related and self._formatted_ok and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
         self.events.setVisible(events)
-        self.editor.setVisible(not formatted and not events)
-        self.yaml_tools.setVisible(not formatted and not events and self._secret_row is not None)
+        self.related.setVisible(related)
+        self.editor.setVisible(not formatted and not events and not related)
+        self.yaml_tools.setVisible(not formatted and not events and not related and self._secret_row is not None)
+        if not related:
+            self._related_row = None  # opening Related again asks again
+        elif self._related_row is not self._secret_row:
+            self._related_row = self._secret_row
+            self.related.setHtml(f"<p style='color:{theme.MUTED}'>Looking for related objects…</p>")
+            self.related_requested.emit(self._secret_row)
         if not events:
             self._events_row = None  # opening Events again asks again: events change while you watch
         elif self._events_row is not self._secret_row:
@@ -232,7 +273,7 @@ class DetailPanel(QWidget):
         QGuiApplication.clipboard().setText(self.editor.toPlainText())
         self.copy_button.setText("Copied")
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(1200, lambda: self.copy_button.setText("Copy YAML"))
+        QTimer.singleShot(1200, self, lambda: self.copy_button.setText("Copy YAML"))  # tied to this panel: gone with it, never late
 
     def set_show_managed_fields(self, show):
         """Include or hide metadata.managedFields in Details; the shown resource is redrawn, scroll kept."""

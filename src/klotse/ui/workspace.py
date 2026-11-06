@@ -4,15 +4,16 @@ import sys
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
-from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
+from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
 from ..k8s.helm import HelmError, helm_uninstall_args
-from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns)
+from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPEC_BY_KIND, SPECS, crd_groups,
+                             custom_columns)
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
@@ -168,6 +169,8 @@ class ClusterWorkspace(QMainWindow):
         # right: object details
         self.detail = DetailPanel()
         self.detail.events_requested.connect(self._load_events)
+        self.detail.related_requested.connect(self._load_related)
+        self.detail.goto_object.connect(self.go_to_object)
         self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
@@ -237,16 +240,21 @@ class ClusterWorkspace(QMainWindow):
         refresh.triggered.connect(self.refresh)
         bar.addAction(refresh)
         bar.addSeparator()
+        # One control, one place: "Auto-refresh: Off / 5 s / 10 s / 30 s / 60 s". `auto_action` is the on/off state behind it (not on the
+        # toolbar), so the code that asks "is auto-refresh on?" and the combo can never disagree.
         self.auto_action = QAction("Auto-refresh", self, checkable=True, checked=True)
-        self.auto_action.setToolTip("Reload the visible list periodically and when the cluster reports a change")
         self.auto_action.toggled.connect(self.set_auto_refresh)
-        bar.addAction(self.auto_action)
+        self._auto_ms = AUTO_REFRESH_MS  # the interval to come back to when it is switched on again
         self.auto_interval = QComboBox()
+        self.auto_interval.addItem("Off", 0)
         for label, ms in AUTO_REFRESH_CHOICES:
-            self.auto_interval.addItem(label, ms)
-        self.auto_interval.setCurrentIndex(next(i for i, (_, ms) in enumerate(AUTO_REFRESH_CHOICES) if ms == AUTO_REFRESH_MS))
-        self.auto_interval.currentIndexChanged.connect(
-            lambda _=None: self._auto_timer.setInterval(self.auto_interval.currentData()))
+            self.auto_interval.addItem(label.replace("s", " s"), ms)
+        self.auto_interval.setCurrentIndex(self.auto_interval.findData(AUTO_REFRESH_MS))
+        self.auto_interval.setToolTip("How often the lists that update themselves reload (workloads and nodes by default; right-click "
+                                      "any list to change that for it). Off stops every automatic reload: use Refresh.")
+        self.auto_interval.currentIndexChanged.connect(self._auto_choice_changed)
+        self.auto_action.toggled.connect(self._sync_auto_combo)
+        bar.addWidget(QLabel(" Auto-refresh: "))
         bar.addWidget(self.auto_interval)
         self.read_only_label = QLabel(" 🔒 Read-only: changes are blocked ")  # symbol and words, never colour alone
         self.read_only_label.setStyleSheet(theme.warning_style())
@@ -256,6 +264,30 @@ class ClusterWorkspace(QMainWindow):
         self.ns_combo.currentIndexChanged.connect(lambda _=None: self._load_permissions() if self._ready else None)
         self.ns_combo.activated.connect(lambda _=None: self.load_scoped())
         self._sync_ns_selector()
+
+    def _auto_choice_changed(self, _index=None):
+        """The user picked Off or an interval in the toolbar."""
+        ms = self.auto_interval.currentData()
+        if ms:
+            self._auto_ms = ms
+            self._auto_timer.setInterval(ms)  # before switching on, so the timer starts with the chosen interval
+        self.auto_action.setChecked(bool(ms))
+
+    def _sync_auto_combo(self, on):
+        """The on/off state changed (the combo, or code): make the combo say the same."""
+        wanted = self.auto_interval.findData(self._auto_ms if on else 0)
+        if wanted >= 0 and wanted != self.auto_interval.currentIndex():
+            blocker = QSignalBlocker(self.auto_interval)
+            self.auto_interval.setCurrentIndex(wanted)
+            del blocker
+
+    def createPopupMenu(self):
+        """The right-click menu of the toolbar and dock title bars: only the docks (so a closed Details or Logs pane can be
+        brought back). It must not offer the toolbar itself, which would let the Refresh and Auto-refresh controls be hidden."""
+        menu = QMenu(self)
+        for dock in (self.detail_dock, self.log_dock):
+            menu.addAction(dock.toggleViewAction())
+        return menu
 
     @property
     def kubeconfig(self):
@@ -406,7 +438,7 @@ class ClusterWorkspace(QMainWindow):
             self._show_view(key)
         finally:
             self._opening = False
-        if not (self.is_manual(key) and key in self._last_load):  # a manual list loads once, on first open
+        if not (self.is_manual(key) and key in self._last_load and not self._stale_scope(key)):  # a manual list loads on first open
             self.load_view(key)
 
     def foreground_key(self):
@@ -442,12 +474,20 @@ class ClusterWorkspace(QMainWindow):
             self.load_foreground()
         return True
 
+    def _stale_scope(self, key):
+        """True when the list `key` was loaded for another namespace than the one chosen now: what it shows is for a scope the
+        user has left, whether or not the list reloads by itself."""
+        if key not in self._loads or key not in self.loaders:
+            return False
+        ns = self.namespace()
+        return self._loads[key] != (None if (not self.loaders[key][1] or ns == ALL_NS) else ns)
+
     def load_foreground(self):
-        """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads, and for a
-        list that reloads only on request)."""
+        """Reload only the tab the user is looking at (no-op before connecting, after shutdown or while it loads). A list that
+        reloads only on request is left alone, unless it shows another namespace than the one chosen now."""
         key = self.foreground_key()
         if (self._ready and not self._closed and self.auto_action.isChecked()
-                and key in self.loaders and key not in self._loading and not self.is_manual(key)):
+                and key in self.loaders and key not in self._loading and (not self.is_manual(key) or self._stale_scope(key))):
             self.load_view(key)
 
     def _showing(self):
@@ -957,6 +997,37 @@ class ClusterWorkspace(QMainWindow):
         QMessageBox.information(self, "Read-only cluster", f"{self.context} is in read-only mode, so you cannot {what}.\n\n"
                                 "View > Read-only mode turns it off.")
         return False
+
+    def _load_related(self, row):
+        """The Details panel's Related view asked for the objects around `row`; the answer (or why there is none) goes into the
+        panel. Only manifests of other objects are read, never a Secret's data."""
+        find = getattr(self.service, "related_objects", None)
+        if find is None:
+            self.detail.show_related(row, [])
+            return
+        self._run(find, lambda relations, r=row: self.detail.show_related(r, relations), getattr(row, "table_kind", ""), row.raw,
+                  on_error=lambda msg, r=row: self.detail.show_related(r, error=msg))
+
+    LIST_VIEWS = {"Pod": "pods", "Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
+
+    def go_to_object(self, kind, namespace, name):
+        """A link in the Related view: take the user to that object. A node opens its own tab and a namespace its pods (as Go to
+        does); any other kind opens its list, scoped to the object's namespace unless All namespaces is chosen, with the object
+        selected so Details shows it."""
+        if kind == "Node":
+            self.go_to("node", name)
+            return
+        if kind == "Namespace":
+            self.go_to("namespace", name)
+            return
+        key = self.LIST_VIEWS.get(kind) or (SPEC_BY_KIND[kind].key if kind in SPEC_BY_KIND else None)
+        if key is None or key not in self.views:
+            self.message.emit(f"{self.context}: there is no list for {kind} to go to")
+            return
+        if namespace and self.namespace() not in (ALL_NS, namespace) and not self.set_namespace(namespace):
+            self.message.emit(f"{self.context}: namespace {namespace} is not in the list (refresh and try again)")
+        self.open_view(key)
+        self.views[key][0].select_when_loaded(name, namespace)
 
     def _on_error(self, msg):
         self.message.emit(f"{self.context}: {msg}")

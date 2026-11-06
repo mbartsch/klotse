@@ -1,5 +1,6 @@
 import datetime
 import functools
+import itertools
 import json
 from heapq import heappush, heapreplace
 
@@ -8,7 +9,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import helm, rollout
+from . import helm, related, rollout
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
@@ -478,6 +479,55 @@ class KubeService:
         user, everything = helm.values_of(found[0])
         return {"summary": helm.summarize(found[0]), "values_user": user, "values_all": everything,
                 "history": [helm.summarize(r) for r in found], "skipped": skipped}
+
+    # (api, method infix, namespaced) of the kinds the Related view looks at; the rest comes from the registry
+    _RELATED_BUILT_IN = {"Pod": ("core", "pod", True), "Node": ("core", "node", False), "Deployment": ("apps", "deployment", True),
+                         "ReplicaSet": ("apps", "replica_set", True), "StatefulSet": ("apps", "stateful_set", True),
+                         "DaemonSet": ("apps", "daemon_set", True)}
+
+    def _related_api(self, kind):
+        if kind in self._RELATED_BUILT_IN:
+            api, snake, namespaced = self._RELATED_BUILT_IN[kind]
+            return self._apis[api], snake, namespaced
+        spec = SPEC_BY_KIND.get(kind)
+        return (self._apis[spec.api], spec.snake, spec.namespaced) if spec is not None else None
+
+    def related_objects(self, kind, raw):
+        """The objects related to one object (owners, what it owns, uses or is used by; see k8s.related), found by reading the
+        manifests of the objects around it. Secrets are never fetched: only which pods name them is looked at, so no secret data
+        is read. A kind or call that cannot be read (no permission, gone) just leaves its relations out."""
+        service = self
+
+        class Fetch:
+            def get(self, kind, namespace, name):
+                found = service._related_api(kind) if kind != "Secret" else None
+                if found is None or not name:
+                    return None
+                api, snake, namespaced = found
+                try:
+                    reader = getattr(api, f"read_namespaced_{snake}") if namespaced else getattr(api, f"read_{snake}")
+                    return _raw(reader(name, namespace, _request_timeout=15) if namespaced else reader(name, _request_timeout=15))
+                except ApiException:
+                    return None
+
+            def list(self, kind, namespace, label_selector=None, field_selector=None):
+                found = service._related_api(kind) if kind != "Secret" else None
+                if found is None:
+                    return []
+                api, snake, namespaced = found
+                options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+                try:
+                    if not namespaced:
+                        fn, args = getattr(api, f"list_{snake}"), ()
+                    elif namespace:
+                        fn, args = getattr(api, f"list_namespaced_{snake}"), (namespace,)
+                    else:
+                        fn, args = getattr(api, f"list_{snake}_for_all_namespaces"), ()
+                    return [_raw(i) for i in itertools.islice(service._iter_list(fn, *args, **options), related.SCAN_LIMIT + 1)]
+                except ApiException:
+                    return []
+
+        return related.related(kind, raw, Fetch())
 
     def list_service_names(self, namespace):
         """Names of the services of a namespace, for the Ingress editor's backend boxes."""

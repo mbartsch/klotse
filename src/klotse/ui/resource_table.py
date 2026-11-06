@@ -154,6 +154,30 @@ class ResourceTable(QWidget):
         self._loaded_at = time.strftime("%H:%M:%S")
         self.show_status()
         self.rows_set.emit(self.model.rows)
+        self._apply_goto(final=True)
+
+    # ---- "Go to ..." from another list: select a named row, now or as soon as the list has loaded -----------
+    def select_when_loaded(self, name, namespace=""):
+        """Select (and scroll to) the row with this name, so Details shows it. When the list has not loaded it yet the wish is
+        kept for the next load; after that load it is dropped, found or not, so a later reload never jumps."""
+        self._goto = (name, namespace)
+        self._apply_goto(final=False)
+
+    def _apply_goto(self, final):
+        wish = getattr(self, "_goto", None)
+        if wish is None:
+            return
+        name, namespace = wish
+        for source_row, row in enumerate(self.model.rows):
+            if row.name == name and (not namespace or getattr(row, "namespace", "") == namespace):
+                index = self.proxy.mapFromSource(self.model.index(source_row, 0))
+                if index.isValid():  # a row hidden by the filter cannot be selected
+                    self._goto = None
+                    self.view.selectRow(index.row())
+                    self.view.scrollTo(index)
+                    return
+        if final:
+            self._goto = None
 
     def show_status(self):
         """The line under the list: the row count, and for a list that reloads only on request when it was loaded."""
@@ -415,7 +439,12 @@ class ResourceTable(QWidget):
     def _on_row(self, current, _prev):
         if current.isValid():
             src = self.proxy.mapToSource(current)
-            self.selected.emit(self.model.rows[src.row()])
+            row = self.model.rows[src.row()]
+            try:
+                row.table_kind = self.kind  # what kind of object this row is: the list manifests carry no `kind`, Details needs it
+            except AttributeError:  # a row type without room for it simply has no Related view
+                pass
+            self.selected.emit(row)
 
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
                     "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group",
