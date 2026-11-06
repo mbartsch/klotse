@@ -11,7 +11,7 @@ Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the re
 | 3 | Apply YAML / create any resource (**done**, #69) | Lens, Headlamp | Small |
 | 4 | "Can I?" permission check for the current user (**done**: check and rules list #68; menu entries the rules forbid carry a "(not allowed for you)" note, not hidden or disabled, #54) | Headlamp, k9s | Small |
 | 5 | Port-forward (pod or service) with a list of active forwards (**done**, #55) | Aptakube, Lens, Headlamp, k9s | Medium |
-| 6 | Related objects and owners (Deployment, ReplicaSet, Pods; Service, Endpoints) | k9s, Lens | Medium |
+| 6 | Related objects and owners (Deployment, ReplicaSet, Pods; Service, Endpoints) (**done**, #56) | k9s, Lens | Medium |
 | 7 | Search across kinds and namespaces | Lens, k9s | Medium |
 | 8 | Helm releases: list, values, history, uninstall (**done**, #58; rollback and install are not) | Aptakube, Lens | Medium (release Secrets or the `helm` CLI) |
 | 9 | File copy to and from a pod | Lens, k9s | Small to medium |

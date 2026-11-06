@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
 from ..k8s.helm import HelmError, helm_uninstall_args
-from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns)
+from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPEC_BY_KIND, SPECS, crd_groups,
+                             custom_columns)
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
@@ -168,6 +169,8 @@ class ClusterWorkspace(QMainWindow):
         # right: object details
         self.detail = DetailPanel()
         self.detail.events_requested.connect(self._load_events)
+        self.detail.related_requested.connect(self._load_related)
+        self.detail.goto_object.connect(self.go_to_object)
         self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
@@ -957,6 +960,37 @@ class ClusterWorkspace(QMainWindow):
         QMessageBox.information(self, "Read-only cluster", f"{self.context} is in read-only mode, so you cannot {what}.\n\n"
                                 "View > Read-only mode turns it off.")
         return False
+
+    def _load_related(self, row):
+        """The Details panel's Related view asked for the objects around `row`; the answer (or why there is none) goes into the
+        panel. Only manifests of other objects are read, never a Secret's data."""
+        find = getattr(self.service, "related_objects", None)
+        if find is None:
+            self.detail.show_related(row, [])
+            return
+        self._run(find, lambda relations, r=row: self.detail.show_related(r, relations), getattr(row, "table_kind", ""), row.raw,
+                  on_error=lambda msg, r=row: self.detail.show_related(r, error=msg))
+
+    LIST_VIEWS = {"Pod": "pods", "Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
+
+    def go_to_object(self, kind, namespace, name):
+        """A link in the Related view: take the user to that object. A node opens its own tab and a namespace its pods (as Go to
+        does); any other kind opens its list, scoped to the object's namespace unless All namespaces is chosen, with the object
+        selected so Details shows it."""
+        if kind == "Node":
+            self.go_to("node", name)
+            return
+        if kind == "Namespace":
+            self.go_to("namespace", name)
+            return
+        key = self.LIST_VIEWS.get(kind) or (SPEC_BY_KIND[kind].key if kind in SPEC_BY_KIND else None)
+        if key is None or key not in self.views:
+            self.message.emit(f"{self.context}: there is no list for {kind} to go to")
+            return
+        if namespace and self.namespace() not in (ALL_NS, namespace) and not self.set_namespace(namespace):
+            self.message.emit(f"{self.context}: namespace {namespace} is not in the list (refresh and try again)")
+        self.open_view(key)
+        self.views[key][0].select_when_loaded(name, namespace)
 
     def _on_error(self, msg):
         self.message.emit(f"{self.context}: {msg}")
