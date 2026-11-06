@@ -29,6 +29,7 @@ from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, for
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
+from .refresh_policy import RefreshSettings, is_manual
 from .resource_table import ResourceTable
 from .rollout_dialog import RolloutDialog
 from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky
@@ -97,6 +98,7 @@ class ClusterWorkspace(QMainWindow):
         self.context = context
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = terminal_settings if terminal_settings is not None else TerminalSettings(parent=self)
+        self.refresh_settings = RefreshSettings(self.label_settings.store)  # which lists reload only on request
         self.pool = QThreadPool.globalInstance()
         self._workers = set()
         self._loads = {}  # view -> latest requested namespace
@@ -140,6 +142,7 @@ class ClusterWorkspace(QMainWindow):
         self.apply_label_columns()
         for table in self.resource_tables():
             table.permission_check = self.permission_for
+            self._wire_refresh(table)
         self.label_settings.changed.connect(self.apply_label_columns)
         if self.plugin_host is not None:
             for table in self.resource_tables():
@@ -393,17 +396,48 @@ class ClusterWorkspace(QMainWindow):
             self._show_view(key)
         finally:
             self._opening = False
-        self.load_view(key)
+        if not (self.is_manual(key) and key in self._last_load):  # a manual list loads once, on first open
+            self.load_view(key)
 
     def foreground_key(self):
         widget = self.tabs.currentWidget()
         return getattr(widget, "view_key", None)
 
+    def is_manual(self, key):
+        """True when the list `key` reloads only on request (see refresh_policy): no timer, no watch, no reload when its tab
+        comes to the front; the toolbar Refresh and the list's right-click Refresh still work."""
+        return is_manual(key, self.refresh_settings.overrides())
+
+    def _wire_refresh(self, table):
+        """Give a list its right-click Refresh and Refresh automatically entries and the manual-refresh note."""
+        key = getattr(table, "view_key", None)
+        if key is None or key not in self.loaders or table.refresh_mode is not None:
+            return
+        table.refresh_mode = lambda k=key: self.is_manual(k)
+        table.refresh_requested.connect(lambda k=key: self.load_view(k))
+        table.refresh_mode_requested.connect(lambda auto, k=key, t=table: self.set_manual_refresh(k, not auto, t))
+
+    def set_manual_refresh(self, key, manual, table=None):
+        """Right-click > Refresh automatically on a list: choose whether it reloads by itself, and remember the choice. A save
+        error is shown and the list keeps its mode."""
+        try:
+            self.refresh_settings.set_manual(key, manual)
+        except OSError as e:
+            QMessageBox.warning(self, "Refresh setting", str(e))
+            return False
+        if table is not None:
+            table.show_status()
+        self._sync_watch()  # a list that became automatic gets its watch, a manual one loses it
+        if not manual:
+            self.load_foreground()
+        return True
+
     def load_foreground(self):
-        """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads)."""
+        """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads, and for a
+        list that reloads only on request)."""
         key = self.foreground_key()
         if (self._ready and not self._closed and self.auto_action.isChecked()
-                and key in self.loaders and key not in self._loading):
+                and key in self.loaders and key not in self._loading and not self.is_manual(key)):
             self.load_view(key)
 
     def _showing(self):
@@ -420,7 +454,7 @@ class ClusterWorkspace(QMainWindow):
         wanted = None
         if self._ready and not self._closed and self.auto_action.isChecked() and self._showing():
             key = self.foreground_key()
-            if key in self.loaders:
+            if key in self.loaders and not self.is_manual(key):
                 ns = self.namespace()
                 wanted = (key, None if (not self.loaders[key][1] or ns == ALL_NS) else ns)
         if wanted == self._watched:
@@ -557,6 +591,7 @@ class ClusterWorkspace(QMainWindow):
             self.views[key] = (table, f"CRDs: {group or '(core)'}")
             self.loaders[key] = (lambda ns: [c for c in self.service.list_resource("crds", ns) if (c.group or "") == group],
                                  False, table.set_rows)
+            self._wire_refresh(table)
         self.open_view(key)
 
     def open_custom_resources(self, crd):
@@ -580,6 +615,7 @@ class ClusterWorkspace(QMainWindow):
             else:
                 load = lambda ns: self.service.list_custom_objects(group, version, plural, namespaced, ns)
             self.loaders[key] = (load, namespaced, table.set_rows)
+            self._wire_refresh(table)
         return key
 
     @staticmethod
@@ -1382,6 +1418,7 @@ class ClusterWorkspace(QMainWindow):
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
             self.loaders[key] = (lambda _: self.service.list_node_pods(node), False,
                                  lambda rows, t=table, b=bar: (t.set_rows(rows), b.set_pods(rows)))
+            self._wire_refresh(table)
         self.open_view(key)
 
     def pod_action(self, action, row):

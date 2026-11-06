@@ -1,3 +1,5 @@
+import time
+
 from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QSortFilterProxyModel, Qt, Signal, QTimer
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QStackedWidget,
                                QTableView, QVBoxLayout, QWidget)
@@ -19,6 +21,8 @@ class ResourceTable(QWidget):
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
     history_requested = Signal(str, object)  # a Deployment's rollout history / undo
+    refresh_requested = Signal()  # right-click > Refresh
+    refresh_mode_requested = Signal(bool)  # right-click > Refresh automatically (checked = True)
     port_forward_requested = Signal(str, object)  # a Pod or Service: forward one of its ports to this computer
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
@@ -32,6 +36,8 @@ class ResourceTable(QWidget):
 
     def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
+        self.refresh_mode = None  # () -> True when this list reloads only on request; set by the workspace (None = no such menu)
+        self._loaded_at = ""
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
             customizable = kind not in NOT_CUSTOMIZABLE
@@ -145,8 +151,17 @@ class ResourceTable(QWidget):
         self.model.set_rows(rows)
         self.view.resizeColumnsToContents()
         self._restore_selection(*kept)
-        self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
+        self._loaded_at = time.strftime("%H:%M:%S")
+        self.show_status()
         self.rows_set.emit(self.model.rows)
+
+    def show_status(self):
+        """The line under the list: the row count, and for a list that reloads only on request when it was loaded."""
+        count = self.model.rowCount()
+        text = f"{count:,} rows" if count else "No resources found"
+        if self.refresh_mode is not None and self.refresh_mode() and self._loaded_at:
+            text += f" · manual refresh, loaded {self._loaded_at}"
+        self.status.setText(text)
 
     @staticmethod
     def _row_key(row):
@@ -380,6 +395,15 @@ class ResourceTable(QWidget):
             menu.addAction("New namespace…", self.new_requested.emit)
         if self.new_button is not None:
             menu.addAction(self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)
+        if self.refresh_mode is not None:
+            if not menu.isEmpty():
+                menu.addSeparator()
+            menu.addAction("Refresh", self.refresh_requested.emit)
+            auto = menu.addAction("Refresh automatically")
+            auto.setCheckable(True)
+            auto.setChecked(not self.refresh_mode())
+            auto.setToolTip("Off: this list reloads only when you press Refresh")
+            auto.triggered.connect(lambda checked: self.refresh_mode_requested.emit(bool(checked)))
         if idx.isValid():  # plugin entries come last, after the built-in ones
             self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
         if not menu.isEmpty():
