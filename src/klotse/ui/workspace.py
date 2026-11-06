@@ -23,6 +23,7 @@ from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
+from .permissions_dialog import PermissionsDialog
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
@@ -146,6 +147,7 @@ class ClusterWorkspace(QMainWindow):
 
         # right: object details
         self.detail = DetailPanel()
+        self.detail.events_requested.connect(self._load_events)
         self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
@@ -178,6 +180,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
+                widget.restart_requested.connect(self.restart_resource)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
@@ -642,6 +645,33 @@ class ClusterWorkspace(QMainWindow):
         dialog.applied.connect(self.refresh)
         return dialog
 
+    def show_permissions(self):
+        """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
+        ns = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
+        self.message.emit(f"{self.context}: reading your permissions in {ns}…")
+        self._run(self.service.my_permissions, lambda perms: self._permissions_ready(ns, perms), ns)
+
+    def permissions_dialog(self, ns, perms):
+        dialog = PermissionsDialog(self.context, ns, perms, self)
+
+        def check(verb, group, resource, name):
+            self._run(self.service.can_i, lambda answer: dialog.show_check(*answer), verb, group, resource, ns, name,
+                      on_error=lambda msg: dialog.show_check(error=msg))
+        dialog.check_requested.connect(check)
+        return dialog
+
+    def _permissions_ready(self, ns, perms):
+        dialog = self.permissions_dialog(ns, perms)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _load_events(self, row):
+        """The Details panel's Events view asked for the events of `row`; the answer (or the reason there is none) goes
+        into the panel, not into a dialog: a missing permission to read events is not worth interrupting for."""
+        meta = row.raw.get("metadata") or {}
+        self._run(self.service.list_object_events, lambda events, r=row: self.detail.show_events(r, events),
+                  meta.get("namespace") or "", meta.get("uid"), on_error=lambda msg, r=row: self.detail.show_events(r, error=msg))
+
     def _on_error(self, msg):
         self.message.emit(f"{self.context}: {msg}")
         QMessageBox.warning(self, "Kubernetes error", f"{self.context}\n\n{msg}")
@@ -859,6 +889,20 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Scaling {kind} {row.name} to {n}…")
         self._run(self.service.scale, lambda _: self._scaled(kind, row, current, n), kind, row.name, row.namespace, n)
 
+    RESTART_NOTE = ("Restart replaces the pods one by one with the workload's own update strategy "
+                    "(like kubectl rollout restart). Pods are recreated, so connections to them are dropped.")
+
+    def restart_resource(self, kind, row):
+        if QMessageBox.question(self, f"Restart {kind}", f"Cluster: {self.context}\nRestart {kind} {row.namespace}/{row.name}?\n\n"
+                                f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.message.emit(f"Restarting {kind} {row.name}…")
+        self._run(self.service.restart, lambda _: self._restarted(kind, row.name), kind, row.name, row.namespace)
+
+    def _restarted(self, kind, name):
+        self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")
+        self.refresh()
+
     # ---- bulk actions (several rows selected) ---------------------------
     @staticmethod
     def _names(rows, limit=10):
@@ -889,6 +933,11 @@ class ClusterWorkspace(QMainWindow):
             self._bulk(f"Scaling {n} {kind}s ({text.strip()})", rows,
                        lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
                        lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
+        elif action == "restart":
+            if QMessageBox.question(self, f"Restart {kind}s", f"Cluster: {self.context}\nRestart {n} {kind}s?\n\n{names}\n\n"
+                                    f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._bulk(f"Restarting {n} {kind}s", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
         elif action == "delete" and kind in DELETABLE_KINDS:
             missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
             if missing:

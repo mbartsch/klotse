@@ -36,7 +36,7 @@ def test_table_allows_extended_selection_and_lists_selected_rows(qtbot):
 def test_bulk_menu_offers_actions_per_kind(qtbot):
     ws = make_ws(qtbot)
     for table, expected in ((ws.pod_table, ["Terminate 2 pods…", "Force terminate 2 pods…"]),
-                            (ws.deploy_table, ["Scale 2 Deployments…"]),
+                            (ws.deploy_table, ["Scale 2 Deployments…", "Restart 2 Deployments…"]),
                             (ws.node_table, ["Cordon 2 nodes…", "Uncordon 2 nodes…", "Delete 2 nodes…", "Force delete 2 nodes…"])):
         menu = QMenu()
         table._bulk_menu(menu, [object(), object()])

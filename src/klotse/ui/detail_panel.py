@@ -3,12 +3,12 @@ import binascii
 from copy import deepcopy
 
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
-from PySide6.QtCore import QRegularExpression, Qt
+from PySide6.QtCore import QRegularExpression, Qt, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
-from . import rbac_view, theme, workload_view
+from . import events_view, rbac_view, theme, workload_view
 from .manifest import dump_manifest
 
 
@@ -39,6 +39,8 @@ class YamlHighlighter(QSyntaxHighlighter):
 
 
 class DetailPanel(QWidget):
+    events_requested = Signal(object)  # the row whose events the Events view wants; answer with show_events()
+
     def __init__(self):
         super().__init__()
         self.editor = QPlainTextEdit(readOnly=True)
@@ -87,18 +89,29 @@ class DetailPanel(QWidget):
         self.formatted.setOpenExternalLinks(False)
         self.formatted_button = QPushButton("Formatted", checkable=True)
         self.yaml_button = QPushButton("YAML", checkable=True)
+        self.events_button = QPushButton("Events", checkable=True)
+        self.events_button.setToolTip("What the cluster says happened to this object (kept by Kubernetes for about an hour)")
         self.view_bar = QWidget()
         bar = QHBoxLayout(self.view_bar)
         bar.setContentsMargins(0, 0, 0, 0)
         bar.addWidget(self.formatted_button)
         bar.addWidget(self.yaml_button)
+        bar.addWidget(self.events_button)
         bar.addStretch(1)
         modes = QButtonGroup(self)
         modes.setExclusive(True)
         modes.addButton(self.formatted_button)
         modes.addButton(self.yaml_button)
+        modes.addButton(self.events_button)
         self.formatted_button.setChecked(True)
         self.formatted_button.toggled.connect(self._show_mode)
+        self.events_button.toggled.connect(self._show_mode)
+        self.events = QTextBrowser()
+        self.events.setOpenLinks(False)
+        self.events.setOpenExternalLinks(False)
+        self.events.hide()
+        self._events_ok = False  # the current row can have events (it has a UID and is not an event itself)
+        self._events_row = None  # the row the Events view is waiting for or showing
         self.view_bar.hide()
         # Tools for the YAML text: find (Enter = next, Shift+Enter = previous), copy and line wrap
         self.find_edit = QLineEdit(placeholderText="Find in YAML…", clearButtonEnabled=True)
@@ -127,6 +140,7 @@ class DetailPanel(QWidget):
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
         layout.addWidget(self.formatted)
+        layout.addWidget(self.events)
         layout.addWidget(self.editor)
 
     def toPlainText(self):
@@ -149,7 +163,24 @@ class DetailPanel(QWidget):
         self.decode_menu.hide()
         self.decode_button.setVisible(bool(self._secret_data))
         self.editor.setPlainText(dump_manifest(self._displayed(row.raw)))
+        self._events_ok = self._has_events(row)
+        self._events_row = None
         self._render_formatted(row)
+
+    @staticmethod
+    def _has_events(row):
+        raw = getattr(row, "raw", None)
+        return (isinstance(raw, dict) and bool((raw.get("metadata") or {}).get("uid"))
+                and "involvedObject" not in raw)  # an Event is not shown with events of its own
+
+    def show_events(self, row, events=None, error=None):
+        """Fill the Events view with the answer for `row` (ignored when another row is selected by now)."""
+        if row is not self._events_row:
+            return
+        if error:
+            self.events.setHtml(f"<p style='color:{theme.BAD}'>Cannot read the events: {events_view._e(error)}</p>")
+        else:
+            self.events.setHtml(events_view.render(events or [], getattr(row, "name", "")))
 
     def _render_formatted(self, row):
         kind, view = getattr(row, "rbac_kind", None), rbac_view
@@ -162,14 +193,24 @@ class DetailPanel(QWidget):
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
-        self.view_bar.setVisible(self._formatted_ok)
+        self.view_bar.setVisible(self._formatted_ok or self._events_ok)
+        self.formatted_button.setVisible(self._formatted_ok)
+        self.events_button.setVisible(self._events_ok)
         self._show_mode()
 
     def _show_mode(self, *_):
-        formatted = self._formatted_ok and self.formatted_button.isChecked()
+        events = self._events_ok and self.events_button.isChecked()
+        formatted = not events and self._formatted_ok and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
-        self.editor.setVisible(not formatted)
-        self.yaml_tools.setVisible(not formatted and self._secret_row is not None)
+        self.events.setVisible(events)
+        self.editor.setVisible(not formatted and not events)
+        self.yaml_tools.setVisible(not formatted and not events and self._secret_row is not None)
+        if not events:
+            self._events_row = None  # opening Events again asks again: events change while you watch
+        elif self._events_row is not self._secret_row:
+            self._events_row = self._secret_row
+            self.events.setHtml(f"<p style='color:{theme.MUTED}'>Loading events…</p>")
+            self.events_requested.emit(self._secret_row)
 
     def _find_from_start(self):
         cursor = self.editor.textCursor()

@@ -214,6 +214,24 @@ logged or kept, and error messages never include it or the credentials. If autom
 with a warning saying why. AWS controls who may do this: the credentials need `sts:AssumeRole` or `sts:GetFederationToken`
 as the case may be. Not tested against real AWS here.
 
+## Not built: GCP and Azure plugins
+
+**Status: not implemented.** This is a feasibility note from reading the plugin API and the AWS plugin, not from running anything. No code exists, and none of it has been tried against Google Cloud or Azure, mainly because there is no test environment (no GKE or AKS cluster, no cloud accounts) to build and check it against. The provider details below come from memory of the public documentation and must be re-checked before anyone relies on them.
+
+API v7 already has what a sibling of the AWS plugin needs (columns, right-click actions, Overview cards, global and per-cluster settings); no core change is expected.
+
+| | GCP (GKE) | Azure (AKS) |
+| --- | --- | --- |
+| `spec.providerID` | `gce://project/zone/name` | `azure:///subscriptions/.../virtualMachineScaleSets/.../virtualMachines/N` |
+| Machine type | `node.kubernetes.io/instance-type` | same label |
+| Spot | `cloud.google.com/gke-spot`, `gke-preemptible` | `kubernetes.azure.com/scalesetpriority=spot` |
+| Image | not in a label (needs the Compute API) | `kubernetes.azure.com/node-image-version` |
+| Console link | easy (project, zone and name are in the ID) | easy (the ID is the portal resource ID) |
+| List prices | hard: the Cloud Billing Catalog API needs a key or login, prices are per vCPU and per GB of RAM, so machine sizes must be looked up too | easy: the public Retail Prices API needs no login and covers spot and Windows |
+| Launch time, image | Compute API with Google credentials (Application Default Credentials or `gcloud auth print-access-token`) | ARM API with Azure credentials (`az account get-access-token`) |
+
+Suggested order: move the generic helpers out of `klotse_plugins/aws/` (address and XML checks, price-file caching, per-node cache, cost-card code), build Azure first (cheapest, useful without credentials), then GCP (console link and node columns first, prices later). Prices would be list prices for the VM only, as with AWS; GKE Autopilot bills per pod, so the plugin should skip those clusters. The AWS federated console sign-in is AWS-specific and should not be copied: a plain console link is enough.
+
 ## Things to know
 
 - **Plugins are trusted code.** They run with your permissions, in Klotse's process, receive the manifests of the

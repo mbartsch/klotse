@@ -1,3 +1,4 @@
+import datetime
 import json
 from heapq import heappush, heapreplace
 
@@ -269,6 +270,41 @@ class KubeService:
             except Exception as e:  # report every document's own outcome; the server's message says what is wrong
                 results.append((kind, ns, name, False, getattr(e, "summary", None) and e.summary() or f"{type(e).__name__}: {e}"))
         return results
+
+    def my_permissions(self, namespace):
+        """What the signed-in user may do in `namespace` (SelfSubjectRulesReview). The answer can be incomplete: some
+        authorizers cannot list their rules, so `incomplete` is passed on and the "Can I?" check is the definite one."""
+        api = client.AuthorizationV1Api(self._api_client)
+        review = client.V1SelfSubjectRulesReview(spec=client.V1SelfSubjectRulesReviewSpec(namespace=namespace))
+        status = api.create_self_subject_rules_review(review, _request_timeout=30).status
+        return {
+            "resources": [{"verbs": r.verbs or [], "groups": r.api_groups or [], "resources": r.resources or [],
+                           "names": r.resource_names or []} for r in status.resource_rules or []],
+            "urls": [{"verbs": r.verbs or [], "urls": r.non_resource_ur_ls or []} for r in status.non_resource_rules or []],
+            "incomplete": bool(status.incomplete), "error": status.evaluation_error or ""}
+
+    def can_i(self, verb, group, resource, namespace, name=""):
+        """(allowed, reason) for one verb on one resource (`pods`, or `pods/log` for a subresource) in `namespace`
+        (SelfSubjectAccessReview)."""
+        resource, _, subresource = resource.partition("/")
+        attributes = client.V1ResourceAttributes(namespace=namespace or None, verb=verb, group=group, resource=resource,
+                                                 subresource=subresource or None, name=name or None)
+        review = client.V1SelfSubjectAccessReview(spec=client.V1SelfSubjectAccessReviewSpec(resource_attributes=attributes))
+        status = client.AuthorizationV1Api(self._api_client).create_self_subject_access_review(review, _request_timeout=30).status
+        return bool(status.allowed), status.reason or status.evaluation_error or ""
+
+    RESTART_ANNOTATION = "kubectl.kubernetes.io/restartedAt"
+
+    def restart(self, kind, name, namespace):
+        """Rollout restart, like `kubectl rollout restart`: stamp the pod template so the controller replaces the pods
+        one by one with its normal update strategy."""
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        body = {"spec": {"template": {"metadata": {"annotations": {self.RESTART_ANNOTATION: stamp}}}}}
+        method = {"Deployment": "patch_namespaced_deployment", "StatefulSet": "patch_namespaced_stateful_set",
+                  "DaemonSet": "patch_namespaced_daemon_set"}.get(kind)
+        if method is None:
+            raise ValueError(f"Restarting {kind} is not supported")
+        getattr(self._apps, method)(name, namespace, body)
 
     def open_log_stream(self, namespace, pod, container=None, tail=500):
         """Returns a streaming urllib3 response (follow=True); the caller reads and closes it."""
@@ -559,6 +595,20 @@ class KubeService:
         if key == "events":
             rows.sort(key=lambda r: r.ts, reverse=True)
         return rows
+
+    EVENTS_SHOWN = 200
+
+    def list_object_events(self, namespace, uid):
+        """The events about one object (matched by its UID, so a recreated object does not show its predecessor's),
+        newest first, at most EVENTS_SHOWN. `namespace` is empty for cluster-scoped objects (Node events live in
+        `default`, so those are searched in every namespace)."""
+        if not uid:
+            raise ValueError("The object has no UID; refresh the list first.")
+        core = self._core
+        fn, args = ((core.list_namespaced_event, (namespace,)) if namespace else (core.list_event_for_all_namespaces, ()))
+        rows = [SPEC_BY_KEY["events"].mapper(e) for e in self._iter_list(fn, *args, field_selector=f"involvedObject.uid={uid}")]
+        rows.sort(key=lambda r: r.ts, reverse=True)
+        return rows[:self.EVENTS_SHOWN]
 
     def _resource_items(self, key, namespace=None):
         spec = SPEC_BY_KEY[key]
