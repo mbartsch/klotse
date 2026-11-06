@@ -63,9 +63,10 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | # | Item | Effort |
 | --- | --- | --- |
 | 29 | Gateway API (Gateway, HTTPRoute) views and editors | Medium |
-| 30 | Karpenter (NodePool, NodeClaim) views (**done** as extra columns when browsing the CRD from Custom Resources > Definitions; no navigator entry of their own; field names unverified against a running Karpenter) | Small to medium |
+| 30 | Karpenter (NodePool, NodeClaim) views (**done**: extra columns, and a Karpenter group in the navigator, shown only when the cluster serves Karpenter's API groups, with NodePools, NodeClaims and the provider's node classes; field names unverified against a running Karpenter) | Small to medium |
 | 31 | GitOps: read-only Argo CD and Flux views with Sync and Refresh (needs cluster-wide plugin actions, which are not designed yet) | Medium |
 | 32 | Schema help in the YAML editor: field docs and completion from the cluster's OpenAPI | Large |
+| 33 | Custom Resources > Groups: list CRDs by API group, next to Definitions (issue #74) | Small to medium |
 
 ### Undecided or not planned
 

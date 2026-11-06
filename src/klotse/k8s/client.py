@@ -361,6 +361,21 @@ class KubeService:
             found = self._core.get_api_resources(_request_timeout=30)
         return [ApiResource(group, r.name, r.kind or "", bool(r.namespaced), version) for r in found.resources or []]
 
+    @staticmethod
+    def is_karpenter_group(group):
+        """karpenter.sh and the cloud providers' groups (karpenter.k8s.aws, karpenter.azure.com, ...)."""
+        return "karpenter" in (group or "").split(".")
+
+    def karpenter_resources(self):
+        """The Karpenter kinds this cluster serves, [ApiResource] (no subresources), NodePool and NodeClaim first. Empty
+        when Karpenter is not installed. Two cheap discovery calls per Karpenter group, nothing else."""
+        found = []
+        for group, version in self.discovery_groups():
+            if self.is_karpenter_group(group):
+                found += [r for r in self.discovery_resources(group, version) if "/" not in r.name and r.kind]
+        first = {"NodePool": 0, "NodeClaim": 1}
+        return sorted(found, key=lambda r: (first.get(r.kind, 2), r.kind))
+
     def list_service_account_names(self):
         """[(namespace, name)] of every service account, for the binding editor's picker (names only, paged)."""
         return [(a.metadata.namespace or "", a.metadata.name)

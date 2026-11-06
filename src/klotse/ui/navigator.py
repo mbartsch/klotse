@@ -225,6 +225,25 @@ class Navigator(QTreeWidget):
                 self._leaf(item, *entry)
         item.setExpanded(True)
 
+    def show_karpenter(self, name, entries):
+        """Add (or replace) the Karpenter group of a connected cluster, just above Custom Resources. `entries` is
+        [(view key, label)]: NodePools, NodeClaims and whatever else the cluster's Karpenter serves. The group only exists
+        for clusters that run Karpenter; nothing is added for an empty list."""
+        item = self._clusters.get(name)
+        if item is None or not item.childCount() or not entries:
+            return
+        for i in range(item.childCount()):
+            if item.child(i).data(0, self.ROLE_KIND) == "karpenter":
+                item.takeChild(i)
+                break
+        group = QTreeWidgetItem(["Karpenter"])
+        group.setData(0, self.ROLE_KIND, "karpenter")
+        for key, label in entries:
+            self._leaf(group, key, label)
+        position = next((i for i in range(item.childCount()) if item.child(i).text(0) == "Custom Resources"), item.childCount())
+        item.insertChild(position, group)
+        group.setExpanded(True)
+
     def _leaf(self, parent, key, label):
         it = QTreeWidgetItem([label])
         it.setData(0, self.ROLE_KIND, "view")
