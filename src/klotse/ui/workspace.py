@@ -145,6 +145,7 @@ class ClusterWorkspace(QMainWindow):
 
         # right: object details
         self.detail = DetailPanel()
+        self.detail.events_requested.connect(self._load_events)
         self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
@@ -622,6 +623,13 @@ class ClusterWorkspace(QMainWindow):
         w.signals.result.connect(lambda r: done(on_result, r))
         w.signals.error.connect(lambda m: done(on_error or self._on_error, m))
         self.pool.start(w)
+
+    def _load_events(self, row):
+        """The Details panel's Events view asked for the events of `row`; the answer (or the reason there is none) goes
+        into the panel, not into a dialog: a missing permission to read events is not worth interrupting for."""
+        meta = row.raw.get("metadata") or {}
+        self._run(self.service.list_object_events, lambda events, r=row: self.detail.show_events(r, events),
+                  meta.get("namespace") or "", meta.get("uid"), on_error=lambda msg, r=row: self.detail.show_events(r, error=msg))
 
     def _on_error(self, msg):
         self.message.emit(f"{self.context}: {msg}")

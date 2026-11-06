@@ -527,6 +527,20 @@ class KubeService:
             rows.sort(key=lambda r: r.ts, reverse=True)
         return rows
 
+    EVENTS_SHOWN = 200
+
+    def list_object_events(self, namespace, uid):
+        """The events about one object (matched by its UID, so a recreated object does not show its predecessor's),
+        newest first, at most EVENTS_SHOWN. `namespace` is empty for cluster-scoped objects (Node events live in
+        `default`, so those are searched in every namespace)."""
+        if not uid:
+            raise ValueError("The object has no UID; refresh the list first.")
+        core = self._core
+        fn, args = ((core.list_namespaced_event, (namespace,)) if namespace else (core.list_event_for_all_namespaces, ()))
+        rows = [SPEC_BY_KEY["events"].mapper(e) for e in self._iter_list(fn, *args, field_selector=f"involvedObject.uid={uid}")]
+        rows.sort(key=lambda r: r.ts, reverse=True)
+        return rows[:self.EVENTS_SHOWN]
+
     def _resource_items(self, key, namespace=None):
         spec = SPEC_BY_KEY[key]
         api = self._apis[spec.api]
