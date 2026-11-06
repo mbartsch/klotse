@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
-from ..k8s.resources import DELETABLE_KINDS, SPECS, custom_columns
+from ..k8s.resources import CRD_GROUP_COLUMNS, DELETABLE_KINDS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
@@ -188,7 +188,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.restart_requested.connect(self.restart_resource)
                 widget.goto_requested.connect(self.go_to)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
-                                                 "CustomResourceDefinition": self._crd_action,
+                                                 "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
                                                     for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
@@ -290,6 +290,10 @@ class ClusterWorkspace(QMainWindow):
             table = T(spec.columns, spec.kind, editable=spec.editable)
             self.views[spec.key] = (table, spec.title)
             self.loaders[spec.key] = (lambda ns, k=spec.key: svc().list_resource(k, ns), spec.namespaced, table.set_rows)
+        # Custom Resources > Groups: the CRDs' API groups, from the same list as Definitions
+        groups = T(CRD_GROUP_COLUMNS, "CRDGroup", editable=False)
+        self.views["crd-groups"] = (groups, "CRD groups")
+        self.loaders["crd-groups"] = (lambda ns: crd_groups(svc().list_resource("crds", ns)), False, groups.set_rows)
         for key, (widget, _) in self.views.items():
             widget.view_key = key
 
@@ -512,6 +516,22 @@ class ClusterWorkspace(QMainWindow):
     def _crd_action(self, action, row):
         if action == "open-crd":
             self.open_custom_resources(row)
+        elif action == "open-crd-group":
+            self.open_crd_group(row.name)
+
+    def open_crd_group(self, group):
+        """Open (or focus) a tab with the CRDs of one API group (double-click on a row of Custom Resources > Groups); from
+        there a CRD opens its instances like in Definitions."""
+        key = f"crd-group:{group}"
+        if key not in self.views:
+            table = ResourceTable(SPEC_BY_KEY["crds"].columns, "CustomResourceDefinition", editable=False)
+            table.view_key = key
+            table.selected.connect(self.detail.show_row)
+            table.action_requested.connect(self._crd_action)
+            self.views[key] = (table, f"CRDs: {group or '(core)'}")
+            self.loaders[key] = (lambda ns: [c for c in self.service.list_resource("crds", ns) if (c.group or "") == group],
+                                 False, table.set_rows)
+        self.open_view(key)
 
     def open_custom_resources(self, crd):
         """Open (or focus) a tab listing the instances of a custom resource definition."""

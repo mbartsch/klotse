@@ -10,7 +10,7 @@ from .table_model import TableModel
 
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
-NOT_CUSTOMIZABLE = {"Container", "CustomResource"}  # per-pod container rows and dynamic CR columns keep fixed columns
+NOT_CUSTOMIZABLE = {"Container", "CustomResource", "CRDGroup"}  # per-pod container rows and dynamic CR columns keep fixed columns
 
 
 class ResourceTable(QWidget):
@@ -377,6 +377,8 @@ class ResourceTable(QWidget):
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
             menu.addAction("Browse instances", lambda: self.action_requested.emit("open-crd", row))
+        if self.kind == "CRDGroup" and idx.isValid():
+            menu.addAction("Show CRDs of this group", lambda: self.action_requested.emit("open-crd-group", row))
         if self.kind == "Namespace":
             if idx.isValid():
                 menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
@@ -394,7 +396,7 @@ class ResourceTable(QWidget):
             self.selected.emit(self.model.rows[src.row()])
 
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
-                    "CustomResourceDefinition": "open-crd"}
+                    "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group"}
 
     def _on_double_click(self, index):
         action = self.DOUBLE_CLICK.get(self.kind)

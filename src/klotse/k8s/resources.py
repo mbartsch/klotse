@@ -198,6 +198,31 @@ def map_crd(c):
                  versions=",".join(v.name for v in sp.versions or [] if v.served))
 
 
+KINDS_SHOWN = 8  # kinds named in a group's row; the rest is counted ("+3 more")
+
+
+def crd_groups(crds):
+    """One row per API group of the given CRD rows (what Custom Resources > Groups lists), sorted by group name: the number
+    of CRDs, whether they are namespaced, and their kinds (the first KINDS_SHOWN, then a count). Pure; the CRDs come from the
+    list the Definitions view already loads, so there is no extra API call."""
+    found = {}
+    for crd in crds:
+        found.setdefault(getattr(crd, "group", "") or "", []).append(crd)
+    rows = []
+    for group in sorted(found):
+        members = sorted(found[group], key=lambda c: c.kind)
+        kinds = [c.kind for c in members]
+        scopes = {c.scope for c in members}
+        shown = ", ".join(kinds[:KINDS_SHOWN]) + (f" +{len(kinds) - KINDS_SHOWN} more" if len(kinds) > KINDS_SHOWN else "")
+        rows.append(Row(group, "", {"group": group, "crds": [{"kind": c.kind, "scope": c.scope, "plural": c.plural,
+                                                              "name": c.name} for c in members]},
+                        count=len(members), scope=scopes.pop() if len(scopes) == 1 else "Mixed", kinds=shown))
+    return rows
+
+
+CRD_GROUP_COLUMNS = (("Group", "name"), ("CRDs", "count"), ("Scope", "scope"), ("Kinds", "kinds"))
+
+
 def map_custom_object(item, namespaced=True, group=None, kind=None):
     """Row for one instance of a custom resource (a plain dict from the CustomObjects API). For a well-known kind (see
     CUSTOM_COLUMNS) the row also carries that kind's column values; a mapper that fails leaves them out."""

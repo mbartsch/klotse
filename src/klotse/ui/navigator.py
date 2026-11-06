@@ -27,7 +27,7 @@ VIEWS = [
                         ("clusterrolebindings", "Cluster Role Bindings")], False),
     ("namespaces", "Namespaces"),
     ("events", "Events"),
-    ("Custom Resources", [("crds", "Definitions")], False),
+    ("Custom Resources", [("crds", "Definitions"), ("crd-groups", "Groups")], False),
 ]
 
 
