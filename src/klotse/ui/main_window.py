@@ -274,10 +274,9 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
     def open_preferences(self):
-        # One Preferences window for everything: General, Terminal (macOS only: the only terminal choice there is) and
-        # Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
+        # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
-                                   terminal=self.terminal_settings if sys.platform == "darwin" else None,
+                                   terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings)
         accepted = dialog.exec() == PreferencesDialog.Accepted
         chosen = dialog.chosen_kubeconfig()

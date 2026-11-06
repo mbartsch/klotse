@@ -522,7 +522,7 @@ def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path,
     monkeypatch.setattr(main_module, "PreferencesDialog", FakeDialog)
     monkeypatch.setattr(main_module.sys, "platform", "linux")
     win.open_preferences()
-    assert seen == {"terminal": None, "plugins": win.plugins}  # the terminal choice exists on macOS only
+    assert seen == {"terminal": win.terminal_settings, "plugins": win.plugins}  # the Terminal page exists everywhere
     monkeypatch.setattr(main_module.sys, "platform", "darwin")
     win.open_preferences()
     assert seen == {"terminal": win.terminal_settings, "plugins": win.plugins}

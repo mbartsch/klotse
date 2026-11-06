@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 requires-python = ">=3.10"
-dependencies = ["PySide6-Essentials>=6.6", "kubernetes>=29", "PyYAML>=6"]
+dependencies = ["PySide6-Essentials>=6.6", "kubernetes>=29", "PyYAML>=6", "termqt>=1.1"]
 
 [project.urls]
 Homepage = "https://github.com/mbartsch/klotse"

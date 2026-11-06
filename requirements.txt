@@ -4,3 +4,4 @@
 PySide6-Essentials>=6.6
 kubernetes>=29
 PyYAML>=6
+termqt>=1.1  # the embedded terminal (LGPL-2.1+; brings qtpy, and pywinpty on Windows)

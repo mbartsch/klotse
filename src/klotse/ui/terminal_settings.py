@@ -1,3 +1,5 @@
+import sys
+
 from PySide6.QtCore import QObject, QSettings
 from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QWidget
 
@@ -10,6 +12,15 @@ class TerminalSettings(QObject):
         self.store = settings if settings is not None else default_store()
         saved = self.store.value("terminal/macos", "Terminal")
         self.mac_terminal = saved if saved in ("Terminal", "iTerm2") else "Terminal"
+        # Where shells open: False = an external terminal (the default), True = a tab inside Klotse (termqt)
+        self.embedded = str(self.store.value("terminal/embedded", "false")).lower() == "true"
+
+    def set_embedded(self, on):
+        self.store.setValue("terminal/embedded", "true" if on else "false")
+        self.store.sync()
+        if self.store.status() != QSettings.NoError:
+            raise OSError(f"Could not save terminal settings to {self.store.fileName()}")
+        self.embedded = bool(on)
 
     def set_mac_terminal(self, terminal):
         if terminal not in ("Terminal", "iTerm2"):
@@ -22,22 +33,40 @@ class TerminalSettings(QObject):
 
 
 class TerminalPanel(QWidget):
-    """The Terminal page of Preferences (macOS): which app opens pod shells, attach sessions and node shells.
-    `save()` writes the choice when Preferences is saved and raises ValueError/OSError if it cannot."""
+    """The Terminal page of Preferences: whether shells open inside Klotse or in an external terminal, and (macOS) which app that
+    is. `save()` writes the choices when Preferences is saved and raises ValueError/OSError if it cannot."""
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.settings = settings
         form = QFormLayout(self)
-        hint = QLabel("Choose the macOS app for pod shells, attach sessions and node shells.\n"
-                      "Successful sessions close automatically. Errors stay visible until Enter is pressed.\n"
-                      "iTerm2 must be installed. Saved for all clusters and future sessions.")
+        from . import embedded_terminal
+        hint = QLabel("Pod shells, attach sessions and node shells open in the place chosen here. Saved for all clusters and "
+                      "future sessions. Inside Klotse, a session is a tab in Logs && activity and ends when the tab is closed.")
         hint.setWordWrap(True)
         form.addRow(hint)
+        self.where = QComboBox()
+        self.where.addItems(["External terminal", "Inside Klotse"])
+        self.where.setCurrentIndex(1 if settings.embedded else 0)
+        form.addRow("Open shells in", self.where)
+        self.where_note = QLabel("" if embedded_terminal.available() else
+                                 "The embedded terminal (termqt) is not installed here, so an external terminal is used.")
+        self.where_note.setWordWrap(True)
+        self.where_note.setVisible(bool(self.where_note.text()))
+        form.addRow(self.where_note)
+        self.mac_hint = QLabel("External terminal on macOS: Terminal or iTerm2 (must be installed). Successful sessions close "
+                               "automatically; errors stay visible until Enter is pressed.")
+        self.mac_hint.setWordWrap(True)
         self.terminal = QComboBox()
         self.terminal.addItems(["Terminal", "iTerm2"])
         self.terminal.setCurrentText(settings.mac_terminal)
+        form.addRow(self.mac_hint)
         form.addRow("macOS terminal", self.terminal)
+        if sys.platform != "darwin":
+            for widget in (self.mac_hint, self.terminal):
+                widget.hide()
+            form.labelForField(self.terminal).hide()
 
     def save(self):
         self.settings.set_mac_terminal(self.terminal.currentText())
+        self.settings.set_embedded(self.where.currentIndex() == 1)

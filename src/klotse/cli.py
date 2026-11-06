@@ -67,12 +67,21 @@ def _self_test_checks():
             raise RuntimeError("; ".join(failed))
         return f"{len(manager.loaded)} bundled plugin(s) load"
 
+    def embedded_terminal():
+        # the embedded terminal (termqt, qtpy and, on Windows, pywinpty) must be in the package
+        from .ui import embedded_terminal as et
+        if not et.available():
+            raise RuntimeError("termqt (or pywinpty on Windows) cannot be imported")
+        from termqt import Terminal  # noqa: F401
+        return "termqt loads"
+
     def kubectl():
         found = shutil.which("kubectl")
         return found or "not found on PATH (needed for shells, attach and drain)"
 
     return [("version", lambda: __version__), ("mode", frozen), ("imports", imports), ("qt", qt), ("logo", logo),
-            ("about dialog", dialog), ("plugins", plugins), ("kubectl", kubectl)]
+            ("about dialog", dialog), ("plugins", plugins), ("embedded terminal", embedded_terminal),
+            ("kubectl", kubectl)]
 
 
 def self_test(report_file=None):

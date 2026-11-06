@@ -66,6 +66,7 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
 - **Edit menu and Preferences.** Undo/redo/cut/copy/paste/select all (Copy in a table copies the selected rows as
   tab-separated text). Preferences lets you choose a custom kubeconfig and open the settings folder.
 - **macOS.** Choose Terminal or iTerm2 for shells (Preferences → Terminal).
+- **Shells inside Klotse.** Preferences → Terminal → *Open shells in* → *Inside Klotse* opens pod shells, attach sessions and node shells as tabs in the Logs & activity pane (off by default; uses [termqt](https://github.com/TerryGeng/termqt), LGPL-2.1+). It supports a subset of xterm, so full-screen programs may not draw perfectly; the external terminal stays available.
 
 ## Screenshots
 
@@ -110,7 +111,7 @@ general settings, and applies changes at once.
 - A kubeconfig with at least one context (or pick one in Edit → Preferences)
 - [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH`, for drain, shells, attach and port-forward
 - [`helm`](https://helm.sh/docs/intro/install/) on your `PATH`, only to uninstall a Helm release
-- Python dependencies (installed by the launchers): `PySide6-Essentials`, `kubernetes`, `PyYAML`
+- Python dependencies (installed by the launchers): `PySide6-Essentials`, `kubernetes`, `PyYAML`, `termqt`
 
 ## Install
 
