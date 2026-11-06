@@ -161,6 +161,8 @@ Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, an
 
 ### Tables, ages, and labels
 
+- **Go to.** The right-click menu of a single row offers navigation (`ResourceTable._goto_menu`, signal `goto_requested(what, name)`, handled by `ClusterWorkspace.go_to`; it never changes anything, so read-only mode allows it): **Go to node X** on a pod that is scheduled (opens the Nodes list and selects that node through `ResourceTable.select_when_loaded`, which keeps the wish until the list has loaded and drops it after that load, found or not, so a later reload never jumps), and **Go to namespace Y** on any namespaced object (scopes the toolbar to it and opens its pods, like double-clicking it in the Namespaces list; an unknown namespace is reported in the status bar and nothing moves). The Namespaces and Nodes lists have no such entries. New tables that should offer it connect `goto_requested` to `go_to`. Tested in `tests/test_go_to.py`.
+
 - Age sorting compares numeric durations, while display retains compact strings. Oldest-first examples: `1d`, `8h`, `35m`. Both sort directions work. Missing/unrecognized ages use a sort value of `-1`.
 - Numeric CPU/memory values remain numeric for sorting, with separate display formatting.
 - Nodes filter across visible values plus label and annotation keys/values. Cached metadata search text is rebuilt when rows change.
