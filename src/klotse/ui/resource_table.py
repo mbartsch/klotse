@@ -24,6 +24,7 @@ class ResourceTable(QWidget):
     refresh_requested = Signal()  # right-click > Refresh
     refresh_mode_requested = Signal(bool)  # right-click > Refresh automatically (checked = True)
     port_forward_requested = Signal(str, object)  # a Pod or Service: forward one of its ports to this computer
+    copy_files_requested = Signal(object)  # a Pod: copy files between this computer and a container
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
@@ -381,6 +382,8 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
             if self.kind in ("Pod", "Service"):
                 menu.addAction("Port forward…", lambda: self.port_forward_requested.emit(self.kind, row))
+            if self.kind == "Pod":
+                menu.addAction("Copy files…", lambda: self.copy_files_requested.emit(row))
             if self.kind == "Node":
                 menu.addSeparator()
                 menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))

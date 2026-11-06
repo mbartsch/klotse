@@ -14,7 +14,7 @@ def test_the_pod_bar_has_one_actions_button_with_a_menu(qtbot):
     qtbot.addWidget(bar)
     assert bar.menu_button.text() == "Actions"
     labels = [a.text() for a in bar.menu_button.menu().actions() if not a.isSeparator()]
-    assert labels == ["Logs", "Edit…", "Terminate…", "Force terminate…"]
+    assert labels == ["Logs", "Edit…", "Copy files…", "Terminate…", "Force terminate…"]
     assert sum(1 for a in bar.menu_button.menu().actions() if a.isSeparator()) == 1  # the destructive ones are set apart
 
 
