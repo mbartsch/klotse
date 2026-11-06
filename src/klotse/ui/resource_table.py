@@ -9,6 +9,7 @@ from .table_model import TableModel
 
 
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
+RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
 NOT_CUSTOMIZABLE = {"Container", "CustomResource"}  # per-pod container rows and dynamic CR columns keep fixed columns
 
 
@@ -16,6 +17,7 @@ class ResourceTable(QWidget):
     selected = Signal(object)  # row dataclass
     edit_requested = Signal(str, object)  # kind, row dataclass
     scale_requested = Signal(str, object)
+    restart_requested = Signal(str, object)
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
@@ -255,6 +257,8 @@ class ResourceTable(QWidget):
         bulk = lambda action: (lambda: self.bulk_requested.emit(self.kind, action, rows))
         if self.kind in SCALABLE:
             menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
+        if self.kind in RESTARTABLE:
+            menu.addAction(f"Restart {n} {self.kind}s…", bulk("restart"))
         if self.kind in DELETABLE_KINDS:
             menu.addAction(f"Delete {n} {self.kind}s…", bulk("delete"))
         if self.kind == "Pod":
@@ -303,6 +307,8 @@ class ResourceTable(QWidget):
                 menu.addAction("Edit…", lambda: self.edit_requested.emit(self.kind, row))
             if self.kind in SCALABLE:
                 menu.addAction("Scale…", lambda: self.scale_requested.emit(self.kind, row))
+            if self.kind in RESTARTABLE:
+                menu.addAction("Restart…", lambda: self.restart_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS:
                 menu.addAction("Delete…", lambda: self.action_requested.emit("delete", row))
             if self.kind == "Node":
