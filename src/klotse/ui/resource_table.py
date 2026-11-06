@@ -18,6 +18,7 @@ class ResourceTable(QWidget):
     edit_requested = Signal(str, object)  # kind, row dataclass
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
+    goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
@@ -143,6 +144,30 @@ class ResourceTable(QWidget):
         self._restore_selection(*kept)
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
         self.rows_set.emit(self.model.rows)
+        self._apply_goto(final=True)
+
+    # ---- "Go to ..." from another list: select a named row, now or as soon as the list has loaded -----------
+    def select_when_loaded(self, name, namespace=""):
+        """Select (and scroll to) the row with this name, so Details shows it. When the list has not loaded it yet the
+        wish is kept for the next load; after that load it is dropped, found or not."""
+        self._goto = (name, namespace)
+        self._apply_goto(final=False)
+
+    def _apply_goto(self, final):
+        wish = getattr(self, "_goto", None)
+        if wish is None:
+            return
+        name, namespace = wish
+        for source_row, row in enumerate(self.model.rows):
+            if row.name == name and (not namespace or getattr(row, "namespace", "") == namespace):
+                index = self.proxy.mapFromSource(self.model.index(source_row, 0))
+                if index.isValid():  # a row hidden by the filter cannot be selected
+                    self._goto = None
+                    self.view.selectRow(index.row())
+                    self.view.scrollTo(index)
+                    return
+        if final:
+            self._goto = None
 
     @staticmethod
     def _row_key(row):
@@ -271,6 +296,19 @@ class ResourceTable(QWidget):
             menu.addAction(f"Delete {n} nodes…", bulk("delete-node"))
             menu.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
 
+    def _goto_menu(self, menu, row):
+        """'Go to node ...' for a pod that has one, 'Go to namespace ...' for any namespaced object (a Namespace's own list
+        has its Show pods entry instead). Navigation only: it never changes anything, so it is also offered read-only."""
+        node = getattr(row, "node", "") if self.kind == "Pod" else ""
+        namespace = getattr(row, "namespace", "") if self.kind not in ("Namespace", "Node") else ""
+        if not node and not namespace:
+            return
+        menu.addSeparator()
+        if node:
+            menu.addAction(f"Go to node {node}", lambda: self.goto_requested.emit("node", node))
+        if namespace:
+            menu.addAction(f"Go to namespace {namespace}", lambda: self.goto_requested.emit("namespace", namespace))
+
     def _plugin_menu(self, menu, rows):
         """Entries plugins add for these rows: one submenu per plugin, or flat for a plugin with a single action."""
         groups = self.plugin_actions(self.kind, rows) if self.plugin_actions is not None else []
@@ -335,6 +373,8 @@ class ResourceTable(QWidget):
                 menu.addSeparator()
                 menu.addAction("Terminate…", lambda: self.action_requested.emit("terminate", row))
                 menu.addAction("Force terminate…", lambda: self.action_requested.emit("force-terminate", row))
+        if idx.isValid():
+            self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
             menu.addAction("Browse instances", lambda: self.action_requested.emit("open-crd", row))
         if self.kind == "Namespace":

@@ -175,6 +175,7 @@ class ClusterWorkspace(QMainWindow):
             if isinstance(widget, OverviewView):  # pending/failed pods listed on an overview behave like the Pods tab
                 widget.pods_table.edit_requested.connect(self.edit_resource)
                 widget.pods_table.action_requested.connect(self.pod_action)
+                widget.pods_table.goto_requested.connect(self.go_to)
                 widget.pods_table.bulk_requested.connect(self.bulk_action)
             if isinstance(widget, ResourceTable):
                 if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS, *NETWORK_KINDS):  # these kinds can be created from their list
@@ -185,6 +186,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
                 widget.restart_requested.connect(self.restart_resource)
+                widget.goto_requested.connect(self.go_to)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
@@ -525,6 +527,7 @@ class ClusterWorkspace(QMainWindow):
             table = ResourceTable(columns, "CustomResource", editable=False)
             table.view_key = key
             table.selected.connect(self.detail.show_row)
+            table.goto_requested.connect(self.go_to)
             self.views[key] = (table, f"{kind}")
             if special:
                 load = lambda ns: self.service.list_custom_objects(group, version, plural, namespaced, ns, kind)
@@ -550,6 +553,19 @@ class ClusterWorkspace(QMainWindow):
                    for r in resources or []]
         if entries:
             self.karpenter_found.emit(entries)
+
+    def go_to(self, what, name):
+        """A row's right-click 'Go to node ...' / 'Go to namespace ...': take the user there. A node opens the Nodes list with
+        that node selected (Details shows it); a namespace scopes the toolbar to it and opens its pods, like double-clicking it
+        in the Namespaces list."""
+        if what == "node":
+            self.open_view("nodes")
+            self.node_table.select_when_loaded(name)
+        elif what == "namespace":
+            if self.set_namespace(name):
+                self.open_view("pods")
+            else:
+                self.message.emit(f"{self.context}: namespace {name} is not in the list (refresh and try again)")
 
     def _namespace_action(self, action, row):
         if action == "open-namespace":  # double-click / "Show pods": scope the toolbar to it and open its pods
@@ -1212,6 +1228,7 @@ class ClusterWorkspace(QMainWindow):
             table.selected.connect(self.detail.show_row)
             table.edit_requested.connect(self.edit_resource)
             table.action_requested.connect(self.pod_action)
+            table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
             self.loaders[key] = (lambda _: self.service.list_node_pods(node), False, table.set_rows)
