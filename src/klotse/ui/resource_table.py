@@ -19,6 +19,7 @@ class ResourceTable(QWidget):
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
     history_requested = Signal(str, object)  # a Deployment's rollout history / undo
+    port_forward_requested = Signal(str, object)  # a Pod or Service: forward one of its ports to this computer
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
@@ -339,6 +340,8 @@ class ResourceTable(QWidget):
                 menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS:
                 menu.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
+            if self.kind in ("Pod", "Service"):
+                menu.addAction("Port forward…", lambda: self.port_forward_requested.emit(self.kind, row))
             if self.kind == "Node":
                 menu.addSeparator()
                 menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))

@@ -10,7 +10,7 @@ Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the re
 | 2 | More resource kinds: HPA, PDB, ResourceQuota, LimitRange, Endpoints/EndpointSlice, PriorityClass, webhook configurations, Leases (**done**, #52) | all | Small each (a `Spec` entry plus a mapper) |
 | 3 | Apply YAML / create any resource (**done**, #69) | Lens, Headlamp | Small |
 | 4 | "Can I?" permission check for the current user (**done**: check and rules list #68; menu entries the rules forbid carry a "(not allowed for you)" note, not hidden or disabled, #54) | Headlamp, k9s | Small |
-| 5 | Port-forward (pod or service) with a list of active forwards | Aptakube, Lens, Headlamp, k9s | Medium |
+| 5 | Port-forward (pod or service) with a list of active forwards (**done**, #55) | Aptakube, Lens, Headlamp, k9s | Medium |
 | 6 | Related objects and owners (Deployment, ReplicaSet, Pods; Service, Endpoints) | k9s, Lens | Medium |
 | 7 | Search across kinds and namespaces | Lens, k9s | Medium |
 | 8 | Helm releases: list, values, history, uninstall | Aptakube, Lens | Medium (release Secrets or the `helm` CLI) |

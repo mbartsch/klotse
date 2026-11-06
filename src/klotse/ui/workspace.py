@@ -25,6 +25,7 @@ from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
 from .permissions_dialog import PermissionsDialog
+from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
@@ -103,6 +104,7 @@ class ClusterWorkspace(QMainWindow):
         self._pending_loads = set()
         self._closed = False
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
+        self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self._ready = False  # set once connected
@@ -193,6 +195,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.restart_requested.connect(self.restart_resource)
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.goto_requested.connect(self.go_to)
+                widget.port_forward_requested.connect(self.start_port_forward)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
@@ -687,6 +690,7 @@ class ClusterWorkspace(QMainWindow):
     def shutdown(self):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
+        self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
         self._auto_timer.stop()
         self._node_pods_timer.stop()
         self._stop_watchers()
@@ -708,6 +712,35 @@ class ClusterWorkspace(QMainWindow):
         w.signals.result.connect(lambda r: done(on_result, r))
         w.signals.error.connect(lambda m: done(on_error or self._on_error, m))
         self.pool.start(w)
+
+    def port_forward_dialog(self, kind, row):
+        return PortForwardDialog(kind, row.name, row.namespace, forward_ports(kind, row.raw), self)
+
+    def start_port_forward(self, kind, row):
+        """Right-click > Port forward… on a pod or service: ask for the ports, start `kubectl port-forward` and show the list.
+        It changes nothing in the cluster, so a read-only cluster allows it."""
+        dialog = self.port_forward_dialog(kind, row)
+        accepted = dialog.exec() == QDialog.Accepted
+        local, remote = getattr(dialog, "result_ports", (0, 0))
+        dialog.deleteLater()
+        if not accepted:
+            return None
+        forward = self.port_forwards.start(self.context, row.namespace, kind, row.name, remote, local, kubeconfig=self.kubeconfig)
+        self.message.emit(f"{self.context}: forwarding {forward.target} port {remote}…")
+        self.show_port_forwards()
+        return forward
+
+    def show_port_forwards(self):
+        """Bring the Port forwards tab of the Logs & activity dock to the front, creating it on first use."""
+        for i in range(self.log_tabs.count()):
+            if getattr(self.log_tabs.widget(i), "key", None) == PortForwardPanel.key:
+                self.log_tabs.setCurrentIndex(i)
+                break
+        else:
+            panel = PortForwardPanel(self.port_forwards)
+            self.log_tabs.setCurrentIndex(self.log_tabs.addTab(panel, "Port forwards"))
+            self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab stops every forward")
+        self.log_dock.show()
 
     def show_apply_yaml(self):
         """File > Apply YAML…: paste or open manifests, check them with the server and apply them (server-side apply)."""
@@ -1327,6 +1360,7 @@ class ClusterWorkspace(QMainWindow):
             table.edit_requested.connect(self.edit_resource)
             table.action_requested.connect(self.pod_action)
             table.permission_check = self.permission_for
+            table.port_forward_requested.connect(self.start_port_forward)
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
