@@ -1,6 +1,7 @@
 """View > My permissions…: the user's own rules in a namespace and a Can I? check."""
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtWidgets import QDialog
 
 from klotse.k8s import client as k8s_client
@@ -46,9 +47,10 @@ def service(monkeypatch, status):
     return svc, auth
 
 
-def test_the_service_turns_the_rules_review_into_plain_data(monkeypatch):
+@pytest.mark.parametrize("spelling", ["non_resource_urls", "non_resource_ur_ls"])  # the client renamed it
+def test_the_service_turns_the_rules_review_into_plain_data(monkeypatch, spelling):
     status = SimpleNamespace(resource_rules=[SimpleNamespace(verbs=["get"], api_groups=[""], resources=["pods"], resource_names=None)],
-                             non_resource_rules=[SimpleNamespace(verbs=["get"], non_resource_ur_ls=["/healthz"])],
+                             non_resource_rules=[SimpleNamespace(verbs=["get"], **{spelling: ["/healthz"]})],
                              incomplete=True, evaluation_error=None)
     svc, auth = service(monkeypatch, status)
     got = svc.my_permissions("shop")
@@ -178,3 +180,15 @@ def test_the_view_menu_entry_needs_a_cluster_in_front(qtbot, tmp_path):
     win.workspace("ctx").show_permissions = lambda: asked.append(True)
     view.aboutToShow.emit()
     assert win.permissions_action.isEnabled() and win.show_permissions() is True and asked == [True]
+
+
+def test_the_real_client_model_objects_are_understood(monkeypatch):
+    """Built from the installed client's own classes, so a renamed attribute shows up here and not in front of a user."""
+    status = k8s_client.client.V1SubjectRulesReviewStatus(
+        incomplete=False,
+        resource_rules=[k8s_client.client.V1ResourceRule(verbs=["get"], api_groups=[""], resources=["pods"])],
+        non_resource_rules=[k8s_client.client.V1NonResourceRule(verbs=["get"], non_resource_urls=["/healthz"])])
+    svc, _ = service(monkeypatch, status)
+    got = svc.my_permissions("shop")
+    assert got["urls"] == [{"verbs": ["get"], "urls": ["/healthz"]}]
+    assert got["resources"] == [{"verbs": ["get"], "groups": [""], "resources": ["pods"], "names": []}]

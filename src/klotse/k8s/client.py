@@ -280,7 +280,10 @@ class KubeService:
         return {
             "resources": [{"verbs": r.verbs or [], "groups": r.api_groups or [], "resources": r.resources or [],
                            "names": r.resource_names or []} for r in status.resource_rules or []],
-            "urls": [{"verbs": r.verbs or [], "urls": r.non_resource_ur_ls or []} for r in status.non_resource_rules or []],
+            # the client renamed non_resource_ur_ls to non_resource_urls (v30-ish): accept both spellings
+            "urls": [{"verbs": r.verbs or [],
+                      "urls": getattr(r, "non_resource_urls", None) or getattr(r, "non_resource_ur_ls", None) or []}
+                     for r in status.non_resource_rules or []],
             "incomplete": bool(status.incomplete), "error": status.evaluation_error or ""}
 
     def can_i(self, verb, group, resource, namespace, name=""):
