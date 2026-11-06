@@ -2,7 +2,7 @@
 
 Features other Kubernetes desktop tools have and Klotse does not yet. Items marked **done** are merged; the others are not implemented. The list comes from comparing Klotse's source with Aptakube, Headlamp, Lens/Freelens and k9s (the first two from their public pages and release notes, the last two from memory, not re-checked). Each item is tracked as a GitHub issue labelled `enhancement` and is meant to be done gradually, one pull request each.
 
-**Status on 2026-11-06.** Done and merged: 1, 2, 3, 4, 5, 6, 8, 9, 13, 19, 30, 33, 34 and 35 (including the automatic-refresh defaults: only workloads and nodes refresh by themselves). Open issues: #57 (item 7, search), #60 (10, embedded terminal; termqt or xterm.js is the owner's decision), #61 (11, metrics charts), #62 (12, several clusters side by side), #63 and #64 (the Azure and GCP plugins). Ideas 14-18, 20-29, 31, 32 and 36-38 have no issue yet: file one, with an effort label, before starting one. "Done" means merged with tests; none of it has been run against a live cluster. Every issue carries `enhancement` and an effort label.
+**Status on 2026-11-06.** Done and merged: 1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 19, 30, 33, 34 and 35 (including the automatic-refresh defaults: only workloads and nodes refresh by themselves). Open issues: #60 (10, embedded terminal; termqt or xterm.js is the owner's decision), #61 (11, metrics charts), #62 (12, several clusters side by side), #63 and #64 (the Azure and GCP plugins). Ideas 14-18, 20-29, 31, 32 and 36-38 have no issue yet: file one, with an effort label, before starting one. "Done" means merged with tests; none of it has been run against a live cluster. Every issue carries `enhancement` and an effort label.
 
 | # | Item | Seen in | Effort |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@ Features other Kubernetes desktop tools have and Klotse does not yet. Items mark
 | 4 | "Can I?" permission check for the current user (**done**: check and rules list #68; menu entries the rules forbid carry a "(not allowed for you)" note, not hidden or disabled, #54) | Headlamp, k9s | Small |
 | 5 | Port-forward (pod or service) with a list of active forwards (**done**, #55) | Aptakube, Lens, Headlamp, k9s | Medium |
 | 6 | Related objects and owners (Deployment, ReplicaSet, Pods; Service, Endpoints) (**done**, #56) | k9s, Lens | Medium |
-| 7 | Search across kinds and namespaces | Lens, k9s | Medium |
+| 7 | Search across kinds and namespaces (**done**, #57) | Lens, k9s | Medium |
 | 8 | Helm releases: list, values, history, uninstall (**done**, #58; rollback and install are not) | Aptakube, Lens | Medium (release Secrets or the `helm` CLI) |
 | 9 | File copy to and from a pod (**done**, #59) | Lens, k9s | Small to medium |
 | 10 | Embedded terminal (termqt or xterm.js: the owner's decision is open) | Lens, Aptakube | Medium to large |

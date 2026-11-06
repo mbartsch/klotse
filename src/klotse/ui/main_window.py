@@ -76,7 +76,13 @@ class MainWindow(QMainWindow):
         self.permissions_action.setToolTip("What you may do in the namespace of the cluster in front, and a Can I? check")
         self.permissions_action.triggered.connect(self.show_permissions)
         view_menu.addAction(self.permissions_action)
+        self.search_action = QAction("Search objects…", self)
+        self.search_action.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self.search_action.setToolTip("Find objects by name, label, kind or namespace across the cluster in front")
+        self.search_action.triggered.connect(self.show_search)
+        view_menu.addAction(self.search_action)
         view_menu.aboutToShow.connect(lambda: self.permissions_action.setEnabled(self.clusters.currentWidget() is not None))
+        view_menu.aboutToShow.connect(lambda: self.search_action.setEnabled(self.clusters.currentWidget() is not None))
         self.read_only_action = QAction("Read-only mode", self, checkable=True)
         self.read_only_action.setToolTip("Refuse every change to the cluster in front (useful for production); kept for next time")
         self.read_only_action.triggered.connect(self.set_read_only)
@@ -228,6 +234,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_apply_yaml()
+        return True
+
+    def show_search(self):
+        """View > Search objects…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_search()
         return True
 
     def show_permissions(self):

@@ -9,7 +9,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import helm, related, rollout
+from . import helm, related, rollout, search
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
@@ -460,6 +460,60 @@ class KubeService:
             token = (page.get("metadata") or {}).get("continue")
             if not token:
                 return [map_helm_release(row) for row in helm.release_rows(items)]
+
+    def search_objects(self, text, namespace=None, cancel=None, limit=search.HIT_LIMIT):
+        """Find objects by name, label, kind or namespace across the common kinds (see `k8s/search.py` for the query words).
+        Only metadata is requested (PartialObjectMetadataList), so no Secret data and no pod spec is transferred, a label term
+        is also sent as a label selector, and nothing is kept. Bounded: at most `limit` hits, `search.MAX_PAGES` pages of
+        `search.PAGE_LIMIT` objects per kind. Returns ([Hit], [note]); a kind that cannot be listed (no permission) is
+        left out with a note, never an error. `cancel` is an object with is_set(), checked between pages."""
+        query = search.parse_query(text)
+        notes = [f"'{w}' is not a kind that is searched." for w in query.unknown_kinds]
+        if query.empty:
+            return [], notes
+        if namespace:
+            query.namespaces = [namespace] if not query.namespaces else query.namespaces
+        accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+        hits = []
+        for kind, api, infix, namespaced in search.kinds_for(query):
+            if cancel is not None and cancel.is_set():
+                break
+            client_api = self._apis[api]
+            if not namespaced:
+                calls = [(getattr(client_api, f"list_{infix}"), ())]
+            elif len(query.namespaces) == 1:
+                calls = [(getattr(client_api, f"list_namespaced_{infix}"), (query.namespaces[0],))]
+            else:  # all namespaces; several `ns:` terms are filtered here
+                calls = [(getattr(client_api, f"list_{infix}_for_all_namespaces"), ())]
+            extra = {"label_selector": query.label_selector} if query.labels else {}
+            for fn, args in calls:
+                token, pages = None, 0
+                try:
+                    while True:
+                        reply = fn(*args, limit=search.PAGE_LIMIT, _continue=token, _request_timeout=30, _preload_content=False,
+                                   _headers={"Accept": accept}, **extra)
+                        page = json.loads(reply.data)
+                        for item in page.get("items") or []:
+                            meta = item.get("metadata") or {}
+                            if search.matches(meta, query):
+                                hits.append(search.Hit(kind, meta.get("namespace", ""), meta.get("name", ""),
+                                                       meta.get("creationTimestamp", ""), meta.get("labels") or {}))
+                                if len(hits) >= limit:
+                                    notes.append(f"Showing the first {limit} matches: narrow the search to see others.")
+                                    return hits, notes
+                        token = (page.get("metadata") or {}).get("continue")
+                        pages += 1
+                        if not token:
+                            break
+                        if pages >= search.MAX_PAGES or (cancel is not None and cancel.is_set()):
+                            if pages >= search.MAX_PAGES:
+                                notes.append(f"{kind}: only the first {pages * search.PAGE_LIMIT} objects were searched.")
+                            break
+                except ApiException as e:
+                    notes.append(f"{kind}: not searched ({'no permission' if e.status == 403 else f'error {e.status}'}).")
+                except (ValueError, OSError) as e:
+                    notes.append(f"{kind}: not searched ({type(e).__name__}).")
+        return hits, notes
 
     def helm_release(self, namespace, name):
         """One release in detail: {summary of the newest revision, values_user, values_all, history (newest first), skipped}.
