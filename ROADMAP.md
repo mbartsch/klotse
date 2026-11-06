@@ -9,7 +9,7 @@ Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the re
 | 1 | Rollout restart (**done**, #66) for Deployments, StatefulSets and DaemonSets; history and undo (**done** for Deployments only; StatefulSets and DaemonSets would need ControllerRevisions) | Lens, k9s, Aptakube | Small (patch an annotation) |
 | 2 | More resource kinds: HPA, PDB, ResourceQuota, LimitRange, Endpoints/EndpointSlice, PriorityClass, webhook configurations, Leases (**done**, #52) | all | Small each (a `Spec` entry plus a mapper) |
 | 3 | Apply YAML / create any resource (**done**, #69) | Lens, Headlamp | Small |
-| 4 | "Can I?" permission check for the current user (check and rules list **done**, #68; greying out forbidden actions not done) | Headlamp, k9s | Small |
+| 4 | "Can I?" permission check for the current user (**done**: check and rules list #68; menu entries the rules forbid carry a "(not allowed for you)" note, not hidden or disabled, #54) | Headlamp, k9s | Small |
 | 5 | Port-forward (pod or service) with a list of active forwards | Aptakube, Lens, Headlamp, k9s | Medium |
 | 6 | Related objects and owners (Deployment, ReplicaSet, Pods; Service, Endpoints) | k9s, Lens | Medium |
 | 7 | Search across kinds and namespaces | Lens, k9s | Medium |

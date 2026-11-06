@@ -31,6 +31,7 @@ class ResourceTable(QWidget):
 
     def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
+        self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
             customizable = kind not in NOT_CUSTOMIZABLE
         self.kind = kind
@@ -273,6 +274,16 @@ class ResourceTable(QWidget):
             menu.addAction(f"Delete {n} nodes…", bulk("delete-node"))
             menu.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
 
+    NOT_ALLOWED = "  (not allowed for you)"
+
+    def _hint(self, text, action, row, kind=None):
+        """`text`, with a note when the rules the server reported say this user may not do `action` here. It is only a note:
+        the entry stays clickable (the rules can be incomplete) and the server has the last word."""
+        check = self.permission_check
+        if check is not None and check(kind or self.kind, action, row) is False:
+            return text + self.NOT_ALLOWED
+        return text
+
     def _goto_menu(self, menu, row):
         """'Go to node ...' for a pod that has one, 'Go to namespace ...' for any namespaced object (a Namespace's own list
         has its Show pods entry instead). Navigation only: it never changes anything, so it is also offered read-only."""
@@ -319,39 +330,41 @@ class ResourceTable(QWidget):
                 return
             row = self.model.rows[self.proxy.mapToSource(idx).row()]
             if self.editable:
-                menu.addAction("Edit…", lambda: self.edit_requested.emit(self.kind, row))
+                menu.addAction(self._hint("Edit…", "edit", row), lambda: self.edit_requested.emit(self.kind, row))
             if self.kind in SCALABLE:
-                menu.addAction("Scale…", lambda: self.scale_requested.emit(self.kind, row))
+                menu.addAction(self._hint("Scale…", "scale", row), lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:
-                menu.addAction("Restart…", lambda: self.restart_requested.emit(self.kind, row))
+                menu.addAction(self._hint("Restart…", "restart", row), lambda: self.restart_requested.emit(self.kind, row))
             if self.kind == "Deployment":
                 menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS:
-                menu.addAction("Delete…", lambda: self.action_requested.emit("delete", row))
+                menu.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
             if self.kind == "Node":
                 menu.addSeparator()
                 menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))
                 cordoned = (row.raw.get("spec") or {}).get("unschedulable", False)
                 action = "uncordon" if cordoned else "cordon"
-                menu.addAction("Uncordon…" if cordoned else "Cordon…",
+                menu.addAction(self._hint("Uncordon…" if cordoned else "Cordon…", "cordon", row),
                                lambda: self.action_requested.emit(action, row))
-                menu.addAction("Drain…", lambda: self.action_requested.emit("drain", row))
+                menu.addAction(self._hint("Drain…", "cordon", row), lambda: self.action_requested.emit("drain", row))
                 menu.addAction("Shell (nsenter)…", lambda: self.action_requested.emit("node-shell", row))
                 menu.addSeparator()
-                menu.addAction("Delete node…", lambda: self.action_requested.emit("delete-node", row))
-                menu.addAction("Force delete node…", lambda: self.action_requested.emit("force-delete-node", row))
+                menu.addAction(self._hint("Delete node…", "delete-node", row), lambda: self.action_requested.emit("delete-node", row))
+                menu.addAction(self._hint("Force delete node…", "delete-node", row),
+                               lambda: self.action_requested.emit("force-delete-node", row))
             if self.kind == "Container":
                 menu.addAction("Logs", lambda: self.action_requested.emit("logs", row))
                 menu.addAction("Connect (shell)…", lambda: self.action_requested.emit("shell", row))
                 menu.addAction("Attach…", lambda: self.action_requested.emit("attach", row))
             if self.kind == "Pod":
                 menu.addSeparator()
-                menu.addAction("Logs", lambda: self.action_requested.emit("logs", row))
-                menu.addAction("Connect (shell)…", lambda: self.action_requested.emit("shell", row))
-                menu.addAction("Attach…", lambda: self.action_requested.emit("attach", row))
+                menu.addAction(self._hint("Logs", "logs", row), lambda: self.action_requested.emit("logs", row))
+                menu.addAction(self._hint("Connect (shell)…", "shell", row), lambda: self.action_requested.emit("shell", row))
+                menu.addAction(self._hint("Attach…", "attach", row), lambda: self.action_requested.emit("attach", row))
                 menu.addSeparator()
-                menu.addAction("Terminate…", lambda: self.action_requested.emit("terminate", row))
-                menu.addAction("Force terminate…", lambda: self.action_requested.emit("force-terminate", row))
+                menu.addAction(self._hint("Terminate…", "terminate", row), lambda: self.action_requested.emit("terminate", row))
+                menu.addAction(self._hint("Force terminate…", "terminate", row),
+                               lambda: self.action_requested.emit("force-terminate", row))
         if idx.isValid():
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
@@ -363,7 +376,7 @@ class ResourceTable(QWidget):
                 menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
             menu.addAction("New namespace…", self.new_requested.emit)
         if self.new_button is not None:
-            menu.addAction(f"New {self.kind}…", self.new_requested.emit)
+            menu.addAction(self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)
         if idx.isValid():  # plugin entries come last, after the built-in ones
             self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
         if not menu.isEmpty():

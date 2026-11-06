@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
+from ..k8s.permissions import Permissions
 from ..k8s.resources import CRD_GROUP_COLUMNS, DELETABLE_KINDS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns
 from ..plugins.host import PluginHost
 from ..workers import Worker
@@ -102,6 +103,7 @@ class ClusterWorkspace(QMainWindow):
         self._pending_loads = set()
         self._closed = False
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
+        self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self._ready = False  # set once connected
         self._opening = False
@@ -133,6 +135,8 @@ class ClusterWorkspace(QMainWindow):
         self.plugin_runner = PluginActionRunner(self) if plugins is not None else None
         self._build_views()
         self.apply_label_columns()
+        for table in self.resource_tables():
+            table.permission_check = self.permission_for
         self.label_settings.changed.connect(self.apply_label_columns)
         if self.plugin_host is not None:
             for table in self.resource_tables():
@@ -236,6 +240,7 @@ class ClusterWorkspace(QMainWindow):
         self.read_only_label.setToolTip("View > Read-only mode turns it off")
         self._read_only_action = bar.addWidget(self.read_only_label)
         self._read_only_action.setVisible(False)
+        self.ns_combo.currentIndexChanged.connect(lambda _=None: self._load_permissions() if self._ready else None)
         self.ns_combo.activated.connect(lambda _=None: self.load_scoped())
         self._sync_ns_selector()
 
@@ -722,6 +727,33 @@ class ClusterWorkspace(QMainWindow):
         dialog.run_requested.connect(run)
         dialog.applied.connect(self.refresh)
         return dialog
+
+    def permission_for(self, kind, action, row=None):
+        """True / False / None (cannot tell) for whether the user may do `action` (k8s.permissions.ACTIONS) on a `kind` row.
+        Only False is used, to add a note to a menu entry. The rules are those of one namespace, so a row from another
+        namespace (the all-namespaces node-pods tab) is not judged, and with All namespaces selected nothing is."""
+        found = self.permissions
+        if found is None:
+            return None
+        namespace = getattr(row, "namespace", "") or ""
+        if namespace and namespace != found.namespace:
+            return None
+        return found.allowed_action(kind, action)
+
+    def _load_permissions(self):
+        """Ask (quietly, in the background) what the user may do in the namespace in front, for the hints on menu entries.
+        Any failure, a service that cannot say, or All namespaces simply means no hints."""
+        namespace = self.namespace()
+        fetch = getattr(self.service, "my_permissions", None)
+        if fetch is None or namespace == ALL_NS:
+            self.permissions = None
+            return
+        self._run(fetch, lambda data, ns=namespace: self._set_permissions(ns, data), namespace,
+                  on_error=lambda _msg, ns=namespace: self._set_permissions(ns, None))
+
+    def _set_permissions(self, namespace, data):
+        if namespace == self.namespace():  # the answer for a namespace the user has left is dropped
+            self.permissions = Permissions(data, namespace) if data else None
 
     def show_permissions(self):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
@@ -1294,6 +1326,7 @@ class ClusterWorkspace(QMainWindow):
             table.selected.connect(self.detail.show_row)
             table.edit_requested.connect(self.edit_resource)
             table.action_requested.connect(self.pod_action)
+            table.permission_check = self.permission_for
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
@@ -1425,6 +1458,7 @@ class ClusterWorkspace(QMainWindow):
             self._node_pods_timer.start()
         self._sync_watch()
         self._find_karpenter()
+        self._load_permissions()
 
     def refresh(self):
         """Reload the foreground tab plus the namespace list that feeds the toolbar filter.
