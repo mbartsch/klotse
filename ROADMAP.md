@@ -15,7 +15,7 @@ Features other Kubernetes desktop tools have and Klotse does not yet. Items mark
 | 7 | Search across kinds and namespaces (**done**, #57) | Lens, k9s | Medium |
 | 8 | Helm releases: list, values, history, uninstall (**done**, #58; rollback and install are not) | Aptakube, Lens | Medium (release Secrets or the `helm` CLI) |
 | 9 | File copy to and from a pod (**done**, #59) | Lens, k9s | Small to medium |
-| 10 | Embedded terminal with termqt (**done**, #60; opt-in in Preferences > Terminal) | Lens, Aptakube | Medium to large |
+| 10 | Embedded terminal with xterm.js (MIT) in QtWebEngine (**done**, #60; opt-in in Preferences > Terminal) | Lens, Aptakube | Medium to large |
 | 11 | Metrics history charts (needs Prometheus; today only current values) | Lens, Aptakube | Large |
 | 12 | Several clusters side by side in one view | Aptakube | Large |
 

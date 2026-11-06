@@ -12,7 +12,7 @@ class TerminalSettings(QObject):
         self.store = settings if settings is not None else default_store()
         saved = self.store.value("terminal/macos", "Terminal")
         self.mac_terminal = saved if saved in ("Terminal", "iTerm2") else "Terminal"
-        # Where shells open: False = an external terminal (the default), True = a tab inside Klotse (termqt)
+        # Where shells open: False = an external terminal (the default), True = a tab inside Klotse (xterm.js)
         self.embedded = str(self.store.value("terminal/embedded", "false")).lower() == "true"
 
     def set_embedded(self, on):
@@ -50,7 +50,7 @@ class TerminalPanel(QWidget):
         self.where.setCurrentIndex(1 if settings.embedded else 0)
         form.addRow("Open shells in", self.where)
         self.where_note = QLabel("" if embedded_terminal.available() else
-                                 "The embedded terminal (termqt) is not installed here, so an external terminal is used.")
+                                 "The embedded terminal needs QtWebEngine (pip install \"klotse[terminal]\"); until then an external terminal is used.")
         self.where_note.setWordWrap(True)
         self.where_note.setVisible(bool(self.where_note.text()))
         form.addRow(self.where_note)

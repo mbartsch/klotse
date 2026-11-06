@@ -1,144 +1,200 @@
-"""Shell and attach sessions inside the Klotse window, using the termqt terminal widget (LGPL-2.1+, a pure Python Qt widget; on
-Windows its pseudo-terminal is pywinpty/ConPTY, elsewhere the standard `pty` module). A session is a tab in the Logs & activity dock
-running the same explicit-context kubectl command the external terminals run. termqt is optional at run time: without it (or when
-the pseudo-terminal cannot start) `ClusterWorkspace` opens the external terminal as before."""
+"""Shell and attach sessions inside the Klotse window: xterm.js (MIT, the engine behind VS Code's terminal) in a Qt web view, joined to
+a pseudo-terminal (`pty_session.PtySession`) by a QWebChannel. A session is a tab in the Logs & activity dock running the same
+explicit-context kubectl command the external terminals run. QtWebEngine (PySide6-Addons) is needed; without it `ClusterWorkspace`
+opens the external terminal as before. Output from the cluster only ever reaches the page as bytes handed to `term.write`, never as
+HTML, and the page cannot navigate away from the bundled files."""
+import base64
 import os
-import shlex
+import re
 import sys
+from pathlib import Path
+from urllib.parse import urlencode
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QUrl, Signal, Slot
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from . import theme
+from .pty_session import PtySession
 
-os.environ.setdefault("QT_API", "pyside6")  # termqt reaches Qt through qtpy, which must not pick another binding
+# A terminal needs no GPU: software rendering avoids driver trouble and the GPU process's memory. Read when QtWebEngine starts.
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
+ASSETS = Path(__file__).resolve().parent.parent / "assets" / "xterm"
+HEX = re.compile(r"#[0-9a-fA-F]{6}")
+MAX_PASTE = 1_000_000  # characters; a paste larger than this is cut (a runaway clipboard must not flood a shell)
+MAX_KEYS = 1_000_000
 
 
 def available():
-    """True when termqt (and, on Windows, pywinpty) can be imported."""
+    """True when QtWebEngine and the bundled xterm.js files can be used (and pywinpty on Windows)."""
     try:
-        import termqt  # noqa: F401
+        if not (ASSETS / "terminal.html").is_file() or not (ASSETS / "xterm.js").is_file():
+            return False
+        from PySide6.QtWebChannel import QWebChannel  # noqa: F401
+        from PySide6.QtWebEngineCore import QWebEnginePage  # noqa: F401
+        from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
         if sys.platform == "win32":
             import winpty  # noqa: F401
         return True
-    except Exception:  # an import error, or a binding qtpy cannot use; never fatal
+    except Exception:  # noqa: BLE001 - an import error or a missing DLL; never fatal
         return False
 
 
-def command_text(argv):
-    """argv as the one command string termqt's POSIX pseudo-terminal takes (it splits it again with shlex)."""
-    return shlex.join(argv)
+def hex_color(value, fallback):
+    """A '#rrggbb' text for a theme colour (QColor or text); the fallback when it is anything else."""
+    text = value.name() if hasattr(value, "name") else str(value)
+    return text if HEX.fullmatch(text) else fallback
 
 
-def make_io(argv, cols, rows):
-    """The termqt pseudo-terminal that will run `argv`. termqt's own POSIX class has two slips (`is_alive` misspells `self.pid`,
-    and the kill timer sleeps 3000 *seconds*), so a small subclass fixes them; its Windows exec class is broken, so the base is used."""
-    if sys.platform == "win32":
-        from termqt import TerminalWinptyIO
+def page_address(font_size=13):
+    """The terminal page with the theme's colours in its fragment (each is checked to be #rrggbb here and again in the page)."""
+    params = {"bg": hex_color(theme.BASE, "#0f1b1f"), "fg": hex_color(theme.TEXT, "#e6edf0"),
+              "sel": hex_color(theme.ACCENT, "#3d6670"), "cur": hex_color(theme.TEXT, "#e6edf0"), "size": str(int(font_size))}
+    url = QUrl.fromLocalFile(str(ASSETS / "terminal.html"))
+    url.setFragment(urlencode(params))
+    return url
 
-        class WinIO(TerminalWinptyIO):
-            def _read_loop(self):
-                try:  # winpty raises EOFError when the program ends; termqt only has a `finally` there, so it printed a traceback
-                    super()._read_loop()
-                except EOFError:
-                    pass
-        return WinIO(cols, rows, list(argv))  # winpty mangles a quoted string but takes an argv list as it is
-    from termqt import TerminalPOSIXExecIO
 
-    class PosixIO(TerminalPOSIXExecIO):
-        def is_alive(self):
-            try:
-                os.kill(self.pid, 0)
-                return True
-            except OSError:
-                self.running = False
-                return False
+class Bridge(QObject):
+    """What the page and Python say to each other. Only fixed slots; page input is typed and size-limited."""
+    output = Signal(str)  # base64 of program output -> term.write
+    notice = Signal(str)  # a line shown dimmed in the terminal ("Session ended")
+    pasteText = Signal(str)  # clipboard text -> term.paste
+    ready_signal = Signal(int, int)
+    keys_signal = Signal(str)
+    resized_signal = Signal(int, int)
 
-        def terminate(self):
-            if self.running:
-                import signal
-                import threading
-                import time
-                self.running = False
-                try:
-                    os.kill(self.pid, signal.SIGTERM)
-                except OSError:
-                    return
+    @Slot(int, int)
+    def ready(self, cols, rows):
+        self.ready_signal.emit(int(cols), int(rows))
 
-                def _kill_later():
-                    time.sleep(3)
-                    if self.is_alive():
-                        try:
-                            os.kill(self.pid, signal.SIGKILL)
-                        except OSError:
-                            pass
-                threading.Thread(target=_kill_later, daemon=True).start()
+    @Slot(str)
+    def keys(self, data):
+        self.keys_signal.emit(str(data)[:MAX_KEYS])
 
-    return PosixIO(cols, rows, command_text(argv), env=dict(os.environ))
+    @Slot(int, int)
+    def resized(self, cols, rows):
+        if 2 <= cols <= 1000 and 2 <= rows <= 1000:
+            self.resized_signal.emit(int(cols), int(rows))
+
+    @Slot(str)
+    def copy(self, text):
+        QGuiApplication.clipboard().setText(str(text)[:MAX_PASTE])
+
+    @Slot()
+    def requestPaste(self):
+        self.pasteText.emit((QGuiApplication.clipboard().text() or "")[:MAX_PASTE])
+
+
+def make_session(argv, cols, rows):
+    return PtySession(argv, cols, rows)
 
 
 class TerminalTab(QWidget):
-    """One session. `key` marks it for the dock; closing the tab calls `stop()`, which ends the process (and so no kubectl outlives
-    its tab). `io_factory(argv, cols, rows)` is replaceable for tests. `finished` fires once, when the process has ended."""
+    """One session. `key` marks it for the dock; closing the tab calls `stop()`, which ends the process (so no kubectl outlives its
+    tab). `session_factory(argv, cols, rows)` is replaceable for tests. `finished` fires once, when the process has ended."""
     finished = Signal()
-    _reader_done = Signal()
+    _program_output = Signal(bytes)
+    _program_exited = Signal()
     COLS, ROWS = 100, 28
 
-    def __init__(self, title, argv, io_factory=make_io, parent=None):
+    def __init__(self, title, argv, session_factory=make_session, parent=None):
         super().__init__(parent)
-        from termqt import Terminal
+        from PySide6.QtWebChannel import QWebChannel
+        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+
+        class LockedPage(QWebEnginePage):
+            def acceptNavigationRequest(self, url, kind, is_main_frame):
+                return url.isLocalFile() and url.path().endswith("terminal.html")  # nothing else, ever
+
         self.key = f"terminal:{title}"
         self.title = title
         self.argv = list(argv)
         self.ended = False
-        self.terminal = Terminal(640, 380, logger=None)
-        self.status = QLabel()
-        theme.muted(self.status)
-        self.status.hide()
+        self._error = ""
+        self._page_ready = False
+        self._pending = []  # output that arrived before the page was ready
+        self.session = session_factory(self.argv, self.COLS, self.ROWS)
+        self.session.on_output = self._program_output.emit  # from the reader thread; queued onto the GUI thread
+        self.session.on_exit = self._program_exited.emit
+        self._program_output.connect(self._show_output)
+        self._program_exited.connect(self._show_ended)
+
+        self.bridge = Bridge(self)
+        self.bridge.ready_signal.connect(self._on_ready)
+        self.bridge.keys_signal.connect(self.session.write)
+        self.bridge.resized_signal.connect(self.session.resize)
+        self.view = QWebEngineView(self)
+        self.page = LockedPage(self.view)
+        settings = self.page.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)  # reads xterm.js beside it
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
+        self.view.setPage(self.page)
+        self.channel = QWebChannel(self.page)
+        self.channel.registerObject("bridge", self.bridge)
+        self.page.setWebChannel(self.channel)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.terminal, 1)
-        layout.addWidget(self.status)
-        self.io = io_factory(self.argv, self.COLS, self.ROWS)
-        self.terminal.stdin_callback = self.io.write
-        self.terminal.resize_callback = self.io.resize
-        self.io.stdout_callback = self.terminal.stdout
-        self.io.terminated_callback = self._process_ended  # called from the reader thread
-        self._reader_done.connect(self._show_ended)  # emitted from the reader thread, delivered on the GUI thread
+        layout.addWidget(self.view)
+        self.view.setUrl(page_address())
 
-    def screen_text(self):
-        """Everything the terminal shows or has scrolled back, as text (for tests and a future Copy all)."""
-        return self.terminal._get_all_text_rstrip()
-
+    # ---- running ----------------------------------------------------------------------------------------------
     def start(self):
-        """Start the process; False (and the tab says why) when the pseudo-terminal cannot be created."""
+        """Start the process; False when the pseudo-terminal cannot be created (the page then says why)."""
         try:
-            self.io.spawn()
+            self.session.start()
         except Exception as e:  # noqa: BLE001 - whatever the platform's pty layer raises
-            self._ended(f"Could not start the session: {e}")
+            self.ended = True
+            self._error = f"Could not start the session: {e}"
             return False
-        if not getattr(self.io, "running", True):
-            self._ended("Could not start the session.")
-            return False
-        self.terminal.setFocus()
         return True
 
-    def _process_ended(self):
-        self._reader_done.emit()
+    def _on_ready(self, cols, rows):
+        self._page_ready = True
+        self.session.resize(cols, rows)
+        for chunk in self._pending:
+            self.bridge.output.emit(base64.b64encode(chunk).decode("ascii"))
+        self._pending.clear()
+        if self._error:
+            self.bridge.notice.emit(self._error)
+        elif self.ended:
+            self.bridge.notice.emit("Session ended. Close this tab.")
+
+    def _show_output(self, data):
+        if self._page_ready:
+            self.bridge.output.emit(base64.b64encode(data).decode("ascii"))
+        else:
+            self._pending.append(data)
 
     def _show_ended(self):
-        self._ended("Session ended. Close this tab.")
+        self.ended = True
+        if self._page_ready:
+            self.bridge.notice.emit("Session ended. Close this tab.")
         self.finished.emit()
 
-    def _ended(self, text):
-        self.ended = True
-        self.status.setText(text)
-        self.status.show()
+    def run_script(self, script, callback=None):
+        """Run JavaScript in the terminal page (tests, and `screen_text`)."""
+        if callback is None:
+            self.page.runJavaScript(script)
+        else:
+            self.page.runJavaScript(script, 0, callback)
+
+    def screen_text(self, callback):
+        """Everything the terminal holds (screen and scrollback) as text, passed to `callback`."""
+        self.run_script("(function(){if(typeof term==='undefined')return '';const b=term.buffer.active;let t=[];for(let i=0;i<b.length;i++)"
+                        "t.push(b.getLine(i).translateToString(true));return t.join('\\n').trimEnd();})()", callback)
+
+    def focus_terminal(self):
+        self.view.setFocus()
+        self.run_script("term.focus()")
 
     def stop(self):
         """Called when the tab is closed or the cluster is: end the process."""
+        self.ended = True
         try:
-            self.io.terminate()
+            self.session.stop()
         except Exception:  # noqa: BLE001 - already gone is fine
             pass
-        self.ended = True

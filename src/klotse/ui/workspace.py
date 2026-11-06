@@ -1681,7 +1681,7 @@ class ClusterWorkspace(QMainWindow):
         self._launch_terminal(argv, f"Opened {action}: {row.name}")
 
     def _launch_terminal(self, argv, message, title=None):
-        """Open an interactive kubectl session: a tab inside Klotse when Preferences > Terminal says so and termqt works, else
+        """Open an interactive kubectl session: a tab inside Klotse when Preferences > Terminal says so and QtWebEngine works, else
         the external terminal (the fallback also when the embedded session cannot start)."""
         if self.terminal_settings.embedded and embedded_terminal.available():
             if self.open_embedded_terminal(argv, message, title):
@@ -1689,13 +1689,13 @@ class ClusterWorkspace(QMainWindow):
         self._run(open_terminal, lambda _: self.message.emit(message), argv,
                   self.terminal_settings.mac_terminal)
 
-    def open_embedded_terminal(self, argv, message, title=None, io_factory=None):
+    def open_embedded_terminal(self, argv, message, title=None, session_factory=None):
         """A session tab in the Logs & activity dock; False when it could not start (the caller then uses the external terminal)."""
         name = title or message.replace("Opened ", "")
-        kwargs = {"io_factory": io_factory} if io_factory is not None else {}
+        kwargs = {"session_factory": session_factory} if session_factory is not None else {}
         try:
             tab = embedded_terminal.TerminalTab(name, argv, parent=self, **kwargs)
-        except Exception:  # noqa: BLE001 - termqt/qtpy trouble: use the external terminal
+        except Exception:  # noqa: BLE001 - QtWebEngine trouble: use the external terminal
             return False
         if not tab.start():
             tab.deleteLater()
@@ -1704,7 +1704,7 @@ class ClusterWorkspace(QMainWindow):
         self.log_tabs.setTabToolTip(index, " ".join(argv))
         self.log_tabs.setCurrentIndex(index)
         self.log_dock.show()
-        tab.terminal.setFocus()
+        tab.focus_terminal()
         self.message.emit(message)
         return True
 

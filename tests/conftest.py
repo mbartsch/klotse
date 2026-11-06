@@ -1,5 +1,9 @@
 import pytest
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QMessageBox
+
+# QtWebEngine (the embedded terminal) needs this set before the QApplication that pytest-qt creates
+QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 
 
 @pytest.fixture(autouse=True)

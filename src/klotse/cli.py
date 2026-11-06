@@ -68,12 +68,14 @@ def _self_test_checks():
         return f"{len(manager.loaded)} bundled plugin(s) load"
 
     def embedded_terminal():
-        # the embedded terminal (termqt, qtpy and, on Windows, pywinpty) must be in the package
+        # The embedded terminal needs QtWebEngine, the bundled xterm.js files and, on Windows, pywinpty. A packaged app must
+        # have them; a pip install has them only with the `terminal` extra, so there it is informational.
         from .ui import embedded_terminal as et
-        if not et.available():
-            raise RuntimeError("termqt (or pywinpty on Windows) cannot be imported")
-        from termqt import Terminal  # noqa: F401
-        return "termqt loads"
+        if et.available():
+            return "QtWebEngine and xterm.js are available"
+        if getattr(sys, "frozen", False):
+            raise RuntimeError("QtWebEngine, xterm.js or pywinpty is missing from the package")
+        return "not available (pip install \"klotse[terminal]\" adds it; an external terminal is used)"
 
     def kubectl():
         found = shutil.which("kubectl")

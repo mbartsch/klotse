@@ -3,6 +3,7 @@ import sys
 from threading import Timer
 from time import monotonic
 
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication
 
 from . import cli
@@ -42,6 +43,8 @@ def main(argv=None):
     environment.prepare_environment()  # macOS: make kubectl and auth helpers findable when started from Finder
     branding.set_windows_app_id()
     branding.set_macos_app_name()  # menu bar says Klotse, not Python, when run through the interpreter
+    # QtWebEngine (the embedded terminal) wants this set before the application exists; it costs nothing otherwise
+    QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
     theme.apply(app, theme.ThemeSettings(default_store()).selected())
     app.setApplicationName("Klotse")
