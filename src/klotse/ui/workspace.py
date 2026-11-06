@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
-from ..k8s.resources import DELETABLE_KINDS, SPECS
+from ..k8s.resources import DELETABLE_KINDS, SPECS, custom_columns
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
@@ -515,13 +515,17 @@ class ClusterWorkspace(QMainWindow):
         key = f"cr:{crd.plural}.{crd.group}"
         namespaced = crd.scope == "Namespaced"
         if key not in self.views:
-            columns = [("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")]
+            special = custom_columns(crd.group, crd.kind)  # e.g. Karpenter's NodePool and NodeClaim
+            columns = special or ([("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")])
             table = ResourceTable(columns, "CustomResource", editable=False)
             table.view_key = key
             table.selected.connect(self.detail.show_row)
             self.views[key] = (table, f"{crd.kind}")
-            self.loaders[key] = (lambda ns: self.service.list_custom_objects(crd.group, crd.version, crd.plural, namespaced, ns),
-                                 namespaced, table.set_rows)
+            if special:
+                load = lambda ns: self.service.list_custom_objects(crd.group, crd.version, crd.plural, namespaced, ns, crd.kind)
+            else:
+                load = lambda ns: self.service.list_custom_objects(crd.group, crd.version, crd.plural, namespaced, ns)
+            self.loaders[key] = (load, namespaced, table.set_rows)
         self.open_view(key)
 
     def _namespace_action(self, action, row):

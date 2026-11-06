@@ -198,10 +198,75 @@ def map_crd(c):
                  versions=",".join(v.name for v in sp.versions or [] if v.served))
 
 
-def map_custom_object(item, namespaced=True):
-    """Row for one instance of a custom resource (a plain dict from the CustomObjects API)."""
+def map_custom_object(item, namespaced=True, group=None, kind=None):
+    """Row for one instance of a custom resource (a plain dict from the CustomObjects API). For a well-known kind (see
+    CUSTOM_COLUMNS) the row also carries that kind's column values; a mapper that fails leaves them out."""
     meta = item.get("metadata") or {}
-    return Row(meta.get("name", ""), meta.get("namespace") or "", item, age=format_age(parse_timestamp(meta.get("creationTimestamp"))))
+    extra = {}
+    found = CUSTOM_COLUMNS.get((group, kind))
+    if found:
+        try:
+            extra = found[1](item)
+        except Exception:  # an odd object must never break the list; its cells stay empty
+            extra = {}
+    return Row(meta.get("name", ""), meta.get("namespace") or "", item,
+               age=format_age(parse_timestamp(meta.get("creationTimestamp"))), **extra)
+
+
+# ---- instances of well-known custom resources get their own columns --------------------------------------------------
+# Only fields that are the same in the v1beta1 and v1 APIs of Karpenter are used, and each one is read defensively: a field
+# the installed version does not have just leaves its cell empty. Not checked against a running Karpenter.
+def _get(item, *path):
+    for key in path:
+        item = item.get(key) if isinstance(item, dict) else None
+    return item
+
+
+def _condition(item, *types):
+    """'✔ Ready' / '✖ Not ready' from the first of `types` the object reports; '' when it reports none (symbol and words)."""
+    found = {c.get("type"): c.get("status") for c in _get(item, "status", "conditions") or [] if isinstance(c, dict)}
+    for kind in types:
+        if kind in found:
+            return f"✔ {kind}" if found[kind] == "True" else f"✖ Not {kind.lower()}"
+    return ""
+
+
+def _text(value):
+    return "" if value is None else str(value)
+
+
+def _nodepool(item):
+    status = _get(item, "status") or {}
+    resources = status.get("resources") if isinstance(status.get("resources"), dict) else {}
+    nodes = status.get("nodes", resources.get("nodes"))
+    return dict(nodeclass=_text(_get(item, "spec", "template", "spec", "nodeClassRef", "name")), nodes=_text(nodes),
+                cpu=_text(resources.get("cpu")), cpu_limit=_text(_get(item, "spec", "limits", "cpu")),
+                weight=_text(_get(item, "spec", "weight")), consolidation=_text(_get(item, "spec", "disruption", "consolidationPolicy")),
+                ready=_condition(item, "Ready"))
+
+
+def _nodeclaim(item):
+    labels = _get(item, "metadata", "labels") or {}
+    return dict(node=_text(_get(item, "status", "nodeName")), instance_type=_text(labels.get("node.kubernetes.io/instance-type")),
+                capacity=_text(labels.get("karpenter.sh/capacity-type")), zone=_text(labels.get("topology.kubernetes.io/zone")),
+                nodepool=_text(labels.get("karpenter.sh/nodepool")), ready=_condition(item, "Ready", "Initialized"))
+
+
+# (API group, kind) -> (columns as (heading, attribute), function giving the attribute values of one object)
+CUSTOM_COLUMNS = {
+    ("karpenter.sh", "NodePool"): (
+        [("Name", "name"), ("NodeClass", "nodeclass"), ("Nodes", "nodes"), ("CPU", "cpu"), ("CPU limit", "cpu_limit"),
+         ("Weight", "weight"), ("Consolidation", "consolidation"), ("Ready", "ready"), ("Age", "age")], _nodepool),
+    ("karpenter.sh", "NodeClaim"): (
+        [("Name", "name"), ("Node", "node"), ("Type", "instance_type"), ("Capacity", "capacity"), ("Zone", "zone"),
+         ("NodePool", "nodepool"), ("Ready", "ready"), ("Age", "age")], _nodeclaim),
+}
+
+
+def custom_columns(group, kind):
+    """The columns of a well-known custom resource, or None for the plain Name/Namespace/Age ones."""
+    found = CUSTOM_COLUMNS.get((group, kind))
+    return list(found[0]) if found else None
 
 
 def parse_timestamp(text):
