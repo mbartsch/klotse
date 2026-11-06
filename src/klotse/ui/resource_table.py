@@ -10,7 +10,7 @@ from .table_model import TableModel
 
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
-NOT_CUSTOMIZABLE = {"Container", "CustomResource"}  # per-pod container rows and dynamic CR columns keep fixed columns
+NOT_CUSTOMIZABLE = {"Container", "CustomResource", "CRDGroup"}  # per-pod container rows and dynamic CR columns keep fixed columns
 
 
 class ResourceTable(QWidget):
@@ -18,6 +18,7 @@ class ResourceTable(QWidget):
     edit_requested = Signal(str, object)  # kind, row dataclass
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
+    history_requested = Signal(str, object)  # a Deployment's rollout history / undo
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
@@ -347,6 +348,8 @@ class ResourceTable(QWidget):
                 menu.addAction("Scale…", lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:
                 menu.addAction("Restart…", lambda: self.restart_requested.emit(self.kind, row))
+            if self.kind == "Deployment":
+                menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS:
                 menu.addAction("Delete…", lambda: self.action_requested.emit("delete", row))
             if self.kind == "Node":
@@ -377,6 +380,8 @@ class ResourceTable(QWidget):
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
             menu.addAction("Browse instances", lambda: self.action_requested.emit("open-crd", row))
+        if self.kind == "CRDGroup" and idx.isValid():
+            menu.addAction("Show CRDs of this group", lambda: self.action_requested.emit("open-crd-group", row))
         if self.kind == "Namespace":
             if idx.isValid():
                 menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
@@ -394,7 +399,7 @@ class ResourceTable(QWidget):
             self.selected.emit(self.model.rows[src.row()])
 
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
-                    "CustomResourceDefinition": "open-crd"}
+                    "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group"}
 
     def _on_double_click(self, index):
         action = self.DOUBLE_CLICK.get(self.kind)

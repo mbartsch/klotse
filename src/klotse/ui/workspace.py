@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
-from ..k8s.resources import DELETABLE_KINDS, SPECS, custom_columns
+from ..k8s.resources import CRD_GROUP_COLUMNS, DELETABLE_KINDS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
@@ -28,6 +28,7 @@ from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_conta
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
 from .resource_table import ResourceTable
+from .rollout_dialog import RolloutDialog
 from .role_editor import RULE_KINDS, RoleEditDialog, aggregated_note, confirm_risky
 from .service_account_editor import ServiceAccountEditDialog
 from .data_editor import DATA_KINDS, DataEditDialog, new_manifest
@@ -186,9 +187,10 @@ class ClusterWorkspace(QMainWindow):
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
                 widget.restart_requested.connect(self.restart_resource)
+                widget.history_requested.connect(self.show_rollout_history)
                 widget.goto_requested.connect(self.go_to)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
-                                                 "CustomResourceDefinition": self._crd_action,
+                                                 "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
                                                     for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
@@ -290,6 +292,10 @@ class ClusterWorkspace(QMainWindow):
             table = T(spec.columns, spec.kind, editable=spec.editable)
             self.views[spec.key] = (table, spec.title)
             self.loaders[spec.key] = (lambda ns, k=spec.key: svc().list_resource(k, ns), spec.namespaced, table.set_rows)
+        # Custom Resources > Groups: the CRDs' API groups, from the same list as Definitions
+        groups = T(CRD_GROUP_COLUMNS, "CRDGroup", editable=False)
+        self.views["crd-groups"] = (groups, "CRD groups")
+        self.loaders["crd-groups"] = (lambda ns: crd_groups(svc().list_resource("crds", ns)), False, groups.set_rows)
         for key, (widget, _) in self.views.items():
             widget.view_key = key
 
@@ -512,6 +518,22 @@ class ClusterWorkspace(QMainWindow):
     def _crd_action(self, action, row):
         if action == "open-crd":
             self.open_custom_resources(row)
+        elif action == "open-crd-group":
+            self.open_crd_group(row.name)
+
+    def open_crd_group(self, group):
+        """Open (or focus) a tab with the CRDs of one API group (double-click on a row of Custom Resources > Groups); from
+        there a CRD opens its instances like in Definitions."""
+        key = f"crd-group:{group}"
+        if key not in self.views:
+            table = ResourceTable(SPEC_BY_KEY["crds"].columns, "CustomResourceDefinition", editable=False)
+            table.view_key = key
+            table.selected.connect(self.detail.show_row)
+            table.action_requested.connect(self._crd_action)
+            self.views[key] = (table, f"CRDs: {group or '(core)'}")
+            self.loaders[key] = (lambda ns: [c for c in self.service.list_resource("crds", ns) if (c.group or "") == group],
+                                 False, table.set_rows)
+        self.open_view(key)
 
     def open_custom_resources(self, crd):
         """Open (or focus) a tab listing the instances of a custom resource definition."""
@@ -982,6 +1004,42 @@ class ClusterWorkspace(QMainWindow):
             return
         self.message.emit(f"Restarting {kind} {row.name}…")
         self._run(self.service.restart, lambda _: self._restarted(kind, row.name), kind, row.name, row.namespace)
+
+    def show_rollout_history(self, kind, row):
+        """The revisions of a Deployment, with a way back to an earlier one. Looking is always allowed; rolling back is not
+        on a read-only cluster."""
+        self.message.emit(f"{self.context}: reading the rollout history of {row.name}…")
+        self._run(self.service.deployment_history, lambda revisions: self._history_ready(row, revisions), row.namespace, row.name)
+
+    def rollout_dialog(self, row, revisions):
+        dialog = RolloutDialog(self.context, f"{row.namespace}/{row.name}", revisions, can_change=not self.read_only, parent=self)
+        dialog.rollback_requested.connect(lambda revision: self._rollback(row, revision, dialog))
+        return dialog
+
+    def _history_ready(self, row, revisions):
+        dialog = self.rollout_dialog(row, revisions)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _rollback(self, row, revision, dialog):
+        if not self._writable("roll back workloads"):
+            return
+        images = ", ".join(revision["images"]) or "(no images)"
+        if QMessageBox.question(
+                dialog, "Roll back", f"Cluster: {self.context}\nRoll back {row.namespace}/{row.name} to revision {revision['revision']}?\n\n"
+                f"Images: {images}\n\nThe pod template of that revision is put back, which starts a normal rollout "
+                "(pods are replaced one by one) and becomes a new revision.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        dialog.show_status("Rolling back…")
+
+        def done(_):
+            self.message.emit(f"Rolled {row.name} back to revision {revision['revision']}")
+            dialog.show_status(f"✔ Rolled back to revision {revision['revision']}; the pods are being replaced.")
+            self.refresh()
+            self._run(self.service.deployment_history, dialog.set_revisions, row.namespace, row.name,
+                      on_error=dialog.show_error)
+        self._run(self.service.rollback_deployment, done, row.namespace, row.name, revision["name"], on_error=dialog.show_error)
 
     def _restarted(self, kind, name):
         self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")

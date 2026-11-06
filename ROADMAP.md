@@ -6,7 +6,7 @@ Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the re
 
 | # | Item | Seen in | Effort |
 | --- | --- | --- | --- |
-| 1 | Rollout restart (**done**, #66), undo and history (not done) for Deployments, StatefulSets and DaemonSets | Lens, k9s, Aptakube | Small (patch an annotation) |
+| 1 | Rollout restart (**done**, #66) for Deployments, StatefulSets and DaemonSets; history and undo (**done** for Deployments only; StatefulSets and DaemonSets would need ControllerRevisions) | Lens, k9s, Aptakube | Small (patch an annotation) |
 | 2 | More resource kinds: HPA, PDB, ResourceQuota, LimitRange, Endpoints/EndpointSlice, PriorityClass, webhook configurations, Leases (**done**, #52) | all | Small each (a `Spec` entry plus a mapper) |
 | 3 | Apply YAML / create any resource (**done**, #69) | Lens, Headlamp | Small |
 | 4 | "Can I?" permission check for the current user (check and rules list **done**, #68; greying out forbidden actions not done) | Headlamp, k9s | Small |
@@ -66,7 +66,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 30 | Karpenter (NodePool, NodeClaim) views (**done**: extra columns, and a Karpenter group in the navigator, shown only when the cluster serves Karpenter's API groups, with NodePools, NodeClaims and the provider's node classes; field names unverified against a running Karpenter) | Small to medium |
 | 31 | GitOps: read-only Argo CD and Flux views with Sync and Refresh (needs cluster-wide plugin actions, which are not designed yet) | Medium |
 | 32 | Schema help in the YAML editor: field docs and completion from the cluster's OpenAPI | Large |
-| 33 | Custom Resources > Groups: list CRDs by API group, next to Definitions (issue #74) | Small to medium |
+| 33 | Custom Resources > Groups: list CRDs by API group, next to Definitions (**done**, issue #74) | Small to medium |
 
 ### Undecided or not planned
 
