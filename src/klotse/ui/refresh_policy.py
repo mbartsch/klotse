@@ -1,20 +1,23 @@
-"""Which lists reload by themselves and which only when the user asks. Definitions that rarely change (CRDs and their groups,
-Storage and Priority Classes, webhook configurations, Access Control) are **manual** by default: no timer, no change watch,
-no reload when their tab comes to the front; they load once when first opened and again from the toolbar Refresh button or the
-list's right-click Refresh. Everything else (pods, nodes, workloads, events, ...) reloads automatically as before. A list's
-mode can be changed from its right-click menu and is remembered in the settings file."""
+"""Which lists reload by themselves and which only when the user asks. Only the **workloads** and the **nodes** (and the cluster
+Overview that summarises them) reload automatically by default; every other list (events, services, config, storage, access
+control, custom resources, Helm releases, ...) is **manual**: no timer, no change watch, no reload when its tab comes to the
+front. A manual list loads once when it is first opened and again from the toolbar Refresh button or the list's right-click
+Refresh. Either default can be changed per list from its right-click menu (Refresh automatically) and is remembered in the
+settings file; the toolbar's Auto-refresh switch still turns the automatic reloads of all lists off at once."""
 from PySide6.QtCore import QSettings
 
 from .settings_store import default_store
 
-DEFAULT_MANUAL = frozenset({
-    "crds", "crd-groups", "storageclasses", "priorityclasses", "validatingwebhookconfigurations", "mutatingwebhookconfigurations",
-    "serviceaccounts", "roles", "rolebindings", "clusterroles", "clusterrolebindings"})
-DEFAULT_MANUAL_PREFIXES = ("crd-group:",)  # the tab of one CRD group
+DEFAULT_AUTO = frozenset({
+    "overview", "nodes",  # the cluster overview and the nodes
+    "workloads", "pods", "deployments", "daemonsets", "statefulsets", "replicasets", "jobs", "cronjobs",  # the Workloads group ...
+    "horizontalpodautoscalers"})  # ... which also holds the autoscalers that follow the load
+DEFAULT_AUTO_PREFIXES = ("node-pods:", "pod:")  # the pods running on one node, and one pod's containers
 
 
 def default_manual(key):
-    return key in DEFAULT_MANUAL or any(key.startswith(p) for p in DEFAULT_MANUAL_PREFIXES)
+    """True for every list that is not a workload or a node."""
+    return not (key in DEFAULT_AUTO or any(key.startswith(p) for p in DEFAULT_AUTO_PREFIXES))
 
 
 def is_manual(key, overrides):

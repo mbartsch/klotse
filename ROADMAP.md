@@ -68,7 +68,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 32 | Schema help in the YAML editor: field docs and completion from the cluster's OpenAPI | Large |
 | 33 | Custom Resources > Groups: list CRDs by API group, next to Definitions (**done**, issue #74; the groups are also sub items in the navigator) | Small to medium |
 | 34 | Node tab: overview of status, CPU and memory at the top, beside the pod list (**done**, issue #84) | Small to medium |
-| 35 | Manual refresh only for CRDs, Access Control and other rarely changing lists: no timer or watch, refresh by the toolbar button or a right-click entry (**done**, issue #86) | Small to medium |
+| 35 | Manual refresh only for CRDs, Access Control and other rarely changing lists: no timer or watch, refresh by the toolbar button or a right-click entry (**done**, issue #86; now the default for every list except workloads and nodes, which stay automatic) | Small to medium |
 
 ### Undecided or not planned
 

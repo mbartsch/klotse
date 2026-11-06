@@ -406,7 +406,7 @@ class ClusterWorkspace(QMainWindow):
             self._show_view(key)
         finally:
             self._opening = False
-        if not (self.is_manual(key) and key in self._last_load):  # a manual list loads once, on first open
+        if not (self.is_manual(key) and key in self._last_load and not self._stale_scope(key)):  # a manual list loads on first open
             self.load_view(key)
 
     def foreground_key(self):
@@ -442,12 +442,20 @@ class ClusterWorkspace(QMainWindow):
             self.load_foreground()
         return True
 
+    def _stale_scope(self, key):
+        """True when the list `key` was loaded for another namespace than the one chosen now: what it shows is for a scope the
+        user has left, whether or not the list reloads by itself."""
+        if key not in self._loads or key not in self.loaders:
+            return False
+        ns = self.namespace()
+        return self._loads[key] != (None if (not self.loaders[key][1] or ns == ALL_NS) else ns)
+
     def load_foreground(self):
-        """Reload only the tab the user is looking at (no-op before connecting, after shutdown, or while it loads, and for a
-        list that reloads only on request)."""
+        """Reload only the tab the user is looking at (no-op before connecting, after shutdown or while it loads). A list that
+        reloads only on request is left alone, unless it shows another namespace than the one chosen now."""
         key = self.foreground_key()
         if (self._ready and not self._closed and self.auto_action.isChecked()
-                and key in self.loaders and key not in self._loading and not self.is_manual(key)):
+                and key in self.loaders and key not in self._loading and (not self.is_manual(key) or self._stale_scope(key))):
             self.load_view(key)
 
     def _showing(self):

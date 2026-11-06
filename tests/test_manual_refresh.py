@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from klotse.k8s.models import PodRow
 from klotse.ui.customizations import LabelSettings
-from klotse.ui.refresh_policy import DEFAULT_MANUAL, RefreshSettings, default_manual, is_manual
+from klotse.ui.refresh_policy import DEFAULT_AUTO, RefreshSettings, default_manual, is_manual
 from klotse.ui.workspace import ClusterWorkspace
 
 
@@ -17,17 +17,24 @@ def store(tmp_path):
 
 
 # ---- the policy --------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("key", ["workloads", "pods", "deployments", "daemonsets", "statefulsets", "replicasets", "jobs", "cronjobs",
+                                 "horizontalpodautoscalers", "nodes", "overview", "node-pods:n1", "pod:shop/web-1"])
+def test_only_workloads_and_nodes_reload_by_themselves_by_default(key):
+    assert not default_manual(key) and not is_manual(key, {})
+
+
 @pytest.mark.parametrize("key", ["crds", "crd-groups", "crd-group:cert-manager.io", "storageclasses", "priorityclasses",
                                  "validatingwebhookconfigurations", "mutatingwebhookconfigurations", "serviceaccounts", "roles",
-                                 "rolebindings", "clusterroles", "clusterrolebindings"])
-def test_the_rarely_changing_lists_are_manual_by_default(key):
+                                 "rolebindings", "clusterroles", "clusterrolebindings", "events", "services", "ingresses", "namespaces",
+                                 "configmaps", "secrets", "persistentvolumes", "persistentvolumeclaims", "networkpolicies",
+                                 "cr:nodepools.karpenter.sh", "helm-releases", "limitranges", "endpoints", "leases"])
+def test_every_other_list_is_manual_by_default(key):
     assert default_manual(key) and is_manual(key, {})
 
 
-@pytest.mark.parametrize("key", ["pods", "nodes", "deployments", "events", "services", "namespaces", "overview", "cr:nodepools.karpenter.sh",
-                                 "node-pods:n1", "configmaps"])
-def test_everything_else_reloads_by_itself(key):
-    assert not default_manual(key) and not is_manual(key, {})
+def test_the_automatic_set_is_exactly_the_workloads_nodes_and_overview():
+    assert DEFAULT_AUTO == {"overview", "nodes", "workloads", "pods", "deployments", "daemonsets", "statefulsets", "replicasets", "jobs",
+                            "cronjobs", "horizontalpodautoscalers"}
 
 
 def test_the_users_choice_wins_over_the_default():
@@ -211,8 +218,42 @@ def test_the_tabs_made_later_are_wired_too(qtbot, tmp_path):
     ws.open_crd_group("karpenter.sh")
     assert ws.views["crd-group:karpenter.sh"][0].refresh_mode() is True
     key = ws._custom_view("karpenter.sh", "v1", "nodepools", "NodePool", False)
-    assert ws.views[key][0].refresh_mode() is False  # instances of a custom resource change like any workload
+    assert ws.views[key][0].refresh_mode() is True  # custom resource instances are not workloads: manual like the rest
     pod = PodRow("p", "ns", "1/1", "Running", 0, "n1", "1d", {})
     ws.node_table.set_rows([])
     ws.open_node_pods("n1", None)
     assert ws.views["node-pods:n1"][0].refresh_mode() is False and pod  # a node's pods keep reloading
+
+
+def test_a_manual_list_that_shows_another_namespace_is_reloaded_when_it_comes_back(qtbot, tmp_path):
+    """Changing the namespace is the user's own action: a manual list loaded for the old one must not stay on screen."""
+    from klotse.k8s.models import NamespaceRow
+    ws, service = make_ws(qtbot, tmp_path)
+    ws._set_namespaces([NamespaceRow("default", "Active", "1d", ""), NamespaceRow("shop", "Active", "1d", "")])
+    ws.open_view("services")
+    settle(qtbot, ws)
+    assert service.calls["list_resource"] == 1 and not ws._stale_scope("services")
+    ws.open_view("deployments")
+    settle(qtbot, ws)
+    ws.set_namespace("shop")  # while another tab is in front
+    assert ws._stale_scope("services")
+    before = service.calls["list_resource"]
+    ws.open_view("services")  # back to it: it shows default, the toolbar says shop
+    settle(qtbot, ws)
+    assert service.calls["list_resource"] == before + 1 and not ws._stale_scope("services")
+    ws.open_view("services")  # nothing has changed since: left alone again
+    settle(qtbot, ws)
+    assert service.calls["list_resource"] == before + 1
+
+
+def test_a_cluster_wide_manual_list_is_never_stale_because_of_the_namespace(qtbot, tmp_path):
+    from klotse.k8s.models import NamespaceRow
+    ws, service = make_ws(qtbot, tmp_path)
+    ws._set_namespaces([NamespaceRow("default", "Active", "1d", ""), NamespaceRow("shop", "Active", "1d", "")])
+    ws.open_view("storageclasses")
+    settle(qtbot, ws)
+    ws.set_namespace("shop")
+    assert not ws._stale_scope("storageclasses")
+    ws.open_view("storageclasses")
+    settle(qtbot, ws)
+    assert service.calls["list_resource"] == 1
