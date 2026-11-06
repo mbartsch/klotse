@@ -6,8 +6,8 @@ from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
+from PySide6.QtGui import QAction, QFont, QKeySequence
+from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
@@ -28,6 +28,7 @@ from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
 from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
+from .namespace_pins import NamespacePins
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
 from .permissions_dialog import PermissionsDialog
@@ -241,7 +242,14 @@ class ClusterWorkspace(QMainWindow):
         self.ns_combo.setCompleter(completer)
         self.ns_combo.lineEdit().editingFinished.connect(self._reset_ns_text)
         # the selector only applies to namespaced lists, so it is hidden on cluster-wide views (see _sync_ns_selector)
-        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo)]
+        self.pins = NamespacePins(self.label_settings.store)
+        self._ns_names = []
+        self.pin_button = QToolButton()
+        self.pin_button.setAutoRaise(True)
+        self.pin_button.clicked.connect(self.toggle_pin)
+        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button)]
+        self.ns_combo.currentIndexChanged.connect(lambda _=None: self._sync_pin_button())
+        self._sync_pin_button()
         refresh = QAction("Refresh", self)
         refresh.setShortcut(QKeySequence.Refresh)
         refresh.triggered.connect(self.refresh)
@@ -1828,6 +1836,43 @@ class ClusterWorkspace(QMainWindow):
             self.ns_combo.setEditText(name)
         return index >= 0
 
+    def _sync_pin_button(self):
+        name = self.namespace()
+        pinnable = name != ALL_NS
+        pinned = pinnable and self.pins.is_pinned(self.context, name)
+        self.pin_button.setEnabled(pinnable)
+        self.pin_button.setText("★" if pinned else "☆")
+        self.pin_button.setToolTip(f"Unpin namespace {name}" if pinned else
+                                   (f"Pin namespace {name}: pinned namespaces are listed first" if pinnable else "Choose a namespace to pin it"))
+
+    def toggle_pin(self):
+        """Pin or unpin the namespace in front for this cluster; pinned ones come first in the selector."""
+        name = self.namespace()
+        if name == ALL_NS:
+            return
+        try:
+            self.pins.set_pinned(self.context, name, not self.pins.is_pinned(self.context, name))
+        except OSError as e:
+            QMessageBox.warning(self, "Klotse", str(e))
+            return
+        self._fill_namespace_combo(self._ns_names, name)
+
+    def _fill_namespace_combo(self, names, keep):
+        """All namespaces first, then the pinned ones (bold), then the rest; `keep` stays chosen."""
+        self._ns_names = list(names)  # the cluster's own order, so unpinning puts a namespace back where it was
+        pinned = [n for n in self.pins.pinned(self.context) if n in names]
+        ordered = pinned + [n for n in names if n not in pinned]
+        blocker = QSignalBlocker(self.ns_combo)
+        self.ns_combo.clear()
+        self.ns_combo.addItems([ALL_NS] + ordered)
+        bold = QFont(self.ns_combo.font())
+        bold.setBold(True)
+        for i in range(len(pinned)):
+            self.ns_combo.setItemData(i + 1, bold, Qt.FontRole)
+        self.set_namespace(keep)
+        del blocker
+        self._sync_pin_button()
+
     def _reset_ns_text(self):
         """Typed text that is not a namespace is dropped when editing ends; the chosen one stays."""
         self.ns_combo.setEditText(self.namespace())
@@ -1837,10 +1882,6 @@ class ClusterWorkspace(QMainWindow):
         names = [r.name for r in rows]
         previous = self.namespace()
         keep = previous if previous in names else ALL_NS  # default (or a deleted namespace) missing: all namespaces
-        self.ns_combo.blockSignals(True)
-        self.ns_combo.clear()
-        self.ns_combo.addItems([ALL_NS] + names)
-        self.set_namespace(keep)
-        self.ns_combo.blockSignals(False)
+        self._fill_namespace_combo(names, keep)
         if keep != previous:
             self.load_scoped()
