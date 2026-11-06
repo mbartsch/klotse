@@ -362,10 +362,12 @@ class KubeService:
         template = rollout.rollback_template(replica_set)
         self._apps.patch_namespaced_deployment(name, namespace, [{"op": "replace", "path": "/spec/template", "value": template}])
 
-    def open_log_stream(self, namespace, pod, container=None, tail=500):
-        """Returns a streaming urllib3 response (follow=True); the caller reads and closes it."""
-        return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=True,
-                                                  tail_lines=tail, _preload_content=False)
+    def open_log_stream(self, namespace, pod, container=None, tail=500, timestamps=False, previous=False):
+        """Returns a streaming urllib3 response; the caller reads and closes it. Following is off for the previous
+        instance (that container has ended, there is nothing more to follow)."""
+        return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=not previous,
+                                                  tail_lines=tail, timestamps=timestamps, previous=previous,
+                                                  _preload_content=False)
 
     @mutating
     def delete_pod(self, name, namespace, force=False):

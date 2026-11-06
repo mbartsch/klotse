@@ -83,6 +83,10 @@ class LogView(QWidget):
             self.container.setCurrentText(initial_container)
         self.follow = QCheckBox("Follow")
         self.follow.setChecked(True)
+        self.wrap = QCheckBox("Wrap")
+        self.timestamps = QCheckBox("Timestamps")
+        self.previous = QCheckBox("Previous instance")
+        self.previous.setToolTip("Show the log of the container's previous run (for example after a crash)")
         self.tail = QSpinBox()
         self.tail.setRange(10, 100000)
         self.tail.setSingleStep(100)
@@ -96,7 +100,7 @@ class LogView(QWidget):
 
         bar = QHBoxLayout()
         bar.setContentsMargins(6, 4, 6, 4)
-        for w in (QLabel("Container"), self.container, QLabel("Tail"), self.tail, self.follow):
+        for w in (QLabel("Container"), self.container, QLabel("Tail"), self.tail, self.follow, self.wrap, self.timestamps, self.previous):
             bar.addWidget(w)
         bar.addWidget(self.search, 1)
         bar.addWidget(clear)
@@ -109,6 +113,9 @@ class LogView(QWidget):
         self.search.returnPressed.connect(self.find_next)
         self.container.currentTextChanged.connect(lambda _: self.start())
         self.tail.editingFinished.connect(self.start)
+        self.wrap.toggled.connect(self._set_wrap)
+        self.timestamps.toggled.connect(lambda _: self.start())
+        self.previous.toggled.connect(lambda _: self.start())
         self.start()
 
     def start(self):
@@ -116,13 +123,21 @@ class LogView(QWidget):
         self.text.clear()
         name = self.container.currentText() or None
         tail = self.tail.value()
-        s = LogStreamer(lambda: self.service.open_log_stream(self.namespace, self.pod, name, tail))
+        extra = {}
+        if self.timestamps.isChecked():
+            extra["timestamps"] = True
+        if self.previous.isChecked():
+            extra["previous"] = True
+        s = LogStreamer(lambda: self.service.open_log_stream(self.namespace, self.pod, name, tail, **extra))
         s.chunk.connect(self._append)
         s.failed.connect(lambda m: self._append(f"\n[error] {m}\n"))
         _alive.add(s)
         s.finished.connect(lambda: _alive.discard(s))
         self._streamer = s
         s.start()
+
+    def _set_wrap(self, on):
+        self.text.setLineWrapMode(QPlainTextEdit.WidgetWidth if on else QPlainTextEdit.NoWrap)
 
     def stop(self):
         s, self._streamer = self._streamer, None

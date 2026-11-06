@@ -112,7 +112,7 @@ class FakeService:
     def list_statefulsets(self, namespace=None):
         return [StatefulSetRow("db", "default", "1/1", "1d", {"kind": "StatefulSet"})]
 
-    def open_log_stream(self, namespace, pod, container=None, tail=500):
+    def open_log_stream(self, namespace, pod, container=None, tail=500, **options):
         return FakeStream()
 
     def list_resource(self, key, namespace=None):
