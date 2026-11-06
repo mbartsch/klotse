@@ -16,6 +16,7 @@ from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
 from .preferences import KubeconfigSettings, PreferencesDialog
+from .read_only import ReadOnlyClusters
 from . import theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
@@ -37,6 +38,7 @@ class MainWindow(QMainWindow):
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
+        self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.theme_settings = ThemeSettings(self.label_settings.store)
         self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
@@ -75,6 +77,11 @@ class MainWindow(QMainWindow):
         self.permissions_action.triggered.connect(self.show_permissions)
         view_menu.addAction(self.permissions_action)
         view_menu.aboutToShow.connect(lambda: self.permissions_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.read_only_action = QAction("Read-only mode", self, checkable=True)
+        self.read_only_action.setToolTip("Refuse every change to the cluster in front (useful for production); kept for next time")
+        self.read_only_action.triggered.connect(self.set_read_only)
+        view_menu.addAction(self.read_only_action)
+        view_menu.aboutToShow.connect(self._sync_read_only_action)
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
         self.plugins_menu = self.menuBar().addMenu("Plugins")
         self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
@@ -165,6 +172,9 @@ class MainWindow(QMainWindow):
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
         ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
         self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))
+        ws.read_only_changed.connect(lambda on, w=ws, c=ctx: self.clusters.setTabText(
+            self.clusters.indexOf(w), f"{c} 🔒" if on else c))
+        ws.set_read_only(self.read_only_clusters.is_read_only(ctx))
         ws.start()
 
     # ---- Plugins menu ---------------------------------------------------
@@ -182,6 +192,33 @@ class MainWindow(QMainWindow):
         if ws is None and self.plugins_menu.actions():
             self.plugins_menu.addSeparator()
             self.plugins_menu.addAction("Connect to a cluster first").setEnabled(False)
+
+    def _sync_read_only_action(self):
+        ws = self.clusters.currentWidget()
+        self.read_only_action.setEnabled(ws is not None)
+        self.read_only_action.setChecked(bool(ws is not None and ws.read_only))
+
+    def set_read_only(self, on):
+        """View > Read-only mode for the cluster in front. Turning it on is immediate; turning it off asks first (Yes/No,
+        default No), because the point of the mode is that a slip cannot change a production cluster. The choice is saved
+        for that context; a save error is shown and the state stays as it was."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        if not on and QMessageBox.question(
+                self, "Allow changes", f"Cluster: {ws.context}\nAllow changes to this cluster again?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            self._sync_read_only_action()
+            return False
+        try:
+            self.read_only_clusters.set_read_only(ws.context, on)
+        except OSError as e:
+            QMessageBox.warning(self, "Read-only mode", str(e))
+            self._sync_read_only_action()
+            return False
+        ws.set_read_only(on)
+        self._sync_read_only_action()
+        return True
 
     def show_apply_yaml(self):
         """File > Apply YAML…, for the cluster in front; False when no cluster is open."""

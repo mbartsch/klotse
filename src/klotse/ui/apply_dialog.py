@@ -59,6 +59,13 @@ class ApplyDialog(QDialog):
         layout.addLayout(buttons)
         layout.addWidget(self.result)
         self._busy = False
+        self._read_only = False
+
+    def set_read_only(self, on):
+        """A read-only cluster still allows Check (a dry run stores nothing) but not Apply."""
+        self._read_only = bool(on)
+        self.apply_button.setEnabled(not on and not self._busy)
+        self.apply_button.setToolTip("This cluster is in read-only mode: Check works, Apply does not" if on else "")
 
     # ---- input ---------------------------------------------------------------------------------------------------
     def _open_file(self):
@@ -87,6 +94,8 @@ class ApplyDialog(QDialog):
         except ApplyProblem as e:
             self.result.setPlainText(f"✖ {e}")
             return
+        if not dry_run and self._read_only:
+            return
         if not dry_run and not self._confirm(docs):
             return
         self.set_busy(True, "Checking with the server…" if dry_run else "Applying…")
@@ -104,7 +113,7 @@ class ApplyDialog(QDialog):
     def set_busy(self, busy, text=""):
         self._busy = busy
         for button in (self.open_button, self.check_button, self.apply_button):
-            button.setEnabled(not busy)
+            button.setEnabled(not busy and not (button is self.apply_button and self._read_only))
         if busy:
             self.result.setPlainText(text)
 

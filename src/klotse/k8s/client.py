@@ -1,4 +1,5 @@
 import datetime
+import functools
 import json
 from heapq import heappush, heapreplace
 
@@ -121,10 +122,29 @@ def map_statefulset(s):
     )
 
 
+class ReadOnlyError(RuntimeError):
+    """A change was asked of a cluster that is in read-only mode."""
+
+
+READ_ONLY_MESSAGE = "This cluster is in read-only mode, so nothing was changed. View > Read-only mode turns it off."
+
+
+def mutating(method):
+    """Marks a KubeService method that changes the cluster: it refuses to run while `read_only` is set. This is the safety
+    net under the UI, which already refuses earlier and explains; nothing that reaches the service can slip past it."""
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        if getattr(self, "read_only", False):
+            raise ReadOnlyError(READ_ONLY_MESSAGE)
+        return method(self, *args, **kwargs)
+    return guarded
+
+
 class KubeService:
     """Thin wrapper over the kubernetes client; returns plain row objects the UI can render."""
 
     def __init__(self, kubeconfig=None):
+        self.read_only = False  # set by the workspace: every @mutating method refuses while this is true
         self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
         self._core = None
         self._apps = None
@@ -166,9 +186,11 @@ class KubeService:
                       "ext": client.ApiextensionsV1Api(api), "rbac": client.RbacAuthorizationV1Api(api)}
         self._custom = client.CustomObjectsApi(api)
 
+    @mutating
     def create_namespace(self, body):
         return map_namespace(self._core.create_namespace(body))
 
+    @mutating
     def create(self, kind, body):
         """Create a Deployment, DaemonSet, StatefulSet, Pod, ConfigMap or Secret from a manifest (like `kubectl create`);
         returns the stored row."""
@@ -197,11 +219,13 @@ class KubeService:
             return SPEC_BY_KIND["Secret"].mapper(self._core.create_namespaced_secret(ns, body))
         raise ValueError(f"Creating {kind} is not supported")
 
+    @mutating
     def patch_secret(self, namespace, name, patch):
         """Change a Secret with a merge patch that holds only what changed (a key set to None is removed). The values that
         were not touched are never sent back."""
         return SPEC_BY_KIND["Secret"].mapper(self._core.patch_namespaced_secret(name, namespace, patch))
 
+    @mutating
     def replace(self, kind, body):
         """Replace a resource with an edited manifest (like `kubectl replace`); returns the stored row."""
         meta, api = body["metadata"], self._core
@@ -227,6 +251,7 @@ class KubeService:
             return spec.mapper(getattr(api, f"replace_namespaced_{spec.snake}")(meta["name"], ns, body))
         return spec.mapper(getattr(api, f"replace_{spec.snake}")(meta["name"], body))
 
+    @mutating
     def scale(self, kind, name, namespace, replicas):
         """Set spec.replicas via the scale subresource."""
         body = {"spec": {"replicas": replicas}}
@@ -255,6 +280,8 @@ class KubeService:
         `default_namespace`. dry_run=True asks the server to validate and report without storing anything.
         Returns [(kind, namespace, name, ok, message)], one per document in order: one failing document does not stop
         the others."""
+        if not dry_run and getattr(self, "read_only", False):
+            raise ReadOnlyError(READ_ONLY_MESSAGE)  # a dry run changes nothing, so a read-only cluster still allows it
         dyn = self._dynamic_client()
         results = []
         for doc in docs:
@@ -298,6 +325,7 @@ class KubeService:
 
     RESTART_ANNOTATION = "kubectl.kubernetes.io/restartedAt"
 
+    @mutating
     def restart(self, kind, name, namespace):
         """Rollout restart, like `kubectl rollout restart`: stamp the pod template so the controller replaces the pods
         one by one with its normal update strategy."""
@@ -314,6 +342,7 @@ class KubeService:
         return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=True,
                                                   tail_lines=tail, _preload_content=False)
 
+    @mutating
     def delete_pod(self, name, namespace, force=False):
         options = {"body": client.V1DeleteOptions(grace_period_seconds=0, propagation_policy="Background")} if force else {}
         self._core.delete_namespaced_pod(name, namespace, _request_timeout=15, **options)
@@ -385,6 +414,7 @@ class KubeService:
         return [(c.metadata.name, ((c.metadata.annotations or {}).get(flag) == "true"))
                 for c in found.items or []]
 
+    @mutating
     def delete_resource(self, kind, name, namespace, uid):
         """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
         reused the name from being deleted."""
@@ -400,9 +430,11 @@ class KubeService:
         else:
             getattr(api, f"delete_{spec.snake}")(name, body=body, _request_timeout=15)
 
+    @mutating
     def cordon_node(self, name, unschedulable):
         self._core.patch_node(name, {"spec": {"unschedulable": unschedulable}}, _request_timeout=15)
 
+    @mutating
     def delete_node(self, name, uid, force=False):
         # Do not delete a replacement node that reused the selected node's name.
         self._core.delete_node(name, body=client.V1DeleteOptions(

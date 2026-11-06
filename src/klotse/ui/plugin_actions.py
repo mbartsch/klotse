@@ -70,6 +70,8 @@ class PluginActionRunner(QObject):
             return
         plugin = found.plugin
         label = plugin.name or plugin.id
+        if action.dangerous and not self.ws._writable(f"run the plugin action {action.title!r}, which can change things"):
+            return
         resources = [resource_info(row) for row in rows]
         if action.dangerous or action.confirm:
             text = action.confirm or (f"{label}: {action.title}\n\nThis plugin action can change things. "

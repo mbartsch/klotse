@@ -37,6 +37,7 @@ from .workload_editor import WorkloadEditDialog
 from .workload_model import CREATABLE_KINDS, EDIT_KINDS, skeleton
 from .scale_monitor import ScaleMonitor
 from .terminal import kubectl_args, node_shell_args, open_terminal
+from . import theme
 from .terminal_settings import TerminalSettings
 from .watcher import ChangeWatcher
 
@@ -83,6 +84,7 @@ class ClusterWorkspace(QMainWindow):
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
+    read_only_changed = Signal(bool)
 
     def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None):
         super().__init__(parent)
@@ -97,6 +99,7 @@ class ClusterWorkspace(QMainWindow):
         self._loading = set()
         self._pending_loads = set()
         self._closed = False
+        self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self._opened_default = False
         self._ready = False  # set once connected
         self._opening = False
@@ -223,6 +226,11 @@ class ClusterWorkspace(QMainWindow):
         self.auto_interval.currentIndexChanged.connect(
             lambda _=None: self._auto_timer.setInterval(self.auto_interval.currentData()))
         bar.addWidget(self.auto_interval)
+        self.read_only_label = QLabel(" 🔒 Read-only: changes are blocked ")  # symbol and words, never colour alone
+        self.read_only_label.setStyleSheet(theme.warning_style())
+        self.read_only_label.setToolTip("View > Read-only mode turns it off")
+        self._read_only_action = bar.addWidget(self.read_only_label)
+        self._read_only_action.setVisible(False)
         self.ns_combo.activated.connect(lambda _=None: self.load_scoped())
         self._sync_ns_selector()
 
@@ -636,6 +644,7 @@ class ClusterWorkspace(QMainWindow):
     def apply_dialog(self):
         ns = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
         dialog = ApplyDialog(self.context, ns, self)
+        dialog.set_read_only(self.read_only)
 
         def run(docs, dry_run):
             self.message.emit(f"{self.context}: {'checking' if dry_run else 'applying'} {len(docs)} object(s)…")
@@ -671,6 +680,26 @@ class ClusterWorkspace(QMainWindow):
         meta = row.raw.get("metadata") or {}
         self._run(self.service.list_object_events, lambda events, r=row: self.detail.show_events(r, events),
                   meta.get("namespace") or "", meta.get("uid"), on_error=lambda msg, r=row: self.detail.show_events(r, error=msg))
+
+    def set_read_only(self, on):
+        """Read-only mode: the banner shows and every change this window could make is refused with an explanation. The
+        service refuses as well (KubeService.read_only), so nothing slips past the buttons."""
+        self.read_only = on = bool(on)
+        try:
+            self.service.read_only = on
+        except AttributeError:
+            pass
+        self.read_only_label.setStyleSheet(theme.warning_style())
+        self._read_only_action.setVisible(on)
+        self.read_only_changed.emit(on)
+
+    def _writable(self, what):
+        """True unless the cluster is read-only; then it says so (once per attempt) and returns False."""
+        if not self.read_only:
+            return True
+        QMessageBox.information(self, "Read-only cluster", f"{self.context} is in read-only mode, so you cannot {what}.\n\n"
+                                "View > Read-only mode turns it off.")
+        return False
 
     def _on_error(self, msg):
         self.message.emit(f"{self.context}: {msg}")
@@ -793,6 +822,8 @@ class ClusterWorkspace(QMainWindow):
     def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None):
         """The form and the YAML editor are two views of one manifest: each hands its current (pending) changes to the
         other, until one of them saves or the user cancels."""
+        if not self._writable("create or edit objects"):
+            return
         current, from_yaml = raw, False
         while True:
             form = None
@@ -855,6 +886,8 @@ class ClusterWorkspace(QMainWindow):
 
     def delete_resource(self, kind, row):
         """Delete one RBAC object after a Yes/No question (default No); the UID precondition guards against a replacement."""
+        if not self._writable("delete objects"):
+            return
         where = f" in namespace {row.namespace}" if row.namespace else ""
         extra = care_warnings(kind, row.raw)
         note = "\n\n".join(n for n in [self.DELETE_NOTES.get(kind, ""), *extra] if n)
@@ -874,6 +907,8 @@ class ClusterWorkspace(QMainWindow):
         self.refresh()
 
     def scale_resource(self, kind, row):
+        if not self._writable("scale workloads"):
+            return
         current = (row.raw.get("spec") or {}).get("replicas", 1)
         text, ok = QInputDialog.getText(
             self, f"Scale {kind}",
@@ -893,6 +928,8 @@ class ClusterWorkspace(QMainWindow):
                     "(like kubectl rollout restart). Pods are recreated, so connections to them are dropped.")
 
     def restart_resource(self, kind, row):
+        if not self._writable("restart workloads"):
+            return
         if QMessageBox.question(self, f"Restart {kind}", f"Cluster: {self.context}\nRestart {kind} {row.namespace}/{row.name}?\n\n"
                                 f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
@@ -914,6 +951,8 @@ class ClusterWorkspace(QMainWindow):
     def bulk_action(self, kind, action, rows):
         """Apply one action to every selected row. Each row is confirmed once as a group and run in one worker;
         a failure on one row does not stop the others."""
+        if not self._writable("change several objects at once"):
+            return
         n = len(rows)
         names = self._names(rows)
         if action == "scale":
@@ -1045,6 +1084,8 @@ class ClusterWorkspace(QMainWindow):
         self.refresh()
 
     def node_action(self, action, row):
+        if action != "node-pods" and not self._writable("change nodes or open a shell on one"):
+            return
         if action == "node-pods":
             self.open_node_pods(row.name, row)
         elif action in ("cordon", "uncordon"):
@@ -1153,6 +1194,9 @@ class ClusterWorkspace(QMainWindow):
         if action == "containers":
             self.open_pod_tab(row)
             return
+        if action in ("terminate", "force-terminate", "shell", "attach") and not self._writable(
+                "terminate pods or open a shell in them"):
+            return
         if action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
             verb = "Force delete" if force else "Delete"
@@ -1233,11 +1277,15 @@ class ClusterWorkspace(QMainWindow):
     def _container_action(self, action, row, container):
         if action == "logs":
             self.open_logs(row, [c[0] for c in pod_containers(row.raw)], container)
+        elif not self._writable("open a shell in a container"):
+            return
         else:
             argv = kubectl_args(action, self.context, row.namespace, row.name, container, kubeconfig=self.kubeconfig)
             self._launch_terminal(argv, f"Opened {action}: {row.name}/{container}")
 
     def new_namespace(self):
+        if not self._writable("create namespaces"):
+            return
         dlg = NamespaceDialog(self)
         if dlg.exec() != NamespaceDialog.Accepted:
             return

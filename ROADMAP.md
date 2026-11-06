@@ -31,7 +31,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 
 | # | Item | Effort |
 | --- | --- | --- |
-| 13 | Read-only / "production" mode per cluster: coloured banner, mutating actions greyed out or confirmed by typing the cluster name | Small to medium |
+| 13 | Read-only / "production" mode per cluster (**done**: banner, tab mark, every change refused with an explanation, saved per cluster; greying out the buttons and the Navigator menu entry are not done) | Small to medium |
 | 14 | Server-side dry-run and a diff before saving in the form and YAML editors | Medium |
 | 15 | Command palette (Ctrl+K): jump to any view, namespace, cluster or action | Medium |
 | 16 | Favourites, saved filters and pinned namespaces | Small |
