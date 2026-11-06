@@ -83,6 +83,7 @@ class ClusterWorkspace(QMainWindow):
     state = Signal(str)  # connecting | connected | failed
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
+    karpenter_found = Signal(list)  # [(view key, label)] when the cluster runs Karpenter; the navigator shows a group
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
     read_only_changed = Signal(bool)
 
@@ -512,21 +513,43 @@ class ClusterWorkspace(QMainWindow):
 
     def open_custom_resources(self, crd):
         """Open (or focus) a tab listing the instances of a custom resource definition."""
-        key = f"cr:{crd.plural}.{crd.group}"
-        namespaced = crd.scope == "Namespaced"
+        self.open_view(self._custom_view(crd.group, crd.version, crd.plural, crd.kind, crd.scope == "Namespaced"))
+
+    def _custom_view(self, group, version, plural, kind, namespaced):
+        """Register (once) the read-only list of one custom resource's instances and return its view key; the CRD list and
+        the Karpenter group in the navigator share it, so both open the same tab."""
+        key = f"cr:{plural}.{group}"
         if key not in self.views:
-            special = custom_columns(crd.group, crd.kind)  # e.g. Karpenter's NodePool and NodeClaim
+            special = custom_columns(group, kind)  # e.g. Karpenter's NodePool and NodeClaim
             columns = special or ([("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")])
             table = ResourceTable(columns, "CustomResource", editable=False)
             table.view_key = key
             table.selected.connect(self.detail.show_row)
-            self.views[key] = (table, f"{crd.kind}")
+            self.views[key] = (table, f"{kind}")
             if special:
-                load = lambda ns: self.service.list_custom_objects(crd.group, crd.version, crd.plural, namespaced, ns, crd.kind)
+                load = lambda ns: self.service.list_custom_objects(group, version, plural, namespaced, ns, kind)
             else:
-                load = lambda ns: self.service.list_custom_objects(crd.group, crd.version, crd.plural, namespaced, ns)
+                load = lambda ns: self.service.list_custom_objects(group, version, plural, namespaced, ns)
             self.loaders[key] = (load, namespaced, table.set_rows)
-        self.open_view(key)
+        return key
+
+    @staticmethod
+    def plural_label(kind):
+        """'NodePool' -> 'NodePools', 'EC2NodeClass' -> 'EC2NodeClasses'."""
+        return kind + ("es" if kind.endswith("s") else "s")
+
+    def _find_karpenter(self):
+        """Ask (in the background, quietly) whether the cluster runs Karpenter; if it does the navigator gets a Karpenter
+        group with one list per kind it serves: NodePools, NodeClaims and the provider's node classes."""
+        find = getattr(self.service, "karpenter_resources", None)
+        if find is not None:
+            self._run(find, self._karpenter_found, on_error=lambda _msg: None)
+
+    def _karpenter_found(self, resources):
+        entries = [(self._custom_view(r.group, r.version, r.name, r.kind, r.namespaced), self.plural_label(r.kind))
+                   for r in resources or []]
+        if entries:
+            self.karpenter_found.emit(entries)
 
     def _namespace_action(self, action, row):
         if action == "open-namespace":  # double-click / "Show pods": scope the toolbar to it and open its pods
@@ -1318,6 +1341,7 @@ class ClusterWorkspace(QMainWindow):
             self._auto_timer.start()
             self._node_pods_timer.start()
         self._sync_watch()
+        self._find_karpenter()
 
     def refresh(self):
         """Reload the foreground tab plus the namespace list that feeds the toolbar filter.
