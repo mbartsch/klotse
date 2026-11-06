@@ -1,4 +1,6 @@
 import re
+import subprocess
+import sys
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
@@ -9,7 +11,8 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInp
 
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
-from ..k8s.resources import CRD_GROUP_COLUMNS, DELETABLE_KINDS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns
+from ..k8s.helm import HelmError, helm_uninstall_args
+from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPECS, crd_groups, custom_columns)
 from ..plugins.host import PluginHost
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
@@ -18,6 +21,7 @@ from .apply_dialog import ApplyDialog
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
 from .customizations import LabelSettings
+from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
 from .log_view import LogView
@@ -107,6 +111,7 @@ class ClusterWorkspace(QMainWindow):
         self._pending_loads = set()
         self._closed = False
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
+        self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
         self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
@@ -202,6 +207,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.port_forward_requested.connect(self.start_port_forward)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
+                                                 "HelmRelease": self._helm_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
                                                     for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
@@ -304,6 +310,10 @@ class ClusterWorkspace(QMainWindow):
             table = T(spec.columns, spec.kind, editable=spec.editable)
             self.views[spec.key] = (table, spec.title)
             self.loaders[spec.key] = (lambda ns, k=spec.key: svc().list_resource(k, ns), spec.namespaced, table.set_rows)
+        # Helm releases, from the labels of their storage Secrets (no release data is read for the list)
+        helm = T(HELM_COLUMNS, "HelmRelease", editable=False)
+        self.views["helm-releases"] = (helm, "Helm releases")
+        self.loaders["helm-releases"] = (lambda ns: svc().list_helm_releases(ns), True, helm.set_rows)
         # Custom Resources > Groups: the CRDs' API groups, from the same list as Definitions
         groups = T(CRD_GROUP_COLUMNS, "CRDGroup", editable=False)
         self.views["crd-groups"] = (groups, "CRD groups")
@@ -566,6 +576,67 @@ class ClusterWorkspace(QMainWindow):
             self.open_custom_resources(row)
         elif action == "open-crd-group":
             self.open_crd_group(row.name)
+
+    def _helm_action(self, action, row):
+        if action == "helm-details":
+            self.show_helm_release(row)
+        elif action == "helm-uninstall":
+            self.uninstall_helm_release(row)
+
+    def show_helm_release(self, row):
+        """Details and history of a Helm release (reads that release's few storage Secrets in the background). Looking is
+        allowed on a read-only cluster; values stay hidden in the dialog until the user shows them."""
+        self.message.emit(f"{self.context}: reading Helm release {row.name}…")
+        self._run(self.service.helm_release, lambda data: self._helm_ready(row, data), row.namespace, row.name)
+
+    def helm_dialog(self, row, data):
+        dialog = HelmReleaseDialog(self.context, data, can_change=not self.read_only, parent=self)
+        dialog.uninstall_requested.connect(lambda: self.uninstall_helm_release(row, dialog))
+        return dialog
+
+    def _helm_ready(self, row, data):
+        dialog = self.helm_dialog(row, data)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def uninstall_helm_release(self, row, dialog=None):
+        """Uninstall a release with `helm uninstall` (the helm command must be installed): Yes/No (default No) first, never on a
+        read-only cluster. The release's Kubernetes objects are removed by Helm, not by Klotse."""
+        if not self._writable("uninstall Helm releases"):
+            return
+        try:
+            argv = helm_uninstall_args(self.context, row.namespace, row.name, self.kubeconfig)
+        except HelmError as e:
+            self._on_error(str(e))
+            return
+        if QMessageBox.question(dialog or self, "Uninstall release", f"Cluster: {self.context}\nUninstall Helm release "
+                                f"{row.namespace}/{row.name}?\n\nHelm removes every object the release created, and its history "
+                                "unless it keeps it. This runs the helm command on this computer.",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+
+        def run():
+            flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
+            try:
+                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, **flags)
+            except FileNotFoundError:
+                raise RuntimeError("The helm command was not found. Install Helm and make sure it is on the PATH.") from None
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("helm uninstall did not finish within 5 minutes.") from None
+            if done.returncode != 0:
+                lines = (done.stderr or done.stdout or "helm failed").strip().splitlines()
+                raise RuntimeError(lines[-1] if lines else "helm failed")
+            return (done.stdout or "").strip()
+
+        self.message.emit(f"{self.context}: uninstalling Helm release {row.name}…")
+        self._run(run, lambda out: self._helm_uninstalled(row, dialog),
+                  on_error=(lambda msg: dialog.show_status(f"✖ {msg}")) if dialog is not None else None)
+
+    def _helm_uninstalled(self, row, dialog):
+        self.message.emit(f"{self.context}: uninstalled Helm release {row.name}")
+        if dialog is not None:
+            dialog.accept()
+        self.refresh()
 
     def _find_crd_groups(self):
         """Ask (in the background, quietly, metadata only) which API groups the CRDs belong to, for the sub items of Custom

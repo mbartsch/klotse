@@ -8,10 +8,10 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import rollout
+from . import helm, rollout
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 
 
@@ -440,6 +440,44 @@ class KubeService:
             if group:
                 groups[group] = groups.get(group, 0) + 1
         return groups
+
+    def list_helm_releases(self, namespace=None):
+        """The Helm releases of a namespace (or all), one row each with its newest revision, from the labels of their storage
+        Secrets only: the Secrets are requested as PartialObjectMetadataList, so no release data (values, manifests) is
+        transferred. Needs permission to list secrets."""
+        accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+        fn, args = ((self._core.list_namespaced_secret, (namespace,)) if namespace else (self._core.list_secret_for_all_namespaces, ()))
+        items, token = [], None
+        while True:
+            reply = fn(*args, label_selector=helm.LABEL_SELECTOR, limit=500, _continue=token, _request_timeout=30,
+                       _preload_content=False, _headers={"Accept": accept})
+            page = json.loads(reply.data)
+            for item in page.get("items") or []:
+                meta = item.get("metadata") or {}
+                items.append({"name": meta.get("name"), "namespace": meta.get("namespace", ""), "labels": meta.get("labels") or {},
+                              "creationTimestamp": meta.get("creationTimestamp", "")})
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return [map_helm_release(row) for row in helm.release_rows(items)]
+
+    def helm_release(self, namespace, name):
+        """One release in detail: {summary of the newest revision, values_user, values_all, history (newest first), skipped}.
+        Reads the storage Secrets of this release only (its few revisions) and decodes them here; nothing is logged and the
+        values are returned for the dialog to hide until the user reveals them."""
+        if not helm.VALID_NAME.fullmatch(name or ""):
+            raise helm.HelmError(f"'{name}' is not a release name.")
+        found, skipped = [], 0
+        for secret in self._iter_list(self._core.list_namespaced_secret, namespace, label_selector=f"{helm.LABEL_SELECTOR},name={name}"):
+            try:
+                found.append(helm.decode_release((secret.data or {}).get("release", "")))
+            except helm.HelmError:
+                skipped += 1
+        if not found:
+            raise helm.HelmError(f"No readable revision of release {name} in {namespace}.")
+        found.sort(key=lambda r: r.get("version", 0), reverse=True)
+        user, everything = helm.values_of(found[0])
+        return {"summary": helm.summarize(found[0]), "values_user": user, "values_all": everything,
+                "history": [helm.summarize(r) for r in found], "skipped": skipped}
 
     def list_service_names(self, namespace):
         """Names of the services of a namespace, for the Ingress editor's backend boxes."""

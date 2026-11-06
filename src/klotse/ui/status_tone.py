@@ -7,8 +7,8 @@ Pure text matching, no Qt. A status is checked for failing words first, then in-
 BAD = ("fail", "error", "crashloop", "backoff", "oomkilled", "evicted", "notready", "unknown", "lost", "invalid",
        "unhealthy", "deadline", "imageinspect", "createcontainer", "outofmemory", "imagepull", "errimage")
 WARN = ("pending", "creating", "terminating", "init:", "podinitializing", "schedulingdisabled", "released",
-        "waiting", "progress", "suspended", "unschedulable", "unavailable", "degraded")
-OK = ("running", "ready", "active", "bound", "available", "complete", "succeeded", "true", "healthy", "established")
+        "waiting", "progress", "suspended", "unschedulable", "unavailable", "degraded", "uninstalling")
+OK = ("running", "ready", "active", "bound", "available", "complete", "succeeded", "true", "healthy", "established", "deployed")
 
 TONE_ATTRS = ("status", "phase")  # the columns that get coloured
 

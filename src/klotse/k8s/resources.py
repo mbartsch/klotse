@@ -220,6 +220,16 @@ def crd_groups(crds):
     return rows
 
 
+HELM_COLUMNS = (("Name", "name"), ("Namespace", "namespace"), ("Revision", "revision"), ("Status", "status"),
+                ("Updated", "updated"), ("Revisions", "revisions"))
+
+
+def map_helm_release(d):
+    """Row for one Helm release (a dict from k8s.helm.release_rows): only what the labels of its Secrets say."""
+    return Row(d["name"], d["namespace"], dict(d), revision=d["revision"], status=d["status"],
+               updated=format_age(parse_timestamp(d.get("updated"))), revisions=d["revisions"])
+
+
 CRD_GROUP_COLUMNS = (("Group", "name"), ("CRDs", "count"), ("Scope", "scope"), ("Kinds", "kinds"))
 
 

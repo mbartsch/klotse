@@ -31,6 +31,7 @@ VIEWS = [
                         ("clusterrolebindings", "Cluster Role Bindings")], False),
     ("namespaces", "Namespaces"),
     ("events", "Events"),
+    ("Helm", [("helm-releases", "Releases")], False),
     ("Custom Resources", [("crds", "Definitions"), ("crd-groups", "Groups")], False),
 ]
 
