@@ -299,10 +299,10 @@ def test_navigator_and_logs(qtbot):
     groups = {top.child(i).text(0): [top.child(i).child(j).text(0) for j in range(top.child(i).childCount())]
               for i in range(top.childCount()) if top.child(i).childCount()}
     assert groups["Workloads"] == ["Overview", "Pods", "Deployments", "DaemonSets", "StatefulSets",
-                                   "ReplicaSets", "Jobs", "CronJobs"]
-    assert groups["Config"] == ["ConfigMaps", "Secrets"]
+                                   "ReplicaSets", "Jobs", "CronJobs", "Horizontal Pod Autoscalers"]
+    assert groups["Config"][:2] == ["ConfigMaps", "Secrets"] and "Resource Quotas" in groups["Config"]
     assert groups["Storage"][0] == "Persistent Volume Claims"
-    assert groups["Network"] == ["Services", "Ingresses", "Network Policies"]
+    assert groups["Network"] == ["Services", "Endpoints", "Endpoint Slices", "Ingresses", "Network Policies"]
     assert win.windowTitle().endswith("ctx")
     win.nav.view_requested.emit("ctx", "deployments")
     assert ws.tabs.tabText(ws.tabs.currentIndex()) == "Deployments"

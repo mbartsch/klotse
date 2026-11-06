@@ -7,7 +7,7 @@ Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the re
 | # | Item | Seen in | Effort |
 | --- | --- | --- | --- |
 | 1 | Rollout restart (**done**, #66), undo and history (not done) for Deployments, StatefulSets and DaemonSets | Lens, k9s, Aptakube | Small (patch an annotation) |
-| 2 | More resource kinds: HPA, PDB, ResourceQuota, LimitRange, Endpoints/EndpointSlice, PriorityClass, webhook configurations, Leases | all | Small each (a `Spec` entry plus a mapper) |
+| 2 | More resource kinds: HPA, PDB, ResourceQuota, LimitRange, Endpoints/EndpointSlice, PriorityClass, webhook configurations, Leases (**done**, #52) | all | Small each (a `Spec` entry plus a mapper) |
 | 3 | Apply YAML / create any resource (**done**, #69) | Lens, Headlamp | Small |
 | 4 | "Can I?" permission check for the current user (check and rules list **done**, #68; greying out forbidden actions not done) | Headlamp, k9s | Small |
 | 5 | Port-forward (pod or service) with a list of active forwards | Aptakube, Lens, Headlamp, k9s | Medium |

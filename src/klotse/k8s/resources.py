@@ -302,6 +302,93 @@ class Spec:
     deletable: bool = False  # offers Delete… (the RBAC kinds); delete goes through KubeService.delete_resource
 
 
+# ---- autoscaling, disruption budgets, quotas, endpoints, admission and leases ------------------------------------------
+def _short(items, shown=4):
+    """'a, b, c, d +2' for a long list."""
+    items = [str(i) for i in items]
+    return ", ".join(items[:shown]) + (f" +{len(items) - shown}" if len(items) > shown else "")
+
+
+def _quantity(value):
+    return "" if value is None else str(value)
+
+
+def _hpa_value(target):
+    """'80%' for a utilisation, else the average value or value, else '?'."""
+    if target is None:
+        return "?"
+    if getattr(target, "average_utilization", None) is not None:
+        return f"{target.average_utilization}%"
+    return _quantity(getattr(target, "average_value", None) or getattr(target, "value", None)) or "?"
+
+
+def map_hpa(h):
+    sp, st = h.spec, h.status
+    now = {}
+    for m in (st.current_metrics if st else None) or []:
+        if m.type == "Resource" and m.resource:
+            now[m.resource.name] = _hpa_value(m.resource.current)
+    targets = []
+    for m in sp.metrics or []:
+        if m.type == "Resource" and m.resource:
+            targets.append(f"{m.resource.name} {now.get(m.resource.name, '<unknown>')}/{_hpa_value(m.resource.target)}")
+        else:
+            targets.append(f"{(m.type or '?').lower()} metric")
+    ref = sp.scale_target_ref
+    return _base(h, reference=f"{ref.kind}/{ref.name}" if ref else "", targets=_short(targets, 3), min_replicas=sp.min_replicas or 1,
+                 max_replicas=sp.max_replicas, replicas=f"{(st.current_replicas if st else 0) or 0}/{(st.desired_replicas if st else 0) or 0}")
+
+
+def map_pdb(p):
+    sp, st = p.spec, p.status
+    return _base(p, min_available=_quantity(sp.min_available), max_unavailable=_quantity(sp.max_unavailable),
+                 allowed=(st.disruptions_allowed if st else 0) or 0,
+                 healthy=f"{(st.current_healthy if st else 0) or 0}/{(st.desired_healthy if st else 0) or 0}")
+
+
+def map_resourcequota(q):
+    hard, used = (q.status.hard if q.status else None) or {}, (q.status.used if q.status else None) or {}
+    return _base(q, usage=_short(f"{k} {used.get(k, '0')}/{v}" for k, v in sorted(hard.items())))
+
+
+def map_limitrange(r):
+    return _base(r, limits=", ".join(sorted({l.type for l in r.spec.limits or [] if l.type})))
+
+
+def _address_text(subsets, shown=3):
+    found = []
+    for subset in subsets or []:
+        port = (subset.ports or [None])[0]
+        for address in subset.addresses or []:
+            found.append(f"{address.ip}:{port.port}" if port is not None else address.ip)
+    return _short(found, shown)
+
+
+def map_endpoints(e):
+    return _base(e, endpoints=_address_text(e.subsets), count=sum(len(s.addresses or []) for s in e.subsets or []))
+
+
+def map_endpointslice(e):
+    ready = sum(1 for ep in e.endpoints or [] if (ep.conditions.ready if ep.conditions else None) is not False)
+    return _base(e, address_type=e.address_type or "", ports=",".join(f"{p.port}/{p.protocol}" for p in e.ports or [] if p.port),
+                 endpoints=f"{ready}/{len(e.endpoints or [])}")
+
+
+def map_priorityclass(p):
+    return _base(p, value=p.value, default="yes" if p.global_default else "", preemption=p.preemption_policy or "")
+
+
+def map_webhooks(w):
+    names = [h.name for h in w.webhooks or []]
+    return _base(w, count=len(names), webhooks=_short(names, 3))
+
+
+def map_lease(l):
+    sp = l.spec
+    return _base(l, holder=sp.holder_identity or "", renewed=format_age(sp.renew_time) if sp.renew_time else "",
+                 duration=f"{sp.lease_duration_seconds}s" if sp.lease_duration_seconds else "")
+
+
 NS = ("Namespace", "namespace")
 AGE = ("Age", "age")
 SPECS = [
@@ -353,6 +440,33 @@ SPECS = [
          map_clusterrole, deletable=True),
     Spec("clusterrolebindings", "Cluster Role Bindings", "ClusterRoleBinding", "cluster_role_binding", "rbac", False,
          (("Name", "name"), ("Role", "role"), ("Subjects", "subjects"), AGE), map_binding, deletable=True),
+    # Autoscaling, disruption budgets, quotas, admission and leases (round 2). Endpoints, EndpointSlices and Leases are kept up
+    # to date by controllers, so they are read-only here.
+    Spec("horizontalpodautoscalers", "Horizontal Pod Autoscalers", "HorizontalPodAutoscaler", "horizontal_pod_autoscaler",
+         "autoscaling", True, (("Name", "name"), NS, ("Reference", "reference"), ("Targets", "targets"), ("Min", "min_replicas"),
+                               ("Max", "max_replicas"), ("Replicas", "replicas"), AGE), map_hpa, deletable=True),
+    Spec("poddisruptionbudgets", "Pod Disruption Budgets", "PodDisruptionBudget", "pod_disruption_budget", "policy", True,
+         (("Name", "name"), NS, ("Min available", "min_available"), ("Max unavailable", "max_unavailable"),
+          ("Allowed disruptions", "allowed"), ("Healthy", "healthy"), AGE), map_pdb, deletable=True),
+    Spec("resourcequotas", "Resource Quotas", "ResourceQuota", "resource_quota", "core", True,
+         (("Name", "name"), NS, ("Used / hard", "usage"), AGE), map_resourcequota, deletable=True),
+    Spec("limitranges", "Limit Ranges", "LimitRange", "limit_range", "core", True,
+         (("Name", "name"), NS, ("Limits", "limits"), AGE), map_limitrange, deletable=True),
+    Spec("priorityclasses", "Priority Classes", "PriorityClass", "priority_class", "scheduling", False,
+         (("Name", "name"), ("Value", "value"), ("Global default", "default"), ("Preemption", "preemption"), AGE), map_priorityclass),
+    Spec("validatingwebhookconfigurations", "Validating Webhook Configurations", "ValidatingWebhookConfiguration",
+         "validating_webhook_configuration", "admission", False, (("Name", "name"), ("Webhooks", "count"), ("Names", "webhooks"), AGE),
+         map_webhooks),
+    Spec("mutatingwebhookconfigurations", "Mutating Webhook Configurations", "MutatingWebhookConfiguration",
+         "mutating_webhook_configuration", "admission", False, (("Name", "name"), ("Webhooks", "count"), ("Names", "webhooks"), AGE),
+         map_webhooks),
+    Spec("endpoints", "Endpoints", "Endpoints", "endpoints", "core", True,
+         (("Name", "name"), NS, ("Endpoints", "endpoints"), ("Count", "count"), AGE), map_endpoints, editable=False),
+    Spec("endpointslices", "Endpoint Slices", "EndpointSlice", "endpoint_slice", "discovery", True,
+         (("Name", "name"), NS, ("Address type", "address_type"), ("Ports", "ports"), ("Ready endpoints", "endpoints"), AGE),
+         map_endpointslice, editable=False),
+    Spec("leases", "Leases", "Lease", "lease", "coordination", True,
+         (("Name", "name"), NS, ("Holder", "holder"), ("Renewed", "renewed"), ("Duration", "duration"), AGE), map_lease, editable=False),
 ]
 SPEC_BY_KEY = {s.key: s for s in SPECS}
 SPEC_BY_KIND = {s.kind: s for s in SPECS}

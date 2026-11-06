@@ -925,6 +925,10 @@ class ClusterWorkspace(QMainWindow):
         "ServiceAccount": "Pods that use it can no longer be created, and its tokens stop working.",
         "RoleBinding": "Its subjects lose the access this binding gave them.",
         "ClusterRoleBinding": "Its subjects lose the access this binding gave them.",
+        "HorizontalPodAutoscaler": "The workload keeps its current number of replicas and no longer follows the load.",
+        "PodDisruptionBudget": "Drains and evictions are no longer limited for the pods it covered.",
+        "ResourceQuota": "The namespace is no longer limited by it.",
+        "LimitRange": "New pods no longer get its defaults, and its minimums and maximums stop applying.",
     }
 
     def delete_resource(self, kind, row):

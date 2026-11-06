@@ -183,7 +183,10 @@ class KubeService:
         self._apps = client.AppsV1Api(api)
         self._apis = {"core": core, "apps": self._apps, "batch": client.BatchV1Api(api),
                       "net": client.NetworkingV1Api(api), "storage": client.StorageV1Api(api),
-                      "ext": client.ApiextensionsV1Api(api), "rbac": client.RbacAuthorizationV1Api(api)}
+                      "ext": client.ApiextensionsV1Api(api), "rbac": client.RbacAuthorizationV1Api(api),
+                      "autoscaling": client.AutoscalingV2Api(api), "policy": client.PolicyV1Api(api),
+                      "scheduling": client.SchedulingV1Api(api), "admission": client.AdmissionregistrationV1Api(api),
+                      "discovery": client.DiscoveryV1Api(api), "coordination": client.CoordinationV1Api(api)}
         self._custom = client.CustomObjectsApi(api)
 
     @mutating
