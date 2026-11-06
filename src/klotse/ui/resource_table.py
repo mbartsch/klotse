@@ -145,30 +145,6 @@ class ResourceTable(QWidget):
         self._restore_selection(*kept)
         self.status.setText(f"{self.model.rowCount():,} rows" if self.model.rowCount() else "No resources found")
         self.rows_set.emit(self.model.rows)
-        self._apply_goto(final=True)
-
-    # ---- "Go to ..." from another list: select a named row, now or as soon as the list has loaded -----------
-    def select_when_loaded(self, name, namespace=""):
-        """Select (and scroll to) the row with this name, so Details shows it. When the list has not loaded it yet the
-        wish is kept for the next load; after that load it is dropped, found or not."""
-        self._goto = (name, namespace)
-        self._apply_goto(final=False)
-
-    def _apply_goto(self, final):
-        wish = getattr(self, "_goto", None)
-        if wish is None:
-            return
-        name, namespace = wish
-        for source_row, row in enumerate(self.model.rows):
-            if row.name == name and (not namespace or getattr(row, "namespace", "") == namespace):
-                index = self.proxy.mapFromSource(self.model.index(source_row, 0))
-                if index.isValid():  # a row hidden by the filter cannot be selected
-                    self._goto = None
-                    self.view.selectRow(index.row())
-                    self.view.scrollTo(index)
-                    return
-        if final:
-            self._goto = None
 
     @staticmethod
     def _row_key(row):

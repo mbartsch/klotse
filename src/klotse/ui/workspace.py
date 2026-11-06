@@ -577,12 +577,16 @@ class ClusterWorkspace(QMainWindow):
             self.karpenter_found.emit(entries)
 
     def go_to(self, what, name):
-        """A row's right-click 'Go to node ...' / 'Go to namespace ...': take the user there. A node opens the Nodes list with
-        that node selected (Details shows it); a namespace scopes the toolbar to it and opens its pods, like double-clicking it
-        in the Namespaces list."""
+        """A row's right-click 'Go to node ...' / 'Go to namespace ...': take the user there. A node opens that node's own tab
+        (its action bar and the pods running on it, with the node in Details), like double-clicking it in the Nodes list; a
+        namespace scopes the toolbar to it and opens its pods, like double-clicking it in the Namespaces list."""
         if what == "node":
-            self.open_view("nodes")
-            self.node_table.select_when_loaded(name)
+            row = self._node_row(name)
+            self.open_node_pods(name, row)
+            if row is not None:
+                self.detail.show_row(row)
+            else:  # the Nodes list was never loaded: load it, and the tab's action bar fills in when it arrives
+                self.load_view("nodes")
         elif what == "namespace":
             if self.set_namespace(name):
                 self.open_view("pods")

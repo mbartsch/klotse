@@ -72,33 +72,35 @@ def test_an_object_with_a_delete_handler_goes_to_the_namespace_without_deleting(
 
 
 # ---- going there -------------------------------------------------------------------------------------------------
-def test_going_to_a_node_opens_the_nodes_list_with_that_node_selected(qtbot):
-    shown = []
-    ws = make_ws(qtbot, list_nodes=lambda: [node("n1"), node("n2"), node("n3")])
-    ws.detail.show_row = lambda row: shown.append(row.name)
-    ws.node_table.selected.disconnect()
-    ws.node_table.selected.connect(lambda row: shown.append(row.name))
-    ws.go_to("node", "n2")
-    qtbot.waitUntil(lambda: ws.node_table.model.rowCount() == 3, timeout=5000)
-    assert ws.foreground_key() == "nodes"
-    qtbot.waitUntil(lambda: shown == ["n2"], timeout=5000)
-    assert [r.name for r in ws.node_table.selected_rows()] == ["n2"]
-
-
-def test_going_to_a_node_that_is_already_loaded_selects_it_at_once(qtbot):
-    ws = make_ws(qtbot)
+def test_going_to_a_node_opens_that_nodes_own_tab_with_the_node_in_details(qtbot):
+    ws = make_ws(qtbot, list_node_pods=lambda name: [pod(on=name)])
     ws.node_table.set_rows([node("n1"), node("n2")])
-    ws.node_table.select_when_loaded("n1")
-    assert [r.name for r in ws.node_table.selected_rows()] == ["n1"]
+    ws.go_to("node", "n2")
+    assert ws.foreground_key() == "node-pods:n2" and ws.tabs.tabText(ws.tabs.currentIndex()).startswith("Pods: n2")
+    bar = ws._node_bars["n2"][0]
+    assert "n2" in bar.title.text() and bar.menu_button.isEnabled()  # the node actions are there, on the right node
+    assert "name: n2" in ws.detail.toPlainText()  # Details shows the node itself
+    assert ws.tabs.indexOf(ws.node_table) < 0  # the Nodes list was not opened
 
 
-def test_a_node_that_is_not_there_selects_nothing_and_the_wish_is_dropped_after_the_load(qtbot):
-    ws = make_ws(qtbot)
-    ws.node_table.select_when_loaded("gone")
-    ws.node_table.set_rows([node("n1")])
-    assert ws.node_table.selected_rows() == []
-    ws.node_table.set_rows([node("n1"), node("gone")])  # a later load must not suddenly jump
-    assert ws.node_table.selected_rows() == []
+def test_going_to_the_same_node_again_focuses_its_tab(qtbot):
+    ws = make_ws(qtbot, list_node_pods=lambda name: [])
+    ws.node_table.set_rows([node("n1"), node("n2")])
+    ws.go_to("node", "n2")
+    ws.open_view("overview")
+    ws.go_to("node", "n2")
+    assert ws.foreground_key() == "node-pods:n2" and ws.tabs.count() == 2
+
+
+def test_a_node_whose_list_was_never_loaded_still_opens_and_the_list_loads_in_the_background(qtbot):
+    ws = make_ws(qtbot, list_node_pods=lambda name: [], list_nodes=lambda: [node("n1"), node("n2")])
+    ws._count_node_pods = lambda *a: None  # the per-node pod counting is not what this is about
+    ws.go_to("node", "n2")
+    assert ws.foreground_key() == "node-pods:n2"
+    qtbot.waitUntil(lambda: ws.node_table.model.rowCount() == 2, timeout=5000)
+    bar = ws._node_bars["n2"][0]
+    qtbot.waitUntil(lambda: "Ready" in bar.state.text(), timeout=5000)  # the bar shows the node's state once it is known
+    assert ws.foreground_key() == "node-pods:n2"
 
 
 def test_going_to_a_namespace_scopes_the_toolbar_and_opens_its_pods(qtbot):
