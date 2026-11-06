@@ -61,7 +61,13 @@ class MainWindow(QMainWindow):
         self.edit_menu.addAction(self.preferences_action)
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
-        self.menuBar().addMenu("View").addAction(self.managed_fields_action)
+        view_menu = self.menuBar().addMenu("View")
+        view_menu.addAction(self.managed_fields_action)
+        self.permissions_action = QAction("My permissions…", self)
+        self.permissions_action.setToolTip("What you may do in the namespace of the cluster in front, and a Can I? check")
+        self.permissions_action.triggered.connect(self.show_permissions)
+        view_menu.addAction(self.permissions_action)
+        view_menu.aboutToShow.connect(lambda: self.permissions_action.setEnabled(self.clusters.currentWidget() is not None))
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
         self.plugins_menu = self.menuBar().addMenu("Plugins")
         self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
@@ -169,6 +175,14 @@ class MainWindow(QMainWindow):
         if ws is None and self.plugins_menu.actions():
             self.plugins_menu.addSeparator()
             self.plugins_menu.addAction("Connect to a cluster first").setEnabled(False)
+
+    def show_permissions(self):
+        """View > My permissions…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_permissions()
+        return True
 
     def open_cluster_settings(self, plugin_id, context=None):
         """Edit a plugin's settings for `context` (default: the cluster in front); False when there is no such open

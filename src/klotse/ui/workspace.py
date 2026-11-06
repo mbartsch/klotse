@@ -22,6 +22,7 @@ from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
+from .permissions_dialog import PermissionsDialog
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
@@ -622,6 +623,26 @@ class ClusterWorkspace(QMainWindow):
         w.signals.result.connect(lambda r: done(on_result, r))
         w.signals.error.connect(lambda m: done(on_error or self._on_error, m))
         self.pool.start(w)
+
+    def show_permissions(self):
+        """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
+        ns = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
+        self.message.emit(f"{self.context}: reading your permissions in {ns}…")
+        self._run(self.service.my_permissions, lambda perms: self._permissions_ready(ns, perms), ns)
+
+    def permissions_dialog(self, ns, perms):
+        dialog = PermissionsDialog(self.context, ns, perms, self)
+
+        def check(verb, group, resource, name):
+            self._run(self.service.can_i, lambda answer: dialog.show_check(*answer), verb, group, resource, ns, name,
+                      on_error=lambda msg: dialog.show_check(error=msg))
+        dialog.check_requested.connect(check)
+        return dialog
+
+    def _permissions_ready(self, ns, perms):
+        dialog = self.permissions_dialog(ns, perms)
+        dialog.exec()
+        dialog.deleteLater()
 
     def _on_error(self, msg):
         self.message.emit(f"{self.context}: {msg}")
