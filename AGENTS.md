@@ -306,6 +306,7 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 
 **Not built yet (agreed or discussed)**
 
+- **GCP and Azure plugins** like the AWS one: feasibility only, nothing implemented or tried, mainly for lack of a test environment (no GKE/AKS cluster or cloud accounts). Findings, the per-provider table and a suggested order are in `PLUGINS.md` ("Not built: GCP and Azure plugins"); the provider facts there are from memory and need re-checking.
 - The **Plugins** menu exists now but only for per-cluster settings; cluster-wide commands (`Action` with a cluster scope) and a plugin tab in the detail panel are not designed in code.
 - Possible later: AppImage/.deb/.rpm, code signing, a test-suite CI job.
 - The untracked `windows.zip` (about 82 MB) in the repo root was not made by Claude and has never been committed or deleted: leave it alone unless the owner says otherwise, and never stage it (`git add -A . ':!windows.zip'`).
