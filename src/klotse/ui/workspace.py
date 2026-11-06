@@ -4,9 +4,9 @@ import sys
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
-from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox,
+from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
                                QTabWidget, QToolBar)
 
 from ..k8s.api_index import ApiIndex
@@ -237,16 +237,21 @@ class ClusterWorkspace(QMainWindow):
         refresh.triggered.connect(self.refresh)
         bar.addAction(refresh)
         bar.addSeparator()
+        # One control, one place: "Auto-refresh: Off / 5 s / 10 s / 30 s / 60 s". `auto_action` is the on/off state behind it (not on the
+        # toolbar), so the code that asks "is auto-refresh on?" and the combo can never disagree.
         self.auto_action = QAction("Auto-refresh", self, checkable=True, checked=True)
-        self.auto_action.setToolTip("Reload the visible list periodically and when the cluster reports a change")
         self.auto_action.toggled.connect(self.set_auto_refresh)
-        bar.addAction(self.auto_action)
+        self._auto_ms = AUTO_REFRESH_MS  # the interval to come back to when it is switched on again
         self.auto_interval = QComboBox()
+        self.auto_interval.addItem("Off", 0)
         for label, ms in AUTO_REFRESH_CHOICES:
-            self.auto_interval.addItem(label, ms)
-        self.auto_interval.setCurrentIndex(next(i for i, (_, ms) in enumerate(AUTO_REFRESH_CHOICES) if ms == AUTO_REFRESH_MS))
-        self.auto_interval.currentIndexChanged.connect(
-            lambda _=None: self._auto_timer.setInterval(self.auto_interval.currentData()))
+            self.auto_interval.addItem(label.replace("s", " s"), ms)
+        self.auto_interval.setCurrentIndex(self.auto_interval.findData(AUTO_REFRESH_MS))
+        self.auto_interval.setToolTip("How often the lists that update themselves reload (workloads and nodes by default; right-click "
+                                      "any list to change that for it). Off stops every automatic reload: use Refresh.")
+        self.auto_interval.currentIndexChanged.connect(self._auto_choice_changed)
+        self.auto_action.toggled.connect(self._sync_auto_combo)
+        bar.addWidget(QLabel(" Auto-refresh: "))
         bar.addWidget(self.auto_interval)
         self.read_only_label = QLabel(" 🔒 Read-only: changes are blocked ")  # symbol and words, never colour alone
         self.read_only_label.setStyleSheet(theme.warning_style())
@@ -256,6 +261,30 @@ class ClusterWorkspace(QMainWindow):
         self.ns_combo.currentIndexChanged.connect(lambda _=None: self._load_permissions() if self._ready else None)
         self.ns_combo.activated.connect(lambda _=None: self.load_scoped())
         self._sync_ns_selector()
+
+    def _auto_choice_changed(self, _index=None):
+        """The user picked Off or an interval in the toolbar."""
+        ms = self.auto_interval.currentData()
+        if ms:
+            self._auto_ms = ms
+            self._auto_timer.setInterval(ms)  # before switching on, so the timer starts with the chosen interval
+        self.auto_action.setChecked(bool(ms))
+
+    def _sync_auto_combo(self, on):
+        """The on/off state changed (the combo, or code): make the combo say the same."""
+        wanted = self.auto_interval.findData(self._auto_ms if on else 0)
+        if wanted >= 0 and wanted != self.auto_interval.currentIndex():
+            blocker = QSignalBlocker(self.auto_interval)
+            self.auto_interval.setCurrentIndex(wanted)
+            del blocker
+
+    def createPopupMenu(self):
+        """The right-click menu of the toolbar and dock title bars: only the docks (so a closed Details or Logs pane can be
+        brought back). It must not offer the toolbar itself, which would let the Refresh and Auto-refresh controls be hidden."""
+        menu = QMenu(self)
+        for dock in (self.detail_dock, self.log_dock):
+            menu.addAction(dock.toggleViewAction())
+        return menu
 
     @property
     def kubeconfig(self):

@@ -77,7 +77,7 @@ def test_toggle_off_stops_timer_and_automatic_reloads(qtbot):
 def test_interval_choice_changes_timer(qtbot):
     ws, _ = make_ws(qtbot)
     assert ws._auto_timer.interval() == 10_000
-    ws.auto_interval.setCurrentIndex(3)
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(60_000))
     assert ws._auto_timer.interval() == 60_000
 
 
@@ -106,3 +106,53 @@ def test_namespace_selector_only_on_namespaced_views(qtbot):
     ws.set_namespace("All namespaces")
     ws.tabs.setCurrentWidget(ws.views["pods"][0])  # switching tabs by clicking updates it too
     assert shown()
+
+
+# ---- one control: Auto-refresh: Off / 5 s / 10 s / 30 s / 60 s --------------------------------------------------------
+def test_the_toolbar_has_one_auto_refresh_control_with_an_off_choice(qtbot):
+    ws, _ = make_ws(qtbot)
+    assert [ws.auto_interval.itemText(i) for i in range(ws.auto_interval.count())] == ["Off", "5 s", "10 s", "30 s", "60 s"]
+    assert ws.auto_interval.currentText() == "10 s" and ws.auto_action.isChecked()
+    from PySide6.QtWidgets import QLabel, QToolBar
+    toolbar = ws.findChildren(QToolBar)[0]
+    assert ws.auto_action not in toolbar.actions()  # no second, separate on/off button next to the combo
+    assert any(label.text() == " Auto-refresh: " for label in toolbar.findChildren(QLabel))
+
+
+def test_choosing_off_stops_the_timer_and_choosing_an_interval_starts_it(qtbot):
+    ws, _ = make_ws(qtbot)
+    ws._ready = True
+    ws._auto_timer.start()
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(0))
+    assert not ws.auto_action.isChecked() and not ws._auto_timer.isActive() and ws._watchers == []
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(5_000))
+    assert ws.auto_action.isChecked() and ws._auto_timer.isActive() and ws._auto_timer.interval() == 5_000
+
+
+def test_the_combo_follows_the_on_off_state_when_code_changes_it(qtbot):
+    ws, _ = make_ws(qtbot)
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(30_000))
+    ws.auto_action.setChecked(False)
+    assert ws.auto_interval.currentText() == "Off"
+    ws.auto_action.setChecked(True)
+    assert ws.auto_interval.currentText() == "30 s" and ws._auto_timer.interval() == 30_000  # back to what it was
+
+
+def test_off_then_on_by_the_combo_returns_to_the_chosen_interval_not_a_default(qtbot):
+    ws, _ = make_ws(qtbot)
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(60_000))
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(0))
+    ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(10_000))
+    assert ws._auto_timer.interval() == 10_000 and ws.auto_action.isChecked()
+
+
+def test_right_clicking_the_toolbar_cannot_remove_it_but_the_panes_can_still_be_brought_back(qtbot):
+    ws, _ = make_ws(qtbot)
+    menu = ws.createPopupMenu()
+    qtbot.addWidget(menu)
+    assert [a.text() for a in menu.actions()] == [ws.detail_dock.windowTitle(), ws.log_dock.windowTitle()]  # docks only, no toolbar entry
+    ws.show()
+    ws.detail_dock.close()
+    assert not ws.detail_dock.isVisible()
+    ws.detail_dock.toggleViewAction().trigger()
+    assert ws.detail_dock.isVisible()
