@@ -30,6 +30,7 @@ from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
 from .node_dialogs import DrainDialog, NodeShellDialog
 from .permissions_dialog import PermissionsDialog
+from .search_dialog import SearchDialog
 from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
@@ -854,6 +855,8 @@ class ClusterWorkspace(QMainWindow):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
         self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
+        if getattr(self, "_search_dialog", None) is not None:
+            self._search_dialog.close()  # stops a search still reading pages
         self._auto_timer.stop()
         self._node_pods_timer.stop()
         self._stop_watchers()
@@ -950,6 +953,31 @@ class ClusterWorkspace(QMainWindow):
     def _set_permissions(self, namespace, data):
         if namespace == self.namespace():  # the answer for a namespace the user has left is dropped
             self.permissions = Permissions(data, namespace) if data else None
+
+    def show_search(self):
+        """View > Search objects…: one non-modal search window per workspace, brought to the front when asked for again."""
+        dialog = getattr(self, "_search_dialog", None)
+        if dialog is None:
+            ns = "" if self.namespace() == ALL_NS else self.namespace()
+            dialog = self._search_dialog = SearchDialog(self.context, ns, self)
+            dialog.setWindowFlag(Qt.Window, True)
+            dialog.search_requested.connect(self._run_search)
+            dialog.goto_requested.connect(self.go_to_object)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        dialog.box.setFocus()
+        return dialog
+
+    def _run_search(self, text, namespace, cancel):
+        dialog = self._search_dialog
+        serial = dialog.serial
+        find = getattr(self.service, "search_objects", None)
+        if find is None:
+            dialog.show_error(serial, "this service cannot search")
+            return
+        self._run(find, lambda answer: dialog.show_results(serial, *answer), text, namespace or None, cancel,
+                  on_error=lambda msg: dialog.show_error(serial, msg))
 
     def show_permissions(self):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
