@@ -50,7 +50,14 @@ class MainWindow(QMainWindow):
         self.exit_action.setShortcut(QKeySequence.Quit)
         self.exit_action.setMenuRole(QAction.QuitRole)
         self.exit_action.triggered.connect(self.close)
-        self.menuBar().addMenu("File").addAction(self.exit_action)
+        file_menu = self.menuBar().addMenu("File")
+        self.apply_action = QAction("Apply YAML…", self)
+        self.apply_action.setToolTip("Paste or open manifests and apply them to the cluster in front")
+        self.apply_action.triggered.connect(self.show_apply_yaml)
+        file_menu.addAction(self.apply_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.exit_action)
+        file_menu.aboutToShow.connect(lambda: self.apply_action.setEnabled(self.clusters.currentWidget() is not None))
         self.edit_menu = self.menuBar().addMenu("Edit")
         self.edit_actions = EditActions(self.edit_menu, self)  # Undo / Redo / Cut / Copy / Paste / Select All
         self.edit_menu.addSeparator()
@@ -169,6 +176,14 @@ class MainWindow(QMainWindow):
         if ws is None and self.plugins_menu.actions():
             self.plugins_menu.addSeparator()
             self.plugins_menu.addAction("Connect to a cluster first").setEnabled(False)
+
+    def show_apply_yaml(self):
+        """File > Apply YAML…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_apply_yaml()
+        return True
 
     def open_cluster_settings(self, plugin_id, context=None):
         """Edit a plugin's settings for `context` (default: the cluster in front); False when there is no such open

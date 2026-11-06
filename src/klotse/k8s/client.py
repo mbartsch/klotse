@@ -237,6 +237,39 @@ class KubeService:
             raise ValueError(f"Scaling {kind} is not supported")
         fn(name, namespace, body)
 
+    FIELD_MANAGER = "klotse"
+
+    def _dynamic_client(self):
+        """A dynamic client for the connected cluster (it discovers the served kinds once, so it is built on first use and
+        kept for as long as the connection is the same)."""
+        from kubernetes import dynamic
+        cached = getattr(self, "_dynamic", None)
+        if cached is None or cached[0] is not self._api_client:
+            self._dynamic = cached = (self._api_client, dynamic.DynamicClient(self._api_client))
+        return cached[1]
+
+    def apply_documents(self, docs, default_namespace="", dry_run=False):
+        """Server-side apply of each manifest (what `kubectl apply --server-side` does) under the field manager `klotse`;
+        conflicts with another manager are reported, never forced. A namespaced object without a namespace goes to
+        `default_namespace`. dry_run=True asks the server to validate and report without storing anything.
+        Returns [(kind, namespace, name, ok, message)], one per document in order: one failing document does not stop
+        the others."""
+        dyn = self._dynamic_client()
+        results = []
+        for doc in docs:
+            meta = doc.get("metadata") or {}
+            kind, name, ns = doc.get("kind", "?"), meta.get("name", "?"), meta.get("namespace") or ""
+            try:
+                resource = dyn.resources.get(api_version=doc["apiVersion"], kind=doc["kind"])
+                ns = (ns or default_namespace) if resource.namespaced else ""
+                options = {"dry_run": "All"} if dry_run else {}
+                dyn.server_side_apply(resource, body=doc, name=name, namespace=ns or None, force_conflicts=False,
+                                      field_manager=self.FIELD_MANAGER, **options)
+                results.append((kind, ns, name, True, "valid (dry run, nothing stored)" if dry_run else "applied"))
+            except Exception as e:  # report every document's own outcome; the server's message says what is wrong
+                results.append((kind, ns, name, False, getattr(e, "summary", None) and e.summary() or f"{type(e).__name__}: {e}"))
+        return results
+
     def open_log_stream(self, namespace, pod, container=None, tail=500):
         """Returns a streaming urllib3 response (follow=True); the caller reads and closes it."""
         return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=True,
