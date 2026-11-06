@@ -1,8 +1,8 @@
 # Klotse roadmap
 
-Features other Kubernetes desktop tools have and Klotse does not yet. **None of these is implemented.** The list comes from comparing Klotse's source with Aptakube, Headlamp, Lens/Freelens and k9s (the first two from their public pages and release notes, the last two from memory, not re-checked). Each item is tracked as a GitHub issue labelled `enhancement` and is meant to be done gradually, one pull request each.
+Features other Kubernetes desktop tools have and Klotse does not yet. Items marked **done** are merged; the others are not implemented. The list comes from comparing Klotse's source with Aptakube, Headlamp, Lens/Freelens and k9s (the first two from their public pages and release notes, the last two from memory, not re-checked). Each item is tracked as a GitHub issue labelled `enhancement` and is meant to be done gradually, one pull request each.
 
-Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the rest follow.
+**Status on 2026-11-06.** Done and merged: 1, 2, 3, 4, 5, 8, 13, 19, 30, 33, 34 and 35 (item 6, Related objects, is in pull request #90; the new automatic-refresh defaults of 35 are in #91). Open issues: #57 (item 7, search), #59 (9, file copy), #60 (10, embedded terminal; termqt or xterm.js is the owner's decision), #61 (11, metrics charts), #62 (12, several clusters side by side), #63 and #64 (the Azure and GCP plugins). Ideas 14-18, 20-29, 31 and 32 have no issue yet: file one, with an effort label, before starting one. "Done" means merged with tests; none of it has been run against a live cluster. Every issue carries `enhancement` and an effort label.
 
 | # | Item | Seen in | Effort |
 | --- | --- | --- | --- |

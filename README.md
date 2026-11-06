@@ -11,8 +11,10 @@ Built with Python, PySide6 (Qt Widgets) and the official Kubernetes Python clien
 kubeconfig and authentication helpers, so there is nothing to sign in to and no server component.
 
 > **Status:** early. Read-only use against real clusters has been tried; most of the
-> mutating actions (cordon, drain, delete, scale) are covered by automated tests with fake services, not yet by
-> live-cluster runs. Try them on a non-production cluster first.
+> mutating actions (cordon, drain, delete, scale, restart, rollback, apply, uninstall) and the newest features
+> (port-forward, Helm, related objects, permission hints, Karpenter views) are covered by automated tests with fake
+> services, not yet by live-cluster runs. Try them on a non-production cluster first, and turn on
+> **View → Read-only mode** for clusters you only want to look at.
 
 ## Features
 
@@ -24,18 +26,38 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
   context names (shared prefixes such as `team.api.prod.us1` and `us2`, or a regular expression whose capture
   groups become the levels). Right-click a group for **Connect all**.
 - **Resources.** Overview, Workloads, Nodes, Namespaces, Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets,
-  Jobs, CronJobs, ConfigMaps, Secrets, Services, Ingresses, NetworkPolicies, PVCs, PVs, StorageClasses, Events,
-  CustomResourceDefinitions, and read-only browsing of custom resource instances.
-- **Always fresh.** The visible tab refreshes every 10 s (5/10/30/60 s selectable) and immediately when the
-  cluster reports a change. Hidden tabs and clusters are not polled.
-- **Details.** YAML view for any resource, with Secret values masked until you pick the keys to decode.
-  `managedFields` are hidden by default (View → Show managedFields in details).
+  Jobs, CronJobs, Horizontal Pod Autoscalers, ConfigMaps, Secrets, Resource Quotas, Limit Ranges, Pod Disruption
+  Budgets, Priority Classes, webhook configurations, Leases, Services, Endpoints, Endpoint Slices, Ingresses,
+  NetworkPolicies, PVCs, PVs, StorageClasses, the Access Control kinds (Service Accounts, Roles, bindings), Events,
+  Helm releases, CustomResourceDefinitions (also listed **by API group**, with each group as a sub item in the
+  navigator) and read-only browsing of custom resource instances. A **Karpenter** group (NodePools, NodeClaims, node
+  classes) appears when the cluster runs Karpenter.
+- **Fresh where it matters.** Workloads and nodes refresh every 10 s (the toolbar's **Auto-refresh**: Off, 5, 10, 30
+  or 60 s) and immediately when the cluster reports a change. Every other list loads when you open it and reloads on
+  **Refresh** (the toolbar button or a right-click), which keeps definitions such as CRDs and Access Control quiet.
+  Right-click any list to switch its automatic refresh on or off; the choice is remembered. Hidden tabs and clusters
+  are not polled.
+- **Details.** Formatted pages for workloads and RBAC objects, a YAML view for anything, an **Events** view and a
+  **Related** view (owners, what an object owns, uses and is used by, each a link that takes you there). Secret
+  values stay masked until you pick the keys to decode. `managedFields` are hidden by default (View → Show
+  managedFields in details). Right-click a pod or any namespaced object for **Go to node** / **Go to namespace**.
 - **Pods and containers.** Logs (streaming, search, follow), Shell, Attach, terminate and force terminate.
   Double-click a pod for its own tab with every regular, init and ephemeral container.
 - **Nodes.** Cordon/uncordon, drain (with the usual kubectl options), a privileged nsenter shell, delete. Double-click
   a node for its pods, with the node actions in a bar above them. Pod counts per node.
-- **Bulk actions.** Select several rows (Ctrl/Shift) to scale, terminate, cordon or delete them in one confirmed
-  step. Scale accepts a number or a relative change such as `*2`, `/2`, `+1`, `-1`.
+- **Bulk actions.** Select several rows (Ctrl/Shift) to scale, restart, terminate, cordon or delete them in one
+  confirmed step. Scale accepts a number or a relative change such as `*2`, `/2`, `+1`, `-1`.
+- **Editing.** Form editors for workloads (the Environment table adds field, Secret, ConfigMap and resource
+  variables), Services, Ingresses, NetworkPolicies, Roles, bindings, ServiceAccounts, ConfigMaps and Secrets, and a
+  YAML editor for the rest. **File → Apply YAML…** checks manifests with a server-side dry run and applies them.
+  **Restart** (rollout restart) for Deployments, StatefulSets and DaemonSets, and **Rollout history / Undo** for
+  Deployments.
+- **Safety.** **View → Read-only mode** (per cluster, remembered) refuses every change, for production clusters.
+  **View → My permissions…** lists what you may do in the namespace and answers "Can I…?"; menu entries your rules
+  forbid say so (they stay clickable: the cluster has the last word).
+- **Port-forward and Helm.** Right-click a pod or service for **Port forward…** (a Port forwards tab lists them and
+  stops them all when you close it). **Helm → Releases** lists releases with their history and values (hidden until
+  you show them); uninstalling needs the `helm` command.
 - **Usage.** CPU and memory in use (from metrics-server, when present) on Nodes and Pods, plus optional request,
   limit and percent-of-request/limit columns on Pods.
 - **Your columns.** The **Columns…** button on every list lets you hide and reorder built-in columns and add label
@@ -86,7 +108,8 @@ general settings, and applies changes at once.
 
 - Python 3.10 or newer
 - A kubeconfig with at least one context (or pick one in Edit → Preferences)
-- [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH`, for drain, shells and attach
+- [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH`, for drain, shells, attach and port-forward
+- [`helm`](https://helm.sh/docs/intro/install/) on your `PATH`, only to uninstall a Helm release
 - Python dependencies (installed by the launchers): `PySide6-Essentials`, `kubernetes`, `PyYAML`
 
 ## Install
@@ -170,6 +193,9 @@ labels.1=example.com/team
 `order` is the order of the built-in columns, `hidden` lists the ones that are hidden, and `labels` the label
 columns; `labels_name.N` gives `labels.N` a short heading. A key that is missing means the default; an empty key
 (`hidden=`) means none. You can edit the file by hand while Klotse is closed.
+
+The same file keeps which clusters are read-only (`[readonly]` `contexts.N`) and the lists whose automatic refresh you
+changed (`[refresh]` `manual.N` / `auto.N`, only entries that differ from the defaults).
 
 Open its folder from **Edit → Preferences… → Open config folder**. The same file holds the custom kubeconfig path
 and the macOS terminal choice. A custom kubeconfig is passed both to the Kubernetes client and, as `--kubeconfig`,
