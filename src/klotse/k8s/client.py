@@ -654,14 +654,15 @@ class KubeService:
             return self._iter_list(getattr(api, f"list_namespaced_{spec.snake}"), namespace)
         return self._iter_list(getattr(api, f"list_{spec.snake}_for_all_namespaces"))
 
-    def list_custom_objects(self, group, version, plural, namespaced, namespace=None):
-        """Instances of a custom resource: one namespace, or every namespace for a namespaced kind."""
+    def list_custom_objects(self, group, version, plural, namespaced, namespace=None, kind=None):
+        """Instances of a custom resource: one namespace, or every namespace for a namespaced kind. `kind` lets a
+        well-known resource (Karpenter's NodePool, NodeClaim) fill the extra columns it has."""
         api = self._custom
         if namespaced and namespace:
             fn, args = api.list_namespaced_custom_object, (group, version, namespace, plural)
         else:  # cluster-scoped kinds, or a namespaced kind across all namespaces
             fn, args = api.list_cluster_custom_object, (group, version, plural)
-        return [map_custom_object(i) for i in self._iter_dicts(fn, *args)]
+        return [map_custom_object(i, group=group, kind=kind) for i in self._iter_dicts(fn, *args)]
 
     @staticmethod
     def _iter_dicts(fn, *args):
