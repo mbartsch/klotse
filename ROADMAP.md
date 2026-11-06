@@ -6,10 +6,10 @@ Suggested order: items 1-4 are small, 5 is the biggest gain in daily use, the re
 
 | # | Item | Seen in | Effort |
 | --- | --- | --- | --- |
-| 1 | Rollout restart, undo and history for Deployments, StatefulSets and DaemonSets | Lens, k9s, Aptakube | Small (patch an annotation) |
+| 1 | Rollout restart (**done**, #66), undo and history (not done) for Deployments, StatefulSets and DaemonSets | Lens, k9s, Aptakube | Small (patch an annotation) |
 | 2 | More resource kinds: HPA, PDB, ResourceQuota, LimitRange, Endpoints/EndpointSlice, PriorityClass, webhook configurations, Leases | all | Small each (a `Spec` entry plus a mapper) |
-| 3 | Apply YAML / create any resource | Lens, Headlamp | Small |
-| 4 | "Can I?" permission check for the current user | Headlamp, k9s | Small |
+| 3 | Apply YAML / create any resource (**done**, #69) | Lens, Headlamp | Small |
+| 4 | "Can I?" permission check for the current user (check and rules list **done**, #68; greying out forbidden actions not done) | Headlamp, k9s | Small |
 | 5 | Port-forward (pod or service) with a list of active forwards | Aptakube, Lens, Headlamp, k9s | Medium |
 | 6 | Related objects and owners (Deployment, ReplicaSet, Pods; Service, Endpoints) | k9s, Lens | Medium |
 | 7 | Search across kinds and namespaces | Lens, k9s | Medium |
@@ -42,7 +42,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | # | Item | Effort |
 | --- | --- | --- |
 | 18 | Logs from many pods at once (Deployment or label selector, like `stern`), regex filter, time range, save | Medium |
-| 19 | Events timeline in Details for the selected object | Small |
+| 19 | Events timeline in Details for the selected object (**done**, #67) | Small |
 | 20 | Debug container (`kubectl debug`, ephemeral container) for pods | Small to medium |
 | 21 | Health check view (like k9s's Popeye): no limits or probes, `latest` tags, crash-looping pods, unbound PVCs; reuse the editor hints | Medium |
 | 22 | Right-sizing view: requests and limits against actual usage (the `%req`/`%lim` columns exist) | Medium |
@@ -73,5 +73,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 - **Benchmarking** (k9s embeds an HTTP load generator on port-forwards): not planned.
 
 Recommended first picks from this group: 13, 14, 18 and 15.
+
+Done so far is marked in the tables; none of it has been tried against a live cluster. Issues #51 (undo and history left) and #54 (greying out left) stay open.
 
 Keep this file and the issues in step: when an item is merged, mark it done here and close its issue.
