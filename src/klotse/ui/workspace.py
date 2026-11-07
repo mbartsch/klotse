@@ -171,6 +171,8 @@ class ClusterWorkspace(QMainWindow):
         self._watch_timer = QTimer(self, interval=WATCH_DEBOUNCE_MS, singleShot=True)
         self._watch_timer.timeout.connect(self._watch_reload)
         self._clock = perf_counter  # tests replace it
+        self._last_done = {}  # view key -> when its last load finished (big-cluster mode counts the refresh interval from here)
+        self._reload_timers = {}
         self._last_load = {}  # view key -> when its last load started; watch reloads wait for the refresh interval
         self._watch_late = QTimer(self, singleShot=True)
         self._watch_late.timeout.connect(self._watch_reload)
@@ -456,8 +458,8 @@ class ClusterWorkspace(QMainWindow):
         self._run(pager.next, got, on_error=failed)
 
     def set_big(self, on):
-        """Big-cluster mode (see `KubeService.set_big` and `big_clusters`): lighter reads, and the heavy lists reload by themselves
-        no more often than every `big_clusters.MIN_REFRESH_S` seconds."""
+        """Big-cluster mode (see `KubeService.set_big` and `big_clusters`): lighter reads, and the automatic reload waits the
+        auto-refresh interval after the last refresh *finished* (not every N seconds), so slow loads never queue up."""
         self.big = on = bool(on)
         self._node_pods_timer.setInterval(NODE_PODS_BIG_REFRESH_MS if on else NODE_PODS_REFRESH_MS)  # recounting every pod is costly
         setter = getattr(self.service, "set_big", None)
@@ -466,9 +468,18 @@ class ClusterWorkspace(QMainWindow):
         self.big_changed.emit(on)
 
     def _refresh_gap(self, key):
-        """Seconds a view must wait after its last load before an automatic reload."""
-        gap = self._auto_timer.interval() / 1000
-        return max(gap, big_clusters.MIN_REFRESH_S) if self.big and key in big_clusters.HEAVY_VIEWS else gap
+        """Seconds a view must wait before an automatic reload: the auto-refresh interval."""
+        return self._auto_timer.interval() / 1000
+
+    def _since_last(self, key):
+        """Seconds since the view's last load started (small cluster: the timer's cadence) or, in big-cluster mode, finished."""
+        when = (self._last_done if self.big else self._last_load).get(key)
+        return float("inf") if when is None else self._clock() - when
+
+    def _reload_when_due(self, key):
+        """Big-cluster mode: one interval after a load finished, reload the view in front (if auto-refresh is still on)."""
+        if self.big and not self._closed and self._showing():
+            self.load_foreground()
 
     def _overview_loaded(self, data):
         counts = (data or {}).get("counts") or {}
@@ -611,8 +622,8 @@ class ClusterWorkspace(QMainWindow):
         key = self.foreground_key()
         if (self._ready and not self._closed and self.auto_action.isChecked()
                 and key in self.loaders and key not in self._loading and (not self.is_manual(key) or self._stale_scope(key))):
-            if self.big and self._clock() - self._last_load.get(key, float("-inf")) < self._refresh_gap(key) - 0.5:
-                return  # big cluster: the heavy lists wait longer between automatic reloads
+            if self.big and self._since_last(key) < self._refresh_gap(key) - 0.5:
+                return  # big cluster: wait the interval after the last refresh finished
             self.load_view(key)
 
     def _showing(self):
@@ -662,7 +673,7 @@ class ClusterWorkspace(QMainWindow):
         if self._watched and self._watched[0] == key and not self._closed:
             # A busy cluster changes all the time: a change reloads the list at once, but never more often than the
             # refresh interval (10 s by default), so the list does not flicker faster than the user asked for.
-            wait = self._refresh_gap(key) - (self._clock() - self._last_load.get(key, float("-inf")))
+            wait = self._refresh_gap(key) - self._since_last(key)
             if wait > 0:
                 self._watch_late.start(int(wait * 1000) + 1)
                 return
@@ -964,6 +975,13 @@ class ClusterWorkspace(QMainWindow):
             self._loading.discard(key)
             if self._closed:
                 return
+            self._last_done[key] = self._clock()
+            if self.big and self.auto_action.isChecked() and not self.is_manual(key):
+                timer = self._reload_timers.get(key)
+                if timer is None:  # one single-shot timer per view, owned by this workspace (so it dies with it)
+                    timer = self._reload_timers[key] = QTimer(self, singleShot=True)
+                    timer.timeout.connect(lambda k=key: self._reload_when_due(k))
+                timer.start(int(self._refresh_gap(key) * 1000) + 100)  # restarted by every finished load
             if self._loads[key] == namespace:
                 if error:
                     data = explain(data, title)
@@ -1053,6 +1071,8 @@ class ClusterWorkspace(QMainWindow):
     def shutdown(self):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
+        for timer in self._reload_timers.values():
+            timer.stop()
         self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
         if getattr(self, "_search_dialog", None) is not None:
             self._search_dialog.close()  # stops a search still reading pages

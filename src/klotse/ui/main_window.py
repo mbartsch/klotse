@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
                                QTabWidget, QWidget)
 
 from .about import AboutDialog
@@ -20,7 +20,7 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from ..k8s.timing import timings
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
-from .big_clusters import BigClusters
+from .big_clusters import NOTICE_TEXT, BigClusters
 from .read_only import ReadOnlyClusters
 from . import embedded_terminal, theme
 from .theme import ThemeSettings
@@ -255,8 +255,35 @@ class MainWindow(QMainWindow):
             news = True  # not saved, but still used for this session
         if news:
             ws.set_big(True)
+            self._maybe_big_notice(ws)
             self.status.showMessage(f"{ws.context}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
                                     "The Overview now shows Warning events only and reloads less often.", 15000)
+
+    def _maybe_big_notice(self, ws):
+        """Tell the user, once per connection, that a big cluster is read in a lighter way and what that changes, unless they ticked
+        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown."""
+        if ws is None or not ws.big or not self.isVisible() or self.big_clusters.notice_hidden(ws.context):
+            return
+        shown = self.__dict__.setdefault("_big_notices", {})
+        if ws.context in shown:
+            return
+        box = QMessageBox(QMessageBox.Information, f"{ws.context}: big cluster", NOTICE_TEXT, QMessageBox.Ok, self)
+        again = QCheckBox("Don't show this again for this cluster")
+        box.setCheckBox(again)
+        box.setModal(False)
+        shown[ws.context] = box
+
+        def finished(_result, c=ws.context):
+            shown.pop(c, None)
+            if again.isChecked():
+                try:
+                    self.big_clusters.hide_notice(c)
+                except OSError as error:
+                    QMessageBox.warning(self, "Cannot save", str(error))
+            box.deleteLater()
+
+        box.finished.connect(finished)
+        box.show()
 
     def set_big_mode(self, on):
         """View > Big cluster mode for the cluster in front: the user's explicit choice (on or off), kept for next time."""
@@ -498,6 +525,7 @@ class MainWindow(QMainWindow):
         self.nav.set_state(ctx, state)
         if state == "connected":
             self.nav.show_views(ctx)
+            QTimer.singleShot(0, lambda c=ctx: self._maybe_big_notice(self.workspaces.get(c)))
 
     def _on_failed(self, ctx, msg):
         self._discard(ctx)

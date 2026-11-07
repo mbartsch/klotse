@@ -114,7 +114,7 @@ def test_workspace_reports_a_big_cluster_once_from_the_overview(qtbot):
     assert found == [(103, 2683)]  # already big: not reported again
 
 
-def test_set_big_tells_the_service_and_slows_the_heavy_lists(qtbot):
+def test_set_big_tells_the_service(qtbot):
     ws, service = make_workspace(qtbot)
     seen = []
     service.set_big = seen.append
@@ -122,30 +122,101 @@ def test_set_big_tells_the_service_and_slows_the_heavy_lists(qtbot):
     ws.big_changed.connect(changes.append)
     ws.set_big(True)
     assert seen == [True] and changes == [True] and ws.big
-    gap = ws._auto_timer.interval() / 1000
-    assert ws._refresh_gap("overview") == max(gap, big_clusters.MIN_REFRESH_S) and ws._refresh_gap("services") == gap
     ws.set_big(False)
-    assert ws._refresh_gap("overview") == gap
+    assert seen == [True, False] and not ws.big
 
 
-def test_a_big_cluster_overview_is_not_reloaded_within_the_gap(qtbot):
-    ws, _service = make_workspace(qtbot)
+def reload_probe(ws, key="overview"):
     ws._ready = True
     loads = []
-    ws.loaders["overview"] = (lambda *a: None, False, lambda *a: None)
+    ws.loaders[key] = (lambda *a: None, False, lambda *a: None)
     ws.load_view = loads.append
-    ws.foreground_key = lambda: "overview"
+    ws.foreground_key = lambda: key
+    return loads
+
+
+def test_a_small_cluster_counts_the_interval_from_the_start_of_the_last_load(qtbot):
+    ws, _service = make_workspace(qtbot)
+    loads = reload_probe(ws)
     ws._clock = lambda: 100.0
-    ws._last_load["overview"] = 90.0  # 10 s ago
-    ws.load_foreground()
-    assert loads == ["overview"]  # small cluster: reloads at the usual interval
-    loads.clear()
-    ws.set_big(True)
-    ws.load_foreground()
-    assert loads == []  # big cluster: waits for 30 s
-    ws._last_load["overview"] = 60.0
+    ws._last_load["overview"] = 85.0  # started 15 s ago, finished just now: the usual timer behaviour reloads
+    ws._last_done["overview"] = 100.0
     ws.load_foreground()
     assert loads == ["overview"]
+
+
+def test_a_big_cluster_counts_the_interval_from_the_end_of_the_last_load(qtbot):
+    ws, _service = make_workspace(qtbot)
+    ws.set_big(True)
+    loads = reload_probe(ws)
+    gap = ws._auto_timer.interval() / 1000
+    ws._clock = lambda: 100.0
+    ws._last_load["overview"] = 85.0
+    ws._last_done["overview"] = 100.0 - 2  # finished 2 s ago
+    ws.load_foreground()
+    assert loads == []  # the load took 13 s, but the interval counts from when it finished
+    ws._last_done["overview"] = 100.0 - gap
+    ws.load_foreground()
+    assert loads == ["overview"]
+
+
+def test_a_finished_big_load_schedules_the_next_one_one_interval_later(qtbot):
+    ws, _service = make_workspace(qtbot)
+    ws.set_big(True)
+    ws._ready = True
+    ws._auto_timer.setInterval(50)  # a 50 ms "interval" so the test is quick
+    started = []
+    ws.loaders["services"] = (lambda *a: ["row"], False, lambda rows: None)
+    ws.views["services"] = (SimpleNamespace(), "Services")
+    ws.foreground_key = lambda: "services"
+    ws.is_manual = lambda key: False
+    ws._showing = lambda: True
+    real = ws.load_view
+    ws.load_view = lambda key: (started.append(key), real(key))[1]
+    ws.load_view("services")
+    qtbot.waitUntil(lambda: started.count("services") >= 3, timeout=5000)  # re-armed by every finished load, not by a fixed timer
+
+
+def test_the_notice_is_kept_per_cluster(store):
+    clusters = BigClusters(store)
+    assert not clusters.notice_hidden("a")
+    clusters.hide_notice("a")
+    assert BigClusters(store).notice_hidden("a") and not BigClusters(store).notice_hidden("b")
+    clusters.hide_notice("a", False)
+    assert not BigClusters(store).notice_hidden("a")
+
+
+def test_the_big_cluster_notice_is_shown_unless_hidden_for_that_cluster(qtbot, tmp_path, monkeypatch):
+    from test_app import open_active
+    win = window(qtbot, tmp_path)
+    open_active(win)
+    ws = win.clusters.currentWidget()
+    monkeypatch.setattr(type(win), "isVisible", lambda self: True)
+    win._maybe_big_notice(ws)
+    assert win.__dict__.get("_big_notices", {}) == {}  # not a big cluster: nothing
+    ws.set_big(True)
+    win._maybe_big_notice(ws)
+    box = win._big_notices[ws.context]
+    assert "Auto-refresh waits" in box.text() and "Warning events only" in box.text() and box.checkBox().text().startswith("Don't show")
+    win._maybe_big_notice(ws)  # already open: not a second one
+    box.checkBox().setChecked(True)
+    box.accept()
+    assert ws.context not in win._big_notices and BigClusters(QSettings(str(tmp_path / "klotse.ini"), QSettings.IniFormat)).notice_hidden(ws.context)
+    win._maybe_big_notice(ws)
+    assert ws.context not in win._big_notices  # hidden for this cluster
+
+
+def test_closing_the_notice_without_the_tick_shows_it_again_next_time(qtbot, tmp_path, monkeypatch):
+    from test_app import open_active
+    win = window(qtbot, tmp_path)
+    open_active(win)
+    ws = win.clusters.currentWidget()
+    monkeypatch.setattr(type(win), "isVisible", lambda self: True)
+    ws.set_big(True)
+    win._maybe_big_notice(ws)
+    win._big_notices[ws.context].accept()
+    win._maybe_big_notice(ws)
+    assert ws.context in win._big_notices
 
 
 def window(qtbot, tmp_path):

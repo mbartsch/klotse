@@ -8,8 +8,17 @@ from .settings_store import default_store
 
 BIG_NODES = 50
 BIG_PODS = 1500
-MIN_REFRESH_S = 30  # in big-cluster mode the heavy lists (Overview, workloads, pods) reload by themselves no more often than this
-HEAVY_VIEWS = ("overview", "workloads", "pods")
+
+NOTICE_TEXT = (
+    "This cluster is big, so Klotse reads it in a lighter way. What changes compared with a small cluster:\n\n"
+    "\u2022 Auto-refresh waits the chosen time after the last refresh finished, instead of reloading every N seconds.\n"
+    "\u2022 The Overview shows Warning events only, and from 5,000 pods counts pods by phase (a crash-looping pod counts as running; "
+    "Health check finds those).\n"
+    "\u2022 With 5,000 or more pods the Pods list loads 2,000 at a time (Load more) and refreshes only on request; filter and sort "
+    "cover the loaded pods. View > Search objects\u2026 searches them all.\n"
+    "\u2022 The Pods column of the Nodes tab is recounted every 5 minutes.\n"
+    "\u2022 Health check, Capacity and similar windows read their data side by side.\n\n"
+    "View > Big cluster mode switches this off for this cluster.")
 
 
 def looks_big(nodes, pods):
@@ -55,6 +64,33 @@ class BigClusters:
         self.store.sync()
         if self.store.status() != QSettings.NoError:
             raise OSError(f"Could not save the big-cluster setting to {self.store.fileName()}")
+
+    # ---- the "this cluster is read in a lighter way" notice, hidden per cluster -------------------------------------
+    NOTICE_GROUP = "big_notice"
+
+    def _hidden(self):
+        self.store.beginGroup(self.NOTICE_GROUP)
+        try:
+            numbered = sorted((int(k.split(".", 1)[1]), self.store.value(k)) for k in self.store.childKeys()
+                              if k.startswith("contexts.") and k.split(".", 1)[1].isdigit())
+        finally:
+            self.store.endGroup()
+        return [str(v) for _, v in numbered if v]
+
+    def notice_hidden(self, context):
+        return context in self._hidden()
+
+    def hide_notice(self, context, hidden=True):
+        """Do not show the notice again for `context` (or show it again with hidden=False). Raises OSError when not saved."""
+        current = [c for c in self._hidden() if c != context]
+        if hidden:
+            current.append(context)
+        self.store.remove(self.NOTICE_GROUP)
+        for number, name in enumerate(current):
+            self.store.setValue(f"{self.NOTICE_GROUP}/contexts.{number}", name)
+        self.store.sync()
+        if self.store.status() != QSettings.NoError:
+            raise OSError(f"Could not save the setting to {self.store.fileName()}")
 
     def detected(self, context):
         """The Overview showed `context` is big: remember it unless the user already chose. True when this is news."""
