@@ -7,15 +7,48 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QInputDialog, QLa
 from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from ..k8s.timing import timings
+from . import filter_expr
 from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
-from .table_model import TableModel
+from .table_model import TableModel, age_sort_value
 
 
 LOG_SOURCES = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "Service"}  # have a selector: their pods' logs together
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
 NOT_CUSTOMIZABLE = {"Container", "CustomResource", "CRDGroup", "HelmRelease"}  # per-pod container rows and dynamic CR columns keep fixed columns
+
+
+FILTER_HELP = "\n".join([
+    "Type text to match it in any column. Or write a comparison on columns:",
+    "  Restarts > 3        Status ~ crash        Name = web-*        Namespace != kube-system",
+    "  CPULim = 2*CPUReq   CPUUsed > 500m        MemLim < 1Gi        Age > 2h",
+    "  app = web (a label)  Kind = Pod            a and b, a or b, (…) to group",
+    "= and != ignore case and take * as a wildcard; ~ is a regular expression. Blank values match nothing."])
+
+
+class _FilterProxy(QSortFilterProxyModel):
+    """The table's proxy: plain text filtering as before, or a filter expression (see filter_expr) evaluated on the row's values."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.expression = None
+        self.resolver = None  # (row, name) -> (value, unit) | None, set by the table
+
+    def set_expression(self, expression):
+        if hasattr(self, "beginFilterChange"):  # Qt 6.9+: invalidateFilter() is deprecated
+            self.beginFilterChange()
+            self.expression = expression
+            self.endFilterChange()
+        else:
+            self.expression = expression
+            self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        if self.expression is None:
+            return super().filterAcceptsRow(source_row, source_parent)
+        row = self.sourceModel().rows[source_row]
+        return self.expression.matches(lambda name: self.resolver(row, name))
 
 
 class ResourceTable(QWidget):
@@ -59,7 +92,9 @@ class ResourceTable(QWidget):
         self._label_args = None
         self.plugin_actions = None  # callable(kind, rows) -> [(plugin name, plugin id, [Action])], set by the workspace
         self.model = TableModel(columns, search_metadata=kind == "Node")
-        self.proxy = QSortFilterProxyModel(self)
+        self.proxy = _FilterProxy(self)
+        self.proxy.resolver = self._resolve
+        self._columns_seen = (None, {})
         self.proxy.setSourceModel(self.model)
         self.proxy.setSortRole(Qt.EditRole)
         self.proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
@@ -70,7 +105,11 @@ class ResourceTable(QWidget):
         if kind == "Node":
             self.filter.setPlaceholderText("Filter nodes, labels and annotations…")
         self._filter_timer = QTimer(self, interval=200, singleShot=True)
-        self._filter_timer.timeout.connect(lambda: self.proxy.setFilterFixedString(self.filter.text()))
+        self._filter_timer.timeout.connect(self._apply_filter)
+        self.filter.setToolTip(FILTER_HELP)
+        self.filter_note = QLabel()
+        self.filter_note.setWordWrap(True)
+        self.filter_note.setVisible(False)
         self.filter.textChanged.connect(lambda _: self._filter_timer.start())
         self.status = QLabel("Not loaded")
         self.status.setWordWrap(True)
@@ -120,6 +159,7 @@ class ResourceTable(QWidget):
             top.addWidget(self.customize_button)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
+        lay.addWidget(self.filter_note)
         lay.addWidget(self.status)
         # Long lists (Nodes, Pods) can take a while the first time: while there is nothing to show yet, a large
         # message takes the place of the empty table. Reloads with rows on screen only use the status line.
@@ -149,6 +189,81 @@ class ResourceTable(QWidget):
         if not self.model.rowCount():  # nothing else on screen: say it where the list would be
             self.loading_page.show_failed(f"Load failed: {message}")
             self.stack.setCurrentWidget(self.loading_page)
+
+    # ---- filter expressions (see filter_expr) ------------------------------------------------------------------
+    def _column_map(self):
+        """{normalized name: attribute} of the columns: attributes first (`cpu_req`), then headings without their unit (`CPU req (m)`)."""
+        columns = self.model.columns
+        if self._columns_seen[0] is not columns or len(self._columns_seen[1]) == 0:
+            found = {}
+            for heading, attr, *_ in columns:
+                found.setdefault(filter_expr.normalize(attr), attr)
+            for heading, attr, *_ in columns:
+                found.setdefault(filter_expr.normalize(heading.split("(")[0]), attr)
+            self._columns_seen = (columns, found)
+        return self._columns_seen[1]
+
+    @staticmethod
+    def _unit_of_attr(attr):
+        if attr == "age":
+            return "age"
+        if attr.endswith("pct"):
+            return None
+        return "cpu" if attr.startswith("cpu") else "mem" if attr.startswith("mem") else None
+
+    def _unit_of(self, name):
+        """For validating an expression: the unit of a column, "" for another column, a label or `kind`, None for nothing known."""
+        attr = self._column_map().get(filter_expr.normalize(name))
+        if attr is not None:
+            return self._unit_of_attr(attr) or ""
+        return "" if name.lower() in ("kind",) or name.lower().startswith(("label.", "labels.", "annotation.", "annotations.")) else None
+
+    def _resolve(self, row, name):
+        """`(value, unit)` of a column, label or `kind` for one row; None when the name is nothing known; a blank cell has value None."""
+        lowered = name.lower()
+        for prefix, field in (("label.", "labels"), ("labels.", "labels"), ("annotation.", "annotations"), ("annotations.", "annotations")):
+            if lowered.startswith(prefix):
+                return (((getattr(row, "raw", None) or {}).get("metadata") or {}).get(field) or {}).get(name[len(prefix):]), None
+        attr = self._column_map().get(filter_expr.normalize(name))
+        if attr is None:
+            labels = ((getattr(row, "raw", None) or {}).get("metadata") or {}).get("labels") or {}
+            if name in labels:  # a bare word that is a label key of this row: `app = web`
+                return labels[name], None
+            return (self.kind, None) if lowered == "kind" else None
+        if attr.startswith(("label:", "annotation:")):
+            field, _, key = attr.partition(":")
+            value = (((row.raw or {}).get("metadata") or {}).get("labels" if field == "label" else "annotations") or {}).get(key)
+        elif attr.startswith("plugin:"):
+            value = (getattr(row, "extra", None) or {}).get(attr)
+        else:
+            value = getattr(row, attr, None)
+        if attr == "age":
+            value = age_sort_value(value)
+        if value is None or value == "" or (isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0):
+            value = None  # blank: no metrics, no limit, an age that could not be read
+        return value, self._unit_of_attr(attr)
+
+    def _apply_filter(self):
+        """Plain text matches any column; text with a comparison is a filter expression. A bad expression is explained under the box
+        and filters nothing."""
+        text = self.filter.text()
+        if text.strip() and filter_expr.looks_like_expression(text):
+            try:
+                expression = filter_expr.parse(text)
+                expression.validate(self._unit_of)
+            except filter_expr.FilterError as error:
+                self.filter_note.setText(f"Filter: {error}  (hover the box for the syntax)")
+                self.filter_note.setVisible(True)
+                self.proxy.set_expression(None)
+                self.proxy.setFilterFixedString("")
+                return
+            self.filter_note.setVisible(False)
+            self.proxy.setFilterFixedString("")
+            self.proxy.set_expression(expression)
+            return
+        self.filter_note.setVisible(False)
+        self.proxy.set_expression(None)
+        self.proxy.setFilterFixedString(text)
 
     def enable_saved_filters(self, saved, context):
         """Add a ★ Filters button next to the filter box: keep the current filter text under a name, apply or forget one. Kept
