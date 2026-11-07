@@ -11,11 +11,12 @@ API_GROUPS = {"core": "", "apps": "apps", "batch": "batch", "net": "networking.k
               "scheduling": "scheduling.k8s.io", "admission": "admissionregistration.k8s.io", "discovery": "discovery.k8s.io",
               "coordination": "coordination.k8s.io"}
 BUILT_IN = {"Pod": ("", "pods"), "Node": ("", "nodes"), "Namespace": ("", "namespaces"), "Deployment": ("apps", "deployments"),
-            "ReplicaSet": ("apps", "replicasets"), "StatefulSet": ("apps", "statefulsets")}
+            "ReplicaSet": ("apps", "replicasets"), "StatefulSet": ("apps", "statefulsets"), "CronJob": ("batch", "cronjobs")}
 
 # what each menu action needs: (verb, subresource). "restart" and "cordon" are patches; scaling goes through the scale subresource.
 ACTIONS = {"edit": ("update", ""), "create": ("create", ""), "delete": ("delete", ""), "scale": ("update", "scale"),
            "restart": ("patch", ""), "terminate": ("delete", ""), "shell": ("create", "exec"), "attach": ("create", "attach"), "debug": ("patch", "ephemeralcontainers"),
+           "cronjob-suspend": ("patch", ""),
            "logs": ("get", "log"), "cordon": ("patch", ""), "delete-node": ("delete", "")}
 
 

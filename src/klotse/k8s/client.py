@@ -342,6 +342,37 @@ class KubeService:
             raise ValueError(f"Restarting {kind} is not supported")
         getattr(self._apps, method)(name, namespace, body)
 
+    @staticmethod
+    def manual_job_body(cronjob, stamp):
+        """The Job `kubectl create job --from=cronjob/NAME` would make, as a manifest dict: the CronJob's job template, owned by
+        the CronJob and marked as started by hand. The name is cut so it stays within Kubernetes' 63 characters."""
+        meta, spec = cronjob.get("metadata") or {}, cronjob.get("spec") or {}
+        template = spec.get("jobTemplate") or {}
+        suffix = f"-manual-{stamp}"
+        tmeta = template.get("metadata") or {}
+        annotations = dict(tmeta.get("annotations") or {})
+        annotations["cronjob.kubernetes.io/instantiate"] = "manual"
+        body_meta = {"name": meta.get("name", "")[:63 - len(suffix)] + suffix, "namespace": meta.get("namespace"),
+                     "labels": dict(tmeta.get("labels") or {}), "annotations": annotations}
+        if meta.get("uid"):
+            body_meta["ownerReferences"] = [{"apiVersion": "batch/v1", "kind": "CronJob", "name": meta.get("name"),
+                                             "uid": meta["uid"], "controller": True, "blockOwnerDeletion": True}]
+        return {"apiVersion": "batch/v1", "kind": "Job", "metadata": body_meta, "spec": template.get("spec") or {}}
+
+    @mutating
+    def trigger_cronjob(self, name, namespace):
+        """Run a CronJob once now. Returns the new Job's name."""
+        batch = self._apis["batch"]
+        cronjob = _raw(batch.read_namespaced_cron_job(name, namespace))
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S")
+        body = self.manual_job_body(cronjob, stamp)
+        batch.create_namespaced_job(namespace, body)
+        return body["metadata"]["name"]
+
+    @mutating
+    def set_cronjob_suspended(self, name, namespace, suspend):
+        self._apis["batch"].patch_namespaced_cron_job(name, namespace, {"spec": {"suspend": bool(suspend)}})
+
     def deployment_history(self, namespace, name):
         """The revisions of a Deployment, newest first (see k8s.rollout.history): its ReplicaSets, found through the
         Deployment's selector and kept only if it owns them."""

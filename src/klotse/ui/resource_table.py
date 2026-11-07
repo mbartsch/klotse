@@ -376,6 +376,11 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Scale…", "scale", row), lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:
                 menu.addAction(self._hint("Restart…", "restart", row), lambda: self.restart_requested.emit(self.kind, row))
+            if self.kind == "CronJob":
+                menu.addAction("Run now…", lambda: self.action_requested.emit("cronjob-run", row))
+                suspended = str(getattr(row, "suspend", "")) == "True"
+                menu.addAction(self._hint("Resume…" if suspended else "Suspend…", "cronjob-suspend", row),
+                               lambda: self.action_requested.emit("cronjob-resume" if suspended else "cronjob-suspend", row))
             if self.kind == "Deployment":
                 menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS:

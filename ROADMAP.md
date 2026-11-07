@@ -78,6 +78,23 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 - **AI assistant** ("explain this error", an MCP server): Lens offers one. Raises privacy and key-handling questions; only if the owner wants it.
 - **Benchmarking** (k9s embeds an HTTP load generator on port-forwards): not planned.
 
+## Ideas from the collabnix/kubetools list (2026-11-07)
+
+| # | Item | Effort | Issue |
+| --- | --- | --- | --- |
+| 39 | Upgrade preflight: deprecated APIs, PodDisruptionBudgets at zero, version skew, certificate dates (kubent, pluto, k8s-preflight, Shoalcheck) | Medium | #122 |
+| 40 | Compare two objects side by side (kbu, kubediff) | Small to medium | #123 |
+| 41 | CronJob: run now, suspend and resume (Kronic) (**done**, #124) | Small | #124 |
+| 42 | Saved port-forwards that can be started again (kftray) | Small to medium | #125 |
+| 43 | Diagnostics bundle export: logs, events, YAML in a zip, no secrets (groot, k8shark) | Medium | #126 |
+| 44 | Browse files in a pod or PVC (kubectl-browse-pvc) | Medium | #127 |
+| 45 | Say clearly when a list is refused (403) instead of showing it empty (Rubick) | Small | #128 |
+| 46 | Local audit log of changes made from Klotse (Lumovi) | Small to medium | #129 |
+| 47 | Capacity overview: requests, limits and utilization per node and namespace (kube-capacity) | Small to medium | #130 |
+| 48 | Ownership topology graph (Radar, KubeView) | Large | #131 |
+
+Also seen there and already planned: unused objects (kor, item 24), right-sizing (Goldilocks, item 22), RBAC reverse lookup (kube-who-can, item 25), health check (item 21), Trivy reports. Seen and not planned: AI assistants and MCP servers, chaos testing, packet capture, local-development tools (Tilt, Telepresence) and cluster provisioning.
+
 Recommended first picks from this group: 13, 14, 18 and 15.
 
 Done so far is marked in the tables; none of it has been tried against a live cluster. Issues #51 (undo and history left) and #54 (greying out left) stay open.

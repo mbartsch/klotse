@@ -218,7 +218,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.copy_files_requested.connect(self.copy_files)
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
-                                                 "HelmRelease": self._helm_action,
+                                                 "HelmRelease": self._helm_action, "CronJob": self._cronjob_action,
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
                                                     for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
@@ -1397,6 +1397,27 @@ class ClusterWorkspace(QMainWindow):
             self._run(self.service.deployment_history, dialog.set_revisions, row.namespace, row.name,
                       on_error=dialog.show_error)
         self._run(self.service.rollback_deployment, done, row.namespace, row.name, revision["name"], on_error=dialog.show_error)
+
+    def _cronjob_action(self, action, row):
+        """CronJob right-click: Run now (a Job made from its template, like `kubectl create job --from`), Suspend and Resume."""
+        if not self._writable("run or suspend CronJobs"):
+            return
+        name = f"{row.namespace}/{row.name}"
+        if action == "cronjob-run":
+            if QMessageBox.question(self, "Run CronJob now", f"Cluster: {self.context}\nStart one Job now from CronJob {name}?\n\n"
+                                    "The schedule is not changed. The Job runs even if the CronJob is suspended.",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self.message.emit(f"Starting a Job from {row.name}…")
+            self._run(self.service.trigger_cronjob, lambda job: self._saved("Job", job), row.name, row.namespace)
+        elif action in ("cronjob-suspend", "cronjob-resume"):
+            suspend = action == "cronjob-suspend"
+            if suspend and QMessageBox.question(self, "Suspend CronJob", f"Cluster: {self.context}\nSuspend CronJob {name}? "
+                                                "No new Jobs start until it is resumed; running Jobs continue.",
+                                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self.message.emit(f"{'Suspending' if suspend else 'Resuming'} {row.name}…")
+            self._run(self.service.set_cronjob_suspended, lambda _: self._saved("CronJob", row.name), row.name, row.namespace, suspend)
 
     def _restarted(self, kind, name):
         self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")
