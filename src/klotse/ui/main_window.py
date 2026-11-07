@@ -157,8 +157,11 @@ class MainWindow(QMainWindow):
         """Reconnect the clusters remembered at the last exit (those still in the kubeconfig); returns them."""
         remembered, current = self.session.saved()
         wanted = [ctx for ctx in remembered if ctx in self.contexts]
+        spaces = self.session.namespaces()
         for ctx in wanted:
             self.open_cluster(ctx)
+            if ctx in spaces and ctx in self.workspaces:
+                self.workspaces[ctx].restore_namespace = spaces[ctx]  # applied when the namespace list arrives
         if current in wanted:
             self.open_cluster(current)  # focus the one that was in front
         if wanted:
@@ -433,7 +436,8 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.Cancel:
                 return False
             if answer == QMessageBox.Yes:
-                self.session.remember(opened, front.context if front is not None else None)
+                spaces = {self.clusters.widget(i).context: self.clusters.widget(i).namespace() for i in range(self.clusters.count())}
+                self.session.remember(opened, front.context if front is not None else None, spaces)
             else:
                 self.session.forget()
         except OSError as error:  # never trap the user in the app because the settings file is not writable

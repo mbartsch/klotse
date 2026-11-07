@@ -127,6 +127,7 @@ class ClusterWorkspace(QMainWindow):
         self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
+        self.restore_namespace = None  # the namespace chosen when the session was saved; used once, when the list arrives
         self._ready = False  # set once connected
         self._opening = False
         self._auto_timer = QTimer(self, interval=AUTO_REFRESH_MS)
@@ -1967,7 +1968,12 @@ class ClusterWorkspace(QMainWindow):
         self.ns_table.set_rows(rows)
         names = [r.name for r in rows]
         previous = self.namespace()
-        keep = previous if previous in names else ALL_NS  # default (or a deleted namespace) missing: all namespaces
+        wanted, self.restore_namespace = self.restore_namespace, None
+        if wanted in names or wanted == ALL_NS:  # the user's choice at the last exit, if that namespace still exists
+            previous_choice = wanted
+        else:
+            previous_choice = previous
+        keep = previous_choice if previous_choice in names or previous_choice == ALL_NS else ALL_NS  # missing: all namespaces
         self._fill_namespace_combo(names, keep)
         if keep != previous:
             self.load_scoped()

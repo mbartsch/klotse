@@ -138,3 +138,50 @@ def test_a_settings_file_that_cannot_be_written_never_traps_the_user(qtbot, tmp_
 
     monkeypatch.setattr(win.session, "remember", broken)
     assert win.close() is True and warned == ["read-only settings"]
+
+
+# ---- the namespace chosen in each cluster -------------------------------------
+def test_namespaces_are_stored_beside_their_clusters(tmp_path):
+    session = ClusterSession(store(tmp_path))
+    session.remember(["a", "b", "c"], "b", {"a": "shop", "c": "All namespaces", "zzz": "ignored"})
+    again = ClusterSession(store(tmp_path))
+    assert again.saved() == (["a", "b", "c"], "b")
+    assert again.namespaces() == {"a": "shop", "c": "All namespaces"}
+    session.remember(["a"], "a")  # nothing recorded: the old namespaces are gone
+    assert ClusterSession(store(tmp_path)).namespaces() == {}
+
+
+class ShopService(MultiService):
+    def list_namespaces(self):
+        from klotse.k8s.models import NamespaceRow
+        return [NamespaceRow(n, "Active", "1d", "", {"kind": "Namespace"}) for n in ("default", "shop")]
+
+
+def test_exit_records_the_chosen_namespace_and_restart_selects_it(qtbot, tmp_path, monkeypatch):
+    MultiService.instances.clear()
+    win = window(qtbot, tmp_path, ShopService)
+    win.show()
+    win.open_cluster("a")
+    ws = win.workspaces["a"]
+    qtbot.waitUntil(lambda: ws._opened_default and not ws._loading)
+    assert ws.set_namespace("shop")
+    asked(monkeypatch, QMessageBox.Yes)
+    assert win.close() is True
+    assert ClusterSession(store(tmp_path)).namespaces() == {"a": "shop"}
+
+    MultiService.instances.clear()
+    again = window(qtbot, tmp_path, ShopService)
+    assert again.restore_clusters() == ["a"]
+    ws2 = again.workspaces["a"]
+    qtbot.waitUntil(lambda: ws2.namespace() == "shop", timeout=5000)
+    assert ws2.restore_namespace is None  # used once
+
+
+def test_a_namespace_that_no_longer_exists_falls_back_and_all_namespaces_is_kept(qtbot, tmp_path):
+    ClusterSession(store(tmp_path)).remember(["a", "b"], "a", {"a": "deleted-ns", "b": "All namespaces"})
+    MultiService.instances.clear()
+    win = window(qtbot, tmp_path, ShopService)
+    win.restore_clusters()
+    a, b = win.workspaces["a"], win.workspaces["b"]
+    qtbot.waitUntil(lambda: a._opened_default and b._opened_default and not a._loading and not b._loading, timeout=5000)
+    assert a.namespace() == "default" and b.namespace() == "All namespaces"
