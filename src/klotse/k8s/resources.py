@@ -1,10 +1,12 @@
 """Registry of the simple list views (Phase 2/4). Each spec says which API to call and how to turn an
 object into a table row, so the service and UI need no per-kind code."""
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
 from .util import format_age, to_dict
+from .x509 import first_certificate
 
 MIN_TS = datetime.min.replace(tzinfo=timezone.utc)
 
@@ -77,10 +79,26 @@ def map_secret(s):
     ann = (raw.get("metadata") or {}).get("annotations") or {}
     if "kubectl.kubernetes.io/last-applied-configuration" in ann:
         ann["kubectl.kubernetes.io/last-applied-configuration"] = "<hidden>"
-    row = _base(s, raw=raw, type=s.type or "", keys=len(s.data or {}))
+    expires, subject = "", ""
+    if s.type == "kubernetes.io/tls":  # only the public certificate is read, never tls.key
+        expires, subject = tls_summary((s.data or {}).get("tls.crt"))
+    row = _base(s, raw=raw, type=s.type or "", keys=len(s.data or {}), expires=expires, subject=subject)
     # Keep encoded values separate from the masked manifest and table columns.
     row.secret_data = dict(s.data or {})
     return row
+
+
+def tls_summary(encoded):
+    """(expiry text, subject text) for the base64 `tls.crt` of a TLS Secret; ('', '') when it is missing or unreadable."""
+    try:
+        cert = first_certificate(base64.b64decode(encoded or "", validate=True))
+    except (ValueError, TypeError):
+        return "", ""
+    if cert is None:
+        return "", ""
+    names = [n for n in cert["names"] if n != cert["subject"]]
+    subject = ", ".join(([cert["subject"]] if cert["subject"] else []) + names[:2]) + (f" +{len(names) - 2}" if len(names) > 2 else "")
+    return expiry_text(cert["not_after"].strftime("%Y-%m-%dT%H:%M:%SZ")), subject
 
 
 def _lb_addresses(lb):
@@ -470,7 +488,8 @@ SPECS = [
     Spec("configmaps", "ConfigMaps", "ConfigMap", "config_map", "core", True,
          (("Name", "name"), NS, ("Keys", "keys"), AGE), map_configmap),
     Spec("secrets", "Secrets", "Secret", "secret", "core", True,
-         (("Name", "name"), NS, ("Type", "type"), ("Keys", "keys"), AGE), map_secret),
+         (("Name", "name"), NS, ("Type", "type"), ("Keys", "keys"), ("Expires", "expires"), ("Subject", "subject"), AGE),
+         map_secret),
     Spec("services", "Services", "Service", "service", "core", True,
          (("Name", "name"), NS, ("Type", "type"), ("Cluster IP", "cluster_ip"), ("External IP", "external_ip"),
           ("Ports", "ports"), ("Selector", "selector"), AGE), map_service),
