@@ -98,4 +98,39 @@ Run headlessly: `KubeService` and the pure modules were driven by scripts agains
 | Verified | Files and logs: remote directory listing through `kubectl exec ls` on BusyBox and nginx (Debian) images; a missing directory gives "No such directory in the container."; log stream with timestamps; previous-instance log |
 | Finding, fixed | A pod that fails and restarts (`Error`, 1-4 restarts) was not reported by Health check until Kubernetes showed `CrashLoopBackOff` or 5 restarts; it is now reported from the first restart (re-check live) |
 | Verified by the owner | Debug (ephemeral container)… tried by hand on a real cluster and reported OK (2026-11-07); details not recorded |
-| Not tried | Everything with a window or terminal; metrics-server dependent views (usage, right-sizing advice, node bars); Helm with a real release; cert-manager Certificates; Gateway API objects; copy files; port forward; multi-pod log tab; Diagnostics zip leak check beyond "no `tls.key` text, no Secret file" (done: counts and file list only); embedded terminal; packaged apps; other clusters and Kubernetes versions; the exec-helper and proxy error paths |
+
+## Still pending (what to test next)
+
+Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.
+
+**Needs only the docker-desktop cluster (do next)**
+
+- [ ] The windows themselves: open each dialog and tab and check it loads and looks right (Health check, Capacity, Right-sizing, RBAC lookup, Compare, Search, Change log, Export diagnostics, Apply YAML, Logs of all pods, File browser, Copy as new).
+- [ ] Multi-pod log tab: scale a Deployment while it is open; regex filter; Save.
+- [ ] Export diagnostics from the window: unzip and look for Secret data and env values; cancel mid-way.
+- [ ] Copy files (upload and download, a folder, a path with spaces, Browse… in the dialog); Browse files… from the packaged/pythonw app (WinError 6 fix).
+- [ ] Port forward and saved forwards; Stop leaves no `kubectl` process.
+- [ ] Edit forms (Deployment, Service, Ingress, NetworkPolicy, ConfigMap, Secret, Role, bindings): saved object equals the form; conflict on concurrent edit.
+- [ ] Remove debug containers (recreate pod) and process sharing from the debug dialog (debug itself was tried by the owner).
+- [ ] Drain a worker for real (`desktop-worker`, then uncordon) and the nsenter node shell; look for leftovers with `kubectl get pods -A`.
+- [ ] Pinned namespaces, saved filters, reconnect with remembered namespace, Read-only mode in the UI, Change log contents after the above.
+- [ ] Manual refresh and permission hints with a limited account (`kubectl create sa viewer` + the `view` role).
+- [ ] Connection errors (#113): a kubeconfig with a failing exec helper (a script that prints to stderr and exits 1), a missing helper, an unreachable server, a `proxy-url` through a local proxy.
+- [ ] Embedded terminal with a real `kubectl exec` (`vim`, `top`, resize, copy/paste, dock and pop out).
+
+**Needs something installed on the cluster**
+
+- [ ] metrics-server (usage columns, node bars, Right-sizing advice, Capacity usage).
+- [ ] Helm release (list, Show values with secret-looking keys hidden, Uninstall).
+- [ ] cert-manager Certificate (Ready, Expires, Renewal).
+- [ ] Gateway API CRDs and a controller (lists, columns, New/Edit/Delete as YAML).
+- [ ] Karpenter columns and group (only on a cluster that runs it).
+
+**Needs another machine or environment**
+
+- [ ] Large clusters (hundreds of nodes, thousands of pods): timing of Search, Capacity, Health check, Right-sizing, Diagnostics, Logs of many pods. The owner will do this elsewhere.
+- [ ] Linux and macOS (POSIX terminal, Finder PATH, the Intel build), packaged releases on a clean machine.
+- [ ] EKS, GKE and AKS exec helpers (SSO login, MFA, `gke-gcloud-auth-plugin`, `kubelogin`); the AWS plugin against real AWS.
+- [ ] An old (1.25-1.27) and a recent Kubernetes version.
+
+**Known unverified by design:** the real error text of a failing helper may differ from the made-up messages in `tests/test_connect_help.py`; the Health check thresholds may be noisy on real production namespaces.
