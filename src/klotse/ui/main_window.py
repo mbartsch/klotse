@@ -20,6 +20,7 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from ..k8s.timing import timings
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
+from .big_clusters import BigClusters
 from .read_only import ReadOnlyClusters
 from . import embedded_terminal, theme
 from .theme import ThemeSettings
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
             QTimer.singleShot(1500, embedded_terminal.warm_up)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
+        self.big_clusters = BigClusters(self.label_settings.store)  # clusters read in the lighter big-cluster way
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
         self.debug_settings = DebugSettings(self.label_settings.store)  # Preferences > Debug: the timing log
         self.apply_timing_log()
@@ -131,6 +133,12 @@ class MainWindow(QMainWindow):
         self.read_only_action.triggered.connect(self.set_read_only)
         view_menu.addAction(self.read_only_action)
         view_menu.aboutToShow.connect(self._sync_read_only_action)
+        self.big_action = QAction("Big cluster mode", self, checkable=True)
+        self.big_action.setToolTip("Lighter reads for a cluster with many nodes and pods (Warning events only on the Overview, bigger "
+                                   "pages, parallel reads, slower automatic reloads). Found automatically; this is your own choice.")
+        self.big_action.triggered.connect(self.set_big_mode)
+        view_menu.addAction(self.big_action)
+        view_menu.aboutToShow.connect(self._sync_big_action)
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
         self.plugins_menu = self.menuBar().addMenu("Plugins")
         self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
@@ -227,10 +235,45 @@ class MainWindow(QMainWindow):
         ws.crd_groups_found.connect(lambda entries, c=ctx: self.nav.show_crd_groups(c, entries))
         ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
         self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))
-        ws.read_only_changed.connect(lambda on, w=ws, c=ctx: self.clusters.setTabText(
-            self.clusters.indexOf(w), f"{c} 🔒" if on else c))
+        ws.read_only_changed.connect(lambda _on, w=ws: self._retitle(w))
         ws.set_read_only(self.read_only_clusters.is_read_only(ctx))
+        ws.big_changed.connect(lambda _on, w=ws: self._retitle(w))
+        ws.big_detected.connect(lambda nodes, pods, w=ws: self._found_big(w, nodes, pods))
+        ws.set_big(self.big_clusters.is_big(ctx))
         ws.start()
+
+    def _retitle(self, ws):
+        """The cluster's tab title: its name, then 🔒 for read-only and (big) for big-cluster mode."""
+        marks = (" 🔒" if ws.read_only else "") + (" (big)" if ws.big else "")
+        self.clusters.setTabText(self.clusters.indexOf(ws), ws.context + marks)
+
+    def _found_big(self, ws, nodes, pods):
+        """The Overview showed a big cluster. Unless the user chose before, remember it, switch the lighter mode on and say so."""
+        try:
+            news = self.big_clusters.detected(ws.context)
+        except OSError:
+            news = True  # not saved, but still used for this session
+        if news:
+            ws.set_big(True)
+            self.status.showMessage(f"{ws.context}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
+                                    "The Overview now shows Warning events only and reloads less often.", 15000)
+
+    def set_big_mode(self, on):
+        """View > Big cluster mode for the cluster in front: the user's explicit choice (on or off), kept for next time."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return
+        try:
+            self.big_clusters.set_mode(ws.context, "on" if on else "off")
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot save", str(error))
+        ws.set_big(on)
+        ws.refresh()
+
+    def _sync_big_action(self):
+        ws = self.clusters.currentWidget()
+        self.big_action.setEnabled(ws is not None)
+        self.big_action.setChecked(bool(ws is not None and ws.big))
 
     # ---- Plugins menu ---------------------------------------------------
     def _update_plugins_menu(self):

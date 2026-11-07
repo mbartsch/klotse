@@ -120,6 +120,10 @@ Same method: service layer driven by scripts; no windows.
 | Measured | Connect + Overview: 15 s, window responsive ("Loading…" shown), `kubectl get pods -A` 5 s. Overview reads were then made parallel (PR on branch `perf/overview-parallel`); **re-time it** and compare with 15 s |
 | Pending | Items 2 to 14 of the big-cluster checklist (pods list, nodes, auto-refresh, search, health, capacity, right-sizing, RBAC, multi-pod logs, diagnostics, CRDs, memory, several clusters) |
 
+### Big-cluster mode (after the timing log of the owner's cluster)
+
+Baseline from the log (103 nodes, 2,683 pods, 7,890 events, via a proxy): Overview about 6 s steady and 9 to 13 s on first loads, Health check 19.7 s, Capacity 12.2 s, table fills under 0.2 s. To re-time with big-cluster mode: connect (it switches itself on at the first Overview, or use View > Big cluster mode), reconnect once more so the first load is already light, open Overview, Health check and Capacity, and compare `phase`, `api-list` and `total` lines in `timings.log`. Expect fewer, larger pages (`pages` about a third), no 7,890-item event list, and no automatic Overview reload sooner than 30 s.
+
 ## Still pending (what to test next)
 
 Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.

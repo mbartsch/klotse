@@ -26,6 +26,7 @@ from .command_view import CommandView
 from ..k8s.clone import clone_manifest
 from ..k8s import gateway as gateway_api
 from ..k8s.timing import name_of, timings
+from . import big_clusters
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
@@ -116,6 +117,8 @@ class ClusterWorkspace(QMainWindow):
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
     crd_groups_found = Signal(list)  # [(view key, label, tooltip)]: the navigator lists them under Custom Resources > Groups
+    big_changed = Signal(bool)  # big-cluster mode switched on or off
+    big_detected = Signal(int, int)  # (nodes, pods): the Overview shows this cluster is big and Klotse is not in big mode yet
     gateway_found = Signal(list)  # [(view key, label)] when the cluster serves the Gateway API; the navigator shows a group
     karpenter_found = Signal(list)  # [(view key, label)] when the cluster runs Karpenter; the navigator shows a group
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
@@ -145,6 +148,7 @@ class ClusterWorkspace(QMainWindow):
         self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
+        self.big = False
         self._custom_kinds = {}  # kind -> (group, version, plural, namespaced) for the custom resources that can be edited (Gateway API)
         self.restore_namespace = None  # the namespace chosen when the session was saved; used once, when the list arrives
         self._ready = False  # set once connected
@@ -402,7 +406,24 @@ class ClusterWorkspace(QMainWindow):
         for widget, _ in self.views.values():
             yield from widget.tables() if isinstance(widget, OverviewView) else [widget]
 
+    def set_big(self, on):
+        """Big-cluster mode (see `KubeService.set_big` and `big_clusters`): lighter reads, and the heavy lists reload by themselves
+        no more often than every `big_clusters.MIN_REFRESH_S` seconds."""
+        self.big = on = bool(on)
+        setter = getattr(self.service, "set_big", None)
+        if setter is not None:
+            setter(on)
+        self.big_changed.emit(on)
+
+    def _refresh_gap(self, key):
+        """Seconds a view must wait after its last load before an automatic reload."""
+        gap = self._auto_timer.interval() / 1000
+        return max(gap, big_clusters.MIN_REFRESH_S) if self.big and key in big_clusters.HEAVY_VIEWS else gap
+
     def _overview_loaded(self, data):
+        counts = (data or {}).get("counts") or {}
+        if not self.big and big_clusters.looks_big(counts.get("nodes", 0), counts.get("pods", 0)):
+            self.big_detected.emit(counts.get("nodes", 0), counts.get("pods", 0))
         self.overview.set_data(data)
         if self.plugin_host is not None:  # plugins' cards (a total cost, say): computed when due, last values kept meanwhile
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
@@ -533,6 +554,8 @@ class ClusterWorkspace(QMainWindow):
         key = self.foreground_key()
         if (self._ready and not self._closed and self.auto_action.isChecked()
                 and key in self.loaders and key not in self._loading and (not self.is_manual(key) or self._stale_scope(key))):
+            if self.big and self._clock() - self._last_load.get(key, float("-inf")) < self._refresh_gap(key) - 0.5:
+                return  # big cluster: the heavy lists wait longer between automatic reloads
             self.load_view(key)
 
     def _showing(self):
@@ -582,7 +605,7 @@ class ClusterWorkspace(QMainWindow):
         if self._watched and self._watched[0] == key and not self._closed:
             # A busy cluster changes all the time: a change reloads the list at once, but never more often than the
             # refresh interval (10 s by default), so the list does not flicker faster than the user asked for.
-            wait = self._auto_timer.interval() / 1000 - (self._clock() - self._last_load.get(key, float("-inf")))
+            wait = self._refresh_gap(key) - (self._clock() - self._last_load.get(key, float("-inf")))
             if wait > 0:
                 self._watch_late.start(int(wait * 1000) + 1)
                 return
@@ -1361,7 +1384,8 @@ class ClusterWorkspace(QMainWindow):
         dialog.summary.setText("Loading nodes and pods…")
 
         def read():
-            return self.service.list_nodes(), self.service.list_pods(None)
+            both = getattr(self.service, "capacity_data", None)
+            return both() if both is not None else (self.service.list_nodes(), self.service.list_pods(None))
         self._run(read, lambda data: dialog.show_data(*data), on_error=dialog.show_error)
 
     def show_permissions(self):

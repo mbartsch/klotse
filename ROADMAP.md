@@ -92,6 +92,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 46 | Local audit log of changes made from Klotse (Lumovi) (**done**, #129) | Small to medium | #129 |
 | 47 | Capacity overview: requests, limits and utilization per node and namespace (kube-capacity) (**done**, #130) | Small to medium | #130 |
 | 48 | Ownership topology graph (Radar, KubeView) | Large | #131 |
+| 50 | Big-cluster mode (**done**): clusters with 50+ nodes or 1,500+ pods are marked and read more lightly (Warning events only on the Overview, 2,000-item pages, parallel Health/Capacity/metrics reads, heavy lists reload at most every 30 s) | Medium | |
 | 49 | Timing log (debug option, **done**): `timings.log` shows where load time goes, to measure big clusters | Small | |
 
 Also seen there and already planned: unused objects (kor, item 24), right-sizing (Goldilocks, item 22), RBAC reverse lookup (kube-who-can, item 25), health check (item 21), Trivy reports. Seen and not planned: AI assistants and MCP servers, chaos testing, packet capture, local-development tools (Tilt, Telepresence) and cluster provisioning.

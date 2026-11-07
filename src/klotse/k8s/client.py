@@ -164,17 +164,40 @@ def _audit(service, action, args, result, detail=""):
         pass
 
 
+PAGE_SIZE = 500
+BIG_PAGE_SIZE = 2000  # big-cluster mode: fewer round trips (each costs 0.3 to 0.4 s through a proxy)
+
+
+class _PagedList:
+    """`KubeService._iter_list`: `self._iter_list(fn, ...)` pages with the service's own page size (bigger in big-cluster mode);
+    `KubeService._iter_list(fn, ...)` (no instance) uses the default."""
+
+    def __get__(self, obj, owner=None):
+        return functools.partial(KubeService._paged, getattr(obj, "page_size", PAGE_SIZE))
+
+
 class KubeService:
     """Thin wrapper over the kubernetes client; returns plain row objects the UI can render."""
 
+    big = False  # class defaults, so a service made without __init__ (tests) still works
+    page_size = PAGE_SIZE
+
     def __init__(self, kubeconfig=None):
         self.read_only = False  # set by the workspace: every @mutating method refuses while this is true
+        self.big = False  # big-cluster mode (see set_big): fewer, larger and parallel reads; the same results, a lighter Overview
+        self.page_size = PAGE_SIZE
         self.audit = None  # set by the workspace: fn(action, target, result, detail) writes the local change log
         self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
         self._core = None
         self._apps = None
         self._custom = None
         self._api_client = None
+
+    def set_big(self, on):
+        """Big-cluster mode: bigger list pages, the Overview reads only Warning events (server-side filter) instead of every event,
+        and Health check, Capacity and pod lists read their kinds side by side. Small clusters keep the plain behaviour."""
+        self.big = bool(on)
+        self.page_size = BIG_PAGE_SIZE if on else PAGE_SIZE
 
     def api_client(self):
         """The kubernetes ApiClient of the connected cluster (for plugins, which may use the official client)."""
@@ -758,15 +781,17 @@ class KubeService:
             grace_period_seconds=0 if force else None,
             propagation_policy="Background" if force else None), _request_timeout=15)
 
+    _iter_list = _PagedList()
+
     @staticmethod
-    def _iter_list(fn, *args, **kwargs):
+    def _paged(size, fn, *args, **kwargs):
         """Bound each API response and release each page before fetching the next."""
         token = None
         pages = items = 0
         spent = 0.0
         while True:
             began = time.perf_counter()
-            page = fn(*args, limit=500, _continue=token, _request_timeout=30, **kwargs)
+            page = fn(*args, limit=size, _continue=token, _request_timeout=30, **kwargs)
             spent += time.perf_counter() - began
             pages += 1
             items += len(page.items or [])
@@ -871,11 +896,16 @@ class KubeService:
         api = self._core
         items = (self._iter_list(api.list_namespaced_pod, namespace) if namespace
                  else self._iter_list(api.list_pod_for_all_namespaces))
+        if self.big:  # the metrics call does not depend on the pod list: ask for it while the pages come in
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage") as pool:
+                usage_f = pool.submit(self.pod_usage, namespace)
+                rows = [map_pod(p) for p in items]
+                return self._with_usage(rows, namespace, usage_f.result())
         return self._with_usage([map_pod(p) for p in items], namespace)
 
-    def _with_usage(self, rows, namespace=None):
+    def _with_usage(self, rows, namespace=None, usage=None):
         """Fill cpu_used/mem_used from metrics-server where it has data; rows it does not know stay -1."""
-        usage = self.pod_usage(namespace)
+        usage = self.pod_usage(namespace) if usage is None else usage
         if usage:
             for r in rows:
                 if (r.namespace, r.name) in usage:
@@ -960,12 +990,33 @@ class KubeService:
                    "pvcs": lambda: self.list_resource("persistentvolumeclaims", namespace),
                    "services": lambda: self.list_resource("services", namespace)}
         data, problems = {}, []
-        for key, read in readers.items():
+
+        def run(read):
             try:
-                data[key] = [row.raw for row in read()]
+                return [row.raw for row in read()], None
             except Exception as error:  # noqa: BLE001 - one forbidden kind must not hide the others
-                problems.append(f"{key} ({type(error).__name__})")
+                return None, type(error).__name__
+
+        if self.big:  # seven reads that only wait for the API server: side by side (19.7 s one after another on 103 nodes / 2,700 pods)
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="health") as pool:
+                answers = {key: pool.submit(run, read) for key, read in readers.items()}
+                results = {key: future.result() for key, future in answers.items()}
+        else:
+            results = {key: run(read) for key, read in readers.items()}
+        for key, (rows, error) in results.items():
+            if error is None:
+                data[key] = rows
+            else:
+                problems.append(f"{key} ({error})")
         return data, problems
+
+    def capacity_data(self):
+        """(nodes, pods) for the Capacity window; in big-cluster mode the two lists are read side by side."""
+        if not self.big:
+            return self.list_nodes(), self.list_pods(None)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="capacity") as pool:
+            nodes_f, pods_f = pool.submit(self.list_nodes), pool.submit(self.list_pods, None)
+            return nodes_f.result(), pods_f.result()
 
     def drain_preview_data(self, node):
         """(pod manifests on the node, PodDisruptionBudget manifests of the cluster) for `k8s.drain_plan.plan`. Looking only."""
@@ -1014,14 +1065,14 @@ class KubeService:
         rows.sort(key=lambda r: r.ts, reverse=True)
         return rows[:self.EVENTS_SHOWN]
 
-    def _resource_items(self, key, namespace=None):
+    def _resource_items(self, key, namespace=None, **options):
         spec = SPEC_BY_KEY[key]
         api = self._apis[spec.api]
         if not spec.namespaced:
-            return self._iter_list(getattr(api, f"list_{spec.snake}"))
+            return self._iter_list(getattr(api, f"list_{spec.snake}"), **options)
         if namespace:
-            return self._iter_list(getattr(api, f"list_namespaced_{spec.snake}"), namespace)
-        return self._iter_list(getattr(api, f"list_{spec.snake}_for_all_namespaces"))
+            return self._iter_list(getattr(api, f"list_namespaced_{spec.snake}"), namespace, **options)
+        return self._iter_list(getattr(api, f"list_{spec.snake}_for_all_namespaces"), **options)
 
     def list_custom_objects(self, group, version, plural, namespaced, namespace=None, kind=None):
         """Instances of a custom resource: one namespace, or every namespace for a namespaced kind. `kind` lets a
@@ -1049,7 +1100,10 @@ class KubeService:
         mapper = SPEC_BY_KEY["events"].mapper
         recent, warned = [], []
         count = 0
-        for seq, event in enumerate(self._resource_items("events", namespace)):
+        # big-cluster mode asks the server for Warning events only (a cluster with ~8,000 events took ~5 s to list); the recent
+        # list then shows the newest warnings, not every type
+        selector = {"field_selector": "type=Warning"} if self.big else {}
+        for seq, event in enumerate(self._resource_items("events", namespace, **selector)):
             ts = event.last_timestamp or event.event_time or event.metadata.creation_timestamp or MIN_TS
             keep_newest(recent, 25, ts, seq, event)
             if event.type == "Warning":
