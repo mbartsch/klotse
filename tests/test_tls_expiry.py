@@ -75,6 +75,6 @@ def test_secrets_list_has_the_columns_and_only_tls_secrets_fill_them():
         other = map_secret(secret("Opaque", {"tls.crt": encoded}))
     finally:
         resources.to_dict = real
-    assert tls.expires.startswith("2027-02-05") and tls.subject.startswith("shop.example.com")
+    assert tls.expires.startswith("2027-02-05") and tls.subject == "shop.example.com, api.example.com"
     assert other.expires == "" and other.subject == ""
     assert tls.raw["data"] == {"tls.crt": "<hidden>", "tls.key": "<hidden>"}  # the manifest stays masked
