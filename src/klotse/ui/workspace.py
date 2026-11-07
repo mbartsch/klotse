@@ -26,6 +26,7 @@ from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
+from .load_errors import explain
 from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
 from .namespace_pins import NamespacePins
@@ -831,9 +832,10 @@ class ClusterWorkspace(QMainWindow):
                 return
             if self._loads[key] == namespace:
                 if error:
+                    data = explain(data, title)
                     if table is not None:
                         table.set_error(data)
-                    self.message.emit(f"{self.context} / {title}: {data}")
+                    self.message.emit(f"{self.context} / {title}: {data.splitlines()[0] if data else ''}")
                 else:
                     sink(data)
                     count = f"{len(data):,} rows, " if isinstance(data, list) else ""

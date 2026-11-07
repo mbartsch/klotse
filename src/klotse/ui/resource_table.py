@@ -131,7 +131,7 @@ class ResourceTable(QWidget):
 
     def set_error(self, message):
         self._load_timer.stop()
-        self.status.setText(f"Load failed: {message}")
+        self.status.setText(f"Load failed: {(str(message).splitlines() or [""])[0]}")
         if not self.model.rowCount():  # nothing else on screen: say it where the list would be
             self.loading_page.show_failed(f"Load failed: {message}")
             self.stack.setCurrentWidget(self.loading_page)
