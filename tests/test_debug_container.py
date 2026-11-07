@@ -111,3 +111,10 @@ def test_menu_entry_only_for_pods_with_debug_containers(qtbot):
         table.view.selectRow(0)
         table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
         assert any(t.startswith("Remove debug containers") for t in seen) is expected
+
+
+def test_dialog_explains_what_sharing_gives(qtbot):
+    dialog = DebugDialog("ctx", "shop/web-1", ["app"])
+    qtbot.addWidget(dialog)
+    text = dialog.sharing.text()
+    assert "/proc/<pid>/root/" in text and "Other pods are separate" in text

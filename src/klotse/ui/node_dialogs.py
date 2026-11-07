@@ -1,7 +1,9 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                                QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox)
 
 from ..k8s import drain_plan
+from . import theme
 
 from .terminal import DEBUG_IMAGE, NODE_SHELL_IMAGE, kubectl_base
 
@@ -108,8 +110,14 @@ class DebugDialog(QDialog):
         for name in containers:
             self.target.addItem(name, name)
         self.target.setToolTip("Share the process namespace of this container, so its processes can be seen from the debug shell")
+        self.sharing = QLabel("With a container chosen, its processes show up in ps and its files can be read at /proc/<pid>/root/ (same user or root needed).\n"
+                              "Other pods are separate: their files are not reachable from here (only shared volumes, or the node shell).")
+        self.sharing.setTextFormat(Qt.PlainText)  # "<pid>" must not be read as markup
+        self.sharing.setWordWrap(True)
+        theme.muted(self.sharing)
         form.addRow("Debug image", self.image)
         form.addRow("Share processes with", self.target)
+        form.addRow(self.sharing)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.open_button = buttons.button(QDialogButtonBox.Ok)
         self.open_button.setText("Open debug shell")
