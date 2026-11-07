@@ -96,6 +96,11 @@ class MainWindow(QMainWindow):
         self.selector_logs_action.triggered.connect(self.show_selector_logs)
         view_menu.addAction(self.selector_logs_action)
         view_menu.aboutToShow.connect(lambda: self.selector_logs_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.health_action = QAction("Health check…", self)
+        self.health_action.setToolTip("Problems and risks in the namespace in front: crash loops, no limits or probes, latest tags, unbound claims")
+        self.health_action.triggered.connect(self.show_health)
+        view_menu.addAction(self.health_action)
+        view_menu.aboutToShow.connect(lambda: self.health_action.setEnabled(self.clusters.currentWidget() is not None))
         self.capacity_action = QAction("Capacity…", self)
         self.capacity_action.setToolTip("Requests, limits and usage against what each node can give, per node and per namespace")
         self.capacity_action.triggered.connect(self.show_capacity)
@@ -280,6 +285,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.logs_by_selector()
+        return True
+
+    def show_health(self):
+        """View > Health check…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_health()
         return True
 
     def show_capacity(self):

@@ -24,6 +24,8 @@ from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
 from ..k8s.clone import clone_manifest
 from .compare_dialog import CompareDialog
+from .health_dialog import HealthDialog
+from ..k8s import health
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -944,6 +946,8 @@ class ClusterWorkspace(QMainWindow):
             self._search_dialog.close()  # stops a search still reading pages
         if getattr(self, "_capacity_dialog", None) is not None:
             self._capacity_dialog.close()
+        if getattr(self, "_health_dialog", None) is not None:
+            self._health_dialog.close()
         self.file_copies.cancel_all()  # nor a kubectl cp
         for host in list(self._terminal_hosts):
             host.close()  # ends its session, so no kubectl outlives the cluster
@@ -1207,6 +1211,31 @@ class ClusterWorkspace(QMainWindow):
         dialog = CompareDialog(self.context, kind, rows[0], rows[1], self)
         dialog.exec()
         dialog.deleteLater()
+
+    def show_health(self):
+        """View > Health check…: manifests of the namespace in front (all namespaces too) are read on a worker and checked
+        (k8s/health.py). Looking only. Non-modal, one per workspace, closed by shutdown."""
+        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+        dialog = getattr(self, "_health_dialog", None)
+        if dialog is None:
+            dialog = self._health_dialog = HealthDialog(self.context, scope, self)
+            dialog.reload_button.clicked.connect(self._load_health)
+            dialog.go_to_requested.connect(self.go_to_object)
+        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
+        dialog.show()
+        dialog.raise_()
+        self._load_health()
+        return dialog
+
+    def _load_health(self):
+        dialog = self._health_dialog
+        namespace = None if self.namespace() == ALL_NS else self.namespace()
+        dialog.summary.setText("Checking…")
+
+        def read():
+            data, problems = self.service.health_data(namespace)
+            return health.check(data), problems
+        self._run(read, lambda result: dialog.show_findings(*result), on_error=dialog.show_error)
 
     def show_capacity(self):
         """View > Capacity…: nodes and every pod are read on a worker (looking only) and shown per node and per namespace. The

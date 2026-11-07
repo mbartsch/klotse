@@ -871,6 +871,23 @@ class KubeService:
                                                     field_selector=f"spec.nodeName={node}")]
         return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
 
+    def health_data(self, namespace=None):
+        """({kind key: [manifests]}, [what could not be read]) for `k8s.health.check`: pods, nodes, Deployments, StatefulSets,
+        DaemonSets, claims and Services of one namespace (or all). Looking only; a kind the user may not list is left out and
+        named, never fatal."""
+        readers = {"pods": lambda: self.list_pods(namespace), "nodes": self.list_nodes,
+                   "deployments": lambda: self.list_deployments(namespace), "statefulsets": lambda: self.list_statefulsets(namespace),
+                   "daemonsets": lambda: self.list_resource("daemonsets", namespace),
+                   "pvcs": lambda: self.list_resource("persistentvolumeclaims", namespace),
+                   "services": lambda: self.list_resource("services", namespace)}
+        data, problems = {}, []
+        for key, read in readers.items():
+            try:
+                data[key] = [row.raw for row in read()]
+            except Exception as error:  # noqa: BLE001 - one forbidden kind must not hide the others
+                problems.append(f"{key} ({type(error).__name__})")
+        return data, problems
+
     def drain_preview_data(self, node):
         """(pod manifests on the node, PodDisruptionBudget manifests of the cluster) for `k8s.drain_plan.plan`. Looking only."""
         pods = [r.raw for r in self.list_node_pods(node)]
