@@ -1406,10 +1406,29 @@ class ClusterWorkspace(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
+    def _diagnostics_namespace(self):
+        """Which namespace View > Export diagnostics… means, in this order: the one row selected in the Namespaces list when that
+        list is in front (you do not have to *be in* the namespace), else the toolbar's namespace, else ask (a pick list of the
+        cluster's namespaces). Returns ALL_NS when there is nothing to pick from (the caller explains), None when cancelled."""
+        if self.foreground_key() == "namespaces":
+            rows = self.ns_table.selected_rows()
+            if len(rows) == 1:
+                return rows[0].name
+        current = self.namespace()
+        if current != ALL_NS:
+            return current
+        names = [n for n in self._ns_names if n != ALL_NS]
+        if not names:
+            return ALL_NS
+        name, ok = QInputDialog.getItem(self, "Export diagnostics", "Namespace to export (a bundle covers one namespace):", names, 0, False)
+        return name if ok and name else None
+
     def export_diagnostics(self, namespace=None):
         """View > Export diagnostics… (for the namespace in front) or a Namespace's right-click entry: a zip of manifests, events, node
         conditions and pod logs. Looking only; Secrets are never read. Returns the dialog, or None when no namespace is chosen."""
-        namespace = namespace or self.namespace()
+        namespace = namespace or self._diagnostics_namespace()
+        if namespace is None:
+            return None
         if namespace == ALL_NS:
             QMessageBox.information(self, "Export diagnostics", "Choose one namespace in the toolbar first (or right-click a namespace "
                                     "in the Namespaces list): a bundle covers one namespace.")

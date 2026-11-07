@@ -209,3 +209,45 @@ def test_workspace_needs_one_namespace(qtbot, monkeypatch):
     dialog = ws.export_diagnostics("shop")
     assert dialog.namespace == "shop" and dialog.windowTitle() == "Export diagnostics"
     ws.shutdown()
+
+
+def test_the_selected_namespace_in_the_namespaces_list_is_used_without_being_in_it(qtbot, monkeypatch):
+    from klotse.k8s.models import NamespaceRow
+    ws = ClusterWorkspace(SimpleNamespace(), "ctx")
+    qtbot.addWidget(ws)
+    ws.set_namespace("All namespaces")
+    ws.ns_table.set_rows([NamespaceRow("shop", "Active", "1d", ""), NamespaceRow("blog", "Active", "1d", "")])
+    ws.foreground_key = lambda: "namespaces"
+    ws.ns_table.view.selectRow(1)
+    dialog = ws.export_diagnostics()
+    assert dialog is not None and dialog.namespace == ws.ns_table.selected_rows()[0].name
+    dialog.close()
+    ws.shutdown()
+
+
+def test_without_a_selection_or_a_namespace_it_offers_a_pick_list(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    ws = ClusterWorkspace(SimpleNamespace(), "ctx")
+    qtbot.addWidget(ws)
+    ws.set_namespace("All namespaces")
+    ws._ns_names = ["shop", "blog"]
+    asked = []
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: (asked.append(a[3]) or ("blog", True)))
+    dialog = ws.export_diagnostics()
+    assert asked == [["shop", "blog"]] and dialog.namespace == "blog"
+    dialog.close()
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("", False))
+    assert ws.export_diagnostics() is None  # cancelled: nothing opens
+    ws.shutdown()
+
+
+def test_the_toolbar_namespace_still_wins_over_a_pick_list(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    ws = ClusterWorkspace(SimpleNamespace(), "ctx")
+    qtbot.addWidget(ws)
+    ws._fill_namespace_combo(["shop"], "shop")
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
+    dialog = ws.export_diagnostics()
+    assert dialog.namespace == "shop"
+    dialog.close()
+    ws.shutdown()
