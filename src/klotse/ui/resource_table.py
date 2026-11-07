@@ -416,6 +416,9 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Connect (shell)…", "shell", row), lambda: self.action_requested.emit("shell", row))
                 menu.addAction(self._hint("Attach…", "attach", row), lambda: self.action_requested.emit("attach", row))
                 menu.addAction(self._hint("Debug (ephemeral container)…", "debug", row), lambda: self.action_requested.emit("debug", row))
+                if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
+                    menu.addAction(self._hint("Remove debug containers (recreate pod)…", "terminate", row),
+                                   lambda: self.action_requested.emit("remove-debug", row))
                 menu.addSeparator()
                 menu.addAction(self._hint("Terminate…", "terminate", row), lambda: self.action_requested.emit("terminate", row))
                 menu.addAction(self._hint("Force terminate…", "terminate", row),

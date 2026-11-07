@@ -1733,11 +1733,14 @@ class ClusterWorkspace(QMainWindow):
         if action == "containers":
             self.open_pod_tab(row)
             return
-        if action in ("terminate", "force-terminate", "shell", "attach", "debug") and not self._writable(
+        if action in ("terminate", "force-terminate", "shell", "attach", "debug", "remove-debug") and not self._writable(
                 "terminate pods or open a shell in them"):
             return
         if action == "debug":
             self.debug_pod(row)
+            return
+        if action == "remove-debug":
+            self.remove_debug_containers(row)
             return
         if action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
@@ -1776,6 +1779,25 @@ class ClusterWorkspace(QMainWindow):
             return
         argv = debug_args(self.context, row.namespace, row.name, image, target, kubeconfig=self.kubeconfig)
         self._launch_terminal(argv, f"Opened debug: {row.name}")
+
+    def remove_debug_containers(self, row):
+        """Kubernetes cannot remove an ephemeral container from a running pod, so the only way to get rid of it is to replace the
+        pod. That is offered only for a pod that has a controller (which makes the new one); a bare pod would be lost."""
+        owners = (row.raw.get("metadata") or {}).get("ownerReferences") or []
+        if not any(o.get("controller") for o in owners):
+            QMessageBox.information(self, "Remove debug containers", f"Cluster: {self.context}\nPod {row.namespace}/{row.name} has no "
+                                    "controller, so deleting it would lose it for good.\n\nKubernetes cannot remove a debug container "
+                                    "from a running pod; recreate the pod yourself if you want it gone.")
+            return
+        names = ", ".join(c.get("name", "?") for c in (row.raw.get("spec") or {}).get("ephemeralContainers") or [])
+        ok = QMessageBox.question(self, "Remove debug containers", f"Cluster: {self.context}\nKubernetes cannot remove a debug container "
+                                  f"({names}) from a running pod. Delete pod {row.namespace}/{row.name} so its controller creates a "
+                                  "fresh one without it?\n\nThe pod's processes stop and restart; connections drop.",
+                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ok != QMessageBox.Yes:
+            return
+        self.message.emit(f"Replacing {row.name}…")
+        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), row.name, row.namespace)
 
     def _launch_terminal(self, argv, message, title=None):
         """Open an interactive kubectl session: a tab inside Klotse when Preferences > Terminal says so and QtWebEngine works, else
