@@ -177,6 +177,45 @@ class _PagedList:
         return functools.partial(KubeService._paged, getattr(obj, "page_size", PAGE_SIZE))
 
 
+PODS_PAGE = 2000  # pods per page in the paged Pods list of a huge cluster
+
+
+class PodPager:
+    """The Pods list of a huge cluster, a page at a time: `next()` returns the next `limit` pod rows (the first call also gives
+    `total`, the exact count the API server reports for an unfiltered list). Metrics are asked once, with the first page, and reused
+    for the others, so the usage columns do not cost a request per page."""
+
+    def __init__(self, service, namespace=None, limit=PODS_PAGE):
+        self.service, self.namespace, self.limit = service, namespace or None, limit
+        self.token, self.started, self.total, self.loaded, self.usage = None, False, None, 0, None
+
+    @property
+    def done(self):
+        return self.started and not self.token
+
+    def next(self):
+        if self.done:
+            return []
+        service, api = self.service, self.service._core
+        fn, args = (api.list_namespaced_pod, (self.namespace,)) if self.namespace else (api.list_pod_for_all_namespaces, ())
+        began = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage") as pool:
+            usage_f = pool.submit(service.pod_usage, self.namespace) if self.usage is None else None
+            page = fn(*args, limit=self.limit, _continue=self.token, _request_timeout=30)
+            rows = [map_pod(p) for p in page.items or []]
+            if usage_f is not None:
+                self.usage = usage_f.result()
+        service._with_usage(rows, self.namespace, self.usage)
+        self.token = (page.metadata._continue if page.metadata else None) or None
+        if not self.started:
+            remaining = getattr(page.metadata, "remaining_item_count", None) if page.metadata else None
+            self.total = len(rows) + remaining if remaining is not None else None
+        self.started = True
+        self.loaded += len(rows)
+        timings.record("api-list", "PodPager.next", time.perf_counter() - began, items=len(rows), loaded=self.loaded, total=self.total)
+        return rows
+
+
 class KubeService:
     """Thin wrapper over the kubernetes client; returns plain row objects the UI can render."""
 
@@ -193,6 +232,10 @@ class KubeService:
         self._apps = None
         self._custom = None
         self._api_client = None
+
+    def pod_pager(self, namespace=None):
+        """A `PodPager` for the paged Pods list of a huge cluster."""
+        return PodPager(self, namespace)
 
     def set_big(self, on):
         """Big-cluster mode: bigger list pages, the Overview reads only Warning events (server-side filter) instead of every event,

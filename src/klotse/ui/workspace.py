@@ -27,6 +27,7 @@ from ..k8s.clone import clone_manifest
 from ..k8s import gateway as gateway_api
 from ..k8s.timing import name_of, timings
 from . import big_clusters
+from ..k8s.client import HUGE_PODS
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
@@ -149,6 +150,8 @@ class ClusterWorkspace(QMainWindow):
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self.big = False
+        self.huge = False  # a big cluster with at least HUGE_PODS pods (known after its Overview loaded): the Pods list is read in pages
+        self._pod_pager = None
         self._custom_kinds = {}  # kind -> (group, version, plural, namespaced) for the custom resources that can be edited (Gateway API)
         self.restore_namespace = None  # the namespace chosen when the session was saved; used once, when the list arrives
         self._ready = False  # set once connected
@@ -237,6 +240,8 @@ class ClusterWorkspace(QMainWindow):
                     widget.enable_new()
                     widget.new_requested.connect(lambda *_a, k=widget.kind: self.create_resource(k))
                 widget.customize_requested.connect(self.customize_requested)
+                if widget is self.pod_table:
+                    widget.more_requested.connect(self.load_more_pods)
                 widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
@@ -382,7 +387,7 @@ class ClusterWorkspace(QMainWindow):
             "workloads": (lambda ns: svc().overview_workloads(ns), True, self.wl_overview.set_data),
             "nodes": (lambda ns: svc().list_nodes(), False, self._set_nodes),
             "namespaces": (lambda ns: svc().list_namespaces(), False, self._set_namespaces),
-            "pods": (lambda ns: svc().list_pods(ns), True, self.pod_table.set_rows),
+            "pods": (self._read_pods, True, self._pods_loaded),
             "deployments": (lambda ns: svc().list_deployments(ns), True, self.deploy_table.set_rows),
             "replicasets": (lambda ns: svc().list_replicasets(ns), True, self.rs_table.set_rows),
             "statefulsets": (lambda ns: svc().list_statefulsets(ns), True, self.sts_table.set_rows),
@@ -406,6 +411,49 @@ class ClusterWorkspace(QMainWindow):
         for widget, _ in self.views.values():
             yield from widget.tables() if isinstance(widget, OverviewView) else [widget]
 
+    def _read_pods(self, namespace):
+        """The Pods list loader. A huge cluster gets its first page only (see PodPager); the rest comes with Load more."""
+        make = getattr(self.service, "pod_pager", None)
+        if self.big and self.huge and make is not None:
+            pager = self._pod_pager = make(namespace)
+            return pager.next()
+        self._pod_pager = None
+        return self.service.list_pods(namespace)
+
+    def _pods_loaded(self, rows):
+        self.pod_table.set_rows(rows)
+        self._update_pod_paging()
+
+    def _update_pod_paging(self):
+        pager = self._pod_pager
+        if pager is None or pager.done:
+            self.pod_table.set_paging("" if pager is None else f"all {pager.loaded:,} pods loaded", False)
+            return
+        total = f" of {pager.total:,}" if pager.total else ""
+        self.pod_table.set_paging(f"showing the first {pager.loaded:,}{total} pods; filter and sort cover these only (View > Search objects… "
+                                  "searches them all)", True)
+
+    def load_more_pods(self):
+        """Load more: the next page of pods, added to the list (a worker; a newer load of the list makes the answer stale)."""
+        pager = self._pod_pager
+        if pager is None or pager.done or getattr(pager, "busy", False):
+            return
+        pager.busy = True
+        self.pod_table.more_button.setEnabled(False)
+
+        def got(rows):
+            pager.busy = False
+            if pager is self._pod_pager and not self._closed:
+                self.pod_table.append_rows(rows)
+                self._update_pod_paging()
+
+        def failed(message):
+            pager.busy = False
+            self.pod_table.more_button.setEnabled(True)
+            self.message.emit(f"{self.context} / Pods: {message.splitlines()[0] if message else 'could not load more'}")
+
+        self._run(pager.next, got, on_error=failed)
+
     def set_big(self, on):
         """Big-cluster mode (see `KubeService.set_big` and `big_clusters`): lighter reads, and the heavy lists reload by themselves
         no more often than every `big_clusters.MIN_REFRESH_S` seconds."""
@@ -422,6 +470,8 @@ class ClusterWorkspace(QMainWindow):
 
     def _overview_loaded(self, data):
         counts = (data or {}).get("counts") or {}
+        if self.big and counts.get("pods", 0) >= HUGE_PODS and not self.huge:
+            self.huge = True  # from now on the Pods list is read in pages (and reloads only on request)
         if not self.big and big_clusters.looks_big(counts.get("nodes", 0), counts.get("pods", 0)):
             self.big_detected.emit(counts.get("nodes", 0), counts.get("pods", 0))
         if counts.get("by_phase"):
@@ -517,6 +567,8 @@ class ClusterWorkspace(QMainWindow):
     def is_manual(self, key):
         """True when the list `key` reloads only on request (see refresh_policy): no timer, no watch, no reload when its tab
         comes to the front; the toolbar Refresh and the list's right-click Refresh still work."""
+        if key == "pods" and self.big and self.huge and "pods" not in self.refresh_settings.overrides():
+            return True  # reloading would throw away the pages the user loaded
         return is_manual(key, self.refresh_settings.overrides())
 
     def _wire_refresh(self, table):

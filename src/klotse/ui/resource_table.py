@@ -31,6 +31,7 @@ class ResourceTable(QWidget):
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
+    more_requested = Signal()  # the Load more button of a paged list
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
     rbac_requested = Signal(str, object)  # a ServiceAccount row: what can it do?
@@ -105,6 +106,11 @@ class ResourceTable(QWidget):
         self._top = top
         top.addWidget(self.filter, 1)
         self.new_button = None  # see enable_new()
+        self.paging_note = ""  # see set_paging()
+        self.more_button = QPushButton("Load more")
+        self.more_button.setVisible(False)
+        self.more_button.clicked.connect(self.more_requested.emit)
+        top.addWidget(self.more_button)
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
@@ -242,7 +248,21 @@ class ResourceTable(QWidget):
         text = f"{count:,} rows" if count else "No resources found"
         if self.refresh_mode is not None and self.refresh_mode() and self._loaded_at:
             text += f" · manual refresh, loaded {self._loaded_at}"
+        if self.paging_note:
+            text += f" · {self.paging_note}"
         self.status.setText(text)
+
+    def set_paging(self, note, more):
+        """A list that is read a page at a time (the Pods list of a huge cluster): `note` is added to the status line and the
+        Load more button shows while `more` is true. `set_paging("", False)` goes back to a plain list."""
+        self.paging_note = note
+        self.more_button.setVisible(bool(more))
+        self.more_button.setEnabled(True)
+        self.show_status()
+
+    def append_rows(self, rows):
+        """Add rows to what is shown (the next page), keeping the selection and scroll position like any reload."""
+        self.set_rows(list(self.model.rows) + list(rows))
 
     @staticmethod
     def _row_key(row):

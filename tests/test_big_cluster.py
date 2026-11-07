@@ -253,3 +253,99 @@ def test_the_workspace_says_when_the_overview_counts_by_phase(qtbot):
     ws.message.connect(said.append)
     ws._overview_loaded({"counts": {"nodes": 632, "pods": 18000, "by_phase": True}, "events": [], "lists": {}})
     assert any("by phase" in text and "18,000" in text for text in said)
+
+
+# ---- the paged Pods list of a huge cluster ------------------------------------------------------------------------
+class PagedPods:
+    """list_pod_for_all_namespaces with limit/continue: `total` pods named p0..; remainingItemCount on every unfiltered page."""
+
+    def __init__(self, total):
+        self.total, self.calls = total, []
+
+    def __call__(self, limit=500, _continue=None, _request_timeout=None, field_selector=None):
+        start = int(_continue or 0)
+        self.calls.append((limit, _continue))
+        stop = min(start + limit, self.total)
+        items = [pod_object(f"p{i}") for i in range(start, stop)]
+        return SimpleNamespace(items=items, metadata=SimpleNamespace(_continue=str(stop) if stop < self.total else None,
+                                                                     remaining_item_count=self.total - stop))
+
+
+def pager_service(total):
+    service = KubeService()
+    service.set_big(True)
+    service._core = SimpleNamespace(list_pod_for_all_namespaces=PagedPods(total))
+    service.pod_usage = lambda namespace=None: {}
+    return service
+
+
+def test_the_pager_reads_one_page_at_a_time_and_knows_the_total():
+    service = pager_service(5)
+    pager = service.pod_pager()
+    pager.limit = 2
+    first = pager.next()
+    assert [r.name for r in first] == ["p0", "p1"] and pager.total == 5 and not pager.done and pager.loaded == 2
+    assert [r.name for r in pager.next()] == ["p2", "p3"]
+    assert [r.name for r in pager.next()] == ["p4"] and pager.done and pager.loaded == 5
+    assert pager.next() == []
+    assert [limit for limit, _ in service._core.list_pod_for_all_namespaces.calls] == [2, 2, 2]
+
+
+def test_the_pager_asks_for_metrics_once():
+    service = pager_service(4)
+    asked = []
+    service.pod_usage = lambda namespace=None: asked.append(1) or {}
+    pager = service.pod_pager()
+    pager.limit = 2
+    pager.next()
+    pager.next()
+    assert asked == [1]
+
+
+def huge_workspace(qtbot, total):
+    ws, service = make_workspace(qtbot)
+    service.pod_pager = lambda namespace=None: _pager(total, namespace)
+    service.list_pods = lambda namespace=None: []
+    ws.set_big(True)
+    ws.huge = True
+    return ws, service
+
+
+def _pager(total, namespace):
+    pager = pager_service(total).pod_pager(namespace)
+    pager.limit = 2
+    return pager
+
+
+def test_a_huge_cluster_loads_a_first_page_and_load_more_adds_the_next(qtbot):
+    ws, _service = huge_workspace(qtbot, 5)
+    rows = ws._read_pods(None)
+    ws._pods_loaded(rows)
+    table = ws.pod_table
+    assert table.model.rowCount() == 2 and table.more_button.isVisibleTo(table) and "first 2 of 5 pods" in table.status.text()
+    ws.load_more_pods()
+    qtbot.waitUntil(lambda: table.model.rowCount() == 4, timeout=5000)
+    ws.load_more_pods()
+    qtbot.waitUntil(lambda: table.model.rowCount() == 5, timeout=5000)
+    assert not table.more_button.isVisibleTo(table) and "all 5 pods loaded" in table.status.text()
+
+
+def test_the_huge_pods_list_reloads_only_on_request_and_a_small_cluster_is_unchanged(qtbot):
+    ws, _service = huge_workspace(qtbot, 5)
+    assert ws.is_manual("pods")
+    ws.huge = False
+    assert not ws.is_manual("pods")
+    ws.huge = True
+    ws.set_big(False)
+    assert not ws.is_manual("pods")
+
+
+def test_a_reload_starts_over_and_an_old_pages_answer_is_dropped(qtbot):
+    ws, _service = huge_workspace(qtbot, 6)
+    ws._pods_loaded(ws._read_pods(None))
+    old = ws._pod_pager
+    ws.load_more_pods()
+    ws._pods_loaded(ws._read_pods(None))  # a refresh replaced the pager while the page was coming
+    assert ws._pod_pager is not old
+    qtbot.wait(300)
+    assert ws.pod_table.model.rowCount() == 2
