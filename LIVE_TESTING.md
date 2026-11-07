@@ -83,3 +83,18 @@ write what you saw in the PR or issue.
 
 For each row: PASS / FAIL / not tried, the Kubernetes version and distribution, and what differed from `kubectl`. File a bug per FAIL.
 When a row passes, edit the "not run against a live cluster" sentence for that feature in `AGENTS.md` to say what was verified and when.
+
+## Results so far
+
+### 2026-11-07, `docker-desktop` context (kind-style, 3 nodes, Kubernetes v1.36.4, no metrics-server)
+
+Run headlessly: `KubeService` and the pure modules were driven by scripts against the real API server, not the Qt windows, in a
+`klotse-test` namespace (deleted afterwards). The windows, menus, dialogs and the terminal were **not** exercised.
+
+| Result | What |
+| --- | --- |
+| Verified | Connect; list pods/secrets/events/helm releases/CRD groups; TLS Expires and Subject (date equals `openssl x509 -enddate`); Health check (a CrashLoopBackOff pod is an error; missing limits/requests/probes/untagged image found); drain preview on a worker node; capacity per node; right-sizing without metrics (no crash); RBAC data and "who can delete pods" (cluster-admin groups and controller service accounts found, none missed); search by kind/namespace/name; pods by label selector; related objects; `can_i`; Gateway API and Karpenter correctly absent; read-only mode refuses a scale |
+| Verified | Changing: scale, rollout restart, history (revisions 2/1, current marked), rollback via JSON patch, CronJob Run now and Suspend, Apply YAML (dry run stores nothing; a real apply works and records field manager `klotse`; an unknown kind fails alone without stopping the other document), Copy as new for a Pod (new name, no labels, created) |
+| Verified | Files and logs: remote directory listing through `kubectl exec ls` on BusyBox and nginx (Debian) images; a missing directory gives "No such directory in the container."; log stream with timestamps; previous-instance log |
+| Finding | A pod that fails and restarts (`Error`, 1-4 restarts) is not reported by Health check until Kubernetes shows `CrashLoopBackOff` or 5 restarts. Not a crash, but early failures are missed |
+| Not tried | Everything with a window or terminal; metrics-server dependent views (usage, right-sizing advice, node bars); Helm with a real release; cert-manager Certificates; Gateway API objects; debug containers; copy files; port forward; multi-pod log tab; Diagnostics zip leak check beyond "no `tls.key` text, no Secret file" (done: counts and file list only); embedded terminal; packaged apps; other clusters and Kubernetes versions; the exec-helper and proxy error paths |
