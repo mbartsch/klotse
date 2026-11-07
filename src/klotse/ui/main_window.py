@@ -116,6 +116,11 @@ class MainWindow(QMainWindow):
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
         view_menu.addAction(self.rightsizing_action)
         view_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.unused_action = QAction("Unused objects…", self)
+        self.unused_action.setToolTip("ConfigMaps, Secrets and claims that no pod, workload, Ingress or Service Account refers to")
+        self.unused_action.triggered.connect(self.show_unused)
+        view_menu.addAction(self.unused_action)
+        view_menu.aboutToShow.connect(lambda: self.unused_action.setEnabled(self.clusters.currentWidget() is not None))
         self.health_action = QAction("Health check…", self)
         self.health_action.setToolTip("Problems and risks in the namespace in front: crash loops, no limits or probes, latest tags, unbound claims")
         self.health_action.triggered.connect(self.show_health)
@@ -398,6 +403,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_rightsizing()
+        return True
+
+    def show_unused(self):
+        """View > Unused objects…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_unused()
         return True
 
     def show_health(self):

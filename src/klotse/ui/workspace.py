@@ -31,9 +31,10 @@ from ..k8s.client import HUGE_PODS
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
+from .unused_dialog import UnusedDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health
+from ..k8s import health, unused
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -1126,6 +1127,8 @@ class ClusterWorkspace(QMainWindow):
             self._search_dialog.close()  # stops a search still reading pages
         if getattr(self, "_capacity_dialog", None) is not None:
             self._capacity_dialog.close()
+        if getattr(self, "_unused_dialog", None) is not None:
+            self._unused_dialog.close()
         if getattr(self, "_health_dialog", None) is not None:
             self._health_dialog.close()
         if getattr(self, "_rightsizing_dialog", None) is not None:
@@ -1486,6 +1489,44 @@ class ClusterWorkspace(QMainWindow):
         dialog.summary.setText("Loading pods and usage…")
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+
+    def show_unused(self):
+        """View > Unused objects…: ConfigMaps, Secrets and claims that nothing refers to, in the namespace in front (or all of them),
+        judged from the manifests of pods, workloads, Ingresses and Service Accounts on a worker. Looking only (Secrets as
+        metadata, never their data). Non-modal, one per workspace, closed by shutdown."""
+        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+        dialog = getattr(self, "_unused_dialog", None)
+        if dialog is None:
+            dialog = self._unused_dialog = UnusedDialog(self.context, scope, self)
+            dialog.reload_button.clicked.connect(self._load_unused)
+            dialog.go_to_requested.connect(self.go_to_object)
+        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
+        dialog.show()
+        dialog.raise_()
+        self._load_unused()
+        return dialog
+
+    def _load_unused(self):
+        dialog = self._unused_dialog
+        namespace = None if self.namespace() == ALL_NS else self.namespace()
+        dialog.summary.setText("Looking…")
+
+        def read():
+            data, problems, missing = self.service.unused_data(namespace)
+            if missing:
+                return None, missing, problems
+            judged = {"ConfigMap": len(data.get("configmaps", [])), "Secret": len(data.get("secrets", [])),
+                      "PersistentVolumeClaim": len(data.get("pvcs", []))}
+            return (unused.find_unused(data), judged), [], problems
+
+        def done(answer):
+            result, missing, problems = answer
+            if result is None:
+                dialog.show_refused(missing, problems)
+            else:
+                dialog.show_result(result[0], result[1], problems)
+
+        self._run(read, done, on_error=dialog.show_error)
 
     def show_health(self):
         """View > Health check…: manifests of the namespace in front (all namespaces too) are read on a worker and checked

@@ -1188,6 +1188,59 @@ class KubeService:
                 problems.append(f"{key} ({error})")
         return data, problems
 
+    def _metadata_list(self, list_fn, *args):
+        """[{"metadata": {...}}] of a list read as PartialObjectMetadataList: names, labels, annotations and owners only, so no Secret
+        data is transferred (a client that cannot send the header makes this fail rather than download the objects)."""
+        accept = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+        items, token = [], None
+        while True:
+            reply = list_fn(*args, limit=500, _continue=token, _request_timeout=30, _preload_content=False, _headers={"Accept": accept})
+            page = json.loads(reply.data)
+            items += [{"metadata": item.get("metadata") or {}} for item in page.get("items") or []]
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return items
+
+    def unused_data(self, namespace=None):
+        """(data, problems, missing) for `k8s.unused.find_unused`: the manifests that *refer* to ConfigMaps, Secrets and claims (pods,
+        workloads, Ingresses, Service Accounts) and the objects to judge (ConfigMaps and Secrets as metadata only, claims). Looking
+        only. `problems` names what could not be read; `missing` lists the reference sources among them: without those the answer
+        would wrongly call used objects unused, so the caller must not show a list."""
+        core = self._core
+        scoped = lambda one, every: (lambda: self._metadata_list(one, namespace) if namespace else self._metadata_list(every))
+        readers = {
+            "pods": lambda: [row.raw for row in self.list_pods_for_analysis(namespace, full=True)],
+            "deployments": lambda: [row.raw for row in self.list_deployments(namespace)],
+            "statefulsets": lambda: [row.raw for row in self.list_statefulsets(namespace)],
+            "daemonsets": lambda: [row.raw for row in self.list_resource("daemonsets", namespace)],
+            "jobs": lambda: [row.raw for row in self.list_resource("jobs", namespace)],
+            "cronjobs": lambda: [row.raw for row in self.list_resource("cronjobs", namespace)],
+            "ingresses": lambda: [row.raw for row in self.list_resource("ingresses", namespace)],
+            "serviceaccounts": lambda: [row.raw for row in self.list_resource("serviceaccounts", namespace)],
+            "configmaps": scoped(core.list_namespaced_config_map, core.list_config_map_for_all_namespaces),
+            "secrets": scoped(core.list_namespaced_secret, core.list_secret_for_all_namespaces),
+            "pvcs": lambda: [row.raw for row in self.list_resource("persistentvolumeclaims", namespace)],
+        }
+
+        def run(read):
+            try:
+                return read(), None
+            except Exception as error:  # noqa: BLE001 - one forbidden kind must not hide the others
+                return None, type(error).__name__
+
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="unused") as pool:
+            answers = {key: pool.submit(run, read) for key, read in readers.items()}
+            results = {key: future.result() for key, future in answers.items()}
+        data, problems = {}, []
+        for key, (items, error) in results.items():
+            if error is None:
+                data[key] = items
+            else:
+                problems.append(f"{key} ({error})")
+        judged = ("configmaps", "secrets", "pvcs")
+        missing = [key for key in readers if key not in judged and key not in data]
+        return data, problems, missing
+
     def capacity_data(self):
         """(nodes, pods) for the Capacity window; in big-cluster mode the two lists are read side by side."""
         if not self.big:
