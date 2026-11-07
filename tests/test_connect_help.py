@@ -71,7 +71,7 @@ def test_missing_helper_is_named():
 
 def test_unreachable_server_names_the_proxy(kubeconfig):
     text = connect_help.explain("Cannot reach the API server at https://eks.example.com", connect_help.auth_info(kubeconfig, "eks"))
-    assert "proxy.example.com:3128" in text and "proxy-url" in text
+    assert "uses the proxy http://proxy.example.com:3128 (from" in text and "proxy-url" in text
     assert "VPN" in connect_help.explain("Cannot reach the API server at x", {"server": "https://x"})
 
 
