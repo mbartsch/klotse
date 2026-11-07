@@ -22,6 +22,7 @@ from .api_index_loader import ApiIndexLoader
 from .apply_dialog import ApplyDialog
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
+from .compare_dialog import CompareDialog
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -215,6 +216,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.scale_requested.connect(self.scale_resource)
                 widget.restart_requested.connect(self.restart_resource)
                 widget.history_requested.connect(self.show_rollout_history)
+                widget.compare_requested.connect(self.compare_objects)
                 widget.goto_requested.connect(self.go_to)
                 widget.port_forward_requested.connect(self.start_port_forward)
                 widget.copy_files_requested.connect(self.copy_files)
@@ -1049,6 +1051,12 @@ class ClusterWorkspace(QMainWindow):
             return
         self._run(find, lambda answer: dialog.show_results(serial, *answer), text, namespace or None, cancel,
                   on_error=lambda msg: dialog.show_error(serial, msg))
+
+    def compare_objects(self, kind, rows):
+        """Two selected rows of one list > Compare these two…: their YAML as a diff. Looking only (read-only mode allows it)."""
+        dialog = CompareDialog(self.context, kind, rows[0], rows[1], self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def show_capacity(self):
         """View > Capacity…: nodes and every pod are read on a worker (looking only) and shown per node and per namespace. The

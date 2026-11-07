@@ -30,6 +30,7 @@ class ResourceTable(QWidget):
     new_requested = Signal()
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
+    compare_requested = Signal(str, list)  # kind, the two selected rows
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
     rows_incoming = Signal(list)  # new rows are about to go in: plugins put the values they already know on them
     rows_set = Signal(list)  # new rows are in the table (plugins ask for their columns when this fires)
@@ -299,6 +300,9 @@ class ResourceTable(QWidget):
     def _bulk_menu(self, menu, rows):
         n = len(rows)
         bulk = lambda action: (lambda: self.bulk_requested.emit(self.kind, action, rows))
+        if n == 2 and all(getattr(r, "raw", None) for r in rows):  # looking only, so it is always offered
+            menu.addAction("Compare these two…", lambda: self.compare_requested.emit(self.kind, list(rows)))
+            menu.addSeparator()
         if self.kind in SCALABLE:
             menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
         if self.kind in RESTARTABLE:
