@@ -99,6 +99,20 @@ Run headlessly: `KubeService` and the pure modules were driven by scripts agains
 | Finding, fixed | A pod that fails and restarts (`Error`, 1-4 restarts) was not reported by Health check until Kubernetes showed `CrashLoopBackOff` or 5 restarts; it is now reported from the first restart (re-check live) |
 | Verified by the owner | Debug (ephemeral container)… tried by hand on a real cluster and reported OK (2026-11-07); details not recorded |
 
+### 2026-11-07 (later), docker-desktop with metrics-server v0.9.1, Gateway API CRDs v1.7.0 and Traefik v3.7.17 (Helm chart, Gateway provider)
+
+Same method: service layer driven by scripts; no windows.
+
+| Result | What |
+| --- | --- |
+| Verified | Gateway API discovery lists all 10 kinds (GatewayClass, Gateway, HTTPRoute, GRPCRoute first); GatewayClass shows controller and ✔ Accepted; Gateway shows class, listener `web:8000/HTTP`, address and ✔ Programmed |
+| Verified | Gateway editing: create an HTTPRoute from `gateway.skeleton`, list it with hostnames/gateway/rules, replace it, delete it with the UID precondition; a stale `resourceVersion` gives 409 |
+| Verified | The Accepted column of a route follows the controller: a route in another namespace than the Gateway (which allows `Same`) showed "✖ Not accepted" (reason not looked up, probably the listener's allowedRoutes) |
+| Finding | Editing a Gateway API object right after it was read can fail with 409, because the controller updates `status` (and so the resourceVersion) in the background; a retry after the status settled worked. The UI shows the conflict; the user must reopen Edit… and try again. Consider a clearer message |
+| Verified | metrics-server: pod and node usage filled in; Capacity shows request percentages with usage; Right-sizing judges workloads from the sample (over-provisioned, under-requested, no request) and its summary reads sensibly |
+| Verified | Helm: the Traefik release is listed (`deployed`), `helm_release` returns summary, user and all values, history (revision 1) |
+| Not tried | cert-manager, Helm uninstall, the node bars with usage in the window, the windows themselves |
+
 ## Still pending (what to test next)
 
 Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.
@@ -120,10 +134,10 @@ Status as of 2026-11-07. Use the tables above for how. Nothing listed here has b
 
 **Needs something installed on the cluster**
 
-- [ ] metrics-server (usage columns, node bars, Right-sizing advice, Capacity usage).
-- [ ] Helm release (list, Show values with secret-looking keys hidden, Uninstall).
+- [x] metrics-server is installed on docker-desktop; usage, Capacity and Right-sizing checked at the service level. Still to look at: the windows and the node bars.
+- [ ] Helm release: listing and details checked at the service level (Traefik installed); still to do: Show values and the hidden keys in the dialog, Uninstall (use a throw-away release, not Traefik).
 - [ ] cert-manager Certificate (Ready, Expires, Renewal).
-- [ ] Gateway API CRDs and a controller (lists, columns, New/Edit/Delete as YAML).
+- [ ] Gateway API: CRDs and Traefik are installed and the service level is checked; still to do: the navigator group, the lists, and New…/Edit…/Delete… in the window (and a nicer message for the 409 above).
 - [ ] Karpenter columns and group (only on a cluster that runs it).
 
 **Needs another machine or environment**
