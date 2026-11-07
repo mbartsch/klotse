@@ -424,6 +424,9 @@ class ClusterWorkspace(QMainWindow):
         counts = (data or {}).get("counts") or {}
         if not self.big and big_clusters.looks_big(counts.get("nodes", 0), counts.get("pods", 0)):
             self.big_detected.emit(counts.get("nodes", 0), counts.get("pods", 0))
+        if counts.get("by_phase"):
+            self.message.emit(f"{self.context}: {counts.get('pods', 0):,} pods, so the Overview counts them by phase (a crash-looping pod "
+                              "still counts as running; Health check finds those)")
         self.overview.set_data(data)
         if self.plugin_host is not None:  # plugins' cards (a total cost, say): computed when due, last values kept meanwhile
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())

@@ -122,7 +122,7 @@ Same method: service layer driven by scripts; no windows.
 
 ### Big-cluster mode (after the timing log of the owner's cluster)
 
-Baseline from the log (103 nodes, 2,683 pods, 7,890 events, via a proxy): Overview about 6 s steady and 9 to 13 s on first loads, Health check 19.7 s, Capacity 12.2 s, table fills under 0.2 s. To re-time with big-cluster mode: connect (it switches itself on at the first Overview, or use View > Big cluster mode), reconnect once more so the first load is already light, open Overview, Health check and Capacity, and compare `phase`, `api-list` and `total` lines in `timings.log`. Expect fewer, larger pages (`pages` about a third), no 7,890-item event list, and no automatic Overview reload sooner than 30 s.
+Baseline from the log (103 nodes, 2,683 pods, 7,890 events, via a proxy): Overview about 6 s steady and 9 to 13 s on first loads, Health check 19.7 s, Capacity 12.2 s, table fills under 0.2 s. To re-time with big-cluster mode: connect (it switches itself on at the first Overview, or use View > Big cluster mode), reconnect once more so the first load is already light, open Overview, Health check and Capacity, and compare `phase`, `api-list` and `total` lines in `timings.log`. The owner's real cluster is bigger (18,000 pods, 632 nodes): there the Overview should take a few seconds (pod total from `remainingItemCount`, only Pending/Failed/Succeeded pods listed; the log shows `api-list` for `list_pod_for_all_namespaces` with few items), while the Pods list, Health check and Capacity are expected to remain slow (record how slow). Expect fewer, larger pages (`pages` about a third), no 7,890-item event list, and no automatic Overview reload sooner than 30 s.
 
 ## Still pending (what to test next)
 

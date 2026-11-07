@@ -188,3 +188,68 @@ def test_the_view_menu_choice_wins_and_a_second_start_is_already_big(qtbot, tmp_
     second = window(qtbot, tmp_path)
     open_active(second)
     assert not second.clusters.currentWidget().big
+
+
+# ---- huge clusters: the Overview counts by phase -----------------------------------------------------------------
+def pod_object(name, phase="Running"):
+    from kubernetes import client
+    return client.V1Pod(metadata=client.V1ObjectMeta(name=name, namespace="shop"), spec=client.V1PodSpec(containers=[client.V1Container(name="c")]),
+                        status=client.V1PodStatus(phase=phase))
+
+
+class FakePods:
+    """list_pod_for_all_namespaces with limit and field_selector, like the API server: remainingItemCount only for the unfiltered
+    limit=1 call."""
+
+    def __init__(self, total, pending=3, failed=2, succeeded=4):
+        self.total, self.by_phase = total, {"Pending": pending, "Failed": failed, "Succeeded": succeeded}
+        self.calls = []
+
+    def __call__(self, limit=500, _continue=None, _request_timeout=None, field_selector=None):
+        self.calls.append((limit, field_selector))
+        if field_selector:
+            phase = field_selector.split("=")[1]
+            items = [pod_object(f"{phase}-{i}", phase) for i in range(self.by_phase[phase])]
+            return SimpleNamespace(items=items, metadata=SimpleNamespace(_continue=None, remaining_item_count=None))
+        return SimpleNamespace(items=[pod_object("first")][:limit], metadata=SimpleNamespace(_continue="x", remaining_item_count=self.total - 1))
+
+
+def huge_service(total, big=True, **phases):
+    service = KubeService()
+    service.set_big(big)
+    service._core = SimpleNamespace(list_pod_for_all_namespaces=FakePods(total, **phases))
+    return service
+
+
+def test_a_huge_cluster_is_counted_by_phase_without_reading_every_pod():
+    service = huge_service(18000)
+    counts, lists = service._overview_pods()
+    assert counts["pods"] == 18000 and counts["pending"] == 3 and counts["failed"] == 2 and counts["by_phase"]
+    assert counts["running"] == 18000 - 3 - 2 - 4
+    assert len(lists["pending"]) == 3 and len(lists["failed"]) == 2
+    calls = service._core.list_pod_for_all_namespaces.calls
+    assert (1, None) in calls and not any(limit == 500 and not sel for limit, sel in calls)  # never a full listing
+
+
+def test_below_the_threshold_or_outside_big_mode_the_full_pass_is_used():
+    small = huge_service(4000)
+    assert small._overview_pods_by_phase() is None
+    off = huge_service(18000, big=False)
+    called = []
+    off._core.list_pod_for_all_namespaces = lambda **kw: called.append(kw) or SimpleNamespace(items=[], metadata=SimpleNamespace(_continue=None))
+    counts, _ = off._overview_pods()
+    assert counts["pods"] == 0 and "by_phase" not in counts and called[0]["limit"] == 500  # the plain full listing
+
+
+def test_a_server_without_a_count_falls_back():
+    service = huge_service(18000)
+    service._core.list_pod_for_all_namespaces = lambda **kw: SimpleNamespace(items=[], metadata=SimpleNamespace(_continue=None, remaining_item_count=None))
+    assert service._overview_pods_by_phase() is None
+
+
+def test_the_workspace_says_when_the_overview_counts_by_phase(qtbot):
+    ws, _service = make_workspace(qtbot)
+    said = []
+    ws.message.connect(said.append)
+    ws._overview_loaded({"counts": {"nodes": 632, "pods": 18000, "by_phase": True}, "events": [], "lists": {}})
+    assert any("by phase" in text and "18,000" in text for text in said)

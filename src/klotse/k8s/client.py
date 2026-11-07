@@ -24,6 +24,7 @@ FAILING_STATES = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "Inval
                   "CreateContainerError", "RunContainerError", "Error", "OOMKilled", "Failed", "Evicted"}
 
 
+HUGE_PODS = 5000  # big-cluster mode: from this many pods the Overview counts by pod phase instead of reading every pod
 OVERVIEW_LIST_CAP = 500  # most rows the overview keeps per drill-down list (pending pods, failed pods, warnings)
 
 
@@ -1116,8 +1117,40 @@ class KubeService:
         # the 25 recent rows are shown at once; the (up to 500) warnings only serialize when a row is selected
         return rows(recent), count, rows(warned, lazy=True)
 
+    def _overview_pods_by_phase(self, namespace=None):
+        """Overview pod numbers for a huge cluster without decoding every pod, or None when this does not apply. The API server
+        gives the exact total for an unfiltered `limit=1` list (`remainingItemCount`), so only the pods that are Pending, Failed or
+        Succeeded (few) are listed, with a field selector, and the rest is "running". This counts by pod **phase**: a pod that
+        is crash-looping or terminating is still phase Running here (the Health check finds those). `counts["by_phase"]` is set so the
+        UI can say so. Returns None (use the full pass) when the cluster is smaller than HUGE_PODS or the server gives no count."""
+        api = self._core
+        fn, args = (api.list_namespaced_pod, (namespace,)) if namespace else (api.list_pod_for_all_namespaces, ())
+        first = fn(*args, limit=1, _request_timeout=30)
+        remaining = getattr(first.metadata, "remaining_item_count", None) if first.metadata else None
+        if remaining is None:
+            return None
+        total = len(first.items or []) + remaining
+        if total < HUGE_PODS:
+            return None
+        counts = {"pods": total, "running": 0, "pending": 0, "failed": 0, "by_phase": True}
+        lists = {}
+        for bucket, phase in (("pending", "Pending"), ("failed", "Failed")):
+            kept, number = [], 0
+            for pod in self._iter_list(fn, *args, field_selector=f"status.phase={phase}"):
+                number += 1
+                if len(kept) < OVERVIEW_LIST_CAP:
+                    kept.append(map_pod(pod))
+            counts[bucket], lists[bucket] = number, kept
+        finished = sum(1 for _ in self._iter_list(fn, *args, field_selector="status.phase=Succeeded"))
+        counts["running"] = max(0, total - counts["pending"] - counts["failed"] - finished)
+        return counts, lists
+
     def _overview_pods(self, namespace=None):
         """One streaming pass: (counts, {"pending": [...], "failed": [...]}); only problem pods keep their raw object."""
+        if self.big:
+            counted = self._overview_pods_by_phase(namespace)
+            if counted is not None:
+                return counted
         api = self._core
         items = (self._iter_list(api.list_namespaced_pod, namespace) if namespace
                  else self._iter_list(api.list_pod_for_all_namespaces))
