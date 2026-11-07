@@ -287,6 +287,35 @@ def _nodeclaim(item):
                 nodepool=_text(labels.get("karpenter.sh/nodepool")), ready=_condition(item, "Ready", "Initialized"))
 
 
+def expiry_text(stamp, now=None):
+    """'2026-12-01 10:00 (in 24d)' / '... (expired 3d ago)' from an RFC 3339 time; '' when there is none. The date comes
+    first, so sorting the column sorts by expiry."""
+    when = parse_timestamp(stamp) if isinstance(stamp, str) else None
+    if when is None:
+        return ""
+    now = now or datetime.now(timezone.utc)
+    days = (when - now).total_seconds() / 86400
+    if days >= 1:
+        note = f"in {int(days)}d"
+    elif days >= 0:
+        note = "in under a day"
+    elif days > -1:
+        note = "expired today"
+    else:
+        note = f"expired {int(-days)}d ago"
+    return f"{when.astimezone(timezone.utc):%Y-%m-%d %H:%M} ({note})"
+
+
+def _certificate(item):
+    """cert-manager Certificate: the dates cert-manager itself reports in `status`, so no Secret is read."""
+    issuer = _get(item, "spec", "issuerRef") or {}
+    return dict(secret=_text(_get(item, "spec", "secretName")),
+                issuer=_text(issuer.get("name")) + (f" ({issuer['kind']})" if issuer.get("kind") else ""),
+                dns=_text(", ".join(_get(item, "spec", "dnsNames") or [])),
+                not_after=expiry_text(_get(item, "status", "notAfter")),
+                renewal=expiry_text(_get(item, "status", "renewalTime")), ready=_condition(item, "Ready"))
+
+
 # (API group, kind) -> (columns as (heading, attribute), function giving the attribute values of one object)
 CUSTOM_COLUMNS = {
     ("karpenter.sh", "NodePool"): (
@@ -295,6 +324,9 @@ CUSTOM_COLUMNS = {
     ("karpenter.sh", "NodeClaim"): (
         [("Name", "name"), ("Node", "node"), ("Type", "instance_type"), ("Capacity", "capacity"), ("Zone", "zone"),
          ("NodePool", "nodepool"), ("Ready", "ready"), ("Age", "age")], _nodeclaim),
+    ("cert-manager.io", "Certificate"): (
+        [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Expires", "not_after"), ("Renewal", "renewal"),
+         ("Secret", "secret"), ("Issuer", "issuer"), ("DNS names", "dns"), ("Age", "age")], _certificate),
 }
 
 
