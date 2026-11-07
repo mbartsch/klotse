@@ -2,6 +2,7 @@ import datetime
 import functools
 import itertools
 import json
+from urllib.parse import urlencode
 import time
 from concurrent.futures import ThreadPoolExecutor
 from heapq import heappush, heapreplace
@@ -964,8 +965,59 @@ class KubeService:
                 r.cpu_used, r.mem_used = usage[r.name]
         return rows
 
+    def _table_pages(self, path, params, limit):
+        """Pages of a server-side **Table** (what `kubectl get` asks for): yields (column names, rows) where a row is a list of cell
+        strings. The API server sends a few short cells per object instead of the whole manifest, and nothing goes through the
+        Kubernetes client's model deserialization, which costs about 3 ms per pod (18,000 pods: 59 s as pods, a fraction as a table).
+        Raises on any problem (an old server, a proxy that strips the Accept header): callers fall back to the plain list."""
+        api = self._api_client
+        cfg = api.configuration
+        headers = dict(getattr(api, "default_headers", {}) or {})
+        headers["Accept"] = "application/json;as=Table;g=meta.k8s.io;v=v1"
+        for setting in cfg.auth_settings().values():  # token (with the client's refresh hook) for exec / OIDC helpers
+            if setting.get("in") == "header" and setting.get("value"):
+                headers[setting["key"]] = setting["value"]
+        token, pages, items, spent = None, 0, 0, 0.0
+        while True:
+            query = {**params, "limit": limit}
+            if token:
+                query["continue"] = token
+            began = time.perf_counter()
+            response = api.rest_client.request("GET", f"{cfg.host}{path}?{urlencode(query)}", headers=headers, _request_timeout=60)
+            data = response.data if getattr(response, "data", None) is not None else response.read()
+            spent += time.perf_counter() - began
+            table = json.loads(data)
+            if table.get("kind") != "Table":
+                raise ValueError("the server did not answer with a Table")
+            names = [c.get("name", "") for c in table.get("columnDefinitions") or []]
+            rows = [r.get("cells") or [] for r in table.get("rows") or []]
+            pages += 1
+            items += len(rows)
+            yield names, rows
+            token = (table.get("metadata") or {}).get("continue")
+            if not token:
+                break
+        timings.record("api-list", "table:" + path, spent, pages=pages, items=items)
+
+    def _node_pod_counts_table(self):
+        counts = {}
+        selector = {"fieldSelector": "status.phase!=Succeeded,status.phase!=Failed"}
+        for names, rows in self._table_pages("/api/v1/pods", selector, BIG_PAGE_SIZE * 2):
+            column = names.index("Node")
+            for cells in rows:
+                node = cells[column] if column < len(cells) else None
+                if node and node != "<none>":
+                    counts[node] = counts.get(node, 0) + 1
+        return counts
+
     def all_node_pod_counts(self):
-        """{node: unfinished pods} for every node that has any, from one pass over all pods (nothing is serialized)."""
+        """{node: unfinished pods} for every node that has any, from one pass over all pods (nothing is serialized). In big-cluster
+        mode the pass reads the server-side Table (see `_table_pages`); if that fails the plain pass below is used."""
+        if self.big:
+            try:
+                return self._node_pod_counts_table()
+            except Exception:  # noqa: BLE001 - fall back to the plain list
+                pass
         counts = {}
         for pod in self._iter_list(self._core.list_pod_for_all_namespaces,
                                    field_selector="status.phase!=Succeeded,status.phase!=Failed"):

@@ -80,6 +80,7 @@ DEFAULT_NS = "default"  # what a newly opened cluster is scoped to
 MAX_REPLICAS = 10000
 NODE_PODS_TTL_S = 20  # a node on screen is not recounted more often than this
 NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
+NODE_PODS_BIG_REFRESH_MS = 300_000  # the same in big-cluster mode: the count reads every pod
 
 
 def parse_scale(text, current):
@@ -458,6 +459,7 @@ class ClusterWorkspace(QMainWindow):
         """Big-cluster mode (see `KubeService.set_big` and `big_clusters`): lighter reads, and the heavy lists reload by themselves
         no more often than every `big_clusters.MIN_REFRESH_S` seconds."""
         self.big = on = bool(on)
+        self._node_pods_timer.setInterval(NODE_PODS_BIG_REFRESH_MS if on else NODE_PODS_REFRESH_MS)  # recounting every pod is costly
         setter = getattr(self.service, "set_big", None)
         if setter is not None:
             setter(on)

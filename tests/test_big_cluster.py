@@ -349,3 +349,64 @@ def test_a_reload_starts_over_and_an_old_pages_answer_is_dropped(qtbot):
     assert ws._pod_pager is not old
     qtbot.wait(300)
     assert ws.pod_table.model.rowCount() == 2
+
+
+# ---- node pod counts from the server-side Table -------------------------------------------------------------------
+import json
+
+
+class FakeRest:
+    """api.rest_client.request returning Table pages like the API server (with a continue token between pages)."""
+
+    def __init__(self, pages, fail=False):
+        self.pages, self.urls, self.headers, self.fail = list(pages), [], [], fail
+
+    def request(self, method, url, headers=None, _request_timeout=None):
+        self.urls.append(url)
+        self.headers.append(headers)
+        if self.fail:
+            raise OSError("proxy stripped the Accept header")
+        page = self.pages.pop(0)
+        body = {"kind": "Table", "columnDefinitions": [{"name": "Name"}, {"name": "Node"}],
+                "rows": [{"cells": [f"p{i}", node]} for i, node in enumerate(page["nodes"])], "metadata": {"continue": page.get("next")}}
+        return SimpleNamespace(data=json.dumps(body).encode(), status=200)
+
+
+def table_service(pages, fail=False):
+    service = KubeService()
+    service.set_big(True)
+    rest = FakeRest(pages, fail)
+    cfg = SimpleNamespace(host="https://api.example", auth_settings=lambda: {"BearerToken": {"in": "header", "key": "authorization", "value": "Bearer t"}})
+    service._api_client = SimpleNamespace(configuration=cfg, default_headers={"Accept-Encoding": "gzip"}, rest_client=rest)
+    return service, rest
+
+
+def test_node_pod_counts_come_from_the_table_pages():
+    service, rest = table_service([{"nodes": ["n1", "n1", "<none>", "n2"], "next": "tok"}, {"nodes": ["n2", None, "n1"]}])
+    assert service.all_node_pod_counts() == {"n1": 3, "n2": 2}
+    assert "continue=tok" in rest.urls[1] and "fieldSelector=status.phase%21%3DSucceeded" in rest.urls[0]
+    assert rest.headers[0]["Accept"].startswith("application/json;as=Table") and rest.headers[0]["authorization"] == "Bearer t"
+
+
+def test_when_the_table_cannot_be_read_the_plain_pass_is_used():
+    service, _rest = table_service([], fail=True)
+    plain = SimpleNamespace(items=[SimpleNamespace(spec=SimpleNamespace(node_name="n1"))], metadata=SimpleNamespace(_continue=None))
+    service._core = SimpleNamespace(list_pod_for_all_namespaces=lambda **kw: plain)
+    assert service.all_node_pod_counts() == {"n1": 1}
+
+
+def test_small_clusters_never_use_the_table():
+    service, rest = table_service([])
+    service.set_big(False)
+    plain = SimpleNamespace(items=[], metadata=SimpleNamespace(_continue=None))
+    service._core = SimpleNamespace(list_pod_for_all_namespaces=lambda **kw: plain)
+    assert service.all_node_pod_counts() == {} and rest.urls == []
+
+
+def test_big_mode_recounts_node_pods_less_often(qtbot):
+    from klotse.ui.workspace import NODE_PODS_BIG_REFRESH_MS, NODE_PODS_REFRESH_MS
+    ws, _service = make_workspace(qtbot)
+    ws.set_big(True)
+    assert ws._node_pods_timer.interval() == NODE_PODS_BIG_REFRESH_MS
+    ws.set_big(False)
+    assert ws._node_pods_timer.interval() == NODE_PODS_REFRESH_MS
