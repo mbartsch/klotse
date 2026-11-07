@@ -90,7 +90,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 44 | Browse files in a pod or PVC (kubectl-browse-pvc) | Medium | #127 |
 | 45 | Say clearly when a list is refused (403) instead of showing it empty (Rubick) | Small | #128 |
 | 46 | Local audit log of changes made from Klotse (Lumovi) | Small to medium | #129 |
-| 47 | Capacity overview: requests, limits and utilization per node and namespace (kube-capacity) | Small to medium | #130 |
+| 47 | Capacity overview: requests, limits and utilization per node and namespace (kube-capacity) (**done**, #130) | Small to medium | #130 |
 | 48 | Ownership topology graph (Radar, KubeView) | Large | #131 |
 
 Also seen there and already planned: unused objects (kor, item 24), right-sizing (Goldilocks, item 22), RBAC reverse lookup (kube-who-can, item 25), health check (item 21), Trivy reports. Seen and not planned: AI assistants and MCP servers, chaos testing, packet capture, local-development tools (Tilt, Telepresence) and cluster provisioning.

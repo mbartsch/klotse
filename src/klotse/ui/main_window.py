@@ -83,6 +83,11 @@ class MainWindow(QMainWindow):
         self.search_action.setToolTip("Find objects by name, label, kind or namespace across the cluster in front")
         self.search_action.triggered.connect(self.show_search)
         view_menu.addAction(self.search_action)
+        self.capacity_action = QAction("Capacity…", self)
+        self.capacity_action.setToolTip("Requests, limits and usage against what each node can give, per node and per namespace")
+        self.capacity_action.triggered.connect(self.show_capacity)
+        view_menu.addAction(self.capacity_action)
+        view_menu.aboutToShow.connect(lambda: self.capacity_action.setEnabled(self.clusters.currentWidget() is not None))
         view_menu.aboutToShow.connect(lambda: self.permissions_action.setEnabled(self.clusters.currentWidget() is not None))
         view_menu.aboutToShow.connect(lambda: self.search_action.setEnabled(self.clusters.currentWidget() is not None))
         self.read_only_action = QAction("Read-only mode", self, checkable=True)
@@ -244,6 +249,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_search()
+        return True
+
+    def show_capacity(self):
+        """View > Capacity…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_capacity()
         return True
 
     def show_permissions(self):

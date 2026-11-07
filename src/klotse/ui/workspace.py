@@ -31,6 +31,7 @@ from .namespace_dialog import NamespaceDialog
 from .namespace_pins import NamespacePins
 from .node_bar import NodeActionBar
 from .node_dialogs import DebugDialog, DrainDialog, NodeShellDialog
+from .capacity_dialog import CapacityDialog
 from .permissions_dialog import PermissionsDialog
 from .search_dialog import SearchDialog
 from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
@@ -871,6 +872,8 @@ class ClusterWorkspace(QMainWindow):
         self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
         if getattr(self, "_search_dialog", None) is not None:
             self._search_dialog.close()  # stops a search still reading pages
+        if getattr(self, "_capacity_dialog", None) is not None:
+            self._capacity_dialog.close()
         self.file_copies.cancel_all()  # nor a kubectl cp
         for host in list(self._terminal_hosts):
             host.close()  # ends its session, so no kubectl outlives the cluster
@@ -1044,6 +1047,26 @@ class ClusterWorkspace(QMainWindow):
             return
         self._run(find, lambda answer: dialog.show_results(serial, *answer), text, namespace or None, cancel,
                   on_error=lambda msg: dialog.show_error(serial, msg))
+
+    def show_capacity(self):
+        """View > Capacity…: nodes and every pod are read on a worker (looking only) and shown per node and per namespace. The
+        window is non-modal and reloads from its own button; one per workspace."""
+        dialog = getattr(self, "_capacity_dialog", None)
+        if dialog is None:
+            dialog = self._capacity_dialog = CapacityDialog(self.context, self)
+            dialog.reload_button.clicked.connect(self._load_capacity)
+        dialog.show()
+        dialog.raise_()
+        self._load_capacity()
+        return dialog
+
+    def _load_capacity(self):
+        dialog = self._capacity_dialog
+        dialog.summary.setText("Loading nodes and pods…")
+
+        def read():
+            return self.service.list_nodes(), self.service.list_pods(None)
+        self._run(read, lambda data: dialog.show_data(*data), on_error=dialog.show_error)
 
     def show_permissions(self):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
