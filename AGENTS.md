@@ -360,6 +360,8 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 
 **Still unverified (say so when reporting)**
 
+- `LIVE_TESTING.md` lists every feature still to be tried on a real cluster and how; update it (and the matching "not run against a live cluster" sentences here) when a row has been verified.
+
 - Against a live cluster: rollout restart, history/undo (the JSON patch on `/spec/template`), Apply YAML (the dynamic client and server-side apply, field manager `klotse`), the permission hints (how real clusters answer SelfSubjectRulesReview, `incomplete` in particular), port-forward (the real `kubectl port-forward` output), the Events and Related views, the CRD group sub items (metadata-only CRD listing), manual refresh with real watches, the node overview with and without metrics-server, the ten new resource kinds, Go to.
 - Helm: no `helm` command was available when it was written. The storage format (Secret `sh.helm.release.v1.<name>.v<n>`, gzip + base64) is Helm 3's documented behaviour and the tests build releases in that format; the uninstall command line (`helm uninstall <name> --namespace <ns> --kube-context <ctx>`) has never been run.
 - Karpenter: the NodePool/NodeClaim field names come from Karpenter's documentation (v1beta1 and v1 shared fields) and have not been checked against a running Karpenter.
