@@ -1577,7 +1577,9 @@ class ClusterWorkspace(QMainWindow):
                     self.log_tabs.setCurrentIndex(i)
                     self.log_dock.show()
                     return
-            dialog = DrainDialog(self.context, row.name, self, kubeconfig=self.kubeconfig)
+            loader = getattr(self.service, "drain_preview_data", None)
+            dialog = DrainDialog(self.context, row.name, self, kubeconfig=self.kubeconfig,
+                                 preview_loader=(lambda ok, bad, n=row.name: self._run(loader, ok, n, on_error=bad)) if loader else None)
             if dialog.exec() != QDialog.Accepted:
                 return
             view = CommandView(dialog.command())

@@ -46,7 +46,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 20 | Debug container (`kubectl debug`, ephemeral container) for pods | Small to medium |
 | 21 | Health check view (like k9s's Popeye): no limits or probes, `latest` tags, crash-looping pods, unbound PVCs; reuse the editor hints | Medium |
 | 22 | Right-sizing view: requests and limits against actual usage (the `%req`/`%lim` columns exist) | Medium |
-| 23 | Drain preview: which pods would be evicted, which PodDisruptionBudgets would block | Small to medium |
+| 23 | Drain preview: which pods would be evicted, which PodDisruptionBudgets would block (**done**, #104) | Small to medium |
 
 ### Finding things and security
 

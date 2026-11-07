@@ -1,13 +1,17 @@
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout,
-                               QLabel, QLineEdit, QSpinBox)
+                               QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox)
+
+from ..k8s import drain_plan
 
 from .terminal import NODE_SHELL_IMAGE, kubectl_base
 
 
 class DrainDialog(QDialog):
-    def __init__(self, context, node, parent=None, kubeconfig=None):
+    def __init__(self, context, node, parent=None, kubeconfig=None, preview_loader=None):
         super().__init__(parent)
         self.kubeconfig = kubeconfig
+        self.preview_loader = preview_loader  # fn(on_result, on_error): loads (pods, budgets); None = no preview
+        self._preview_data = None
         self.setWindowTitle("Drain node")
         form = QFormLayout(self)
         info = QLabel(f"Cluster: {context}\nNode: {node}\n\n"
@@ -26,12 +30,54 @@ class DrainDialog(QDialog):
         for field in (self.ignore_daemonsets, self.delete_emptydir, self.force):
             form.addRow(field)
         form.addRow("Timeout", self.timeout)
+        self.preview_button = QPushButton("Preview what will happen")
+        self.preview_text = QPlainTextEdit(readOnly=True)
+        self.preview_text.setMinimumHeight(160)
+        self.preview_text.setPlaceholderText("Press Preview to list the pods on this node and what would happen to each. Nothing is changed.")
+        if preview_loader is not None:
+            form.addRow(self.preview_button)
+            form.addRow(self.preview_text)
+            self.preview_button.clicked.connect(self.load_preview)
+            for field in (self.ignore_daemonsets, self.delete_emptydir, self.force):
+                field.toggled.connect(lambda _=None: self._render_preview())
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Drain")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
         self.context, self.node = context, node
+
+    def load_preview(self):
+        self.preview_button.setEnabled(False)
+        self.preview_text.setPlainText("Loading the pods on this node…")
+        self.preview_loader(self._preview_loaded, self._preview_failed)
+
+    def _preview_loaded(self, data):
+        self.preview_button.setEnabled(True)
+        self._preview_data = data
+        self._render_preview()
+
+    def _preview_failed(self, message):
+        self.preview_button.setEnabled(True)
+        self.preview_text.setPlainText(f"Could not load the preview: {message}")
+
+    def _render_preview(self):
+        """Redo the verdict for the ticked options (the pods are loaded once)."""
+        if self._preview_data is None:
+            return
+        pods, budgets = self._preview_data
+        entries = drain_plan.plan(pods, budgets, self.ignore_daemonsets.isChecked(), self.delete_emptydir.isChecked(),
+                                  self.force.isChecked())
+        marks = {drain_plan.EVICT: "evict", drain_plan.DELETE: "remove", drain_plan.SKIP: "skip", drain_plan.STOP: "REFUSED"}
+        lines = [drain_plan.summary(entries), ""]
+        for e in sorted(entries, key=lambda e: (e["action"], e["namespace"], e["name"])):
+            line = f"{marks[e['action']]:8} {e['namespace']}/{e['name']}: {e['reason']}"
+            if e["pdb"]:
+                line += f"  [{e['pdb']}]"
+            lines.append(line)
+        if not entries:
+            lines.append("No pods on this node.")
+        self.preview_text.setPlainText(chr(10).join(lines))
 
     def command(self):
         argv = kubectl_base(self.context, self.kubeconfig) + [

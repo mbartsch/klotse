@@ -801,6 +801,15 @@ class KubeService:
                                                     field_selector=f"spec.nodeName={node}")]
         return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
 
+    def drain_preview_data(self, node):
+        """(pod manifests on the node, PodDisruptionBudget manifests of the cluster) for `k8s.drain_plan.plan`. Looking only."""
+        pods = [r.raw for r in self.list_node_pods(node)]
+        try:
+            budgets = [r.raw for r in self.list_resource("poddisruptionbudgets")]
+        except Exception:  # noqa: BLE001 - no permission to read budgets: the preview then just cannot name them
+            budgets = []
+        return pods, budgets
+
     def _list_apps(self, all_fn, ns_fn, mapper, namespace):
         items = self._iter_list(ns_fn, namespace) if namespace else self._iter_list(all_fn)
         return [mapper(i) for i in items]
