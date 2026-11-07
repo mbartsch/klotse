@@ -27,6 +27,20 @@ def kubectl_args(action, context, namespace, pod, container=None, kubeconfig=Non
     return cmd
 
 
+DEBUG_IMAGE = "docker.io/library/busybox"
+
+
+def debug_args(context, namespace, pod, image, target=None, name=None, kubeconfig=None):
+    """argv for `kubectl debug`: an interactive ephemeral container with `image` in the pod, sharing the process namespace of
+    `target` (a container of the pod) when one is named. Ephemeral containers cannot be removed from a pod afterwards."""
+    cmd = kubectl_base(context, kubeconfig) + ["-n", namespace, "debug", "-it", pod, f"--image={image}"]
+    if target:
+        cmd.append(f"--target={target}")
+    if name:
+        cmd.append(f"--container={name}")
+    return cmd + ["--", "sh"]
+
+
 def node_shell_args(context, node, namespace="default", image=NODE_SHELL_IMAGE, kubeconfig=None):
     """Linux defaults from the installed kubectl-node-shell v1.11.0 script.
 

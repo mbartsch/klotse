@@ -127,6 +127,7 @@ def test_the_banner_and_the_service_follow_the_mode(qtbot):
     lambda ws: ws.pod_action("force-terminate", row()),
     lambda ws: ws.pod_action("shell", row()),
     lambda ws: ws.pod_action("attach", row()),
+    lambda ws: ws.pod_action("debug", row()),
     lambda ws: ws._container_action("shell", row(), "c")])
 def test_every_way_to_change_something_is_refused_with_an_explanation(qtbot, monkeypatch, call):
     touched = []

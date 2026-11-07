@@ -1,7 +1,7 @@
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                                QLabel, QLineEdit, QSpinBox)
 
-from .terminal import NODE_SHELL_IMAGE, kubectl_base
+from .terminal import DEBUG_IMAGE, NODE_SHELL_IMAGE, kubectl_base
 
 
 class DrainDialog(QDialog):
@@ -41,6 +41,39 @@ class DrainDialog(QDialog):
             if field.isChecked():
                 argv.append(flag)
         return argv
+
+
+class DebugDialog(QDialog):
+    """Options for `kubectl debug` on a pod: the image of the ephemeral container and the container to share processes with."""
+
+    def __init__(self, context, pod, containers, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Debug pod (ephemeral container)")
+        form = QFormLayout(self)
+        info = QLabel(f"Cluster: {context}\nPod: {pod}\n\n"
+                      "Add a temporary container to this running pod and open a shell in it (kubectl debug).\n"
+                      "Ephemeral containers cannot be removed from a pod: this one stays listed until the pod is replaced.\n"
+                      "It needs the pod's ephemeralcontainers permission and a cluster that supports ephemeral containers.")
+        info.setWordWrap(True)
+        form.addRow(info)
+        self.image = QLineEdit(DEBUG_IMAGE)
+        self.target = QComboBox()
+        self.target.addItem("(none)", None)
+        for name in containers:
+            self.target.addItem(name, name)
+        self.target.setToolTip("Share the process namespace of this container, so its processes can be seen from the debug shell")
+        form.addRow("Debug image", self.image)
+        form.addRow("Share processes with", self.target)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.open_button = buttons.button(QDialogButtonBox.Ok)
+        self.open_button.setText("Open debug shell")
+        self.image.textChanged.connect(lambda t: self.open_button.setEnabled(bool(t.strip())))
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def values(self):
+        return self.image.text().strip(), self.target.currentData()
 
 
 class NodeShellDialog(QDialog):

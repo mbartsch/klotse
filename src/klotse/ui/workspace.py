@@ -29,7 +29,7 @@ from .edit_dialog import EditDialog
 from .log_view import LogView
 from .namespace_dialog import NamespaceDialog
 from .node_bar import NodeActionBar
-from .node_dialogs import DrainDialog, NodeShellDialog
+from .node_dialogs import DebugDialog, DrainDialog, NodeShellDialog
 from .permissions_dialog import PermissionsDialog
 from .search_dialog import SearchDialog
 from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
@@ -49,7 +49,7 @@ from .network_model import NETWORK_KINDS
 from .workload_editor import WorkloadEditDialog
 from .workload_model import CREATABLE_KINDS, EDIT_KINDS, skeleton
 from .scale_monitor import ScaleMonitor
-from .terminal import kubectl_args, node_shell_args, open_terminal
+from .terminal import debug_args, kubectl_args, node_shell_args, open_terminal
 from . import theme
 from .terminal_settings import TerminalSettings
 from .watcher import ChangeWatcher
@@ -1654,8 +1654,11 @@ class ClusterWorkspace(QMainWindow):
         if action == "containers":
             self.open_pod_tab(row)
             return
-        if action in ("terminate", "force-terminate", "shell", "attach") and not self._writable(
+        if action in ("terminate", "force-terminate", "shell", "attach", "debug") and not self._writable(
                 "terminate pods or open a shell in them"):
+            return
+        if action == "debug":
+            self.debug_pod(row)
             return
         if action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
@@ -1682,6 +1685,18 @@ class ClusterWorkspace(QMainWindow):
                 return
         argv = kubectl_args(action, self.context, row.namespace, row.name, container, kubeconfig=self.kubeconfig)
         self._launch_terminal(argv, f"Opened {action}: {row.name}")
+
+    def debug_pod(self, row):
+        """Right-click > Debug (ephemeral container)…: ask for an image, then `kubectl debug -it` in a terminal. It adds a container
+        to the pod (cannot be undone), so a read-only cluster refuses it (checked in pod_action)."""
+        dialog = DebugDialog(self.context, f"{row.namespace}/{row.name}", [c[0] for c in pod_containers(row.raw)], self)
+        accepted = dialog.exec() == QDialog.Accepted
+        image, target = dialog.values()
+        dialog.deleteLater()
+        if not accepted or not image:
+            return
+        argv = debug_args(self.context, row.namespace, row.name, image, target, kubeconfig=self.kubeconfig)
+        self._launch_terminal(argv, f"Opened debug: {row.name}")
 
     def _launch_terminal(self, argv, message, title=None):
         """Open an interactive kubectl session: a tab inside Klotse when Preferences > Terminal says so and QtWebEngine works, else

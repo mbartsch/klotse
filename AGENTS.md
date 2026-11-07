@@ -251,6 +251,7 @@ example.com/team = Team
 
 ### Pod/container actions and terminals
 
+- A Pod's right-click menu also has **Debug (ephemeral container)…** (`ClusterWorkspace.debug_pod`, `DebugDialog`, `terminal.debug_args`): image (default busybox) and the container to share processes with, then `kubectl debug -it <pod> --image=... [--target=...] -- sh` through `_launch_terminal` (so it can open in the embedded terminal). It adds a container to the pod that cannot be removed afterwards (the dialog says so), is refused on a read-only cluster, and its menu hint checks patch on `pods/ephemeralcontainers`. Tested in `tests/test_debug_container.py` with a stubbed terminal; the real `kubectl debug` has not been run against a cluster (ephemeral containers need Kubernetes 1.25+).
 - Pod menus support Logs, Shell, Attach, normal termination, and explicit Force terminate. Confirm mutations; force deletion uses zero grace period and can remove the API object before host processes stop. Finalizers still apply.
 - Double-clicking a pod opens its own tab (`pod:<ns>/<name>`) listing its containers, including regular, init, and ephemeral containers, with state, readiness, restart count, and image; double-clicking a container opens its logs. The tab refreshes like any foreground tab and disables its actions if the pod disappears. Double-clicking a node opens its pods tab, which carries the node actions.
 - Logs, Shell, and Attach must target the selected container, cluster context, namespace, and pod. Container-specific log tabs preserve the initial container selection.

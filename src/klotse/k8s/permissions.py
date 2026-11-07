@@ -15,7 +15,7 @@ BUILT_IN = {"Pod": ("", "pods"), "Node": ("", "nodes"), "Namespace": ("", "names
 
 # what each menu action needs: (verb, subresource). "restart" and "cordon" are patches; scaling goes through the scale subresource.
 ACTIONS = {"edit": ("update", ""), "create": ("create", ""), "delete": ("delete", ""), "scale": ("update", "scale"),
-           "restart": ("patch", ""), "terminate": ("delete", ""), "shell": ("create", "exec"), "attach": ("create", "attach"),
+           "restart": ("patch", ""), "terminate": ("delete", ""), "shell": ("create", "exec"), "attach": ("create", "attach"), "debug": ("patch", "ephemeralcontainers"),
            "logs": ("get", "log"), "cordon": ("patch", ""), "delete-node": ("delete", "")}
 
 

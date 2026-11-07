@@ -406,6 +406,7 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Logs", "logs", row), lambda: self.action_requested.emit("logs", row))
                 menu.addAction(self._hint("Connect (shell)…", "shell", row), lambda: self.action_requested.emit("shell", row))
                 menu.addAction(self._hint("Attach…", "attach", row), lambda: self.action_requested.emit("attach", row))
+                menu.addAction(self._hint("Debug (ephemeral container)…", "debug", row), lambda: self.action_requested.emit("debug", row))
                 menu.addSeparator()
                 menu.addAction(self._hint("Terminate…", "terminate", row), lambda: self.action_requested.emit("terminate", row))
                 menu.addAction(self._hint("Force terminate…", "terminate", row),
