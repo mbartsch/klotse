@@ -161,6 +161,7 @@ Core resource tables cover Nodes, Namespaces, Pods, Deployments, ReplicaSets, an
 - Keep loading/error states visible and prevent stale callbacks from updating disconnected workspaces. Coalesce repeated refreshes rather than starting duplicate loads for a view.
 - The shared API pagination helper requests pages of 500, preserves selectors/scope, and uses a 30-second request timeout. Connections request gzip and use a short initial discovery timeout.
 - The Details dock is capped at half the window (`ClusterWorkspace._limit_dock`: width at the sides, height at the top/bottom, none while floating), so it cannot be dragged over the lists or the pod/node bars.
+- `KubeService.overview_cluster` reads nodes, pods, events, namespaces and metrics in parallel (5 threads), because they only wait for the API server. Measured by the owner before this change: 15 s for connect plus Overview on 103 nodes / 2,700 pods (window responsive, `kubectl get pods -A` took 5 s); the parallel version was checked for correctness on docker-desktop only and **has not been timed on a big cluster**. Pod deserialization by the Python client is CPU work under the GIL, so expect less than a 5x gain.
 - Preserve bounded overview lists, deferred serialization where used, and the inexpensive `include_raw=False` summary paths. Do not eagerly serialize all event or pod manifests just to count them.
 - Tables initially preserve API order. Column sizing samples at most 100 rows; filtering is debounced by 200 ms. Avoid introducing unbounded GUI-thread sizing or rendering work.
 

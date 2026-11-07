@@ -2,6 +2,7 @@ import datetime
 import functools
 import itertools
 import json
+from concurrent.futures import ThreadPoolExecutor
 from heapq import heappush, heapreplace
 
 from kubernetes import client, config, watch
@@ -1068,19 +1069,28 @@ class KubeService:
         return counts, {b: [map_pod(p) for p in pods] for b, pods in problems.items()}
 
     def overview_cluster(self):
-        nodes = [map_node(n, include_raw=False) for n in self._iter_list(self._core.list_node)]
-        counts, lists = self._overview_pods()
-        events, warnings, warning_rows = self._overview_events()
+        # The five reads are independent and each is mostly waiting for the API server, so they run side by side: on a large
+        # cluster (about 100 nodes, 2,700 pods) the one-after-another version took three times as long as `kubectl get pods -A`.
+        with ThreadPoolExecutor(max_workers=5, thread_name_prefix="overview") as pool:
+            nodes_f = pool.submit(lambda: [map_node(n, include_raw=False) for n in self._iter_list(self._core.list_node)])
+            pods_f = pool.submit(self._overview_pods)
+            events_f = pool.submit(self._overview_events)
+            spaces_f = pool.submit(lambda: sum(1 for _ in self._iter_list(self._core.list_namespace)))
+            usage_f = pool.submit(self.node_usage)
+            nodes = nodes_f.result()
+            counts, lists = pods_f.result()
+            events, warnings, warning_rows = events_f.result()
+            namespaces = spaces_f.result()
+            used = usage_f.result()
         lists["warnings"] = warning_rows
         cpu = sum(n.cpu for n in nodes)
         mem = sum(n.memory for n in nodes)
         counts.update({
             "nodes": len(nodes), "nodes_ready": sum(1 for n in nodes if n.is_ready),
-            "namespaces": sum(1 for _ in self._iter_list(self._core.list_namespace)),
+            "namespaces": namespaces,
             "cpu": f"{cpu:.1f} cores", "memory": f"{mem:.2f} GiB",
             "warnings": warnings,
         })
-        used = self.node_usage()
         if used:  # metrics-server present: the overview draws usage bars against allocatable
             counts["usage"] = {"cpu": (sum(u[0] for u in used.values()), cpu),
                                "memory": (sum(u[1] for u in used.values()), mem)}

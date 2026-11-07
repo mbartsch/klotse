@@ -113,6 +113,13 @@ Same method: service layer driven by scripts; no windows.
 | Verified | Helm: the Traefik release is listed (`deployed`), `helm_release` returns summary, user and all values, history (revision 1) |
 | Not tried | cert-manager, Helm uninstall, the node bars with usage in the window, the windows themselves |
 
+### Owner's big cluster (103 nodes, 2,700 pods)
+
+| Result | What |
+| --- | --- |
+| Measured | Connect + Overview: 15 s, window responsive ("Loading…" shown), `kubectl get pods -A` 5 s. Overview reads were then made parallel (PR on branch `perf/overview-parallel`); **re-time it** and compare with 15 s |
+| Pending | Items 2 to 14 of the big-cluster checklist (pods list, nodes, auto-refresh, search, health, capacity, right-sizing, RBAC, multi-pod logs, diagnostics, CRDs, memory, several clusters) |
+
 ## Still pending (what to test next)
 
 Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.
