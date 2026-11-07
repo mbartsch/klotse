@@ -9,7 +9,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import helm, related, rollout, search
+from . import connect_help, helm, related, rollout, search
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
@@ -188,6 +188,18 @@ class KubeService:
         return [c["name"] for c in contexts], (active or {}).get("name")
 
     def connect(self, context):
+        """Connect to a context. A failure is put into plain words (`connect_help.explain`): a sign-in helper that needs a terminal,
+        a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
+        connect_help.guard_helper_stdin()
+        try:
+            self._connect(context)
+        except Exception as error:  # noqa: BLE001 - re-raised, only the wording changes
+            text = connect_help.explain(error, connect_help.auth_info(self.kubeconfig, context))
+            if text == str(error):
+                raise
+            raise ConnectionError(text) from error
+
+    def _connect(self, context):
         cfg = client.Configuration()
         config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
         cfg.retries = 1  # the default (3 retries with backoff) makes a dead cluster take ~9s to report

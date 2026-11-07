@@ -70,7 +70,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 34 | Node tab: overview of status, CPU and memory at the top, beside the pod list (**done**, issue #84) | Small to medium |
 | 35 | Manual refresh only for CRDs, Access Control and other rarely changing lists: no timer or watch, refresh by the toolbar button or a right-click entry (**done**, issue #86; now the default for every list except workloads and nodes, which stay automatic) | Small to medium |
 | 36 | Log viewer options: wrap lines (Lens users' second most upvoted request, 61 votes), show timestamps, previous container instance (**done**, #112) | Small |
-| 37 | Sign-in check for exec auth helpers (AWS SSO, `aws-iam-authenticator` with an MFA prompt, OIDC): the Python client runs the helper without a terminal, so a prompt can fail; test and report a clear error. Also honour the kubeconfig `proxy-url`. Requested often in Lens (72 votes) and Headlamp (SSO 16, 15; proxy 14) | Medium |
+| 37 | (**done**, #113: failures explained with the fix, helper stdin guard, `proxy-url` verified; the helper is not run to test it, no in-app sign-in) Sign-in check for exec auth helpers (AWS SSO, `aws-iam-authenticator` with an MFA prompt, OIDC): the Python client runs the helper without a terminal, so a prompt can fail; test and report a clear error. Also honour the kubeconfig `proxy-url`. Requested often in Lens (72 votes) and Headlamp (SSO 16, 15; proxy 14) | Medium |
 | 38 | Metrics from Prometheus or VictoriaMetrics and clearer metrics-server messages: the most upvoted Freelens requests (40, 21, 16). Overlaps item 11 (charts); do the data source first | Medium to large |
 
 ### Undecided or not planned
