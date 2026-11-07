@@ -83,7 +83,7 @@ class WorkloadEditDialog(QDialog):
         general = QFormLayout()
         self.name_edit = self.namespace_edit = self.service_edit = None
         if create:
-            self.name_edit = QLineEdit(placeholderText="lowercase letters, digits and -")
+            self.name_edit = QLineEdit(str(meta.get("name", "")), placeholderText="lowercase letters, digits and -")
             self.namespace_edit = QComboBox()
             self.namespace_edit.setEditable(True)
             self.namespace_edit.addItems(list(namespaces))

@@ -4,6 +4,7 @@ from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QSortFilterProxyM
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
+from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
@@ -30,6 +31,7 @@ class ResourceTable(QWidget):
     new_requested = Signal()
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
+    duplicate_requested = Signal(str, object)  # kind, row: create a new object starting from this one
     compare_requested = Signal(str, list)  # kind, the two selected rows
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
     rows_incoming = Signal(list)  # new rows are about to go in: plugins put the values they already know on them
@@ -421,6 +423,8 @@ class ResourceTable(QWidget):
             row = self.model.rows[self.proxy.mapToSource(idx).row()]
             if self.editable:
                 menu.addAction(self._hint("Edit…", "edit", row), lambda: self.edit_requested.emit(self.kind, row))
+            if self.kind in COPYABLE and self.editable:
+                menu.addAction(self._hint("Copy as new…", "create", row), lambda: self.duplicate_requested.emit(self.kind, row))
             if self.kind in SCALABLE:
                 menu.addAction(self._hint("Scale…", "scale", row), lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:

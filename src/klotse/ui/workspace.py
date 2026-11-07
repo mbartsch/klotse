@@ -22,6 +22,7 @@ from .api_index_loader import ApiIndexLoader
 from .apply_dialog import ApplyDialog
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
+from ..k8s.clone import clone_manifest
 from .compare_dialog import CompareDialog
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
@@ -224,6 +225,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.restart_requested.connect(self.restart_resource)
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.compare_requested.connect(self.compare_objects)
+                widget.duplicate_requested.connect(self.copy_resource)
                 widget.goto_requested.connect(self.go_to)
                 widget.port_forward_requested.connect(self.start_port_forward)
                 widget.copy_files_requested.connect(self.copy_files)
@@ -1303,6 +1305,19 @@ class ClusterWorkspace(QMainWindow):
         raw = (new_manifest(kind, namespace) if kind in DATA_KINDS else
                network_manifest(kind, namespace) if kind in NETWORK_KINDS else skeleton(kind, namespace))
         self._edit_flow(kind, raw, "", "", creating=True)
+
+    def copy_resource(self, kind, row):
+        """Right-click > Copy as new…: the New form (or YAML) starts from this object, cleaned of what the cluster filled in and
+        made safe to run beside the original (see k8s/clone.py). Nothing is created until Create is pressed."""
+        if not self._writable("create objects"):
+            return
+        try:
+            body, notes = clone_manifest(kind, row.raw)
+        except ValueError as error:
+            self._on_error(str(error))
+            return
+        self.message.emit(f"Copy of {kind} {row.name}: " + "; ".join(notes))
+        self._edit_flow(kind, body, "", "", creating=True)
 
     def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None):
         """The form and the YAML editor are two views of one manifest: each hands its current (pending) changes to the
