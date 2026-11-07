@@ -39,6 +39,7 @@ from .search_dialog import SearchDialog
 from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
 from . import embedded_terminal
 from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
+from .saved_filters import SavedFilters
 from .saved_forwards import SavedForwards
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
@@ -161,6 +162,7 @@ class ClusterWorkspace(QMainWindow):
         for table in self.resource_tables():
             table.permission_check = self.permission_for
             self._wire_refresh(table)
+            table.enable_saved_filters(SavedFilters(self.label_settings.store), self.context)
         self.label_settings.changed.connect(self.apply_label_columns)
         if self.plugin_host is not None:
             for table in self.resource_tables():
@@ -1714,6 +1716,7 @@ class ClusterWorkspace(QMainWindow):
             table.set_label_columns(self.label_settings.labels("Pod"), self.label_settings.headers("Pod"),
                                     self.label_settings.layout("Pod"))
             self._hook_table(table)
+            table.enable_saved_filters(SavedFilters(self.label_settings.store), self.context)
             table.view_key = key
             table.filter.setPlaceholderText(f"Filter pods on {node} (all namespaces)…")
             table.selected.connect(self.detail.show_row)

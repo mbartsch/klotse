@@ -1,8 +1,8 @@
 import time
 
 from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QSortFilterProxyModel, Qt, Signal, QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QStackedWidget,
-                               QTableView, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
+                               QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.resources import DELETABLE_KINDS
 from .customizations import ANNOTATION_KINDS
@@ -136,6 +136,51 @@ class ResourceTable(QWidget):
         if not self.model.rowCount():  # nothing else on screen: say it where the list would be
             self.loading_page.show_failed(f"Load failed: {message}")
             self.stack.setCurrentWidget(self.loading_page)
+
+    def enable_saved_filters(self, saved, context):
+        """Add a ★ Filters button next to the filter box: keep the current filter text under a name, apply or forget one. Kept
+        per cluster and list kind in `saved` (a SavedFilters)."""
+        if getattr(self, "saved_button", None) is not None:
+            return
+        self._saved_filters, self._saved_context = saved, context
+        self.saved_button = QToolButton()
+        self.saved_button.setText("★ Filters")
+        self.saved_button.setToolTip("Save the current filter, or use one you saved for this cluster")
+        self.saved_button.setPopupMode(QToolButton.InstantPopup)
+        self.saved_menu = QMenu(self.saved_button)
+        self.saved_menu.aboutToShow.connect(self._fill_saved_filters)
+        self.saved_button.setMenu(self.saved_menu)
+        self._top.insertWidget(1, self.saved_button)
+
+    def _fill_saved_filters(self):
+        menu = self.saved_menu
+        menu.clear()
+        save = menu.addAction("Save current filter as…", self._save_filter)
+        save.setEnabled(bool(self.filter.text().strip()))
+        entries = self._saved_filters.for_list(self._saved_context, self.kind)
+        if entries:
+            menu.addSeparator()
+        for entry in entries:
+            menu.addAction(f"{entry['name']}: {entry['text']}", lambda e=entry: self.filter.setText(e["text"]))
+        if entries:
+            forget = menu.addMenu("Forget")
+            for entry in entries:
+                forget.addAction(entry["name"], lambda e=entry: self._forget_filter(e))
+
+    def _save_filter(self):
+        name, ok = QInputDialog.getText(self, "Save filter", f"Name for the filter “{self.filter.text().strip()}”:")
+        if not ok or not name.strip():
+            return
+        try:
+            self._saved_filters.add(self._saved_context, self.kind, name, self.filter.text())
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(self, "Save filter", str(e))
+
+    def _forget_filter(self, entry):
+        try:
+            self._saved_filters.remove(entry)
+        except OSError as e:
+            QMessageBox.warning(self, "Save filter", str(e))
 
     def enable_new(self):
         """Offer a "New…" button next to the filter (and in the right-click menu) for kinds that can be created here."""

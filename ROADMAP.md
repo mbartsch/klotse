@@ -34,7 +34,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 13 | Read-only / "production" mode per cluster (**done**: banner, tab mark, every change refused with an explanation, saved per cluster; greying out the buttons and the Navigator menu entry are not done) | Small to medium |
 | 14 | Server-side dry-run and a diff before saving in the form and YAML editors | Medium |
 | 15 | Command palette (Ctrl+K): jump to any view, namespace, cluster or action | Medium |
-| 16 | Favourites, saved filters and pinned namespaces (**pinned namespaces done**, #98: a ☆/★ button beside the selector, pinned ones listed first per cluster; saved filters and pinned views are still open) | Small |
+| 16 | Favourites, saved filters and pinned namespaces (**pinned namespaces and saved filters done**, #98: a ☆/★ button beside the selector, pinned ones listed first per cluster; a ★ Filters menu on the lists keeps named filters per cluster and kind; pinned views are not done) | Small |
 | 17 | Add clusters from the cloud (list EKS/GKE/AKS clusters, write kubeconfig entries), as a plugin | Medium |
 
 ### Debugging
