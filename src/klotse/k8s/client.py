@@ -138,8 +138,27 @@ def mutating(method):
     def guarded(self, *args, **kwargs):
         if getattr(self, "read_only", False):
             raise ReadOnlyError(READ_ONLY_MESSAGE)
-        return method(self, *args, **kwargs)
+        try:
+            result = method(self, *args, **kwargs)
+        except Exception as error:
+            _audit(self, method.__name__, args, "failed", f"{type(error).__name__}: {error}")
+            raise
+        _audit(self, method.__name__, args, "ok")
+        return result
     return guarded
+
+
+def _audit(service, action, args, result, detail=""):
+    """Tell the change log (service.audit, set by the workspace) what was done. Only the action and the objects' identity go
+    in: see ui/audit_log.describe. Never raises."""
+    record = getattr(service, "audit", None)
+    if record is None:
+        return
+    try:
+        from .audit import target_of
+        record(action, target_of(args), result, detail)
+    except Exception:  # noqa: BLE001 - the log must never break or hide a change
+        pass
 
 
 class KubeService:
@@ -147,6 +166,7 @@ class KubeService:
 
     def __init__(self, kubeconfig=None):
         self.read_only = False  # set by the workspace: every @mutating method refuses while this is true
+        self.audit = None  # set by the workspace: fn(action, target, result, detail) writes the local change log
         self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
         self._core = None
         self._apps = None
@@ -299,8 +319,12 @@ class KubeService:
                 dyn.server_side_apply(resource, body=doc, name=name, namespace=ns or None, force_conflicts=False,
                                       field_manager=self.FIELD_MANAGER, **options)
                 results.append((kind, ns, name, True, "valid (dry run, nothing stored)" if dry_run else "applied"))
+                if not dry_run:
+                    _audit(self, "apply", [f"{kind} {ns + '/' if ns else ''}{name}"], "ok")
             except Exception as e:  # report every document's own outcome; the server's message says what is wrong
                 results.append((kind, ns, name, False, getattr(e, "summary", None) and e.summary() or f"{type(e).__name__}: {e}"))
+                if not dry_run:
+                    _audit(self, "apply", [f"{kind} {ns + '/' if ns else ''}{name}"], "failed", results[-1][4])
         return results
 
     def my_permissions(self, namespace):

@@ -89,7 +89,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 43 | Diagnostics bundle export: logs, events, YAML in a zip, no secrets (groot, k8shark) | Medium | #126 |
 | 44 | Browse files in a pod or PVC (kubectl-browse-pvc) | Medium | #127 |
 | 45 | Say clearly when a list is refused (403) instead of showing it empty (Rubick) (**done**, #128) | Small | #128 |
-| 46 | Local audit log of changes made from Klotse (Lumovi) | Small to medium | #129 |
+| 46 | Local audit log of changes made from Klotse (Lumovi) (**done**, #129) | Small to medium | #129 |
 | 47 | Capacity overview: requests, limits and utilization per node and namespace (kube-capacity) (**done**, #130) | Small to medium | #130 |
 | 48 | Ownership topology graph (Radar, KubeView) | Large | #131 |
 
