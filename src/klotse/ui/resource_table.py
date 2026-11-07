@@ -32,6 +32,7 @@ class ResourceTable(QWidget):
     new_requested = Signal()
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
+    rbac_requested = Signal(str, object)  # a ServiceAccount row: what can it do?
     multi_logs_requested = Signal(str, object)  # kind, a row (workload or Service) or a list of Pod rows
     duplicate_requested = Signal(str, object)  # kind, row: create a new object starting from this one
     compare_requested = Signal(str, list)  # kind, the two selected rows
@@ -428,6 +429,8 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Edit…", "edit", row), lambda: self.edit_requested.emit(self.kind, row))
             if self.kind in COPYABLE and self.editable:
                 menu.addAction(self._hint("Copy as new…", "create", row), lambda: self.duplicate_requested.emit(self.kind, row))
+            if self.kind == "ServiceAccount":
+                menu.addAction("Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
             if self.kind in LOG_SOURCES:
                 menu.addAction("Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row))
             if self.kind in SCALABLE:

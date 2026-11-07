@@ -25,6 +25,7 @@ from .command_view import CommandView
 from ..k8s.clone import clone_manifest
 from .compare_dialog import CompareDialog
 from .health_dialog import HealthDialog
+from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
 from ..k8s import health
 from .customizations import LabelSettings
@@ -234,6 +235,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.compare_requested.connect(self.compare_objects)
                 widget.duplicate_requested.connect(self.copy_resource)
                 widget.multi_logs_requested.connect(self.multi_logs)
+                widget.rbac_requested.connect(lambda kind, row: self.show_rbac(subject=("ServiceAccount", row.name, row.namespace)))
                 widget.goto_requested.connect(self.go_to)
                 widget.port_forward_requested.connect(self.start_port_forward)
                 widget.copy_files_requested.connect(self.copy_files)
@@ -951,6 +953,8 @@ class ClusterWorkspace(QMainWindow):
             self._health_dialog.close()
         if getattr(self, "_rightsizing_dialog", None) is not None:
             self._rightsizing_dialog.close()
+        if getattr(self, "_rbac_dialog", None) is not None:
+            self._rbac_dialog.close()
         self.file_copies.cancel_all()  # nor a kubectl cp
         for host in list(self._terminal_hosts):
             host.close()  # ends its session, so no kubectl outlives the cluster
@@ -1214,6 +1218,32 @@ class ClusterWorkspace(QMainWindow):
         dialog = CompareDialog(self.context, kind, rows[0], rows[1], self)
         dialog.exec()
         dialog.deleteLater()
+
+    def show_rbac(self, subject=None):
+        """View > RBAC lookup… (and a service account's Effective permissions…): who can do something, and what a subject can do,
+        from the cluster's Roles and bindings, read on a worker. Looking only. Non-modal, one per workspace."""
+        dialog = getattr(self, "_rbac_dialog", None)
+        fresh = dialog is None
+        if fresh:
+            dialog = self._rbac_dialog = RbacDialog(self.context, self)
+            dialog.reload_button.clicked.connect(self._load_rbac)
+        dialog.show()
+        dialog.raise_()
+        if subject is not None:
+            dialog.focus_subject(*subject)
+        if fresh or dialog.rbac is None:
+            self._load_rbac()
+        return dialog
+
+    def _load_rbac(self):
+        dialog = self._rbac_dialog
+        dialog.status.setText("Loading roles and bindings…")
+
+        def done(data):
+            dialog.show_data(data)
+            if dialog.tabs.currentIndex() == 1 and dialog.subject_name.text().strip():
+                dialog.run_permissions()  # a service account's menu opened it: answer as soon as the data is here
+        self._run(self.service.rbac_data, done, on_error=dialog.show_error)
 
     def show_rightsizing(self):
         """View > Right-sizing…: pods of the namespace in front (or all) with their usage are read on a worker (looking only) and

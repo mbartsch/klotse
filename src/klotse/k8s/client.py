@@ -871,6 +871,21 @@ class KubeService:
                                                     field_selector=f"spec.nodeName={node}")]
         return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
 
+    def rbac_data(self):
+        """{roles, clusterroles, rolebindings, clusterrolebindings: [manifests], missing: [kinds that could not be read]} for the
+        RBAC lookup, across all namespaces. Looking only."""
+        keys = {"roles": "roles", "clusterroles": "clusterroles", "rolebindings": "rolebindings",
+                "clusterrolebindings": "clusterrolebindings"}
+        data, missing = {}, []
+        for name, key in keys.items():
+            try:
+                data[name] = [row.raw for row in self.list_resource(key)]
+            except Exception as error:  # noqa: BLE001 - one forbidden kind must not hide the others
+                data[name] = []
+                missing.append(f"{name} ({type(error).__name__})")
+        data["missing"] = missing
+        return data
+
     def health_data(self, namespace=None):
         """({kind key: [manifests]}, [what could not be read]) for `k8s.health.check`: pods, nodes, Deployments, StatefulSets,
         DaemonSets, claims and Services of one namespace (or all). Looking only; a kind the user may not list is left out and
