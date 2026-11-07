@@ -196,12 +196,11 @@ class ResourceTable(QWidget):
             QMessageBox.warning(self, "Save filter", str(e))
 
     def enable_new(self):
-        """Offer a "New…" button next to the filter (and in the right-click menu) for kinds that can be created here."""
+        """Mark this kind as creatable here: the right-click menu (also on an empty list) offers "New <kind>…". There is deliberately no
+        button beside the filter: next to a filter box "New…" read as "new filter". `new_button` is only that mark now (None = not
+        creatable), kept under its old name because the callers and tests ask `new_button is not None`."""
         if self.new_button is None:
-            self.new_button = QPushButton("New…")
-            self.new_button.setToolTip(f"Create a new {self.kind}")
-            self.new_button.clicked.connect(lambda: self.new_requested.emit())
-            self._top.insertWidget(1, self.new_button)
+            self.new_button = True
 
     def set_rows(self, rows):
         self._load_timer.stop()

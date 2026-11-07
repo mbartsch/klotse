@@ -495,3 +495,54 @@ def test_a_failed_table_read_is_written_to_the_timing_log(tmp_path, monkeypatch)
         assert entry["error"] == "OSError" and "Accept header" in entry["detail"]
     finally:
         timing.timings.configure(None, False)
+
+
+# ---- idle loading of the remaining pod pages --------------------------------------------------------------------
+def test_the_remaining_pages_load_by_themselves_when_the_user_is_idle(qtbot):
+    ws, _service = huge_workspace(qtbot, 7)
+    ws.pod_idle_s = 0.05
+    ws.pod_table.show()
+    ws._pods_loaded(ws._read_pods(None))
+    assert ws.pod_table.model.rowCount() == 2
+    qtbot.waitUntil(lambda: ws.pod_table.model.rowCount() == 7, timeout=8000)  # pages of 2, with no click on Load more
+    assert not ws.pod_table.more_button.isVisibleTo(ws.pod_table) and "all 7 pods loaded" in ws.pod_table.status.text()
+
+
+def test_loading_waits_while_the_user_is_working_in_the_list(qtbot):
+    ws, _service = huge_workspace(qtbot, 7)
+    ws.pod_idle_s = 0.2
+    ws.pod_table.show()
+    ws._pods_loaded(ws._read_pods(None))
+    for _ in range(6):  # a click or key every 80 ms keeps the list "in use"
+        ws.note_pod_input()
+        qtbot.wait(80)
+    assert ws.pod_table.model.rowCount() == 2
+    qtbot.waitUntil(lambda: ws.pod_table.model.rowCount() > 2, timeout=5000)  # then quiet: it goes on
+
+
+def test_a_hidden_list_does_not_keep_loading(qtbot):
+    ws, _service = huge_workspace(qtbot, 7)
+    ws.pod_idle_s = 0.05
+    ws._pods_loaded(ws._read_pods(None))  # the table is not shown
+    qtbot.wait(400)
+    assert ws.pod_table.model.rowCount() == 2
+
+
+def test_clicks_keys_and_the_wheel_count_as_activity(qtbot):
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    ws, _service = huge_workspace(qtbot, 3)
+    ws._pod_last_input = 0.0
+    QApplication.sendEvent(ws.pod_table.filter, QKeyEvent(QEvent.KeyPress, Qt.Key_A, Qt.NoModifier, "a"))
+    assert ws._pod_last_input > 0
+    ws._pod_last_input = 0.0
+    QApplication.sendEvent(ws.pod_table.view.viewport(), QMouseEvent(QEvent.MouseButtonPress, QPointF(1, 1), QPointF(1, 1), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    assert ws._pod_last_input > 0
+
+
+def test_there_is_no_new_button_beside_the_filter_but_the_menu_still_creates(qtbot):
+    ws, _service = make_workspace(qtbot)
+    table = ws.views["deployments"][0]
+    assert table.new_button is not None  # the kind is creatable...
+    assert not any(getattr(w, "text", lambda: "")() == "New…" for w in table.findChildren(__import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton))

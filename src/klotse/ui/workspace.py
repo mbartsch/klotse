@@ -6,7 +6,7 @@ import time
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
-from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
                                QTabWidget, QToolBar)
@@ -80,6 +80,7 @@ DEFAULT_NS = "default"  # what a newly opened cluster is scoped to
 MAX_REPLICAS = 10000
 NODE_PODS_TTL_S = 20  # a node on screen is not recounted more often than this
 NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
+POD_IDLE_S = 1.5  # the paged Pods list keeps loading the next page after this much quiet
 NODE_PODS_BIG_REFRESH_MS = 300_000  # the same in big-cluster mode: the count reads every pod
 
 
@@ -106,6 +107,21 @@ AUTO_REFRESH_MS = 10_000  # the foreground list reloads this often (default)
 WATCH_DEBOUNCE_MS = 800  # a burst of change events becomes one reload
 AUTO_REFRESH_CHOICES = [("5s", 5_000), ("10s", 10_000), ("30s", 30_000), ("60s", 60_000)]
 KIND_VIEW = {"Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
+
+
+class _InputFilter(QObject):
+    """Calls `callback()` for every key press, mouse press or wheel event of the widgets it is installed on; never swallows one."""
+
+    TYPES = (QEvent.KeyPress, QEvent.MouseButtonPress, QEvent.Wheel)
+
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self.callback = callback
+
+    def eventFilter(self, watched, event):
+        if event.type() in self.TYPES:
+            self.callback()
+        return False
 
 
 class ClusterWorkspace(QMainWindow):
@@ -153,6 +169,10 @@ class ClusterWorkspace(QMainWindow):
         self.big = False
         self.huge = False  # a big cluster with at least HUGE_PODS pods (known after its Overview loaded): the Pods list is read in pages
         self._pod_pager = None
+        self._pod_last_input = 0.0  # monotonic time of the last click, key or wheel in the Pods list (idle loading waits for quiet)
+        self.pod_idle_s = POD_IDLE_S
+        self._pod_idle_timer = QTimer(self, singleShot=True)
+        self._pod_idle_timer.timeout.connect(self._load_more_when_idle)
         self._custom_kinds = {}  # kind -> (group, version, plural, namespaced) for the custom resources that can be edited (Gateway API)
         self.restore_namespace = None  # the namespace chosen when the session was saved; used once, when the list arrives
         self._ready = False  # set once connected
@@ -245,6 +265,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.customize_requested.connect(self.customize_requested)
                 if widget is self.pod_table:
                     widget.more_requested.connect(self.load_more_pods)
+                    self._watch_pod_input(widget)
                 widget.bulk_requested.connect(self.bulk_action)
                 widget.edit_requested.connect(self.edit_resource)
                 widget.scale_requested.connect(self.scale_resource)
@@ -426,6 +447,32 @@ class ClusterWorkspace(QMainWindow):
     def _pods_loaded(self, rows):
         self.pod_table.set_rows(rows)
         self._update_pod_paging()
+        self._arm_pod_idle()
+
+    def _watch_pod_input(self, table):
+        """Count clicks, keys and the wheel in the Pods list (and typing in its filter) as activity for idle loading."""
+        watcher = self._pod_input_filter = _InputFilter(self.note_pod_input, self)
+        for target in (table.view, table.view.viewport(), table.filter):
+            target.installEventFilter(watcher)
+
+    def note_pod_input(self, *_args):
+        """The user did something in the Pods list: idle loading waits for quiet again."""
+        self._pod_last_input = monotonic()
+
+    def _arm_pod_idle(self):
+        """While pages remain, load the next one when the user has been idle for `pod_idle_s`."""
+        pager = self._pod_pager
+        if pager is not None and not pager.done and not self._closed:
+            self._pod_idle_timer.start(int(self.pod_idle_s * 1000))
+
+    def _load_more_when_idle(self):
+        pager = self._pod_pager
+        if pager is None or pager.done or self._closed:
+            return
+        if not self.pod_table.isVisible() or monotonic() - self._pod_last_input < self.pod_idle_s or getattr(pager, "busy", False):
+            self._arm_pod_idle()  # in use, hidden or already loading: look again later
+            return
+        self.load_more_pods()
 
     def _update_pod_paging(self):
         pager = self._pod_pager
@@ -433,8 +480,8 @@ class ClusterWorkspace(QMainWindow):
             self.pod_table.set_paging("" if pager is None else f"all {pager.loaded:,} pods loaded", False)
             return
         total = f" of {pager.total:,}" if pager.total else ""
-        self.pod_table.set_paging(f"showing the first {pager.loaded:,}{total} pods; filter and sort cover these only (View > Search objects… "
-                                  "searches them all)", True)
+        self.pod_table.set_paging(f"showing the first {pager.loaded:,}{total} pods, loading more while you are idle; filter and sort "
+                                  "cover the loaded pods only (View > Search objects… searches them all)", True)
 
     def load_more_pods(self):
         """Load more: the next page of pods, added to the list (a worker; a newer load of the list makes the answer stale)."""
@@ -449,6 +496,7 @@ class ClusterWorkspace(QMainWindow):
             if pager is self._pod_pager and not self._closed:
                 self.pod_table.append_rows(rows)
                 self._update_pod_paging()
+                self._arm_pod_idle()
 
         def failed(message):
             pager.busy = False
