@@ -124,6 +124,10 @@ Same method: service layer driven by scripts; no windows.
 
 Baseline from the log (103 nodes, 2,683 pods, 7,890 events, via a proxy): Overview about 6 s steady and 9 to 13 s on first loads, Health check 19.7 s, Capacity 12.2 s, table fills under 0.2 s. To re-time with big-cluster mode: connect (it switches itself on at the first Overview, or use View > Big cluster mode), reconnect once more so the first load is already light, open Overview, Health check and Capacity, and compare `phase`, `api-list` and `total` lines in `timings.log`. The owner's real cluster is bigger (18,000 pods, 632 nodes): there the Overview should take a few seconds (pod total from `remainingItemCount`, only Pending/Failed/Succeeded pods listed; the log shows `api-list` for `list_pod_for_all_namespaces` with few items), while the Pods list, Health check and Capacity are expected to remain slow (record how slow). Expect fewer, larger pages (`pages` about a third), no 7,890-item event list, and no automatic Overview reload sooner than 30 s.
 
+### Owner's big cluster, final numbers (18,000 pods, 632 nodes), 2026-11-07
+
+Measured with the timing log after the big-cluster work (see `AGENTS.md`): connect 1.8 s, Overview about 2 s, Pods list first page 4.6 s with the rest loading while idle and no GUI stall, node pod counts 8 s, Health check 21.9 s, Capacity 18.6 s, Right-sizing 19.2 s. Accepted as good enough by the owner. Not measured: Export diagnostics, Search objects, Logs of all pods on a big cluster.
+
 ## Still pending (what to test next)
 
 Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.
