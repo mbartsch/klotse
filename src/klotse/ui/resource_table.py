@@ -495,6 +495,7 @@ class ResourceTable(QWidget):
         if self.kind == "Namespace":
             if idx.isValid():
                 menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
+                menu.addAction("Export diagnostics…", lambda: self.action_requested.emit("diagnostics", row))
             menu.addAction("New namespace…", self.new_requested.emit)
         if self.new_button is not None:
             menu.addAction(self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)

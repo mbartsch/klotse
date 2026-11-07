@@ -871,6 +871,11 @@ class KubeService:
                                                     field_selector=f"spec.nodeName={node}")]
         return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
 
+    def read_pod_log(self, namespace, pod, container, tail=500, previous=False):
+        """The last `tail` lines of one container's log as text (not streamed), or of its previous run. Looking only."""
+        return self._core.read_namespaced_pod_log(pod, namespace, container=container, tail_lines=tail, previous=previous,
+                                                  _request_timeout=60) or ""
+
     def rbac_data(self):
         """{roles, clusterroles, rolebindings, clusterrolebindings: [manifests], missing: [kinds that could not be read]} for the
         RBAC lookup, across all namespaces. Looking only."""

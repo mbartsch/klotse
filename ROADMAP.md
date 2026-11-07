@@ -86,7 +86,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 40 | Compare two objects side by side (kbu, kubediff) (**done** for two objects of one list, #123; across clusters or namespaces is still open) | Small to medium | #123 |
 | 41 | CronJob: run now, suspend and resume (Kronic) (**done**, #124) | Small | #124 |
 | 42 | Saved port-forwards that can be started again (kftray) (**done**, #125) | Small to medium | #125 |
-| 43 | Diagnostics bundle export: logs, events, YAML in a zip, no secrets (groot, k8shark) | Medium | #126 |
+| 43 | Diagnostics bundle export: logs, events, YAML in a zip, no secrets (groot, k8shark) (**done**, #126) | Medium | #126 |
 | 44 | Browse files in a pod or PVC (kubectl-browse-pvc) (**done**, #127: pods, and claims through a pod that already mounts them) | Medium | #127 |
 | 45 | Say clearly when a list is refused (403) instead of showing it empty (Rubick) (**done**, #128) | Small | #128 |
 | 46 | Local audit log of changes made from Klotse (Lumovi) (**done**, #129) | Small to medium | #129 |

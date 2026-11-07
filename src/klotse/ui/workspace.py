@@ -24,6 +24,7 @@ from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
 from ..k8s.clone import clone_manifest
 from .compare_dialog import CompareDialog
+from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
@@ -809,6 +810,8 @@ class ClusterWorkspace(QMainWindow):
         if action == "open-namespace":  # double-click / "Show pods": scope the toolbar to it and open its pods
             self.set_namespace(row.name)
             self.open_view("pods")
+        elif action == "diagnostics":
+            self.export_diagnostics(row.name)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -955,6 +958,8 @@ class ClusterWorkspace(QMainWindow):
             self._rightsizing_dialog.close()
         if getattr(self, "_rbac_dialog", None) is not None:
             self._rbac_dialog.close()
+        if getattr(self, "_diagnostics_dialog", None) is not None:
+            self._diagnostics_dialog.close()  # cancels an export that is still running
         self.file_copies.cancel_all()  # nor a kubectl cp
         for host in list(self._terminal_hosts):
             host.close()  # ends its session, so no kubectl outlives the cluster
@@ -1218,6 +1223,20 @@ class ClusterWorkspace(QMainWindow):
         dialog = CompareDialog(self.context, kind, rows[0], rows[1], self)
         dialog.exec()
         dialog.deleteLater()
+
+    def export_diagnostics(self, namespace=None):
+        """View > Export diagnostics… (for the namespace in front) or a Namespace's right-click entry: a zip of manifests, events, node
+        conditions and pod logs. Looking only; Secrets are never read. Returns the dialog, or None when no namespace is chosen."""
+        namespace = namespace or self.namespace()
+        if namespace == ALL_NS:
+            QMessageBox.information(self, "Export diagnostics", "Choose one namespace in the toolbar first (or right-click a namespace "
+                                    "in the Namespaces list): a bundle covers one namespace.")
+            return None
+        from .. import __display_version__
+        dialog = DiagnosticsDialog(self.service, self.context, namespace, __display_version__, self)
+        self._diagnostics_dialog = dialog
+        dialog.show()
+        return dialog
 
     def show_rbac(self, subject=None):
         """View > RBAC lookup… (and a service account's Effective permissions…): who can do something, and what a subject can do,

@@ -96,6 +96,11 @@ class MainWindow(QMainWindow):
         self.selector_logs_action.triggered.connect(self.show_selector_logs)
         view_menu.addAction(self.selector_logs_action)
         view_menu.aboutToShow.connect(lambda: self.selector_logs_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.diagnostics_action = QAction("Export diagnostics…", self)
+        self.diagnostics_action.setToolTip("Save the manifests, events and logs of the namespace in front as a zip file (no Secrets)")
+        self.diagnostics_action.triggered.connect(self.export_diagnostics)
+        view_menu.addAction(self.diagnostics_action)
+        view_menu.aboutToShow.connect(lambda: self.diagnostics_action.setEnabled(self.clusters.currentWidget() is not None))
         self.rbac_action = QAction("RBAC lookup…", self)
         self.rbac_action.setToolTip("Who can do something, and what a user, group or service account can do")
         self.rbac_action.triggered.connect(self.show_rbac)
@@ -295,6 +300,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.logs_by_selector()
+        return True
+
+    def export_diagnostics(self):
+        """View > Export diagnostics…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.export_diagnostics()
         return True
 
     def show_rbac(self):
