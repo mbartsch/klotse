@@ -691,7 +691,7 @@ class ClusterWorkspace(QMainWindow):
         def run():
             flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
             try:
-                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, **flags)
+                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, **flags)  # no console: see remote_files
             except FileNotFoundError:
                 raise RuntimeError("The helm command was not found. Install Helm and make sure it is on the PATH.") from None
             except subprocess.TimeoutExpired:

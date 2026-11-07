@@ -1,3 +1,4 @@
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -52,11 +53,15 @@ def test_failures_are_explained():
 def test_list_directory_runs_kubectl_and_reports_problems():
     seen = []
 
+    kwargs_seen = []
+
     def run(argv, **kw):
         seen.append(argv)
+        kwargs_seen.append(kw)
         return SimpleNamespace(returncode=0, stdout="a/\nb\n", stderr="")
     assert rf.list_directory(["kubectl"], "ns", "pod", "c", "/etc", run=run) == ([("a", rf.DIR), ("b", rf.FILE)], False)
     assert seen[0][-1] == "/etc/" and "--" in seen[0]
+    assert kwargs_seen[0]["stdin"] is subprocess.DEVNULL  # pythonw has no console: an inherited stdin gives WinError 6
     with pytest.raises(rf.RemoteError, match="absolute"):
         rf.list_directory(["kubectl"], "ns", "pod", "c", "etc", run=run)
     failing = lambda argv, **kw: SimpleNamespace(returncode=1, stdout="", stderr="ls: /x: No such file or directory")
@@ -67,6 +72,11 @@ def test_list_directory_runs_kubectl_and_reports_problems():
         raise FileNotFoundError
     with pytest.raises(rf.RemoteError, match="kubectl was not found"):
         rf.list_directory(["kubectl"], "ns", "pod", "c", "/", run=missing)
+
+    def broken(argv, **kw):
+        raise OSError(6, "The handle is invalid")
+    with pytest.raises(rf.RemoteError, match="Could not run kubectl: .*handle is invalid"):
+        rf.list_directory(["kubectl"], "ns", "pod", "c", "/", run=broken)
 
 
 def test_claim_users_finds_running_pods_that_mount_the_claim():

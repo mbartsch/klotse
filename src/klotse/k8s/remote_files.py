@@ -87,11 +87,15 @@ def list_directory(base, namespace, pod, container, path, run=subprocess.run):
         raise RemoteError(str(error)) from None
     flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
     try:
-        done = run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, errors="replace", **flags)
+        # stdin must be given: the Windows launcher has no console (pythonw), so the inherited standard input is an invalid
+        # handle and subprocess.run fails with "WinError 6: The handle is invalid" without it
+        done = run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, errors="replace", stdin=subprocess.DEVNULL, **flags)
     except FileNotFoundError:
         raise RemoteError("kubectl was not found. Install kubectl and make sure it is on the PATH.") from None
     except subprocess.TimeoutExpired:
         raise RemoteError(f"The listing did not finish within {TIMEOUT_S} seconds.") from None
+    except OSError as error:  # for example "WinError 6" when the process has no usable standard handles
+        raise RemoteError(f"Could not run kubectl: {error}") from None
     if done.returncode != 0:
         raise RemoteError(explain_failure(done.stderr or done.stdout))
     return parse_listing(done.stdout)
