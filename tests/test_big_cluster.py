@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from PySide6.QtCore import Qt
+
 import pytest
 from PySide6.QtCore import QSettings
 
@@ -546,3 +548,51 @@ def test_there_is_no_new_button_beside_the_filter_but_the_menu_still_creates(qtb
     table = ws.views["deployments"][0]
     assert table.new_button is not None  # the kind is creatable...
     assert not any(getattr(w, "text", lambda: "")() == "New…" for w in table.findChildren(__import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton))
+
+
+# ---- appending a page does not reset the table ----------------------------------------------------------------------
+def pod_rows(names):
+    from klotse.k8s.models import PodRow
+    import dataclasses
+    fields = [f.name for f in dataclasses.fields(PodRow)]
+    out = []
+    for name in names:
+        kwargs = {f: "" for f in fields}
+        kwargs.update(name=name, namespace="shop", status="Running", raw={"metadata": {"name": name, "namespace": "shop", "uid": "u-" + name}})
+        for numeric in ("cpu_used", "mem_used"):
+            if numeric in kwargs:
+                kwargs[numeric] = -1
+        try:
+            out.append(PodRow(**kwargs))
+        except TypeError:
+            out.append(SimpleNamespace(**kwargs))
+    return out
+
+
+def test_appending_rows_keeps_selection_and_does_not_reset_the_model(qtbot):
+    ws, _service = make_workspace(qtbot)
+    table = ws.pod_table
+    table.set_rows(pod_rows(["a", "b", "c"]))
+    table.view.selectRow(1)
+    resets, inserts = [], []
+    table.model.modelReset.connect(lambda: resets.append(1))
+    table.model.rowsInserted.connect(lambda *_a: inserts.append(1))
+    table.append_rows(pod_rows(["d", "e"]))
+    assert table.model.rowCount() == 5 and resets == [] and inserts == [1]
+    assert [r.name for r in table.selected_rows()] == ["b"]  # the selection stayed
+    table.append_rows([])
+    assert table.model.rowCount() == 5
+
+
+def test_appended_rows_follow_the_sort_and_the_filter_in_use(qtbot):
+    ws, _service = make_workspace(qtbot)
+    table = ws.pod_table
+    table.set_rows(pod_rows(["m", "c"]))
+    table.view.sortByColumn(0, Qt.AscendingOrder)
+    table.append_rows(pod_rows(["a", "z"]))
+    shown = [table.proxy.index(i, 0).data() for i in range(table.proxy.rowCount())]
+    assert shown == sorted(shown) and len(shown) == 4
+    table.filter.setText("z")
+    qtbot.waitUntil(lambda: table.proxy.rowCount() == 1, timeout=3000)
+    table.append_rows(pod_rows(["zz", "q"]))
+    assert sorted(table.proxy.index(i, 0).data() for i in range(table.proxy.rowCount())) == ["z", "zz"]

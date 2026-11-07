@@ -260,8 +260,22 @@ class ResourceTable(QWidget):
         self.show_status()
 
     def append_rows(self, rows):
-        """Add rows to what is shown (the next page), keeping the selection and scroll position like any reload."""
-        self.set_rows(list(self.model.rows) + list(rows))
+        """Add rows to what is shown (the next page of a paged list). Only the new rows are inserted: the model is not reset, so the
+        selection, current row and scroll position stay as they are, the columns keep their widths, and a sort or filter in use
+        places just the new rows instead of sorting every row again (a full reset at 18,000 rows froze the window for 10 s)."""
+        rows = list(rows)
+        if not rows:
+            return
+        self._load_timer.stop()
+        self.stack.setCurrentWidget(self.view)
+        self.rows_incoming.emit(rows)
+        began = time.perf_counter() if timings.enabled else 0.0
+        self.model.append_rows(rows)
+        if timings.enabled:
+            timings.record("gui", f"table.{self.kind}.append", time.perf_counter() - began, rows=len(rows), total=self.model.rowCount())
+        self._loaded_at = time.strftime("%H:%M:%S")
+        self.show_status()
+        self.rows_set.emit(rows)
 
     @staticmethod
     def _row_key(row):

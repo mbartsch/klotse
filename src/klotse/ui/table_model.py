@@ -44,6 +44,22 @@ class TableModel(QAbstractTableModel):
                     for key, value in (metadata.get(field) or {}).items()))
         self.endResetModel()
 
+    def append_rows(self, rows):
+        """Add rows at the end without resetting the model (views keep their selection and scroll position)."""
+        rows = list(rows)
+        if not rows:
+            return
+        first = len(self.rows)
+        self.beginInsertRows(QModelIndex(), first, first + len(rows) - 1)
+        self.rows.extend(rows)
+        if self.search_metadata:
+            for row in rows:
+                metadata = (row.raw or {}).get("metadata") or {}
+                self._metadata_text.append("\n".join(
+                    f"{key}={value}" for field in ("labels", "annotations")
+                    for key, value in (metadata.get(field) or {}).items()))
+        self.endInsertRows()
+
     def refresh_plugin_columns(self):
         """Repaint every plugin column after the plugin values on the rows changed."""
         for i, col in enumerate(self.columns):
