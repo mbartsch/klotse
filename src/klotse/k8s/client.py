@@ -1016,8 +1016,10 @@ class KubeService:
         if self.big:
             try:
                 return self._node_pod_counts_table()
-            except Exception:  # noqa: BLE001 - fall back to the plain list
-                pass
+            except Exception as error:  # noqa: BLE001 - fall back to the plain list
+                # the timing log says why (error type and its first line, no URL parts beyond what the client puts in its message)
+                timings.record("fallback", "node pod counts: table failed", 0.0, error=type(error).__name__,
+                               detail=(str(error).splitlines() or [""])[0][:160])
         counts = {}
         for pod in self._iter_list(self._core.list_pod_for_all_namespaces,
                                    field_selector="status.phase!=Succeeded,status.phase!=Failed"):

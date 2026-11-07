@@ -410,3 +410,17 @@ def test_big_mode_recounts_node_pods_less_often(qtbot):
     assert ws._node_pods_timer.interval() == NODE_PODS_BIG_REFRESH_MS
     ws.set_big(False)
     assert ws._node_pods_timer.interval() == NODE_PODS_REFRESH_MS
+
+
+def test_a_failed_table_read_is_written_to_the_timing_log(tmp_path, monkeypatch):
+    from klotse.k8s import timing
+    monkeypatch.delenv(timing.ENV, raising=False)
+    timing.timings.configure(tmp_path / "t.log", True)
+    try:
+        service, _rest = table_service([], fail=True)
+        service._core = SimpleNamespace(list_pod_for_all_namespaces=lambda **kw: SimpleNamespace(items=[], metadata=SimpleNamespace(_continue=None)))
+        service.all_node_pod_counts()
+        entry = [json.loads(line) for line in open(tmp_path / "t.log", encoding="utf-8") if '"fallback"' in line][0]
+        assert entry["error"] == "OSError" and "Accept header" in entry["detail"]
+    finally:
+        timing.timings.configure(None, False)
