@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
@@ -24,6 +25,7 @@ from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
 from ..k8s.clone import clone_manifest
 from ..k8s import gateway as gateway_api
+from ..k8s.timing import name_of, timings
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
@@ -999,10 +1001,18 @@ class ClusterWorkspace(QMainWindow):
         w = Worker(fn, *args)
         w.setAutoDelete(False)  # keep w.signals alive until its queued signal is delivered
         self._workers.add(w)
+        w.context = self.context
+        w.submitted = asked = time.perf_counter()
 
         def done(cb, *a):
             self._workers.discard(w)
             if not self._closed:  # disconnected while this call was in flight: drop the result
+                if timings.enabled:
+                    began = time.perf_counter()
+                    cb(*a)
+                    end = time.perf_counter()
+                    timings.record("total", name_of(fn), end - asked, gui=round(end - began, 3), cluster=self.context)
+                    return
                 cb(*a)
 
         w.signals.result.connect(lambda r: done(on_result, r))

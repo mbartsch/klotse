@@ -2,6 +2,7 @@ import datetime
 import functools
 import itertools
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from heapq import heappush, heapreplace
 
@@ -11,6 +12,7 @@ from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
 from . import connect_help, helm, related, rollout, search
+from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
@@ -193,7 +195,8 @@ class KubeService:
         a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
         connect_help.guard_helper_stdin()
         try:
-            self._connect(context)
+            with timings.timed("connect", "connect"):
+                self._connect(context)
         except Exception as error:  # noqa: BLE001 - re-raised, only the wording changes
             text = connect_help.explain(error, connect_help.auth_info(self.kubeconfig, context))
             if text == str(error):
@@ -759,13 +762,20 @@ class KubeService:
     def _iter_list(fn, *args, **kwargs):
         """Bound each API response and release each page before fetching the next."""
         token = None
+        pages = items = 0
+        spent = 0.0
         while True:
+            began = time.perf_counter()
             page = fn(*args, limit=500, _continue=token, _request_timeout=30, **kwargs)
+            spent += time.perf_counter() - began
+            pages += 1
+            items += len(page.items or [])
             yield from page.items
             token = page.metadata._continue if page.metadata else None
             del page
             if not token:
                 break
+        timings.record("api-list", getattr(fn, "__name__", "list"), spent, pages=pages, items=items)
 
     # ---- change watches: the UI reloads the visible list when one of these fires -------
     def watch_targets(self, key, namespace=None):
@@ -1072,11 +1082,17 @@ class KubeService:
         # The five reads are independent and each is mostly waiting for the API server, so they run side by side: on a large
         # cluster (about 100 nodes, 2,700 pods) the one-after-another version took three times as long as `kubectl get pods -A`.
         with ThreadPoolExecutor(max_workers=5, thread_name_prefix="overview") as pool:
-            nodes_f = pool.submit(lambda: [map_node(n, include_raw=False) for n in self._iter_list(self._core.list_node)])
-            pods_f = pool.submit(self._overview_pods)
-            events_f = pool.submit(self._overview_events)
-            spaces_f = pool.submit(lambda: sum(1 for _ in self._iter_list(self._core.list_namespace)))
-            usage_f = pool.submit(self.node_usage)
+            def phase(label, fn):
+                def run():
+                    with timings.timed("phase", label):
+                        return fn()
+                return pool.submit(run)
+
+            nodes_f = phase("overview.nodes", lambda: [map_node(n, include_raw=False) for n in self._iter_list(self._core.list_node)])
+            pods_f = phase("overview.pods", self._overview_pods)
+            events_f = phase("overview.events", self._overview_events)
+            spaces_f = phase("overview.namespaces", lambda: sum(1 for _ in self._iter_list(self._core.list_namespace)))
+            usage_f = phase("overview.metrics", self.node_usage)
             nodes = nodes_f.result()
             counts, lists = pods_f.result()
             events, warnings, warning_rows = events_f.result()

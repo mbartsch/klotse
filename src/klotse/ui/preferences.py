@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from .plugins_panel import PluginsPanel
@@ -38,6 +38,21 @@ class KubeconfigSettings(QObject):
         self.path, self.missing = path, None
 
 
+class DebugSettings:
+    """Debug options, `[debug]` in the settings file. `timings`: write `timings.log` (see `k8s/timing.py`). Off by default."""
+
+    def __init__(self, settings=None):
+        self.store = settings if settings is not None else default_store()
+        self.timings = str(self.store.value("debug/timings", "false")).lower() in ("true", "1")
+
+    def set_timings(self, on):
+        self.store.setValue("debug/timings", bool(on))
+        self.store.sync()
+        if self.store.status() != QSettings.NoError:
+            raise OSError(f"Could not save preferences to {self.store.fileName()}")
+        self.timings = bool(on)
+
+
 def open_folder(folder):
     """Show a folder in Explorer / Finder / the file manager; returns an error message or None."""
     try:
@@ -50,8 +65,9 @@ def open_folder(folder):
 class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
-    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None):
+    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None):
         super().__init__(parent)
+        self.debug = debug
         self.kubeconfig, self.config_folder = kubeconfig, Path(config_folder)
         self.theme_settings = themes
         self.setWindowTitle("Preferences")
@@ -87,6 +103,13 @@ class PreferencesDialog(QDialog):
         self.open_button.clicked.connect(self._open_folder)
         form.addRow("Settings", self.open_button)
         form.addRow("", QLabel(str(self.config_folder)))
+        self.timing_box = None
+        if debug is not None:
+            self.timing_box = QCheckBox("Write a timing log (debug)")
+            self.timing_box.setChecked(debug.timings)
+            self.timing_box.setToolTip("Writes timings.log next to the settings file: how long each load takes and where the time goes. "
+                                       "Only names, counts and seconds, never object names or data. Takes effect when you press Save.")
+            form.addRow("Debug", self.timing_box)
 
         # More pages when the caller has something to configure: the macOS terminal, the plugins. With only the General
         # page there is no tab bar.
@@ -200,6 +223,12 @@ class PreferencesDialog(QDialog):
             try:
                 self.terminal_panel.save()
             except (ValueError, OSError) as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                return
+        if self.timing_box is not None:
+            try:
+                self.debug.set_timings(self.timing_box.isChecked())
+            except OSError as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
                 return
         self.accept()  # the caller saves and applies the kubeconfig (closing open clusters needs confirmation first)

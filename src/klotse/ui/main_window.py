@@ -18,7 +18,8 @@ from .customizations import ANNOTATION_KINDS, LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
-from .preferences import KubeconfigSettings, PreferencesDialog
+from ..k8s.timing import timings
+from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .read_only import ReadOnlyClusters
 from . import embedded_terminal, theme
 from .theme import ThemeSettings
@@ -44,6 +45,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1500, embedded_terminal.warm_up)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
+        self.debug_settings = DebugSettings(self.label_settings.store)  # Preferences > Debug: the timing log
+        self.apply_timing_log()
         self.audit_log = AuditLog(os.path.join(os.path.dirname(self.label_settings.store.fileName()), "audit.log"))  # what was changed from here
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.theme_settings = ThemeSettings(self.label_settings.store)
@@ -376,8 +379,9 @@ class MainWindow(QMainWindow):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
-                                   plugins=self.plugins, themes=self.theme_settings)
+                                   plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings)
         accepted = dialog.exec() == PreferencesDialog.Accepted
+        self.apply_timing_log()
         chosen = dialog.chosen_kubeconfig()
         chosen_theme = dialog.chosen_theme()
         dialog.deleteLater()
@@ -387,6 +391,14 @@ class MainWindow(QMainWindow):
             self.apply_theme(chosen_theme)
         if accepted and chosen != self.kubeconfig_settings.path:
             self.apply_kubeconfig(chosen)
+
+    def timing_log_path(self):
+        return os.path.join(os.path.dirname(self.label_settings.store.fileName()), "timings.log")
+
+    def apply_timing_log(self):
+        """Switch the timing log on or off to match the Debug preference (or KLOTSE_TIMINGS=1)."""
+        from .. import __display_version__
+        timings.configure(self.timing_log_path(), self.debug_settings.timings, __display_version__)
 
     def apply_theme(self, name):
         """Save the chosen theme and apply it to the running application (no restart)."""

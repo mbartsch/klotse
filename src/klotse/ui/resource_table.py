@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QInputDialog, QLa
 
 from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
+from ..k8s.timing import timings
 from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
 from .table_model import TableModel
@@ -201,8 +202,11 @@ class ResourceTable(QWidget):
         self.stack.setCurrentWidget(self.view)
         self.rows_incoming.emit(rows)  # before the columns are measured: a refresh must not blank or shrink plugin columns
         kept = self._selection_to_keep()
+        began = time.perf_counter() if timings.enabled else 0.0
         self.model.set_rows(rows)
         self.view.resizeColumnsToContents()
+        if timings.enabled:
+            timings.record("gui", f"table.{self.kind}", time.perf_counter() - began, rows=len(rows))
         self._restore_selection(*kept)
         self._loaded_at = time.strftime("%H:%M:%S")
         self.show_status()
