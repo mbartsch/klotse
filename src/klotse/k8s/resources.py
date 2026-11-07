@@ -334,6 +334,30 @@ def _certificate(item):
                 renewal=expiry_text(_get(item, "status", "renewalTime")), ready=_condition(item, "Ready"))
 
 
+def _gateway_class(item):
+    return dict(controller=_text(_get(item, "spec", "controllerName")), accepted=_condition(item, "Accepted"),
+                description=_text(_get(item, "spec", "description"))[:80])
+
+
+def _gateway(item):
+    listeners = [f"{l.get('name', '?')}:{l.get('port', '?')}/{l.get('protocol', '?')}" for l in _get(item, "spec", "listeners") or []
+                 if isinstance(l, dict)]
+    addresses = [a.get("value", "") for a in _get(item, "status", "addresses") or [] if isinstance(a, dict)]
+    return dict(gateway_class=_text(_get(item, "spec", "gatewayClassName")), listeners=", ".join(listeners),
+                addresses=", ".join(a for a in addresses if a), ready=_condition(item, "Programmed", "Accepted"))
+
+
+def _route(item):
+    """HTTPRoute and GRPCRoute: hostnames, the gateways it attaches to and whether they accepted it."""
+    parents = [p.get("name", "?") + (f"/{p['sectionName']}" if p.get("sectionName") else "") for p in _get(item, "spec", "parentRefs") or []
+               if isinstance(p, dict)]
+    states = [c.get("status") for parent in _get(item, "status", "parents") or [] if isinstance(parent, dict)
+              for c in parent.get("conditions") or [] if isinstance(c, dict) and c.get("type") == "Accepted"]
+    accepted = "" if not states else ("✔ Accepted" if all(s == "True" for s in states) else "✖ Not accepted")
+    return dict(hostnames=", ".join(_get(item, "spec", "hostnames") or []), parents=", ".join(parents),
+                rules=len(_get(item, "spec", "rules") or []), accepted=accepted)
+
+
 # (API group, kind) -> (columns as (heading, attribute), function giving the attribute values of one object)
 CUSTOM_COLUMNS = {
     ("karpenter.sh", "NodePool"): (
@@ -342,6 +366,18 @@ CUSTOM_COLUMNS = {
     ("karpenter.sh", "NodeClaim"): (
         [("Name", "name"), ("Node", "node"), ("Type", "instance_type"), ("Capacity", "capacity"), ("Zone", "zone"),
          ("NodePool", "nodepool"), ("Ready", "ready"), ("Age", "age")], _nodeclaim),
+    ("gateway.networking.k8s.io", "GatewayClass"): (
+        [("Name", "name"), ("Controller", "controller"), ("Accepted", "accepted"), ("Description", "description"), ("Age", "age")],
+        _gateway_class),
+    ("gateway.networking.k8s.io", "Gateway"): (
+        [("Name", "name"), ("Namespace", "namespace"), ("Class", "gateway_class"), ("Listeners", "listeners"), ("Addresses", "addresses"),
+         ("Programmed", "ready"), ("Age", "age")], _gateway),
+    ("gateway.networking.k8s.io", "HTTPRoute"): (
+        [("Name", "name"), ("Namespace", "namespace"), ("Hostnames", "hostnames"), ("Gateways", "parents"), ("Rules", "rules"),
+         ("Accepted", "accepted"), ("Age", "age")], _route),
+    ("gateway.networking.k8s.io", "GRPCRoute"): (
+        [("Name", "name"), ("Namespace", "namespace"), ("Hostnames", "hostnames"), ("Gateways", "parents"), ("Rules", "rules"),
+         ("Accepted", "accepted"), ("Age", "age")], _route),
     ("cert-manager.io", "Certificate"): (
         [("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Expires", "not_after"), ("Renewal", "renewal"),
          ("Secret", "secret"), ("Issuer", "issuer"), ("DNS names", "dns"), ("Age", "age")], _certificate),

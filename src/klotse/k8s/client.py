@@ -471,6 +471,16 @@ class KubeService:
         first = {"NodePool": 0, "NodeClaim": 1}
         return sorted(found, key=lambda r: (first.get(r.kind, 2), r.kind))
 
+    def gateway_resources(self):
+        """The Gateway API kinds this cluster serves, [ApiResource] (no subresources), GatewayClass, Gateway, HTTPRoute and GRPCRoute
+        first. Empty when the Gateway API is not installed. One discovery call per version of the group, nothing else."""
+        from .gateway import GROUP, order
+        found = []
+        for group, version in self.discovery_groups():
+            if group == GROUP:
+                found += [r for r in self.discovery_resources(group, version) if "/" not in r.name and r.kind]
+        return order(found)
+
     def list_service_account_names(self):
         """[(namespace, name)] of every service account, for the binding editor's picker (names only, paged)."""
         return [(a.metadata.namespace or "", a.metadata.name)
@@ -693,6 +703,32 @@ class KubeService:
             getattr(api, f"delete_namespaced_{spec.snake}")(name, namespace, body=body, _request_timeout=15)
         else:
             getattr(api, f"delete_{spec.snake}")(name, body=body, _request_timeout=15)
+
+    @mutating
+    def create_custom(self, group, version, plural, namespaced, body):
+        """Create an instance of a custom resource from a manifest (the Gateway API kinds are edited this way)."""
+        namespace = (body.get("metadata") or {}).get("namespace") or "default"
+        if namespaced:
+            return self._custom.create_namespaced_custom_object(group, version, namespace, plural, body)
+        return self._custom.create_cluster_custom_object(group, version, plural, body)
+
+    @mutating
+    def replace_custom(self, group, version, plural, namespaced, namespace, name, body):
+        """Replace an instance with the edited manifest. The manifest carries the resourceVersion it was read with, so an
+        object changed by someone else meanwhile is refused (409) instead of overwritten."""
+        if namespaced:
+            return self._custom.replace_namespaced_custom_object(group, version, namespace, plural, name, body)
+        return self._custom.replace_cluster_custom_object(group, version, plural, name, body)
+
+    @mutating
+    def delete_custom(self, group, version, plural, namespaced, namespace, name, uid):
+        """Delete an instance of a custom resource; the UID precondition keeps a replacement with the same name from being deleted."""
+        if not uid:
+            raise ValueError("The UID is missing; refresh the list first")
+        body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid))
+        if namespaced:
+            return self._custom.delete_namespaced_custom_object(group, version, namespace, plural, name, body=body, _request_timeout=15)
+        return self._custom.delete_cluster_custom_object(group, version, plural, name, body=body, _request_timeout=15)
 
     @mutating
     def cordon_node(self, name, unschedulable):

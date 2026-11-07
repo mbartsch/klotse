@@ -23,6 +23,7 @@ from .apply_dialog import ApplyDialog
 from .binding_editor import BINDING_KINDS, BindingEditDialog, care_warnings
 from .command_view import CommandView
 from ..k8s.clone import clone_manifest
+from ..k8s import gateway as gateway_api
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
@@ -113,6 +114,7 @@ class ClusterWorkspace(QMainWindow):
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
     crd_groups_found = Signal(list)  # [(view key, label, tooltip)]: the navigator lists them under Custom Resources > Groups
+    gateway_found = Signal(list)  # [(view key, label)] when the cluster serves the Gateway API; the navigator shows a group
     karpenter_found = Signal(list)  # [(view key, label)] when the cluster runs Karpenter; the navigator shows a group
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
     read_only_changed = Signal(bool)
@@ -141,6 +143,7 @@ class ClusterWorkspace(QMainWindow):
         self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
+        self._custom_kinds = {}  # kind -> (group, version, plural, namespaced) for the custom resources that can be edited (Gateway API)
         self.restore_namespace = None  # the namespace chosen when the session was saved; used once, when the list arrives
         self._ready = False  # set once connected
         self._opening = False
@@ -758,8 +761,16 @@ class ClusterWorkspace(QMainWindow):
         if key not in self.views:
             special = custom_columns(group, kind)  # e.g. Karpenter's NodePool and NodeClaim
             columns = special or ([("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")])
-            table = ResourceTable(columns, "CustomResource", editable=False)
+            editable = gateway_api.is_gateway_group(group)
+            table = ResourceTable(columns, kind if editable else "CustomResource", editable=editable, customizable=False)
             table.view_key = key
+            if editable:  # the Gateway API kinds: Edit… as YAML, New…, Delete…
+                self._custom_kinds[kind] = (group, version, plural, namespaced)
+                table.deletable = True
+                table.edit_requested.connect(self.edit_resource)
+                table.action_requested.connect(lambda action, row, k=kind: self.delete_resource(k, row) if action == "delete" else None)
+                table.enable_new()
+                table.new_requested.connect(lambda *_a, k=kind: self.create_resource(k))
             table.selected.connect(self.detail.show_row)
             table.goto_requested.connect(self.go_to)
             self.views[key] = (table, f"{kind}")
@@ -782,6 +793,19 @@ class ClusterWorkspace(QMainWindow):
         find = getattr(self.service, "karpenter_resources", None)
         if find is not None:
             self._run(find, self._karpenter_found, on_error=lambda _msg: None)
+
+    def _find_gateway(self):
+        """Ask (in the background, quietly) whether the cluster serves the Gateway API; if it does the navigator gets a Gateway API
+        group with a list per kind: GatewayClasses, Gateways, HTTPRoutes and so on."""
+        find = getattr(self.service, "gateway_resources", None)
+        if find is not None:
+            self._run(find, self._gateway_found, on_error=lambda _msg: None)
+
+    def _gateway_found(self, resources):
+        entries = [(self._custom_view(r.group, r.version, r.name, r.kind, r.namespaced), self.plural_label(r.kind))
+                   for r in resources or []]
+        if entries:
+            self.gateway_found.emit(entries)
 
     def _karpenter_found(self, resources):
         entries = [(self._custom_view(r.group, r.version, r.name, r.kind, r.namespaced), self.plural_label(r.kind))
@@ -1522,6 +1546,11 @@ class ClusterWorkspace(QMainWindow):
         """New Deployment, DaemonSet, StatefulSet, Pod, ConfigMap or Secret: the form (or YAML) starts from a skeleton in the
         chosen namespace."""
         namespace = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
+        if kind in self._custom_kinds:
+            group, version, plural, namespaced = self._custom_kinds[kind]
+            raw = gateway_api.skeleton(kind, namespace, version)
+            self._edit_flow(kind, raw, "", "", creating=True)
+            return
         raw = (new_manifest(kind, namespace) if kind in DATA_KINDS else
                network_manifest(kind, namespace) if kind in NETWORK_KINDS else skeleton(kind, namespace))
         self._edit_flow(kind, raw, "", "", creating=True)
@@ -1585,6 +1614,17 @@ class ClusterWorkspace(QMainWindow):
             self.message.emit(f"Saving Secret {name}…")
             self._run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)
             return
+        custom = self._custom_kinds.get(kind)
+        if custom is not None:  # a Gateway API object: the dynamic custom-object calls
+            group, version, plural, namespaced = custom
+            ns = (body.get("metadata") or {}).get("namespace") or ""
+            if creating:
+                self.message.emit(f"Creating {kind} {name}…")
+                self._run(self.service.create_custom, lambda _: self._created(kind, name), group, version, plural, namespaced, body)
+            else:
+                self.message.emit(f"Saving {kind} {name}…")
+                self._run(self.service.replace_custom, lambda _: self._saved(kind, name), group, version, plural, namespaced, ns, name, body)
+            return
         if creating:
             self.message.emit(f"Creating {kind} {name}…")
             self._run(self.service.create, lambda _: self._created(kind, name), kind, body)
@@ -1624,6 +1664,12 @@ class ClusterWorkspace(QMainWindow):
             self._on_error(f"{kind} UID is missing. Refresh the list before deleting.")
             return
         self.message.emit(f"Deleting {kind} {row.name}…")
+        custom = self._custom_kinds.get(kind)
+        if custom is not None:
+            group, version, plural, namespaced = custom
+            self._run(self.service.delete_custom, lambda _: self._deleted(kind, row.name), group, version, plural, namespaced,
+                      row.namespace, row.name, uid)
+            return
         self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid)
 
     def _deleted(self, kind, name):
@@ -2173,6 +2219,7 @@ class ClusterWorkspace(QMainWindow):
             self._node_pods_timer.start()
         self._sync_watch()
         self._find_karpenter()
+        self._find_gateway()
         self._find_crd_groups()
         self._load_permissions()
 

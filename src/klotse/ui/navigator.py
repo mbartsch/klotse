@@ -230,6 +230,24 @@ class Navigator(QTreeWidget):
                 self._leaf(item, *entry)
         item.setExpanded(True)
 
+    def show_gateway(self, name, entries):
+        """Add (or replace) the Gateway API group of a connected cluster, just above Custom Resources: GatewayClasses, Gateways,
+        HTTPRoutes and the rest of the group. Only exists for clusters that serve the Gateway API."""
+        item = self._clusters.get(name)
+        if item is None or not item.childCount() or not entries:
+            return
+        for i in range(item.childCount()):
+            if item.child(i).data(0, self.ROLE_KIND) == "gateway":
+                item.takeChild(i)
+                break
+        group = QTreeWidgetItem(["Gateway API"])
+        group.setData(0, self.ROLE_KIND, "gateway")
+        for key, label in entries:
+            self._leaf(group, key, label)
+        position = next((i for i in range(item.childCount()) if item.child(i).text(0) == "Custom Resources"), item.childCount())
+        item.insertChild(position, group)
+        group.setExpanded(True)
+
     def show_karpenter(self, name, entries):
         """Add (or replace) the Karpenter group of a connected cluster, just above Custom Resources. `entries` is
         [(view key, label)]: NodePools, NodeClaims and whatever else the cluster's Karpenter serves. The group only exists

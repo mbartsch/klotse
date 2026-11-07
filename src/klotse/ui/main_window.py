@@ -220,6 +220,7 @@ class MainWindow(QMainWindow):
         ws.failed.connect(lambda m, c=ctx: self._on_failed(c, m))
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
         ws.karpenter_found.connect(lambda entries, c=ctx: self.nav.show_karpenter(c, entries))
+        ws.gateway_found.connect(lambda entries, c=ctx: self.nav.show_gateway(c, entries))
         ws.crd_groups_found.connect(lambda entries, c=ctx: self.nav.show_crd_groups(c, entries))
         ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
         self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))

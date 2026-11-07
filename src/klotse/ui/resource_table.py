@@ -43,6 +43,7 @@ class ResourceTable(QWidget):
 
     def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
+        self.deletable = False  # set by the workspace for editable custom resources (the Gateway API kinds)
         self.refresh_mode = None  # () -> True when this list reloads only on request; set by the workspace (None = no such menu)
         self._loaded_at = ""
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
@@ -444,7 +445,7 @@ class ResourceTable(QWidget):
                                lambda: self.action_requested.emit("cronjob-resume" if suspended else "cronjob-suspend", row))
             if self.kind == "Deployment":
                 menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
-            if self.kind in DELETABLE_KINDS:
+            if self.kind in DELETABLE_KINDS or self.deletable:
                 menu.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
             if self.kind in ("Pod", "Service"):
                 menu.addAction("Port forward…", lambda: self.port_forward_requested.emit(self.kind, row))
