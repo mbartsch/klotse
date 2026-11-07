@@ -37,7 +37,9 @@ from .node_dialogs import DebugDialog, DrainDialog, NodeShellDialog
 from .capacity_dialog import CapacityDialog
 from .permissions_dialog import PermissionsDialog
 from .search_dialog import SearchDialog
+from .file_browser import FileBrowserDialog
 from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
+from ..k8s import remote_files
 from . import embedded_terminal
 from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
 from .saved_filters import SavedFilters
@@ -56,7 +58,7 @@ from .network_model import NETWORK_KINDS
 from .workload_editor import WorkloadEditDialog
 from .workload_model import CREATABLE_KINDS, EDIT_KINDS, skeleton
 from .scale_monitor import ScaleMonitor
-from .terminal import debug_args, kubectl_args, node_shell_args, open_terminal
+from .terminal import debug_args, kubectl_args, kubectl_base, node_shell_args, open_terminal
 from . import theme
 from .terminal_settings import TerminalSettings
 from .watcher import ChangeWatcher
@@ -232,6 +234,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
                                                  "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
                                                  "HelmRelease": self._helm_action, "CronJob": self._cronjob_action,
+                                                 "PersistentVolumeClaim": lambda _action, row: self.browse_claim(row),
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
                                                     for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
         self.ns_table.new_requested.connect(self.new_namespace)
@@ -957,15 +960,78 @@ class ClusterWorkspace(QMainWindow):
             self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab stops every forward")
         self.log_dock.show()
 
-    def file_copy_dialog(self, row):
-        rows = pod_containers(row.raw)
-        names = [c[0] for c in rows if c[1] == "Container"] or [c[0] for c in rows]
-        return FileCopyDialog(row.name, row.namespace, names, self)
+    def remote_lister(self, namespace, pod):
+        """fn(container, path, on_ok, on_error) for the file browser: `kubectl exec ... ls` on a worker. Looking only."""
+        base = kubectl_base(self.context, self.kubeconfig)
+        return lambda container, path, ok, bad: self._run(
+            remote_files.list_directory, lambda result: ok(*result), base, namespace, pod, container, path,
+            on_error=lambda message: bad(message.split(": ", 1)[-1]))
 
-    def copy_files(self, row):
+    def browse_files(self, row, container=None, path="/"):
+        """Right-click > Browse files… on a pod: look through the files of a container. Download… hands the chosen path to
+        Copy files…."""
+        names = self._container_names(row)
+        dialog = FileBrowserDialog(f"Files: {row.namespace}/{row.name}", names, path, self.remote_lister(row.namespace, row.name),
+                                   container=container, parent=self)
+        wanted = []
+        dialog.download_requested.connect(lambda c, p: (wanted.append((c, p)), dialog.accept()))
+        dialog.exec()
+        dialog.deleteLater()
+        if wanted:
+            return self.copy_files(row, container=wanted[0][0], remote=wanted[0][1])
+        return None
+
+    def browse_claim(self, row):
+        """Right-click > Browse files… on a PersistentVolumeClaim: through a running pod that already mounts it. Nothing is
+        started in the cluster, so a claim no pod uses says so."""
+        self.message.emit(f"{self.context}: looking for a pod that uses {row.name}…")
+        self._run(lambda: [p.raw for p in self.service.list_pods(row.namespace)], lambda pods: self._claim_found(row, pods))
+
+    def _claim_found(self, row, pods):
+        users = remote_files.claim_users(pods, row.name)
+        if not users:
+            QMessageBox.information(self, "Browse files", f"No running pod in {row.namespace} uses the claim {row.name}, so there is "
+                                    "nothing to browse it through. Klotse does not start a pod for this. Mount the claim in a pod "
+                                    "first (a debug or utility pod will do).")
+            return
+        labels = [f"{pod} / {container}  (mounted at {mount})" for pod, container, mount in users]
+        choice = labels[0]
+        if len(users) > 1:
+            choice, ok = QInputDialog.getItem(self, "Browse files", "Browse the claim through:", labels, 0, False)
+            if not ok:
+                return
+        pod, container, mount = users[labels.index(choice)]
+        dialog = FileBrowserDialog(f"Files of claim {row.namespace}/{row.name} (via {pod})", [container], mount,
+                                   self.remote_lister(row.namespace, pod), parent=self)
+        dialog.download_button.setEnabled(False)
+        dialog.download_button.setToolTip(f"Use Copy files… on pod {pod} to download")
+        dialog.exec()
+        dialog.deleteLater()
+
+    @staticmethod
+    def _container_names(row):
+        rows = pod_containers(row.raw)
+        return [c[0] for c in rows if c[1] == "Container"] or [c[0] for c in rows]
+
+    def _choose_remote(self, row, container, typed):
+        """The Browse… button of Copy files…: a browser that returns a path. It starts in the folder of what was typed."""
+        start = "/"
+        if typed.startswith("/"):
+            start = typed if typed.endswith("/") else remote_files.parent(typed)
+        dialog = FileBrowserDialog(f"Choose a path: {row.namespace}/{row.name}", self._container_names(row), start,
+                                   self.remote_lister(row.namespace, row.name), choose=True, container=container, parent=self)
+        picked = dialog.chosen if dialog.exec() == QDialog.Accepted else None
+        dialog.deleteLater()
+        return picked
+
+    def file_copy_dialog(self, row, container=None, remote=""):
+        return FileCopyDialog(row.name, row.namespace, self._container_names(row), self, container=container, remote=remote,
+                              browse=lambda c, typed: self._choose_remote(row, c, typed))
+
+    def copy_files(self, row, container=None, remote=""):
         """Right-click > Copy files… on a pod: ask direction, container and paths, then run `kubectl cp` and show the list. A
         download changes nothing in the cluster, so read-only mode allows it; an upload writes into a container, so it does not."""
-        dialog = self.file_copy_dialog(row)
+        dialog = self.file_copy_dialog(row, container, remote) if (container or remote) else self.file_copy_dialog(row)
         accepted = dialog.exec() == QDialog.Accepted
         values = getattr(dialog, "result_values", None)
         dialog.deleteLater()
@@ -1764,6 +1830,9 @@ class ClusterWorkspace(QMainWindow):
     def pod_action(self, action, row):
         if action == "containers":
             self.open_pod_tab(row)
+            return
+        if action == "browse-files":  # looking only, so read-only mode allows it
+            self.browse_files(row)
             return
         if action in ("terminate", "force-terminate", "shell", "attach", "debug", "remove-debug") and not self._writable(
                 "terminate pods or open a shell in them"):

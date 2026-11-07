@@ -87,7 +87,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 41 | CronJob: run now, suspend and resume (Kronic) (**done**, #124) | Small | #124 |
 | 42 | Saved port-forwards that can be started again (kftray) (**done**, #125) | Small to medium | #125 |
 | 43 | Diagnostics bundle export: logs, events, YAML in a zip, no secrets (groot, k8shark) | Medium | #126 |
-| 44 | Browse files in a pod or PVC (kubectl-browse-pvc) | Medium | #127 |
+| 44 | Browse files in a pod or PVC (kubectl-browse-pvc) (**done**, #127: pods, and claims through a pod that already mounts them) | Medium | #127 |
 | 45 | Say clearly when a list is refused (403) instead of showing it empty (Rubick) (**done**, #128) | Small | #128 |
 | 46 | Local audit log of changes made from Klotse (Lumovi) (**done**, #129) | Small to medium | #129 |
 | 47 | Capacity overview: requests, limits and utilization per node and namespace (kube-capacity) (**done**, #130) | Small to medium | #130 |

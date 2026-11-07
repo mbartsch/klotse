@@ -262,15 +262,22 @@ class FileCopyPanel(QWidget):
 class FileCopyDialog(QDialog):
     """Direction, container, the local file or folder and the path in the container. `containers` are the pod's container names."""
 
-    def __init__(self, pod, namespace, containers, parent=None, direction=DOWNLOAD):
+    def __init__(self, pod, namespace, containers, parent=None, direction=DOWNLOAD, container=None, remote="", browse=None):
         super().__init__(parent)
+        self.browse = browse  # fn(container, typed path) -> (container, path) or None: the container file browser
         self.setWindowTitle(f"Copy files: {pod}")
         self.download = QRadioButton("Download: container → this computer")
         self.upload = QRadioButton("Upload: this computer → container")
         (self.upload if direction == UPLOAD else self.download).setChecked(True)
         self.container = QComboBox()
         self.container.addItems(list(containers))
-        self.remote = QLineEdit(placeholderText="path in the container, e.g. /var/log/app.log")
+        if container:
+            self.container.setCurrentText(container)
+        self.remote = QLineEdit(remote, placeholderText="path in the container, e.g. /var/log/app.log")
+        self.browse_remote = QPushButton("Browse…")
+        self.browse_remote.setToolTip("Pick the path from the files of the container (you can also just type it)")
+        self.browse_remote.setVisible(browse is not None)
+        self.browse_remote.clicked.connect(self._browse_remote)
         self.local = QLineEdit(placeholderText="file or folder on this computer")
         self.browse_file = QPushButton("File…")
         self.browse_folder = QPushButton("Folder…")
@@ -292,7 +299,10 @@ class FileCopyDialog(QDialog):
         local_row.addWidget(self.browse_folder)
         form = QFormLayout()
         form.addRow("Container", self.container)
-        form.addRow("Container path", self.remote)
+        remote_row = QHBoxLayout()
+        remote_row.addWidget(self.remote, 1)
+        remote_row.addWidget(self.browse_remote)
+        form.addRow("Container path", remote_row)
         form.addRow("This computer", local_row)
         start = QPushButton("Copy")
         start.setDefault(True)
@@ -314,6 +324,14 @@ class FileCopyDialog(QDialog):
 
     def direction(self):
         return UPLOAD if self.upload.isChecked() else DOWNLOAD
+
+    def _browse_remote(self):
+        picked = self.browse(self.container.currentText(), self.remote.text().strip()) if self.browse else None
+        if picked:
+            container, path = picked
+            if container:
+                self.container.setCurrentText(container)
+            self.remote.setText(path)
 
     def _pick_file(self):
         if self.direction() == UPLOAD:

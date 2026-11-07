@@ -441,7 +441,10 @@ class ResourceTable(QWidget):
             if self.kind in ("Pod", "Service"):
                 menu.addAction("Port forward…", lambda: self.port_forward_requested.emit(self.kind, row))
             if self.kind == "Pod":
+                menu.addAction("Browse files…", lambda: self.action_requested.emit("browse-files", row))
                 menu.addAction("Copy files…", lambda: self.copy_files_requested.emit(row))
+            if self.kind == "PersistentVolumeClaim":
+                menu.addAction("Browse files…", lambda: self.action_requested.emit("browse-files", row))
             if self.kind == "Node":
                 menu.addSeparator()
                 menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))
