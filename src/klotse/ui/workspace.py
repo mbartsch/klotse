@@ -106,10 +106,13 @@ class ClusterWorkspace(QMainWindow):
     customize_requested = Signal(str)  # a table's Columns… button was clicked (kind: Node or Pod)
     read_only_changed = Signal(bool)
 
-    def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None):
+    def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None, audit_log=None):
         super().__init__(parent)
         self.service = service
+        self.audit_log = audit_log  # the local change log (ui/audit_log.AuditLog) or None
         self.context = context
+        if audit_log is not None:  # the service reports what its @mutating methods did
+            service.audit = lambda action, target, result, detail='': audit_log.record(self.context, action, target, result, detail)
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = terminal_settings if terminal_settings is not None else TerminalSettings(parent=self)
         self.refresh_settings = RefreshSettings(self.label_settings.store)  # which lists reload only on request
@@ -676,6 +679,8 @@ class ClusterWorkspace(QMainWindow):
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
 
+        self.record_change("helm uninstall", f"{row.namespace}/{row.name}")
+
         def run():
             flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
             try:
@@ -981,6 +986,8 @@ class ClusterWorkspace(QMainWindow):
         except ValueError as e:
             QMessageBox.warning(self, "Copy files", str(e))
             return None
+        if direction == UPLOAD:
+            self.record_change("copy files to pod", f"{row.namespace}/{row.name} {remote}")
         self.message.emit(f"{self.context}: copying {copy.description}…")
         self.show_file_copies()
         return copy
@@ -1067,6 +1074,11 @@ class ClusterWorkspace(QMainWindow):
             return
         self._run(find, lambda answer: dialog.show_results(serial, *answer), text, namespace or None, cancel,
                   on_error=lambda msg: dialog.show_error(serial, msg))
+
+    def record_change(self, action, target, result="started", detail=""):
+        """Note in the local change log a change that is made outside the service (a kubectl or helm command). Never raises."""
+        if self.audit_log is not None:
+            self.audit_log.record(self.context, action, target, result, detail)
 
     def compare_objects(self, kind, rows):
         """Two selected rows of one list > Compare these two…: their YAML as a diff. Looking only (read-only mode allows it)."""
@@ -1660,6 +1672,7 @@ class ClusterWorkspace(QMainWindow):
                                  preview_loader=(lambda ok, bad, n=row.name: self._run(loader, ok, n, on_error=bad)) if loader else None)
             if dialog.exec() != QDialog.Accepted:
                 return
+            self.record_change("drain", row.name)
             view = CommandView(dialog.command())
             view.key = ("drain", row.name)
             view.completed.connect(lambda success: self._node_changed(
@@ -1779,6 +1792,7 @@ class ClusterWorkspace(QMainWindow):
         if not accepted or not image:
             return
         argv = debug_args(self.context, row.namespace, row.name, image, target, kubeconfig=self.kubeconfig)
+        self.record_change("debug container", f"{row.namespace}/{row.name} {image}")
         self._launch_terminal(argv, f"Opened debug: {row.name}")
 
     def remove_debug_containers(self, row):

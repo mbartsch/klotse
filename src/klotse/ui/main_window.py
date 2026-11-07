@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QMainWindow, 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
+from .audit_log import AuditLog
+from .audit_dialog import AuditDialog
 from .cluster_session import ClusterSession
 from ..plugins.manager import PluginManager
 from .customizations import ANNOTATION_KINDS, LabelColumnsDialog, LabelSettings
@@ -41,6 +44,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1500, embedded_terminal.warm_up)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
+        self.audit_log = AuditLog(os.path.join(os.path.dirname(self.label_settings.store.fileName()), "audit.log"))  # what was changed from here
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.theme_settings = ThemeSettings(self.label_settings.store)
         self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
@@ -83,6 +87,10 @@ class MainWindow(QMainWindow):
         self.search_action.setToolTip("Find objects by name, label, kind or namespace across the cluster in front")
         self.search_action.triggered.connect(self.show_search)
         view_menu.addAction(self.search_action)
+        self.audit_action = QAction("Change log…", self)
+        self.audit_action.setToolTip("What was changed from Klotse: when, which cluster, what, and whether the cluster accepted it")
+        self.audit_action.triggered.connect(self.show_audit_log)
+        view_menu.addAction(self.audit_action)
         self.capacity_action = QAction("Capacity…", self)
         self.capacity_action.setToolTip("Requests, limits and usage against what each node can give, per node and per namespace")
         self.capacity_action.triggered.connect(self.show_capacity)
@@ -178,7 +186,7 @@ class MainWindow(QMainWindow):
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
         ws = ClusterWorkspace(self.new_service(), ctx, label_settings=self.label_settings,
-                              terminal_settings=self.terminal_settings, plugins=self.plugins)
+                              terminal_settings=self.terminal_settings, plugins=self.plugins, audit_log=self.audit_log)
         self.workspaces[ctx] = ws
         ws.detail.set_show_managed_fields(self.managed_fields_action.isChecked())
         self.managed_fields_action.toggled.connect(ws.detail.set_show_managed_fields)
@@ -252,6 +260,13 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_search()
+        return True
+
+    def show_audit_log(self):
+        """View > Change log…: the local record of changes made from Klotse (all clusters)."""
+        dialog = AuditDialog(self.audit_log, self)
+        dialog.exec()
+        dialog.deleteLater()
         return True
 
     def show_capacity(self):
