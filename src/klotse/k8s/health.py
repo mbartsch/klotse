@@ -90,7 +90,14 @@ def pod_findings(pod):
                 out.append(finding(ERROR, "Pod", ns, name, f"container {cname} was OOMKilled",
                                    "It used more memory than its limit; raise the limit or fix the leak."))
             restarts = cs.get("restartCount", 0)
-            if restarts >= RESTARTS_WARN and reason not in BAD_WAITING:
+            now = (cs.get("state") or {}).get("terminated") or {}
+            if now.get("exitCode") and restarts >= 1 and phase != "Failed":
+                # between two attempts the container shows "Error" (not yet CrashLoopBackOff) while Kubernetes restarts it
+                out.append(finding(ERROR if restarts >= 2 else WARN, "Pod", ns, name,
+                                   f"container {cname} exited with code {now['exitCode']} ({now.get('reason') or 'Error'}) "
+                                   f"and has restarted {restarts} time{'s' if restarts != 1 else ''}",
+                                   "It is failing and being restarted; read its logs (and the previous instance's)."))
+            elif restarts >= RESTARTS_WARN and reason not in BAD_WAITING:
                 out.append(finding(WARN, "Pod", ns, name, f"container {cname} restarted {restarts} times"))
     if phase == "Pending":
         for cond in status.get("conditions") or []:

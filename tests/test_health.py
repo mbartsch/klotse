@@ -166,3 +166,24 @@ def test_workspace_checks_in_a_worker_and_fills_the_dialog(qtbot):
     assert dialog.table.item(0, 0).text() == "✖ Error" and ws.show_health() is dialog
     ws.shutdown()
     qtbot.waitUntil(lambda: not ws._workers)
+
+
+def test_a_container_between_restarts_is_reported_before_crashloopbackoff():
+    # shape seen on a real cluster: state.terminated reason Error, exit code 1, 3 restarts, no CrashLoopBackOff yet
+    failing = pod(restarts=3)
+    failing["status"]["containerStatuses"][0]["state"] = {"terminated": {"reason": "Error", "exitCode": 1}}
+    found = h.pod_findings(failing)
+    assert len(found) == 1 and found[0]["severity"] == h.ERROR
+    assert "exited with code 1 (Error)" in found[0]["problem"] and "restarted 3 times" in found[0]["problem"]
+    first = pod(restarts=1)
+    first["status"]["containerStatuses"][0]["state"] = {"terminated": {"reason": "Error", "exitCode": 2}}
+    assert h.pod_findings(first)[0]["severity"] == h.WARN and "1 time" in h.pod_findings(first)[0]["problem"]
+
+
+def test_a_clean_exit_or_no_restart_is_not_reported():
+    done = pod(restarts=2)
+    done["status"]["containerStatuses"][0]["state"] = {"terminated": {"reason": "Completed", "exitCode": 0}}
+    assert h.pod_findings(done) == []
+    never_restarted = pod(restarts=0)
+    never_restarted["status"]["containerStatuses"][0]["state"] = {"terminated": {"reason": "Error", "exitCode": 1}}
+    assert h.pod_findings(never_restarted) == []
