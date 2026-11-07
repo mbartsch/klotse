@@ -178,6 +178,8 @@ class _PagedList:
         return functools.partial(KubeService._paged, getattr(obj, "page_size", PAGE_SIZE))
 
 
+PARALLEL_READS = 6  # big-cluster mode: namespaces whose pods are read at the same time
+PARALLEL_MIN_NAMESPACES = 4  # with fewer namespaces one list is as fast
 PODS_PAGE = 2000  # pods per page in the paged Pods list of a huge cluster
 
 
@@ -237,6 +239,7 @@ class KubeService:
     def _raw_items(self, fn, *args, **kwargs):
         """Items of a paged list as plain dicts, straight from the JSON: the Kubernetes client's model deserialization costs about
         3 ms per pod (14 s against 1.3 s for `json.loads` on 18,000 pods), and the analysis windows only read dicts anyway."""
+        log = kwargs.pop("log", True)  # the per-namespace reads of a parallel read are summed up by the caller instead
         token, pages, items, spent = None, 0, 0, 0.0
         while True:
             began = time.perf_counter()
@@ -251,7 +254,37 @@ class KubeService:
             token = (body.get("metadata") or {}).get("continue")
             if not token:
                 break
-        timings.record("api-list", "raw:" + getattr(fn, "__name__", "list"), spent, pages=pages, items=items)
+        if log:
+            timings.record("api-list", "raw:" + getattr(fn, "__name__", "list"), spent, pages=pages, items=items)
+
+    def _raw_pods(self, namespace, full):
+        """Pod manifests (dicts; slim unless `full`) of one namespace or of the whole cluster. For the whole cluster in big-cluster
+        mode the namespaces are read `PARALLEL_READS` at a time: one long list costs about 1.3 ms per pod of transfer (22 to 25 s
+        for 18,000 pods) and its pages cannot be fetched side by side, but separate namespaces can. Any failure of a namespace
+        (no permission to list it, say) falls back to the single list of everything, which is the same data."""
+        api = self._core
+        keep = (lambda pod: pod) if full else self._slim_pod
+        single = lambda: [keep(p) for p in self._raw_items(api.list_pod_for_all_namespaces)]
+        if namespace:
+            return [keep(p) for p in self._raw_items(api.list_namespaced_pod, namespace)]
+        try:
+            names = [ns.metadata.name for ns in self._iter_list(api.list_namespace)]
+        except Exception:  # noqa: BLE001 - no right to list namespaces: the list of everything may still be allowed
+            return single()
+        if len(names) < PARALLEL_MIN_NAMESPACES:
+            return single()
+        read = lambda name: [keep(p) for p in self._raw_items(api.list_namespaced_pod, name, log=False)]
+        began = time.perf_counter()
+        try:
+            with ThreadPoolExecutor(max_workers=PARALLEL_READS, thread_name_prefix="pods") as pool:
+                pods = [p for chunk in pool.map(read, names) for p in chunk]
+        except Exception as error:  # noqa: BLE001 - same data from the single list
+            timings.record("fallback", "parallel pod read failed", time.perf_counter() - began, error=type(error).__name__,
+                           detail=(str(error).splitlines() or [""])[0][:160])
+            return single()
+        timings.record("api-list", "raw:parallel list_namespaced_pod", time.perf_counter() - began, namespaces=len(names), items=len(pods),
+                       workers=PARALLEL_READS)
+        return pods
 
     @staticmethod
     def _slim_pod(pod):
@@ -271,13 +304,10 @@ class KubeService:
         clusters get the ordinary `list_pods`."""
         if not self.big:
             return self.list_pods(namespace)
-        api = self._core
-        fn, args = (api.list_namespaced_pod, (namespace,)) if namespace else (api.list_pod_for_all_namespaces, ())
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage") as pool:
             usage_f = pool.submit(self.pod_usage, namespace)
             rows = []
-            for pod in self._raw_items(fn, *args):
-                raw = pod if full else self._slim_pod(pod)
+            for raw in self._raw_pods(namespace, full):
                 meta, spec = raw.get("metadata") or {}, raw.get("spec") or {}
                 rows.append(PodRow(meta.get("name", ""), meta.get("namespace", ""), "", (raw.get("status") or {}).get("phase", ""), 0,
                                    spec.get("nodeName") or "", "", raw))

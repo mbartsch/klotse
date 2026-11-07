@@ -693,3 +693,84 @@ def test_diagnostics_asks_for_whole_manifests_when_the_service_can_give_them():
     path = os.path.join(tempfile.mkdtemp(), "d.zip")
     result = diagnostics.collect(service, "ctx", "shop", path, {"logs": False, "tail": 10, "keep_env": False})
     assert result["counts"]["pods"] == 1 and "objects/pods.yaml" in zipfile.ZipFile(path).namelist()
+
+
+# ---- namespaces read side by side -----------------------------------------------------------------------------------
+import threading
+import time as _time
+
+
+class NamespacedCore:
+    """A fake core API for the parallel read: namespaces, per-namespace pod lists (raw JSON) and the single all-namespaces list."""
+
+    def __init__(self, by_namespace, fail_on=None, delay=0.0):
+        self.by_namespace, self.fail_on, self.delay = by_namespace, fail_on, delay
+        self.active = self.peak = 0
+        self.lock = threading.Lock()
+        self.namespaced_calls, self.all_calls = [], 0
+
+    def list_namespace(self, limit=500, _continue=None, _request_timeout=None):
+        items = [SimpleNamespace(metadata=SimpleNamespace(name=name)) for name in self.by_namespace]
+        return SimpleNamespace(items=items, metadata=SimpleNamespace(_continue=None))
+
+    def list_namespaced_pod(self, namespace, limit=500, _continue=None, _request_timeout=None, _preload_content=True):
+        with self.lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            self.namespaced_calls.append(namespace)
+        try:
+            _time.sleep(self.delay)
+            if namespace == self.fail_on:
+                raise PermissionError("forbidden")
+            return SimpleNamespace(data=json.dumps({"items": self.by_namespace[namespace], "metadata": {}}).encode())
+        finally:
+            with self.lock:
+                self.active -= 1
+
+    def list_pod_for_all_namespaces(self, limit=500, _continue=None, _request_timeout=None, _preload_content=True):
+        self.all_calls += 1
+        everything = [p for pods in self.by_namespace.values() for p in pods]
+        return SimpleNamespace(data=json.dumps({"items": everything, "metadata": {}}).encode())
+
+
+def namespaced_service(core):
+    service = KubeService()
+    service.set_big(True)
+    service._core = core
+    service.pod_usage = lambda namespace=None: {}
+    return service
+
+
+def six_namespaces():
+    return {f"ns{i}": [dict(raw_pod(f"p{i}-{j}", f"n{j}"), metadata={**raw_pod("x", "n")["metadata"], "name": f"p{i}-{j}", "namespace": f"ns{i}"})
+                       for j in range(3)] for i in range(6)}
+
+
+def test_namespaces_are_read_side_by_side_and_give_the_same_pods_in_order():
+    core = NamespacedCore(six_namespaces(), delay=0.05)
+    service = namespaced_service(core)
+    rows = service.list_pods_for_analysis()
+    assert [r.name for r in rows] == [f"p{i}-{j}" for i in range(6) for j in range(3)]  # namespace order, like the single list
+    assert core.peak > 1 and core.peak <= 6 and sorted(core.namespaced_calls) == [f"ns{i}" for i in range(6)] and core.all_calls == 0
+    single = namespaced_service(NamespacedCore({"only": [p for pods in six_namespaces().values() for p in pods]}))
+    assert sorted(r.name for r in single.list_pods_for_analysis()) == sorted(r.name for r in rows)
+
+
+def test_a_namespace_that_cannot_be_read_falls_back_to_the_single_list():
+    core = NamespacedCore(six_namespaces(), fail_on="ns3")
+    rows = namespaced_service(core).list_pods_for_analysis()
+    assert len(rows) == 18 and core.all_calls == 1  # same data from the list of everything
+
+
+def test_few_namespaces_use_the_single_list():
+    core = NamespacedCore({"a": [raw_pod("x", "n1")], "b": [raw_pod("y", "n1")]})
+    rows = namespaced_service(core).list_pods_for_analysis()
+    assert len(rows) == 2 and core.namespaced_calls == [] and core.all_calls == 1
+
+
+def test_one_namespace_is_read_directly_and_slim_or_full_is_kept():
+    core = NamespacedCore(six_namespaces())
+    service = namespaced_service(core)
+    slim = service.list_pods_for_analysis("ns2")
+    assert core.namespaced_calls == ["ns2"] and len(slim) == 3 and "managedFields" not in str(slim[0].raw)
+    assert "managedFields" in str(service.list_pods_for_analysis("ns2", full=True)[0].raw)
