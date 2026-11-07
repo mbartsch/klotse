@@ -25,6 +25,7 @@ from .command_view import CommandView
 from ..k8s.clone import clone_manifest
 from .compare_dialog import CompareDialog
 from .health_dialog import HealthDialog
+from .rightsizing_dialog import RightSizingDialog
 from ..k8s import health
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
@@ -948,6 +949,8 @@ class ClusterWorkspace(QMainWindow):
             self._capacity_dialog.close()
         if getattr(self, "_health_dialog", None) is not None:
             self._health_dialog.close()
+        if getattr(self, "_rightsizing_dialog", None) is not None:
+            self._rightsizing_dialog.close()
         self.file_copies.cancel_all()  # nor a kubectl cp
         for host in list(self._terminal_hosts):
             host.close()  # ends its session, so no kubectl outlives the cluster
@@ -1211,6 +1214,27 @@ class ClusterWorkspace(QMainWindow):
         dialog = CompareDialog(self.context, kind, rows[0], rows[1], self)
         dialog.exec()
         dialog.deleteLater()
+
+    def show_rightsizing(self):
+        """View > Right-sizing…: pods of the namespace in front (or all) with their usage are read on a worker (looking only) and
+        compared with their requests and limits per workload. Non-modal, one per workspace, closed by shutdown."""
+        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+        dialog = getattr(self, "_rightsizing_dialog", None)
+        if dialog is None:
+            dialog = self._rightsizing_dialog = RightSizingDialog(self.context, scope, self)
+            dialog.reload_button.clicked.connect(self._load_rightsizing)
+            dialog.go_to_requested.connect(self.go_to_object)
+        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
+        dialog.show()
+        dialog.raise_()
+        self._load_rightsizing()
+        return dialog
+
+    def _load_rightsizing(self):
+        dialog = self._rightsizing_dialog
+        namespace = None if self.namespace() == ALL_NS else self.namespace()
+        dialog.summary.setText("Loading pods and usage…")
+        self._run(lambda: self.service.list_pods(namespace), dialog.show_pods, on_error=dialog.show_error)
 
     def show_health(self):
         """View > Health check…: manifests of the namespace in front (all namespaces too) are read on a worker and checked

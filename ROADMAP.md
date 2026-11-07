@@ -45,7 +45,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 19 | Events timeline in Details for the selected object (**done**, #67) | Small |
 | 20 | Debug container (`kubectl debug`, ephemeral container) for pods (**done**, #101) | Small to medium |
 | 21 | Health check view (like k9s's Popeye): no limits or probes, `latest` tags, crash-looping pods, unbound PVCs; reuse the editor hints (**done**, #102) | Medium |
-| 22 | Right-sizing view: requests and limits against actual usage (the `%req`/`%lim` columns exist) | Medium |
+| 22 | Right-sizing view: requests and limits against actual usage (the `%req`/`%lim` columns exist) (**done**, #103: a snapshot view; history-based advice needs the metrics source of item 38) | Medium |
 | 23 | Drain preview: which pods would be evicted, which PodDisruptionBudgets would block (**done**, #104) | Small to medium |
 
 ### Finding things and security
