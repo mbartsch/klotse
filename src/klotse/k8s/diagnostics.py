@@ -139,7 +139,8 @@ def collect(service, context, namespace, path, options, version="", progress=lam
         pods = []
         for name, key in KINDS:
             if key == "pods":
-                items = pods = listed("pods", lambda: service.list_pods(namespace))
+                read_pods = getattr(service, "list_pods_for_analysis", None)  # big clusters: whole manifests from the plain JSON
+                items = pods = listed("pods", (lambda: read_pods(namespace, full=True)) if read_pods else (lambda: service.list_pods(namespace)))
             elif key == "deployments":
                 items = listed("deployments", lambda: service.list_deployments(namespace))
             elif key == "statefulsets":

@@ -79,6 +79,7 @@ def test_health_data_is_the_same_in_both_modes():
         service.set_big(big)
         rows = lambda raw: [SimpleNamespace(raw=raw)]
         service.list_pods = lambda ns: rows({"p": 1})
+        service.list_pods_for_analysis = lambda namespace=None, full=False: rows({"p": 1})  # what big mode calls
         service.list_nodes = lambda: (_ for _ in ()).throw(PermissionError("no"))
         service.list_deployments = lambda ns: rows({"d": 1})
         service.list_statefulsets = lambda ns: rows({"s": 1})
@@ -93,6 +94,7 @@ def test_capacity_data_reads_both_lists():
         service.set_big(big)
         service.list_nodes = lambda: ["n"]
         service.list_pods = lambda ns: ["p"]
+        service.list_pods_for_analysis = lambda namespace=None, full=False: ["p"]
         assert service.capacity_data() == (["n"], ["p"])
 
 
@@ -596,3 +598,98 @@ def test_appended_rows_follow_the_sort_and_the_filter_in_use(qtbot):
     qtbot.waitUntil(lambda: table.proxy.rowCount() == 1, timeout=3000)
     table.append_rows(pod_rows(["zz", "q"]))
     assert sorted(table.proxy.index(i, 0).data() for i in range(table.proxy.rowCount())) == ["z", "zz"]
+
+
+# ---- pods for the analysis windows from the plain JSON ------------------------------------------------------------
+def raw_pod(name, node, cpu="100m", memory="64Mi", phase="Running", owner=None):
+    meta = {"name": name, "namespace": "shop", "uid": "u-" + name, "labels": {"big": "x" * 50}, "managedFields": [{"x": "y" * 200}]}
+    if owner:
+        meta["ownerReferences"] = [{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": owner, "uid": "rs-uid", "controller": True}]
+    return {"metadata": meta, "spec": {"nodeName": node, "containers": [
+        {"name": "c", "image": "busybox", "resources": {"requests": {"cpu": cpu, "memory": memory}, "limits": {"cpu": "1", "memory": "128Mi"}}}]},
+        "status": {"phase": phase, "containerStatuses": [{"name": "c", "restartCount": 2}]}}
+
+
+class RawList:
+    """A list function that honours _preload_content=False and returns JSON bytes in pages, as the Kubernetes client does."""
+
+    def __init__(self, pods, per_page=2):
+        self.pods, self.per_page, self.calls = pods, per_page, []
+
+    def __call__(self, *args, limit=500, _continue=None, _request_timeout=None, _preload_content=True, **kwargs):
+        assert _preload_content is False
+        self.calls.append(limit)
+        start = int(_continue or 0)
+        stop = start + self.per_page
+        body = {"items": self.pods[start:stop], "metadata": {"continue": str(stop) if stop < len(self.pods) else ""}}
+        return SimpleNamespace(data=json.dumps(body).encode())
+
+
+def analysis_service(pods, big=True):
+    service = KubeService()
+    service.set_big(big)
+    service._core = SimpleNamespace(list_pod_for_all_namespaces=RawList(pods), list_namespaced_pod=RawList(pods))
+    service.pod_usage = lambda namespace=None: {("shop", "a"): (0.25, 100.0)}
+    return service
+
+
+def test_big_mode_reads_pods_as_plain_json_in_pages():
+    pods = [raw_pod("a", "n1"), raw_pod("b", "n1"), raw_pod("c", "n2")]
+    service = analysis_service(pods)
+    rows = service.list_pods_for_analysis()
+    assert [r.name for r in rows] == ["a", "b", "c"] and [r.node for r in rows] == ["n1", "n1", "n2"]
+    assert service._core.list_pod_for_all_namespaces.calls == [BIG_PAGE_SIZE, BIG_PAGE_SIZE]  # two pages of two
+    assert rows[0].cpu_used == 0.25 and rows[1].cpu_used == -1  # metrics once, rows it does not know stay unknown
+
+
+def test_the_slim_manifest_keeps_what_capacity_and_right_sizing_read_and_drops_the_rest():
+    service = analysis_service([raw_pod("a", "n1", owner="web-abc123")])
+    row = service.list_pods_for_analysis()[0]
+    assert row.raw["metadata"] == {"name": "a", "namespace": "shop", "uid": "u-a", "ownerReferences": [{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-abc123", "uid": "rs-uid", "controller": True}]}
+    assert "managedFields" not in str(row.raw) and "labels" not in row.raw["metadata"] and "image" not in str(row.raw)
+    assert row.cpu_req == 0.1 and row.mem_req == 64 and row.cpu_lim == 1 and row.mem_lim == 128
+    full = service.list_pods_for_analysis(full=True)[0]
+    assert full.raw["metadata"]["managedFields"] and full.raw["status"]["containerStatuses"][0]["restartCount"] == 2
+
+
+def test_capacity_and_right_sizing_give_the_same_answer_from_slim_rows():
+    from klotse.k8s import capacity, rightsizing
+    from klotse.k8s.models import NodeRow
+    pods = [raw_pod("a", "n1", owner="web-abc123"), raw_pod("b", "n1", owner="web-abc123"), raw_pod("c", "n2", phase="Succeeded")]
+    slim, full = analysis_service(pods).list_pods_for_analysis(), analysis_service(pods).list_pods_for_analysis(full=True)
+    node = lambda name: SimpleNamespace(name=name, cpu=4.0, memory=8.0, cpu_used=-1.0, mem_used=-1.0)
+    assert capacity.by_node([node("n1"), node("n2")], slim) == capacity.by_node([node("n1"), node("n2")], full)
+    assert capacity.by_namespace(slim) == capacity.by_namespace(full)
+    assert rightsizing.analyze(slim) == rightsizing.analyze(full)
+    assert capacity.by_node([node("n1")], slim)[0]["pods"] == 2  # the finished pod holds nothing
+
+
+def test_health_findings_are_the_same_from_plain_json_and_from_model_pods():
+    from kubernetes import client
+    from klotse.k8s import health
+    from klotse.k8s.util import to_dict
+    raw = raw_pod("a", "n1", owner="web-abc123")
+    raw["status"]["containerStatuses"][0].update({"image": "busybox", "imageID": "", "ready": False,
+                                                 "state": {"waiting": {"reason": "CrashLoopBackOff"}}})
+    service = analysis_service([raw])
+    from_json = health.pod_findings(service.list_pods_for_analysis(full=True)[0].raw)
+    model = client.ApiClient().deserialize(json.dumps(raw), "V1Pod", "application/json")
+    from_model = health.pod_findings(to_dict(model))
+    assert [f["problem"] for f in from_json] == [f["problem"] for f in from_model] and from_json
+
+
+def test_small_clusters_keep_the_ordinary_pod_list():
+    service = analysis_service([], big=False)
+    service.list_pods = lambda namespace=None: ["ordinary"]
+    assert service.list_pods_for_analysis("shop", full=True) == ["ordinary"]
+
+
+def test_diagnostics_asks_for_whole_manifests_when_the_service_can_give_them():
+    from klotse.k8s import diagnostics
+    service = SimpleNamespace(list_pods_for_analysis=lambda namespace, full=False: [SimpleNamespace(raw=raw_pod("a", "n1"))] if full else [],
+                              list_deployments=lambda ns: [], list_statefulsets=lambda ns: [], list_resource=lambda key, ns: [],
+                              list_nodes=lambda: [], read_pod_log=lambda *a: "")
+    import tempfile, os, zipfile
+    path = os.path.join(tempfile.mkdtemp(), "d.zip")
+    result = diagnostics.collect(service, "ctx", "shop", path, {"logs": False, "tail": 10, "keep_env": False})
+    assert result["counts"]["pods"] == 1 and "objects/pods.yaml" in zipfile.ZipFile(path).namelist()

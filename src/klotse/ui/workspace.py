@@ -1484,7 +1484,8 @@ class ClusterWorkspace(QMainWindow):
         dialog = self._rightsizing_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
         dialog.summary.setText("Loading pods and usage…")
-        self._run(lambda: self.service.list_pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+        pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
+        self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
 
     def show_health(self):
         """View > Health check…: manifests of the namespace in front (all namespaces too) are read on a worker and checked
