@@ -11,6 +11,7 @@ from .loading_pane import LoadingPane
 from .table_model import TableModel
 
 
+LOG_SOURCES = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "Service"}  # have a selector: their pods' logs together
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
 NOT_CUSTOMIZABLE = {"Container", "CustomResource", "CRDGroup", "HelmRelease"}  # per-pod container rows and dynamic CR columns keep fixed columns
@@ -31,6 +32,7 @@ class ResourceTable(QWidget):
     new_requested = Signal()
     customize_requested = Signal(str)  # kind whose label columns the user wants to edit
     visible_changed = Signal()  # the set of rows on screen may have changed (scroll, filter, sort, resize, new rows)
+    multi_logs_requested = Signal(str, object)  # kind, a row (workload or Service) or a list of Pod rows
     duplicate_requested = Signal(str, object)  # kind, row: create a new object starting from this one
     compare_requested = Signal(str, list)  # kind, the two selected rows
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
@@ -357,6 +359,7 @@ class ResourceTable(QWidget):
         if self.kind in DELETABLE_KINDS:
             menu.addAction(f"Delete {n} {self.kind}s…", bulk("delete"))
         if self.kind == "Pod":
+            menu.addAction(f"Logs of {n} pods…", lambda: self.multi_logs_requested.emit("Pod", list(rows)))
             menu.addAction(f"Terminate {n} pods…", bulk("terminate"))
             menu.addAction(f"Force terminate {n} pods…", bulk("force-terminate"))
         if self.kind == "Node":
@@ -425,6 +428,8 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Edit…", "edit", row), lambda: self.edit_requested.emit(self.kind, row))
             if self.kind in COPYABLE and self.editable:
                 menu.addAction(self._hint("Copy as new…", "create", row), lambda: self.duplicate_requested.emit(self.kind, row))
+            if self.kind in LOG_SOURCES:
+                menu.addAction("Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row))
             if self.kind in SCALABLE:
                 menu.addAction(self._hint("Scale…", "scale", row), lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:

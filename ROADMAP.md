@@ -41,7 +41,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 
 | # | Item | Effort |
 | --- | --- | --- |
-| 18 | Logs from many pods at once (Deployment or label selector, like `stern`), regex filter, time range, save. **Top priority**: logs per workload is among the most upvoted requests in Lens (36) and Freelens (12) | Medium |
+| 18 | Logs from many pods at once (Deployment or label selector, like `stern`), regex filter, time range, save. **Top priority**: logs per workload is among the most upvoted requests in Lens (36) and Freelens (12) (**done**, #100) | Medium |
 | 19 | Events timeline in Details for the selected object (**done**, #67) | Small |
 | 20 | Debug container (`kubectl debug`, ephemeral container) for pods (**done**, #101) | Small to medium |
 | 21 | Health check view (like k9s's Popeye): no limits or probes, `latest` tags, crash-looping pods, unbound PVCs; reuse the editor hints | Medium |

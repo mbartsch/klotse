@@ -417,12 +417,25 @@ class KubeService:
         template = rollout.rollback_template(replica_set)
         self._apps.patch_namespaced_deployment(name, namespace, [{"op": "replace", "path": "/spec/template", "value": template}])
 
-    def open_log_stream(self, namespace, pod, container=None, tail=500, timestamps=False, previous=False):
+    def pods_by_selector(self, namespace, selector):
+        """[(pod name, [container names], phase)] of the pods in `namespace` that match a label selector, for the multi-pod log
+        view. Regular containers only. An empty selector is refused: it would match every pod."""
+        if not str(selector).strip():
+            raise ValueError("A label selector is needed.")
+        found = []
+        for pod in self._iter_list(self._core.list_namespaced_pod, namespace, label_selector=selector):
+            names = [c.name for c in (pod.spec.containers or [])]
+            found.append((pod.metadata.name, names, (pod.status.phase if pod.status else "") or ""))
+        return sorted(found)
+
+    def open_log_stream(self, namespace, pod, container=None, tail=500, timestamps=False, previous=False, since_seconds=None,
+                        follow=True):
         """Returns a streaming urllib3 response; the caller reads and closes it. Following is off for the previous
         instance (that container has ended, there is nothing more to follow)."""
-        return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=not previous,
+        extra = {"since_seconds": int(since_seconds)} if since_seconds else {}
+        return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=follow and not previous,
                                                   tail_lines=tail, timestamps=timestamps, previous=previous,
-                                                  _preload_content=False)
+                                                  _preload_content=False, **extra)
 
     @mutating
     def delete_pod(self, name, namespace, force=False):

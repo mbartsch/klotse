@@ -30,6 +30,8 @@ from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
 from .load_errors import explain
 from .log_view import LogView
+from .multi_log import MultiLogView
+from ..k8s.selectors import selector_text, valid_selector
 from .namespace_dialog import NamespaceDialog
 from .namespace_pins import NamespacePins
 from .node_bar import NodeActionBar
@@ -228,6 +230,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.compare_requested.connect(self.compare_objects)
                 widget.duplicate_requested.connect(self.copy_resource)
+                widget.multi_logs_requested.connect(self.multi_logs)
                 widget.goto_requested.connect(self.go_to)
                 widget.port_forward_requested.connect(self.start_port_forward)
                 widget.copy_files_requested.connect(self.copy_files)
@@ -875,6 +878,55 @@ class ClusterWorkspace(QMainWindow):
             title = f"Logs: {row.name}/{container}" if container else f"Logs: {row.name}"
             self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, title))
         self.log_dock.show()
+
+    def multi_logs(self, kind, what):
+        """Right-click > Logs of all pods… (a workload or Service: its selector; or several selected Pods): one tab with the
+        lines of every pod, prefixed with [pod/container]. Looking only, so read-only mode allows it."""
+        if kind == "Pod":
+            rows = list(what)
+            spaces = {r.namespace for r in rows}
+            if len(spaces) != 1:
+                QMessageBox.information(self, "Logs of several pods", "Pick pods from one namespace (choose a namespace in the "
+                                        "toolbar, or select fewer pods).")
+                return None
+            pods = [(r.name, [c[0] for c in pod_containers(r.raw) if c[1] == "Container"]) for r in rows]
+            return self.open_multi_logs(f"{len(rows)} pods", rows[0].namespace, fixed=pods)
+        text = selector_text((what.raw.get("spec") or {}).get("selector"))
+        if not text:
+            QMessageBox.information(self, "Logs of all pods", f"{kind} {what.name} has no label selector, so its pods cannot be "
+                                    "found this way. Open the logs of one pod, or use View > Logs by label selector….")
+            return None
+        return self.open_multi_logs(f"{kind} {what.name}", what.namespace, selector=text)
+
+    def logs_by_selector(self):
+        """View > Logs by label selector…: ask for a selector and follow every matching pod of the namespace in front."""
+        namespace = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
+        text, ok = QInputDialog.getText(self, "Logs by label selector", f"Label selector in namespace {namespace}\n"
+                                        "(for example app=web,tier=frontend):")
+        if not ok:
+            return None
+        problem = valid_selector(text)
+        if problem:
+            QMessageBox.information(self, "Logs by label selector", problem)
+            return None
+        return self.open_multi_logs(text.strip(), namespace, selector=text.strip())
+
+    def open_multi_logs(self, title, namespace, selector="", fixed=None):
+        key = ("multi", namespace, title)
+        for i in range(self.log_tabs.count()):
+            if getattr(self.log_tabs.widget(i), "key", None) == key:
+                self.log_tabs.setCurrentIndex(i)
+                self.log_dock.show()
+                return self.log_tabs.widget(i)
+        if fixed is not None:
+            resolver = lambda _text, pods=fixed: pods
+        else:
+            resolver = lambda text, ns=namespace: [(n, c) for n, c, _phase in self.service.pods_by_selector(ns, text)]
+        view = MultiLogView(self.service, namespace, resolver, self._run, selector=selector, fixed=fixed is not None)
+        view.key = key
+        self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, f"Logs: {title}"))
+        self.log_dock.show()
+        return view
 
     def _close_log_tab(self, index):
         view = self.log_tabs.widget(index)
