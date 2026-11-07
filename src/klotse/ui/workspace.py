@@ -38,6 +38,7 @@ from .search_dialog import SearchDialog
 from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
 from . import embedded_terminal
 from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
+from .saved_forwards import SavedForwards
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
 from .plugin_actions import PluginActionRunner
 from .overview import CLUSTER_CARDS, POD_COLUMNS, WORKLOAD_CARDS, OverviewView, metric_format
@@ -910,12 +911,25 @@ class ClusterWorkspace(QMainWindow):
         dialog = self.port_forward_dialog(kind, row)
         accepted = dialog.exec() == QDialog.Accepted
         local, remote = getattr(dialog, "result_ports", (0, 0))
+        remembered = getattr(getattr(dialog, "remember", None), "isChecked", lambda: False)()
         dialog.deleteLater()
         if not accepted:
             return None
         forward = self.port_forwards.start(self.context, row.namespace, kind, row.name, remote, local, kubeconfig=self.kubeconfig)
         self.message.emit(f"{self.context}: forwarding {forward.target} port {remote}…")
+        if getattr(dialog, "remember", None) is not None and remembered:
+            try:
+                SavedForwards(self.label_settings.store).add(SavedForwards.make(self.context, kind, row.namespace, row.name, remote, local))
+            except OSError as e:
+                self.message.emit(str(e))
         self.show_port_forwards()
+        return forward
+
+    def start_saved_forward(self, entry):
+        """A forward kept earlier (Port forwards tab > Saved forwards): started again with the same ports."""
+        forward = self.port_forwards.start(self.context, entry["ns"], entry["kind"], entry["name"], entry["remote"], entry["local"],
+                                           kubeconfig=self.kubeconfig)
+        self.message.emit(f"{self.context}: forwarding {forward.target} port {entry['remote']}…")
         return forward
 
     def show_port_forwards(self):
@@ -925,7 +939,8 @@ class ClusterWorkspace(QMainWindow):
                 self.log_tabs.setCurrentIndex(i)
                 break
         else:
-            panel = PortForwardPanel(self.port_forwards)
+            panel = PortForwardPanel(self.port_forwards, saved=SavedForwards(self.label_settings.store), context=self.context,
+                                     start=self.start_saved_forward)
             self.log_tabs.setCurrentIndex(self.log_tabs.addTab(panel, "Port forwards"))
             self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab stops every forward")
         self.log_dock.show()

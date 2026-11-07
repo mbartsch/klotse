@@ -85,7 +85,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 39 | Upgrade preflight: deprecated APIs, PodDisruptionBudgets at zero, version skew, certificate dates (kubent, pluto, k8s-preflight, Shoalcheck) | Medium | #122 |
 | 40 | Compare two objects side by side (kbu, kubediff) | Small to medium | #123 |
 | 41 | CronJob: run now, suspend and resume (Kronic) (**done**, #124) | Small | #124 |
-| 42 | Saved port-forwards that can be started again (kftray) | Small to medium | #125 |
+| 42 | Saved port-forwards that can be started again (kftray) (**done**, #125) | Small to medium | #125 |
 | 43 | Diagnostics bundle export: logs, events, YAML in a zip, no secrets (groot, k8shark) | Medium | #126 |
 | 44 | Browse files in a pod or PVC (kubectl-browse-pvc) | Medium | #127 |
 | 45 | Say clearly when a list is refused (403) instead of showing it empty (Rubick) (**done**, #128) | Small | #128 |

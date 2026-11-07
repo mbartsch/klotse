@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QProcess, Qt, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
+                               QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
 from .terminal import kubectl_base
@@ -161,9 +161,10 @@ class PortForwardPanel(QWidget):
     key = "port-forwards"
     HEADERS = ["Target", "Namespace", "Local address", "Remote port", "State", "Connections"]
 
-    def __init__(self, manager, parent=None):
+    def __init__(self, manager, parent=None, saved=None, context="", start=None):
         super().__init__(parent)
         self.manager = manager
+        self.saved, self.context, self._start = saved, context, start  # saved: SavedForwards; start(entry) begins one
         self.table = QTableWidget(0, len(self.HEADERS))
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -188,6 +189,14 @@ class PortForwardPanel(QWidget):
         buttons = QHBoxLayout()
         for button in (self.stop_button, self.stop_all_button, self.copy_button, self.open_button, self.clear_button):
             buttons.addWidget(button)
+        self.saved_button = QToolButton()
+        self.saved_button.setText("Saved forwards ▾")
+        self.saved_button.setPopupMode(QToolButton.InstantPopup)
+        self.saved_menu = QMenu(self.saved_button)
+        self.saved_menu.aboutToShow.connect(self._fill_saved)
+        self.saved_button.setMenu(self.saved_menu)
+        self.saved_button.setVisible(saved is not None)
+        buttons.addWidget(self.saved_button)
         buttons.addStretch(1)
         layout = QVBoxLayout(self)
         layout.addWidget(self.note)
@@ -195,6 +204,28 @@ class PortForwardPanel(QWidget):
         layout.addLayout(buttons)
         manager.changed.connect(self.refresh)
         self.refresh()
+
+    def _fill_saved(self):
+        """The forwards kept for this cluster: choosing one starts it; Forget removes it from the list."""
+        menu = self.saved_menu
+        menu.clear()
+        entries = self.saved.for_context(self.context) if self.saved is not None else []
+        if not entries:
+            menu.addAction("No saved forwards (tick “Remember this forward” when starting one)").setEnabled(False)
+            return
+        for entry in entries:
+            local = f" → local {entry['local']}" if entry["local"] else ""
+            menu.addAction(f"Start {entry['kind'].lower()} {entry['ns']}/{entry['name']} port {entry['remote']}{local}",
+                           lambda e=entry: self._start and self._start(e))
+        forget = menu.addMenu("Forget")
+        for entry in entries:
+            forget.addAction(f"{entry['ns']}/{entry['name']} port {entry['remote']}", lambda e=entry: self._forget(e))
+
+    def _forget(self, entry):
+        try:
+            self.saved.remove(entry)
+        except OSError as e:
+            QMessageBox.warning(self, "Klotse", str(e))
 
     def _selected(self):
         rows = self.table.selectionModel().selectedRows()
@@ -261,6 +292,8 @@ class PortForwardDialog(QDialog):
         form = QFormLayout()
         form.addRow("Remote port", self.remote)
         form.addRow("Local port", self.local)
+        self.remember = QCheckBox("Remember this forward (Port forwards tab > Saved forwards)")
+        form.addRow(self.remember)
         start = QPushButton("Start")
         start.setDefault(True)
         start.clicked.connect(self._accept)
