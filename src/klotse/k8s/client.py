@@ -362,10 +362,12 @@ class KubeService:
         template = rollout.rollback_template(replica_set)
         self._apps.patch_namespaced_deployment(name, namespace, [{"op": "replace", "path": "/spec/template", "value": template}])
 
-    def open_log_stream(self, namespace, pod, container=None, tail=500):
-        """Returns a streaming urllib3 response (follow=True); the caller reads and closes it."""
-        return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=True,
-                                                  tail_lines=tail, _preload_content=False)
+    def open_log_stream(self, namespace, pod, container=None, tail=500, timestamps=False, previous=False):
+        """Returns a streaming urllib3 response; the caller reads and closes it. Following is off for the previous
+        instance (that container has ended, there is nothing more to follow)."""
+        return self._core.read_namespaced_pod_log(pod, namespace, container=container, follow=not previous,
+                                                  tail_lines=tail, timestamps=timestamps, previous=previous,
+                                                  _preload_content=False)
 
     @mutating
     def delete_pod(self, name, namespace, force=False):
@@ -800,6 +802,15 @@ class KubeService:
         rows = [map_pod(p) for p in self._iter_list(self._core.list_pod_for_all_namespaces,
                                                     field_selector=f"spec.nodeName={node}")]
         return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
+
+    def drain_preview_data(self, node):
+        """(pod manifests on the node, PodDisruptionBudget manifests of the cluster) for `k8s.drain_plan.plan`. Looking only."""
+        pods = [r.raw for r in self.list_node_pods(node)]
+        try:
+            budgets = [r.raw for r in self.list_resource("poddisruptionbudgets")]
+        except Exception:  # noqa: BLE001 - no permission to read budgets: the preview then just cannot name them
+            budgets = []
+        return pods, budgets
 
     def _list_apps(self, all_fn, ns_fn, mapper, namespace):
         items = self._iter_list(ns_fn, namespace) if namespace else self._iter_list(all_fn)

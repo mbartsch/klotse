@@ -69,7 +69,7 @@ def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     service = FakeService()
     service.delete_pod = lambda *a: calls.append(("pod", *a))
     service.delete_node = lambda *a: calls.append(("node", *a))
-    def open_logs(*args):
+    def open_logs(*args, **options):
         logs.append(args)
         return FakeStream()
     service.open_log_stream = open_logs
