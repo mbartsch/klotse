@@ -57,6 +57,7 @@ Native Windows/macOS packages are built with PyInstaller (`packaging/`, see the 
 
 | File | Responsibility |
 | --- | --- |
+| `src/klotse/_display.py` | The version a run from a git checkout reports (`klotse.__display_version__` when no `_build_info.py` exists): the plain version when HEAD carries `v<version>`, else `<version>+g<commit>`, the same rule as `scripts/release.py display_version`. Pip installs and packaged apps (no `.git`) report the plain version. Tested in `tests/test_display_version.py`. |
 | `src/klotse/__main__.py` | QApplication startup, theme, main window, bounded process shutdown. |
 | `src/klotse/cli.py` | Command-line actions handled before the GUI starts (no Qt at import): `--version`, `--install-desktop-entry`, `--uninstall-desktop-entry`, `--self-test [FILE]` (checks a packaged build: imports, Qt plugins, logo, dialogs; exit 0 = OK) and `--terminal-session` (the macOS shell runner, reached through the app binary when packaged). |
 | `src/klotse/desktop_entry.py` | Linux application-menu entry for pip/pipx installs: `klotse --install-desktop-entry` writes `~/.local/share/applications/klotse.desktop` and the icon (no root), `--uninstall-desktop-entry` removes them. Uses the Desktop Entry quoting rules for `Exec`; `__main__` sets the Wayland desktop file name to `klotse`. |
