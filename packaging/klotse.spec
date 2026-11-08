@@ -45,6 +45,8 @@ a = Analysis(  # noqa: F821
     # The bundled plugins are loaded by name at run time (klotse.plugins.manager.BUNDLED_MODULES), so nothing imports
     # them for PyInstaller to see: list them all, with what they import. The --self-test "plugins" check proves it.
     hiddenimports=collect_submodules("klotse_plugins") + collect_submodules("PySide6.QtWebChannel")
+    # The embedded terminal imports these inside functions, which PyInstaller does not follow: list them (the self-test checks them).
+    + ["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"]
     + (collect_submodules("winpty") if sys.platform == "win32" else []),
     excludes=["tkinter", "pytest", "_pytest", "pytestqt", "unittest"],  # QtWebEngine stays in: the embedded terminal needs it
     noarchive=False,
