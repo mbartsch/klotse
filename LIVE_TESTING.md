@@ -128,7 +128,24 @@ Baseline from the log (103 nodes, 2,683 pods, 7,890 events, via a proxy): Overvi
 
 Measured with the timing log after the big-cluster work (see `AGENTS.md`): connect 1.8 s, Overview about 2 s, Pods list first page 4.6 s with the rest loading while idle and no GUI stall, node pod counts 8 s, Health check 21.9 s, Capacity 18.6 s, Right-sizing 19.2 s. Accepted as good enough by the owner. Not measured: Export diagnostics, Search objects, Logs of all pods on a big cluster.
 
+### 2026-11-08, docker-desktop (v1.36.4): the features added since the big-cluster work
+
+Service layer driven by scripts again; **no window was opened**. Nothing was run on a big cluster.
+
+| Result | What |
+| --- | --- |
+| Verified | **Unused objects**: ran against the real API (found a stray Secret and the kube-system/kube-public config ConfigMaps; metadata-only Secret list worked) |
+| Verified | **Upgrade preflight**: `/metrics` was readable and reported one real deprecated request (core Endpoints); 27 served API versions read; node skew judged; cert-manager absent handled |
+| Verified | **Pod security**: found kube-proxy privileged, kindnet NET_ADMIN/NET_RAW, static pods on the host network, and the debug container from the owner's own `kubectl debug` test (SYS_PTRACE) |
+| Verified | **Review changes before saving** (the dry run): a valid edit returned the object the server would store and the stored value did not change; an invalid edit and a stale resourceVersion returned the server's message; a create stored nothing; all with read-only on and an empty change log |
+| Not run live | **Trivy reports**: the operator could not be installed in the test cluster (blocked), so the column names, labels and report fields are from its documentation only. Install the operator (`helm install trivy-operator aqua/trivy-operator -n trivy-system --create-namespace`) and open View > Trivy reports… |
+| Not run live | **Command palette** (Ctrl+K), **filter expressions** in the real list windows, the **review window**, and every new window's appearance |
+
 ## Still pending (what to test next)
+
+- [ ] The new windows on a display: Unused objects, Upgrade preflight (change the Upgrade-to box), Pod security, Trivy reports, the review window (accept, refuse, back to editing), the command palette (Ctrl+K), and filter expressions typed into the Pods, Nodes and Events lists (`Restarts > 3`, `CPULim = 2*CPUReq`, `Age > 1h`).
+- [ ] Review changes before saving with a real webhook that rejects, and with a form edit of a Deployment (the diff should show only the changed fields).
+- [ ] Preflight on a cluster with a removed API still served, a PodDisruptionBudget at zero, an old kubelet and cert-manager Certificates.
 
 Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.
 
