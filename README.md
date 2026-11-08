@@ -124,6 +124,10 @@ yourself (see [Development](#development)).
   the 0.1.0 release has been tested on an Apple Silicon Mac (M3 Pro, macOS 26.7.1). The Intel build has not been run on an Intel Mac.
 - The packages are not signed yet, so expect a warning on first start: on Windows choose **More info → Run anyway**,
   on macOS right-click the app and choose **Open**.
+- On macOS, if Klotse is reported as "damaged" or cannot be opened, the downloaded app still carries the quarantine flag that
+  Gatekeeper checks. After moving `Klotse.app` to Applications, remove the flag once in Terminal:
+  `xattr -dr com.apple.quarantine /Applications/Klotse.app`
+  The packages are not notarized by Apple, so this is needed on Macs other than the one that built them.
 - `kubectl` is not included and has to be installed separately.
 
 ### Linux, or anywhere with Python 3.10+: pipx
