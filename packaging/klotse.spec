@@ -29,8 +29,14 @@ LOGO = ASSETS / "klotse_logo.png"
 ICON_DIR = ROOT / "build" / "icons"
 IS_WINDOWS, IS_MAC = sys.platform == "win32", sys.platform == "darwin"
 
-# The logo files next to the package (not the editable source in assets/source/) go to klotse/assets in the app.
-datas = [(str(path), "klotse/assets") for path in ASSETS.iterdir() if path.is_file()]
+# The files under src/klotse/assets go to klotse/assets in the app, subfolders included (assets/xterm holds the embedded terminal's
+# page; without it the packaged self-test fails). The editable sources in assets/source/ are not packaged.
+datas = []
+for path in ASSETS.rglob("*"):
+    if not path.is_file() or path.relative_to(ASSETS).parts[0] == "source":
+        continue
+    folder = path.parent.relative_to(ASSETS).as_posix()
+    datas.append((str(path), "klotse/assets" if folder == "." else f"klotse/assets/{folder}"))
 
 a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "entry.py")],
