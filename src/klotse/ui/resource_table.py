@@ -13,6 +13,7 @@ from .loading_pane import LoadingPane
 from .table_model import TableModel, age_sort_value
 
 
+METRIC_KINDS = {"Pod", "Node", "Deployment", "StatefulSet", "DaemonSet"}  # have a usage history chart
 LOG_SOURCES = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "Service"}  # have a selector: their pods' logs together
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
@@ -70,6 +71,7 @@ class ResourceTable(QWidget):
     rbac_requested = Signal(str, object)  # a ServiceAccount row: what can it do?
     multi_logs_requested = Signal(str, object)  # kind, a row (workload or Service) or a list of Pod rows
     duplicate_requested = Signal(str, object)  # kind, row: create a new object starting from this one
+    metrics_requested = Signal(str, object)  # kind, row: show the usage history chart
     compare_requested = Signal(str, list)  # kind, the two selected rows
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
     rows_incoming = Signal(list)  # new rows are about to go in: plugins put the values they already know on them
@@ -584,6 +586,8 @@ class ResourceTable(QWidget):
                 menu.addAction(self._hint("Copy as new…", "create", row), lambda: self.duplicate_requested.emit(self.kind, row))
             if self.kind == "ServiceAccount":
                 menu.addAction("Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
+            if self.kind in METRIC_KINDS:
+                menu.addAction("Usage history…", lambda: self.metrics_requested.emit(self.kind, row))
             if self.kind in LOG_SOURCES:
                 menu.addAction("Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row))
             if self.kind in SCALABLE:

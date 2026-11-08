@@ -34,11 +34,12 @@ from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
+from .metrics_dialog import MetricsDialog
 from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health, pod_security, trivy, unused
+from ..k8s import health, metrics_history, pod_security, trivy, unused
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -278,6 +279,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.restart_requested.connect(self.restart_resource)
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.compare_requested.connect(self.compare_objects)
+                widget.metrics_requested.connect(self.show_metrics)
                 widget.duplicate_requested.connect(self.copy_resource)
                 widget.multi_logs_requested.connect(self.multi_logs)
                 widget.rbac_requested.connect(lambda kind, row: self.show_rbac(subject=("ServiceAccount", row.name, row.namespace)))
@@ -1132,6 +1134,8 @@ class ClusterWorkspace(QMainWindow):
             self._search_dialog.close()  # stops a search still reading pages
         if getattr(self, "_capacity_dialog", None) is not None:
             self._capacity_dialog.close()
+        for dialog in list(getattr(self, "_metrics_dialogs", [])):
+            dialog.close()  # stops its sampling
         if getattr(self, "_trivy_dialog", None) is not None:
             self._trivy_dialog.close()
         if getattr(self, "_security_dialog", None) is not None:
@@ -1500,6 +1504,36 @@ class ClusterWorkspace(QMainWindow):
         dialog.summary.setText("Loading pods and usage…")
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+
+    def show_metrics(self, kind, row):
+        """Right-click a Pod, Node, Deployment, StatefulSet or DaemonSet > Usage history…: CPU and memory charts. With only metrics-server there
+        is no history, so the window samples it every 15 s from the moment it opens (k8s/metrics_history.py). Looking only. Non-modal; one
+        window per object (asking again brings it forward); all are closed with the cluster."""
+        sample = getattr(self.service, "metrics_sample", None)
+        if sample is None:
+            self.message.emit(f"{self.context}: this service cannot read metrics")
+            return None
+        selector = ""
+        if kind in ("Deployment", "StatefulSet", "DaemonSet"):
+            selector = selector_text((row.raw.get("spec") or {}).get("selector"))
+            if not selector:
+                QMessageBox.information(self, "Usage history", f"{kind} {row.name} has no label selector, so its pods cannot be found.")
+                return None
+        key = (kind, row.namespace, row.name)
+        self._metrics_dialogs = [d for d in getattr(self, "_metrics_dialogs", []) if d.isVisible()]
+        for existing in self._metrics_dialogs:
+            if getattr(existing, "key", None) == key:
+                existing.raise_()
+                return existing
+        available = getattr(self.service, "metrics_available", lambda: True)()
+        what = f"{kind} {row.namespace + '/' if row.namespace else ''}{row.name}"
+        dialog = MetricsDialog(f"Usage history: {what} ({self.context})", lambda: sample(kind, row.namespace, row.name, selector),
+                               metrics_history.reference_lines(kind, row), available, parent=self)
+        dialog.key = key
+        dialog.setWindowFlag(Qt.Window, True)
+        dialog.show()
+        self._metrics_dialogs.append(dialog)
+        return dialog
 
     def show_trivy(self):
         """View > Trivy reports…: the Trivy Operator's vulnerability, config audit, exposed secret and RBAC reports, read on a worker

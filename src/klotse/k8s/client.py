@@ -14,7 +14,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, preflight, related, rollout, search, trivy
+from . import connect_help, helm, metrics_history, preflight, related, rollout, search, trivy
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
@@ -1077,6 +1077,31 @@ class KubeService:
             return page.get("items") or []
         except Exception:
             return []
+
+    def metrics_available(self):
+        """True when this cluster serves the metrics.k8s.io API (metrics-server is installed and registered)."""
+        try:
+            self._custom.get_api_resources("metrics.k8s.io", "v1beta1", _request_timeout=10)
+            return True
+        except Exception:  # noqa: BLE001 - missing or not permitted: no metrics
+            return False
+
+    def metrics_sample(self, kind, namespace="", name="", selector=""):
+        """One metrics-server reading for the usage chart: {line: (timestamp, cores, MiB)} for a Pod (a line per container, and a total),
+        a Node (one line) or a set of pods picked by a label `selector` (a workload: a total and a line per pod). One small request, not
+        a list of all pods. An object metrics-server has no reading for yet gives {}. Looking only."""
+        api = self._custom
+        try:
+            if kind == "Node":
+                return metrics_history.node_sample(api.get_cluster_custom_object("metrics.k8s.io", "v1beta1", "nodes", name, _request_timeout=15))
+            if kind == "Pod":
+                return metrics_history.pod_sample(api.get_namespaced_custom_object("metrics.k8s.io", "v1beta1", namespace, "pods", name, _request_timeout=15))
+            found = api.list_namespaced_custom_object("metrics.k8s.io", "v1beta1", namespace, "pods", label_selector=selector, _request_timeout=15)
+            return metrics_history.workload_sample(found.get("items") or [])
+        except ApiException as error:
+            if error.status == 404:
+                return {}
+            raise
 
     def node_usage(self):
         """{node name: (cores, GiB)} currently in use."""
