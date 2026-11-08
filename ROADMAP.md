@@ -17,7 +17,7 @@ Features other Kubernetes desktop tools have and Klotse does not yet. Items mark
 | 9 | File copy to and from a pod (**done**, #59) | Lens, k9s | Small to medium |
 | 10 | Embedded terminal with xterm.js (MIT) in QtWebEngine (**done**, #60; opt-in in Preferences > Terminal) | Lens, Aptakube | Medium to large |
 | 11 | Metrics history charts (needs Prometheus; today only current values) | Lens, Aptakube | Large |
-| 12 | Several clusters side by side in one view | Aptakube | Large |
+| 12 | Several clusters side by side in one view (**done** as a merged list of one kind, #62: View > Several clusters…; not side-by-side panes, not run with two real clusters) | Aptakube | Large |
 
 GitHub issues: items 1-12 are #51-#62 in table order; the Azure plugin is #63 and the GCP plugin #64.
 

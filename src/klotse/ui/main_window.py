@@ -21,6 +21,7 @@ from .navigator import Navigator
 from ..k8s.timing import timings
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .big_clusters import NOTICE_TEXT, BigClusters
+from .multi_cluster import MultiClusterDialog
 from .palette import Entry
 from .palette_dialog import PaletteDialog
 from .read_only import ReadOnlyClusters
@@ -28,6 +29,45 @@ from . import embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
+
+
+class _MultiSource:
+    """What the Several clusters window asks the main window: the open clusters, the list kinds they share, and the loader of each."""
+
+    NOT_TABLES = ("overview", "workloads")
+
+    def __init__(self, window):
+        self.window = window
+        self.names = list(window.workspaces)
+
+    def _first(self):
+        return self.window.workspaces[self.names[0]]
+
+    def contexts(self):
+        return self.names
+
+    def kinds(self):
+        from .resource_table import ResourceTable
+        ws = self._first()
+        return [(key, title) for key, (widget, title) in ws.views.items()
+                if isinstance(widget, ResourceTable) and key in ws.loaders and ":" not in key and key not in self.NOT_TABLES]
+
+    def columns(self, key):
+        return list(self._first().views[key][0].base_columns)
+
+    def table_kind(self, key):
+        return self._first().views[key][0].kind
+
+    def fetch(self, context, key):
+        """The function that reads `key` from `context` (called with a namespace or None on a worker)."""
+        ws = self.window.workspaces.get(context)
+        if ws is None or key not in ws.loaders:
+            def gone(_namespace):
+                raise RuntimeError("this cluster is no longer open")
+            return gone
+        if key == "pods" and ws.big and ws.huge and hasattr(ws.service, "pod_pager"):  # a huge cluster: its first page, and the window's own pager
+            return lambda namespace: ws.service.pod_pager(namespace).next()
+        return ws.loaders[key][0]
 
 
 class MainWindow(QMainWindow):
@@ -128,6 +168,12 @@ class MainWindow(QMainWindow):
         self.review_action.setChecked(str(self.label_settings.store.value("edit/review_changes", "true")).lower() != "false")
         self.review_action.toggled.connect(self.set_review_changes)
         view_menu.addAction(self.review_action)
+        self.multi_action = QAction("Several clusters…", self)
+        self.multi_action.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        self.multi_action.setToolTip("One list of a kind (Pods, Deployments, Nodes, ...) from several open clusters, with a Cluster column")
+        self.multi_action.triggered.connect(self.show_multi)
+        view_menu.addAction(self.multi_action)
+        view_menu.aboutToShow.connect(lambda: self.multi_action.setEnabled(bool(self.workspaces)))
         self.trivy_action = QAction("Trivy reports…", self)
         self.trivy_action.setToolTip("Vulnerability, config audit, exposed secret and RBAC reports written by the Trivy Operator (read only)")
         self.trivy_action.triggered.connect(self.show_trivy)
@@ -504,6 +550,30 @@ class MainWindow(QMainWindow):
             return False
         ws.show_trivy()
         return True
+
+    def show_multi(self):
+        """View > Several clusters…: one list of a kind from several open clusters. A new window each time, so it lists the clusters that are
+        open now; False when no cluster is open."""
+        if not self.workspaces:
+            return False
+        old = getattr(self, "_multi_dialog", None)
+        if old is not None:
+            old.close()
+            old.deleteLater()
+        dialog = self._multi_dialog = MultiClusterDialog(_MultiSource(self), self)
+        dialog.setWindowFlag(Qt.Window, True)
+        dialog.go_to_requested.connect(self._goto_cluster_object)
+        dialog.show()
+        return True
+
+    def _goto_cluster_object(self, cluster, kind, namespace, name):
+        ws = self.workspaces.get(cluster)
+        if ws is None:
+            self.status.showMessage(f"{cluster} is no longer open", 6000)
+            return
+        self.clusters.setCurrentWidget(ws)
+        self.activateWindow()
+        ws.go_to_object(kind, namespace, name)
 
     def show_security(self):
         """View > Pod security…, for the cluster in front; False when no cluster is open."""
