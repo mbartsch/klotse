@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 requires-python = ">=3.10"
-dependencies = ["PySide6-Essentials>=6.6", "PySide6-Addons>=6.6", "kubernetes>=29", "PyYAML>=6",
+dependencies = ["PySide6-Essentials>=6.6", "PySide6-Addons>=6.6", "PySide6-WebEngine>=6.6", "kubernetes>=29", "PyYAML>=6",
     "pywinpty>=2.0.1; platform_system == 'Windows'"]  # Addons = QtWebEngine, which runs the embedded terminal (xterm.js); pywinpty = its Windows pty
 
 [project.urls]
