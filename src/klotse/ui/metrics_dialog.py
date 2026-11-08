@@ -29,9 +29,10 @@ REFRESH_S = 30
 class MetricsDialog(QDialog):
     source_requested = Signal()  # the Source… button: the owner asks for a Prometheus address
 
-    def __init__(self, title, sample, refs=None, available=True, interval_s=15, parent=None):
+    def __init__(self, title, sample, refs=None, available=True, interval_s=15, parent=None, allow_source=True):
         """`sample()` returns {line: (timestamp, cores, MiB)} (called on a worker); `refs` is mh.reference_lines(...);
-        `available` False when the cluster has no metrics API (then nothing is sampled)."""
+        `available` False when the cluster has no metrics API (then nothing is sampled). `allow_source` False (several objects picked
+        together) hides Source…: Prometheus is asked about one object at a time."""
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(920, 600)
@@ -54,6 +55,7 @@ class MetricsDialog(QDialog):
         self.source_button = QPushButton("Source…")
         self.source_button.setToolTip("Point Klotse at a Prometheus or VictoriaMetrics service, or let it look for one")
         self.source_button.clicked.connect(self.source_requested.emit)
+        self.source_button.setVisible(allow_source)
         self.pause_button = QPushButton("Pause")
         self.pause_button.setCheckable(True)
         self.pause_button.toggled.connect(self._pause)

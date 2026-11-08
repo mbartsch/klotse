@@ -72,6 +72,7 @@ class ResourceTable(QWidget):
     multi_logs_requested = Signal(str, object)  # kind, a row (workload or Service) or a list of Pod rows
     duplicate_requested = Signal(str, object)  # kind, row: create a new object starting from this one
     metrics_requested = Signal(str, object)  # kind, row: show the usage history chart
+    metrics_many_requested = Signal(str, object)  # kind, rows picked together: one usage chart with a line per object
     compare_requested = Signal(str, list)  # kind, the two selected rows
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
     rows_incoming = Signal(list)  # new rows are about to go in: plugins put the values they already know on them
@@ -508,6 +509,8 @@ class ResourceTable(QWidget):
         if n == 2 and all(getattr(r, "raw", None) for r in rows):  # looking only, so it is always offered
             menu.addAction("Compare these two…", lambda: self.compare_requested.emit(self.kind, list(rows)))
             menu.addSeparator()
+        if self.kind in METRIC_KINDS:  # looking only
+            menu.addAction(f"Usage history of {n} {self.kind}s…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
         if self.kind in SCALABLE:
             menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
         if self.kind in RESTARTABLE:

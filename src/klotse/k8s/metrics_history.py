@@ -14,6 +14,7 @@ from kubernetes.utils import parse_quantity
 
 MAX_POINTS = 4000  # per line: about 16 hours at one sample a minute, 4 hours at 15 seconds
 MAX_LINES = 9  # lines on a chart: the total and the first few pods or containers
+MAX_OBJECTS = 12  # objects picked together in one usage window (one line each, plus a total)
 
 
 def _cores(value):
@@ -77,6 +78,26 @@ def workload_sample(items):
     if len(lines) > MAX_LINES - 1:
         lines = {}
     lines["total"] = (stamp, cpu, mem)
+    return lines
+
+
+def combine(parts):
+    """Several objects picked together (usage window): `parts` is [(label, sample)] where each sample is what one object's sample
+    function gave ({line: (t, cpu, mem)}). Each object becomes one line, its `total` (or its only line); with two or more objects a
+    `total` line adds them up. An object with no reading yet is left out. Returns {line: (t, cpu, mem)}."""
+    lines, cpu, mem, stamp = {}, 0.0, 0.0, None
+    for label, sample in parts:
+        if not sample:
+            continue
+        picked = sample.get("total") or (next(iter(sample.values())) if len(sample) == 1 else None)
+        if picked is None:
+            continue
+        t, c, m = picked
+        lines[label] = (t, c, m)
+        cpu, mem = cpu + c, mem + m
+        stamp = max([x for x in (stamp, t) if x is not None], default=None)
+    if len(lines) > 1:
+        lines["total"] = (stamp, cpu, mem)
     return lines
 
 

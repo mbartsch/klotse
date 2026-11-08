@@ -1,6 +1,7 @@
 import time
 from types import SimpleNamespace
 
+import pytest
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPixmap
@@ -261,4 +262,78 @@ def test_a_real_node_row_opens_the_window_it_has_no_namespace(qtbot):
     qtbot.waitUntil(lambda: bool(seen), timeout=5000)
     assert seen[0] == ("Node", "", "n1", "") and dialog.cpu_chart.refs == {"allocatable": 4.0}
     assert ws.show_metrics("Node", node) is dialog
+    ws.shutdown()
+
+
+# ---- several objects picked together ----------------------------------------------------------------------------------
+def test_combine_gives_one_line_per_object_and_a_total_and_leaves_out_objects_without_a_reading():
+    pods = [("web-1", mh.pod_sample(pod_metrics("web-1", (("app", "100m", "64Mi"), ("side", "50m", "32Mi"))))),
+            ("web-2", mh.pod_sample(pod_metrics("web-2", (("app", "200m", "128Mi"),)))),
+            ("web-3", {})]  # no reading yet
+    lines = mh.combine(pods)
+    assert set(lines) == {"web-1", "web-2", "total"}
+    assert lines["web-1"][1:] == (pytest.approx(0.15), 96.0) and lines["web-2"][1:] == (pytest.approx(0.2), 128.0)
+    assert lines["total"][1:] == (pytest.approx(0.35), 224.0)
+    assert lines["total"][0] == mh.parse_time(STAMP)
+    one = mh.combine([("only", mh.pod_sample(pod_metrics("only")))])
+    assert set(one) == {"only"}  # a single object: no total line
+    assert mh.combine([("gone", {})]) == {}
+
+
+def test_four_pods_picked_together_chart_one_line_each_and_a_total(qtbot):
+    seen = []
+
+    def sample(kind, namespace, name, selector):
+        seen.append((kind, namespace, name))
+        return mh.pod_sample(pod_metrics(name, (("app", "100m", "64Mi"),)))
+    ws = make_ws(qtbot, metrics_sample=sample, metrics_available=lambda: True)
+    ws.show()
+    rows = [PodRow(f"web-{i}", "shop", "1/1", "Running", 0, "n1", "5m", {}) for i in range(4)]
+    dialog = ws.show_metrics_many("Pod", rows)
+    qtbot.waitUntil(lambda: dialog.history.count() > 0, timeout=5000)
+    assert sorted(seen) == [("Pod", "shop", f"web-{i}") for i in range(4)]
+    assert set(dialog.history.lines) == {f"web-{i}" for i in range(4)} | {"total"}
+    assert dialog.source_button.isHidden()  # Prometheus is asked about one object only
+    assert ws.show_metrics_many("Pod", rows) is dialog  # the same objects: same window
+    ws.shutdown()
+
+
+def test_workloads_picked_together_are_read_by_their_selectors_and_refused_without_one(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    seen = []
+    ws = make_ws(qtbot, metrics_sample=lambda *a: seen.append(a) or {}, metrics_available=lambda: True)
+    web = SimpleNamespace(name="web", namespace="shop", raw={"spec": {"selector": {"matchLabels": {"app": "web"}}}})
+    api = SimpleNamespace(name="api", namespace="shop", raw={"spec": {"selector": {"matchLabels": {"app": "api"}}}})
+    dialog = ws.show_metrics_many("Deployment", [web, api])
+    qtbot.waitUntil(lambda: len(seen) == 2, timeout=5000)
+    assert sorted(a[2:4] for a in seen) == [("api", "app=api"), ("web", "app=web")]
+    dialog.close()
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: told.append(a[2]))
+    bare = SimpleNamespace(name="x", namespace="shop", raw={"spec": {}})
+    assert ws.show_metrics_many("Deployment", [web, bare]) is None and "no label selector" in told[0]
+    ws.shutdown()
+
+
+def test_nodes_picked_together_and_more_than_the_limit_are_cut_with_a_message(qtbot):
+    said = []
+    seen = []
+    ws = make_ws(qtbot, metrics_sample=lambda kind, ns, name, sel: seen.append(name) or mh.node_sample(
+        {"metadata": {"name": name}, "timestamp": STAMP, "usage": {"cpu": "1", "memory": "1Gi"}}), metrics_available=lambda: True)
+    ws.message.connect(said.append)
+    nodes = [SimpleNamespace(name=f"n{i}", namespace="", cpu=4.0, memory=16.0, raw={}) for i in range(mh.MAX_OBJECTS + 3)]
+    dialog = ws.show_metrics_many("Node", nodes)
+    qtbot.waitUntil(lambda: len(seen) == mh.MAX_OBJECTS, timeout=5000)
+    assert said and f"first {mh.MAX_OBJECTS} of the {mh.MAX_OBJECTS + 3}" in said[0]
+    qtbot.waitUntil(lambda: dialog.history.count() > 0, timeout=5000)
+    assert set(dialog.history.lines) == {f"n{i}" for i in range(mh.MAX_OBJECTS)} | {"total"}
+    ws.shutdown()
+
+
+def test_the_bulk_menu_offers_usage_history_for_several_pods(qtbot):
+    ws = make_ws(qtbot)
+    ws.show()
+    ws.pod_table.set_rows([row_pod(), row_pod()])
+    ws.pod_table.view.selectAll()
+    assert "Usage history of 2 Pods…" in menu_texts(ws.pod_table)
     ws.shutdown()

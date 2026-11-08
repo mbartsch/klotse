@@ -284,6 +284,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.compare_requested.connect(self.compare_objects)
                 widget.metrics_requested.connect(self.show_metrics)
+                widget.metrics_many_requested.connect(self.show_metrics_many)
                 widget.duplicate_requested.connect(self.copy_resource)
                 widget.multi_logs_requested.connect(self.multi_logs)
                 widget.rbac_requested.connect(lambda kind, row: self.show_rbac(subject=("ServiceAccount", row.name, row.namespace)))
@@ -1540,6 +1541,50 @@ class ClusterWorkspace(QMainWindow):
         dialog.show()
         self._metrics_dialogs.append(dialog)
         self._offer_prometheus(dialog, kind, row, selector)
+        return dialog
+
+    def show_metrics_many(self, kind, rows):
+        """Right-click two or more rows > Usage history of N …: one chart with a line per object and a total, sampled from metrics-server
+        while the window is open (the same as one object; a workload is read by its label selector). Up to `mh.MAX_OBJECTS` objects; the
+        rest are left out and the status bar says so. Prometheus is not offered here (it is asked about one object at a time). Looking
+        only. Non-modal; asking again for the same objects brings the window forward."""
+        sample = getattr(self.service, "metrics_sample", None)
+        if sample is None:
+            self.message.emit(f"{self.context}: this service cannot read metrics")
+            return None
+        picked = list(rows)
+        if len(picked) > metrics_history.MAX_OBJECTS:
+            self.message.emit(f"Usage history shows the first {metrics_history.MAX_OBJECTS} of the {len(picked)} {kind}s selected")
+            picked = picked[:metrics_history.MAX_OBJECTS]
+        targets = []
+        for row in picked:
+            selector = ""
+            if kind in ("Deployment", "StatefulSet", "DaemonSet"):
+                selector = selector_text((row.raw.get("spec") or {}).get("selector"))
+                if not selector:
+                    QMessageBox.information(self, "Usage history", f"{kind} {row.name} has no label selector, so its pods cannot be found.")
+                    return None
+            targets.append((getattr(row, "namespace", ""), row.name, selector))  # a Node row has no namespace
+        many_namespaces = len({ns for ns, _, _ in targets}) > 1
+        key = ("many", kind, tuple(targets))
+        self._metrics_dialogs = [d for d in getattr(self, "_metrics_dialogs", []) if d.isVisible()]
+        for existing in self._metrics_dialogs:
+            if getattr(existing, "key", None) == key:
+                existing.raise_()
+                return existing
+        labels = [f"{ns}/{name}" if many_namespaces and ns else name for ns, name, _ in targets]
+
+        def read():
+            """One metrics-server reading per object, combined into the chart's lines."""
+            return metrics_history.combine([(label, sample(kind, ns, name, sel)) for label, (ns, name, sel) in zip(labels, targets)])
+
+        available = getattr(self.service, "metrics_available", lambda: True)()
+        title = f"Usage history: {len(targets)} {kind}s ({self.context})"
+        dialog = MetricsDialog(title, read, None, available, parent=self, allow_source=False)
+        dialog.key = key
+        dialog.setWindowFlag(Qt.Window, True)
+        dialog.show()
+        self._metrics_dialogs.append(dialog)
         return dialog
 
     def _prometheus_fetch(self, ref, kind, row, selector):
