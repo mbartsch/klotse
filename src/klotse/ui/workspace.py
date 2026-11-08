@@ -33,6 +33,7 @@ from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
+from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .security_dialog import SecurityDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
@@ -169,6 +170,7 @@ class ClusterWorkspace(QMainWindow):
         self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
+        self.review_changes = True  # View > Review changes before saving: a server dry run and a diff before an edit is stored
         self.big = False
         self.huge = False  # a big cluster with at least HUGE_PODS pods (known after its Overview loaded): the Pods list is read in pages
         self._pod_pager = None
@@ -1851,10 +1853,10 @@ class ClusterWorkspace(QMainWindow):
         other, until one of them saves or the user cancels."""
         if not self._writable("create or edit objects"):
             return
-        current, from_yaml = raw, False
+        current, from_yaml, stay_yaml = raw, False, False
         while True:
             form = None
-            if self._has_form(kind, current):
+            if self._has_form(kind, current) and not stay_yaml:
                 try:
                     form = self._form_for(kind, current, namespace or (current.get("metadata") or {}).get("namespace", ""),
                                           creating, secret_data)
@@ -1863,12 +1865,19 @@ class ClusterWorkspace(QMainWindow):
                         raise
                     QMessageBox.warning(self, "Edit in form", f"The form cannot show this YAML ({error}). "
                                         "Fix it here, or keep editing as YAML.")
+            stay_yaml = False
             if form is not None:
                 accepted = form.exec() == QDialog.Accepted
                 form.deleteLater()
                 if accepted:
-                    self._submit(kind, name, form.result_body, creating, namespace)
-                    return
+                    verdict = self._review(kind, name, form.result_body, raw, creating)
+                    if verdict == SAVE:
+                        self._submit(kind, name, form.result_body, creating, namespace)
+                        return
+                    if verdict == CANCEL:
+                        return
+                    current = form.result_body  # back to editing: the form again, with what was typed
+                    continue
                 if not form.wants_yaml:
                     return
                 current = getattr(form, "pending", None) or current  # the form's pending changes, shown in YAML
@@ -1880,11 +1889,44 @@ class ClusterWorkspace(QMainWindow):
             if dlg.exec() == EditDialog.Accepted:
                 if not confirm_risky(self, kind, name, warnings):
                     return
-                self._submit(kind, name, dlg.result_body, creating)
-                return
+                verdict = self._review(kind, name, dlg.result_body, raw, creating)
+                if verdict == SAVE:
+                    self._submit(kind, name, dlg.result_body, creating)
+                    return
+                if verdict == CANCEL:
+                    return
+                current, from_yaml, stay_yaml = dlg.result_body, True, True  # back to editing: the YAML again, as typed
+                continue
             if not getattr(dlg, "wants_form", False):
                 return
             current, from_yaml = dlg.pending_body, True  # the YAML as typed, shown in the form
+
+    def _review(self, kind, name, body, original, creating):
+        """Before an edit is stored: ask the server for a dry run (it validates, applies defaults and admission, stores nothing) and
+        show what would change in the object. Returns SAVE, EDIT (back to editing) or CANCEL. Skipped (SAVE) when reviewing is switched
+        off, for Secrets (their values are never shown; they are saved as a patch of the keys changed) and when the service cannot dry-run."""
+        dry_run = getattr(self.service, "dry_run_save", None)
+        if not self.review_changes or kind == "Secret" or dry_run is None:
+            return SAVE
+        label = name or (body.get("metadata") or {}).get("name", "")
+        dialog = ReviewDialog(f"{'New' if creating else 'Review'} {kind} {label}".strip(), self)
+        custom = self._custom_kinds.get(kind)
+
+        def show(result):
+            lines, summary = ([], "")
+            if result.get("ok"):
+                lines, summary = diff_text(kind, label, original, result.get("stored") or body, creating)
+            try:
+                dialog.show_result(result, lines, summary)
+            except RuntimeError:  # the window was closed and deleted while the server was answering
+                pass
+
+        self._run(lambda: dry_run(kind, body, creating, custom), show,
+                  on_error=lambda message: show({"ok": False, "message": message}))
+        dialog.exec()
+        verdict = dialog.verdict
+        dialog.deleteLater()
+        return verdict
 
     def _submit(self, kind, name, body, creating, namespace=""):
         name = name or (body.get("metadata") or {}).get("name", "")

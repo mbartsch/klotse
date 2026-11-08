@@ -1,7 +1,9 @@
 import datetime
 import functools
 import itertools
+import inspect
 import json
+import threading
 from urllib.parse import urlencode
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -134,6 +136,52 @@ class ReadOnlyError(RuntimeError):
 
 
 READ_ONLY_MESSAGE = "This cluster is in read-only mode, so nothing was changed. View > Read-only mode turns it off."
+
+
+_dry = threading.local()  # `on` is true on a worker thread while it makes a dry-run save
+_WRITES = ("POST", "PUT", "PATCH", "DELETE")
+
+
+def install_dry_run(api_client):
+    """Make `api_client` add `dryRun=All` to every write request sent by a thread that has `_dry.on` set, so the ordinary create and replace
+    code can be run as a server-side dry run: the server validates, applies defaults and admission and answers with the object it *would*
+    store, and stores nothing. Works with both call signatures of the Kubernetes client (url in `call_api(method, url, ...)` since v30,
+    `query_params` before). If a write cannot be given the parameter it is **not sent**: a preview must never become a real write."""
+    if getattr(api_client, "_klotse_dry_run", False):
+        return
+    original = api_client.call_api
+    new_style = (list(inspect.signature(original).parameters) or [""])[0] == "method"
+
+    def call_api(*args, **kwargs):
+        if getattr(_dry, "on", False):
+            args = list(args)
+            marked = False
+            if new_style:
+                method = args[0] if args else kwargs.get("method")
+                if str(method).upper() in _WRITES:
+                    key, position = ("url", 1) if len(args) > 1 else ("url", None)
+                    url = args[position] if position is not None else kwargs.get(key, "")
+                    if isinstance(url, str) and url:
+                        url = url + ("&" if "?" in url else "?") + "dryRun=All"
+                        if position is not None:
+                            args[position] = url
+                        else:
+                            kwargs[key] = url
+                        marked = True
+            else:
+                method = args[1] if len(args) > 1 else kwargs.get("method")
+                if str(method).upper() in _WRITES:
+                    if len(args) > 3:
+                        args[3] = list(args[3] or []) + [("dryRun", "All")]
+                    else:
+                        kwargs["query_params"] = list(kwargs.get("query_params") or []) + [("dryRun", "All")]
+                    marked = True
+            if str(method).upper() in _WRITES and not marked:
+                raise RuntimeError("The dry run could not be set up, so nothing was sent.")
+        return original(*args, **kwargs)
+
+    api_client.call_api = call_api
+    api_client._klotse_dry_run = True
 
 
 def mutating(method):
@@ -439,6 +487,38 @@ class KubeService:
         if spec.namespaced:
             return spec.mapper(getattr(api, f"replace_namespaced_{spec.snake}")(meta["name"], ns, body))
         return spec.mapper(getattr(api, f"replace_{spec.snake}")(meta["name"], body))
+
+    def dry_run_save(self, kind, body, creating=False, custom=None):
+        """What the server would do with this manifest, without storing it: `{"ok": True, "stored": manifest}` (the object as the server
+        would keep it, defaults and admission included) or `{"ok": False, "message": text}` (the server's own reason). It runs the same
+        create / replace code as the real save with `dryRun=All` added to the request (`install_dry_run`), so it is not a change: not
+        refused on a read-only cluster and not written to the change log. `custom` = (group, version, plural, namespaced) for a Gateway API kind."""
+        install_dry_run(self._api_client)
+        cls = type(self)
+        if custom is not None:
+            group, version, plural, namespaced = custom
+            ns = (body.get("metadata") or {}).get("namespace") or ""
+            name = (body.get("metadata") or {}).get("name", "")
+            call = ((lambda: cls.create_custom.__wrapped__(self, group, version, plural, namespaced, body)) if creating else
+                    (lambda: cls.replace_custom.__wrapped__(self, group, version, plural, namespaced, ns, name, body)))
+        else:
+            call = ((lambda: cls.create.__wrapped__(self, kind, body)) if creating else (lambda: cls.replace.__wrapped__(self, kind, body)))
+        _dry.on = True
+        try:
+            stored = call()
+        except ApiException as error:
+            message = ""
+            try:
+                message = json.loads(error.body or "{}").get("message", "")
+            except (ValueError, TypeError, AttributeError):
+                pass
+            return {"ok": False, "message": message or f"{error.status} {error.reason}"}
+        except Exception as error:  # noqa: BLE001 - the user is told, nothing was stored
+            return {"ok": False, "message": f"{type(error).__name__}: {error}"}
+        finally:
+            _dry.on = False
+        raw = stored if isinstance(stored, dict) else getattr(stored, "raw", None)
+        return {"ok": True, "stored": raw or {}}
 
     @mutating
     def scale(self, kind, name, namespace, replicas):

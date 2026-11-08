@@ -123,6 +123,11 @@ class MainWindow(QMainWindow):
         self.palette_action.setToolTip("Jump to a view, namespace or cluster, or run an action, from one search box")
         self.palette_action.triggered.connect(self.show_palette)
         view_menu.addAction(self.palette_action)
+        self.review_action = QAction("Review changes before saving", self, checkable=True)
+        self.review_action.setToolTip("Before an edit is stored, ask the server for a dry run and show what would change (nothing is stored by the preview)")
+        self.review_action.setChecked(str(self.label_settings.store.value("edit/review_changes", "true")).lower() != "false")
+        self.review_action.toggled.connect(self.set_review_changes)
+        view_menu.addAction(self.review_action)
         self.security_action = QAction("Pod security…", self)
         self.security_action.setToolTip("Workloads that break the Pod Security Standards: privileged, host access, hostPath, running as root")
         self.security_action.triggered.connect(self.show_security)
@@ -260,6 +265,7 @@ class MainWindow(QMainWindow):
         self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))
         ws.read_only_changed.connect(lambda _on, w=ws: self._retitle(w))
         ws.set_read_only(self.read_only_clusters.is_read_only(ctx))
+        ws.review_changes = self.review_action.isChecked()
         ws.big_changed.connect(lambda _on, w=ws: self._retitle(w))
         ws.big_detected.connect(lambda nodes, pods, w=ws: self._found_big(w, nodes, pods))
         ws.set_big(self.big_clusters.is_big(ctx))
@@ -478,6 +484,13 @@ class MainWindow(QMainWindow):
         dialog = PaletteDialog(self.palette_entries(), self, free_text=search_for)
         dialog.exec()
         dialog.deleteLater()
+
+    def set_review_changes(self, on):
+        """View > Review changes before saving: remembered, and applied to every open cluster and to those opened later."""
+        self.label_settings.store.setValue("edit/review_changes", bool(on))
+        self.label_settings.store.sync()
+        for ws in self.workspaces.values():
+            ws.review_changes = bool(on)
 
     def show_security(self):
         """View > Pod security…, for the cluster in front; False when no cluster is open."""
