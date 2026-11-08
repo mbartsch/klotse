@@ -53,7 +53,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, arch: arm64 }          # Apple Silicon
+          - { os: macos-15, arch: arm64 }          # Apple Silicon (macos-14 is not served: the job was cancelled before it started)
           - { os: macos-15-intel, arch: x86_64 }   # Intel
     runs-on: ${{ matrix.os }}
     steps:
