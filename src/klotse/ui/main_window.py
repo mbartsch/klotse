@@ -21,6 +21,8 @@ from .navigator import Navigator
 from ..k8s.timing import timings
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .big_clusters import NOTICE_TEXT, BigClusters
+from .palette import Entry
+from .palette_dialog import PaletteDialog
 from .read_only import ReadOnlyClusters
 from . import embedded_terminal, theme
 from .theme import ThemeSettings
@@ -116,6 +118,11 @@ class MainWindow(QMainWindow):
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
         view_menu.addAction(self.rightsizing_action)
         view_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.palette_action = QAction("Command palette…", self)
+        self.palette_action.setShortcut(QKeySequence("Ctrl+K"))
+        self.palette_action.setToolTip("Jump to a view, namespace or cluster, or run an action, from one search box")
+        self.palette_action.triggered.connect(self.show_palette)
+        view_menu.addAction(self.palette_action)
         self.security_action = QAction("Pod security…", self)
         self.security_action.setToolTip("Workloads that break the Pod Security Standards: privileged, host access, hostPath, running as root")
         self.security_action.triggered.connect(self.show_security)
@@ -415,6 +422,62 @@ class MainWindow(QMainWindow):
             return False
         ws.show_rightsizing()
         return True
+
+    # ---- command palette -------------------------------------------------------------------------------------
+    def palette_entries(self):
+        """Everything the palette can do right now: the views of the cluster in front, its namespaces, the clusters of the kubeconfig and
+        the enabled menu actions. Rebuilt each time it opens, so it reflects what is connected and enabled."""
+        from .navigator import VIEWS
+        entries = []
+        ws = self.clusters.currentWidget()
+        if ws is not None:
+            for entry in VIEWS:
+                leaves = [(entry[0], entry[1])] if len(entry) == 2 else entry[1]
+                group = "" if len(entry) == 2 else entry[0]
+                for key, label in leaves:
+                    entries.append(Entry("Go to", label, f"{group} · {ws.context}" if group else ws.context, lambda k=key, w=ws: self._goto_view(w, k)))
+            for name in getattr(ws, "_ns_names", []):
+                if name != "All namespaces":
+                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.set_namespace(n)))
+            entries.append(Entry("Namespace", "All namespaces", ws.context, lambda w=ws: w.set_namespace("All namespaces")))
+        for ctx in self.contexts:
+            if ctx in self.workspaces:
+                entries.append(Entry("Cluster", ctx, "switch to it", lambda c=ctx: self.clusters.setCurrentWidget(self.workspaces[c])))
+            else:
+                entries.append(Entry("Cluster", ctx, "connect", lambda c=ctx: self.open_cluster(c)))
+        for menu_action in self.menuBar().actions():
+            menu = menu_action.menu()
+            if menu is None:
+                continue
+            menu.aboutToShow.emit()  # menus enable their entries lazily, when they are about to show
+            title = menu_action.text().replace("&", "")
+            for action in menu.actions():
+                text = action.text().replace("&", "").replace("…", "").strip()
+                if action.isSeparator() or not text or action is self.palette_action or action.menu() is not None or not action.isEnabled():
+                    continue
+                entries.append(Entry("Action", text, f"{title} menu" + (" · checked" if action.isCheckable() and action.isChecked() else ""), action.trigger))
+        return entries
+
+    def _goto_view(self, ws, key):
+        self.clusters.setCurrentWidget(ws)
+        ws.open_view(key)
+
+    def show_palette(self):
+        """View > Command palette… (Ctrl+K): one search box over views, namespaces, clusters and actions. What is typed that matches
+        nothing can be searched for as an object name (View > Search objects…)."""
+        def search_for(text):
+            ws = self.clusters.currentWidget()
+            if ws is None:
+                return None
+
+            def run(w=ws, t=text):
+                dialog = w.show_search()
+                dialog.box.setText(t)
+            return Entry("Search", f"Search objects for “{text}”", ws.context, run)
+
+        dialog = PaletteDialog(self.palette_entries(), self, free_text=search_for)
+        dialog.exec()
+        dialog.deleteLater()
 
     def show_security(self):
         """View > Pod security…, for the cluster in front; False when no cluster is open."""
