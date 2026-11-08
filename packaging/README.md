@@ -62,7 +62,7 @@ python -m build --outdir dist/pypi
 python -m twine check dist/pypi/*
 ```
 
-`.github/workflows/pypi.yml` does this in CI, installs the wheel with pipx on Python 3.10, 3.12 and 3.13, runs the
+`.github/workflows/pypi.yml` does this in CI, installs the wheel with pipx on Python 3.10, 3.11, 3.12, 3.13 and 3.14, runs the
 self-test headless and inside a real X11 session (Xvfb), and checks the desktop entry.
 
 ### Publishing to PyPI
