@@ -128,6 +128,11 @@ class MainWindow(QMainWindow):
         self.review_action.setChecked(str(self.label_settings.store.value("edit/review_changes", "true")).lower() != "false")
         self.review_action.toggled.connect(self.set_review_changes)
         view_menu.addAction(self.review_action)
+        self.trivy_action = QAction("Trivy reports…", self)
+        self.trivy_action.setToolTip("Vulnerability, config audit, exposed secret and RBAC reports written by the Trivy Operator (read only)")
+        self.trivy_action.triggered.connect(self.show_trivy)
+        view_menu.addAction(self.trivy_action)
+        view_menu.aboutToShow.connect(lambda: self.trivy_action.setEnabled(self.clusters.currentWidget() is not None))
         self.security_action = QAction("Pod security…", self)
         self.security_action.setToolTip("Workloads that break the Pod Security Standards: privileged, host access, hostPath, running as root")
         self.security_action.triggered.connect(self.show_security)
@@ -491,6 +496,14 @@ class MainWindow(QMainWindow):
         self.label_settings.store.sync()
         for ws in self.workspaces.values():
             ws.review_changes = bool(on)
+
+    def show_trivy(self):
+        """View > Trivy reports…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_trivy()
+        return True
 
     def show_security(self):
         """View > Pod security…, for the cluster in front; False when no cluster is open."""

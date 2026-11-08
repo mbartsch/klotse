@@ -14,7 +14,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, preflight, related, rollout, search
+from . import connect_help, helm, preflight, related, rollout, search, trivy
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
@@ -1146,6 +1146,27 @@ class KubeService:
         groups = client.ApisApi(self._api_client).get_api_versions(_request_timeout=30).groups or []
         return [("", "v1")] + [(g.name, v.version) for g in groups for v in g.versions or []]
 
+    def trivy_reports(self, key):
+        """The Trivy Operator's reports of one kind (a key of `k8s.trivy.KINDS`) as rows (`trivy.parse_table`), or None when the operator's
+        custom resources are not in this cluster. Read as the server-side Table (the operator's own count columns), so the findings inside
+        each report are not transferred; one report is read in full by `trivy_report`. Looking only."""
+        plural = trivy.KINDS[key][0]
+        path = f"/apis/{trivy.GROUP}/{trivy.VERSION}/{plural}"
+        names, rows = [], []
+        try:
+            for page_names, page_rows in self._table_pages(path, {}, 500, with_meta=True):
+                names = page_names
+                rows += page_rows
+        except ApiException as error:
+            if error.status == 404:
+                return None
+            raise
+        return trivy.parse_table(names, rows)
+
+    def trivy_report(self, key, namespace, name):
+        """One report in full (its vulnerabilities, checks or secrets), as the dict the operator wrote."""
+        return self._custom.get_namespaced_custom_object(trivy.GROUP, trivy.VERSION, namespace, trivy.KINDS[key][0], name, _request_timeout=60)
+
     def preflight_data(self):
         """(data, problems) for `k8s.preflight.check`: the server version, the API versions served, the server's deprecated-API request
         counts (None when /metrics may not be read), PodDisruptionBudgets, nodes and cert-manager Certificates. Looking only; a part
@@ -1177,7 +1198,7 @@ class KubeService:
         data["certificates"] = attempt("certificates", certificates) or []
         return data, problems
 
-    def _table_pages(self, path, params, limit):
+    def _table_pages(self, path, params, limit, with_meta=False):
         """Pages of a server-side **Table** (what `kubectl get` asks for): yields (column names, rows) where a row is a list of cell
         strings. The API server sends a few short cells per object instead of the whole manifest, and nothing goes through the
         Kubernetes client's model deserialization, which costs about 3 ms per pod (18,000 pods: 59 s as pods, a fraction as a table).
@@ -1202,7 +1223,10 @@ class KubeService:
             if table.get("kind") != "Table":
                 raise ValueError("the server did not answer with a Table")
             names = [c.get("name", "") for c in table.get("columnDefinitions") or []]
-            rows = [r.get("cells") or [] for r in table.get("rows") or []]
+            if with_meta:  # (cells, the object's metadata) so a row can be tied to its object (labels, namespace)
+                rows = [(r.get("cells") or [], (r.get("object") or {}).get("metadata") or {}) for r in table.get("rows") or []]
+            else:
+                rows = [r.get("cells") or [] for r in table.get("rows") or []]
             pages += 1
             items += len(rows)
             yield names, rows

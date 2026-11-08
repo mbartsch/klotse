@@ -56,7 +56,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 25 | RBAC reverse lookup ("who can do X?") and a ServiceAccount's effective permissions (**done**, #106) | Medium |
 | 26 | Certificate expiry (**done**, #107: cert-manager Certificates get Ready, Expires, Renewal columns from their own status; TLS Secrets get Expires and Subject columns read from the public `tls.crt`) | Small to medium |
 | 27 | Pod security findings across the cluster (privileged, hostPath, root) (**done**, #108: View > Pod security…) | Medium |
-| 28 | Trivy Operator reports, read-only | Medium |
+| 28 | Trivy Operator reports, read-only (**done**, #109: View > Trivy reports…; not run against a real operator) | Medium |
 
 ### Newer Kubernetes objects
 

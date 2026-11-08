@@ -35,9 +35,10 @@ from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .security_dialog import SecurityDialog
+from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health, pod_security, unused
+from ..k8s import health, pod_security, trivy, unused
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -1131,6 +1132,8 @@ class ClusterWorkspace(QMainWindow):
             self._search_dialog.close()  # stops a search still reading pages
         if getattr(self, "_capacity_dialog", None) is not None:
             self._capacity_dialog.close()
+        if getattr(self, "_trivy_dialog", None) is not None:
+            self._trivy_dialog.close()
         if getattr(self, "_security_dialog", None) is not None:
             self._security_dialog.close()
         if getattr(self, "_preflight_dialog", None) is not None:
@@ -1497,6 +1500,48 @@ class ClusterWorkspace(QMainWindow):
         dialog.summary.setText("Loading pods and usage…")
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+
+    def show_trivy(self):
+        """View > Trivy reports…: the Trivy Operator's vulnerability, config audit, exposed secret and RBAC reports, read on a worker
+        (the Table of each report kind; a whole report only when opened). Looking only. Non-modal, one per workspace."""
+        dialog = getattr(self, "_trivy_dialog", None)
+        if dialog is None:
+            dialog = self._trivy_dialog = TrivyDialog(self.context, self)
+            dialog.load_requested.connect(self._load_trivy)
+            dialog.open_requested.connect(self._open_trivy_report)
+        dialog.show()
+        dialog.raise_()
+        dialog.load_current()
+        return dialog
+
+    def _load_trivy(self, key):
+        dialog = self._trivy_dialog
+        read = getattr(self.service, "trivy_reports", None)
+        if read is None:
+            dialog.show_error(key, "this service cannot read Trivy reports")
+            return
+
+        def done(rows):
+            if rows is None:
+                dialog.show_missing(key)
+            else:
+                dialog.show_rows(key, rows)
+
+        self._run(lambda: read(key), done, on_error=lambda message: dialog.show_error(key, message))
+
+    def _open_trivy_report(self, key, row):
+        """Double-click on a row: read that whole report and show its findings."""
+        title = f"{trivy.KINDS[key][1]}: {row['workload_kind']}/{row['workload']} {row['container']}".strip()
+        self.message.emit(f"{self.context}: reading the report of {row['workload'] or row['report']}…")
+
+        def show(report):
+            headings, rows = trivy.details(key, report)
+            dialog = ReportDialog(title, headings, rows, trivy.scanned(report), self)
+            dialog.setAttribute(Qt.WA_DeleteOnClose)
+            dialog.show()
+            self._report_dialogs = [d for d in getattr(self, "_report_dialogs", []) if d.isVisible()] + [dialog]
+
+        self._run(lambda: self.service.trivy_report(key, row["namespace"], row["report"]), show)
 
     def show_security(self):
         """View > Pod security…: workloads (grouped, with pod counts) that break the baseline or restricted Pod Security Standards, from
