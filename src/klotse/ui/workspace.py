@@ -33,9 +33,10 @@ from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
+from .security_dialog import SecurityDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health, unused
+from ..k8s import health, pod_security, unused
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -1128,6 +1129,8 @@ class ClusterWorkspace(QMainWindow):
             self._search_dialog.close()  # stops a search still reading pages
         if getattr(self, "_capacity_dialog", None) is not None:
             self._capacity_dialog.close()
+        if getattr(self, "_security_dialog", None) is not None:
+            self._security_dialog.close()
         if getattr(self, "_preflight_dialog", None) is not None:
             self._preflight_dialog.close()
         if getattr(self, "_unused_dialog", None) is not None:
@@ -1492,6 +1495,36 @@ class ClusterWorkspace(QMainWindow):
         dialog.summary.setText("Loading pods and usage…")
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+
+    def show_security(self):
+        """View > Pod security…: workloads (grouped, with pod counts) that break the baseline or restricted Pod Security Standards, from
+        the pod manifests of the namespace in front (or all), read on a worker. Looking only. Non-modal, one per workspace."""
+        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+        dialog = getattr(self, "_security_dialog", None)
+        if dialog is None:
+            dialog = self._security_dialog = SecurityDialog(self.context, scope, self)
+            dialog.reload_button.clicked.connect(self._load_security)
+            dialog.go_to_requested.connect(self.go_to_object)
+        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
+        dialog.show()
+        dialog.raise_()
+        self._load_security()
+        return dialog
+
+    def _load_security(self):
+        dialog = self._security_dialog
+        namespace = None if self.namespace() == ALL_NS else self.namespace()
+        dialog.summary.setText("Checking…")
+        read = getattr(self.service, "pod_security_data", None)
+        if read is None:
+            dialog.show_error("this service cannot check pod security")
+            return
+
+        def work():
+            data, problems = read(namespace)
+            return pod_security.check(data), problems
+
+        self._run(work, lambda answer: dialog.show_findings(*answer), on_error=dialog.show_error)
 
     def show_preflight(self):
         """View > Upgrade preflight…: deprecated APIs, PodDisruptionBudgets that allow no disruption, kubelet version skew and

@@ -116,6 +116,11 @@ class MainWindow(QMainWindow):
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
         view_menu.addAction(self.rightsizing_action)
         view_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.security_action = QAction("Pod security…", self)
+        self.security_action.setToolTip("Workloads that break the Pod Security Standards: privileged, host access, hostPath, running as root")
+        self.security_action.triggered.connect(self.show_security)
+        view_menu.addAction(self.security_action)
+        view_menu.aboutToShow.connect(lambda: self.security_action.setEnabled(self.clusters.currentWidget() is not None))
         self.preflight_action = QAction("Upgrade preflight…", self)
         self.preflight_action.setToolTip("Before an upgrade or a drain: deprecated APIs, PodDisruptionBudgets that allow no disruption, "
                                          "kubelet version skew, certificate dates")
@@ -409,6 +414,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_rightsizing()
+        return True
+
+    def show_security(self):
+        """View > Pod security…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_security()
         return True
 
     def show_preflight(self):

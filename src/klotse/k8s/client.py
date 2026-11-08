@@ -1253,6 +1253,20 @@ class KubeService:
             if not token:
                 return items
 
+    def pod_security_data(self, namespace=None):
+        """({"pods": [manifests], "namespaces": [manifests]}, problems) for `k8s.pod_security.check`. Whole manifests, since the securityContext
+        of every container is judged (plain JSON in big-cluster mode); a part that cannot be read is named, never fatal. Looking only."""
+        data, problems = {"pods": [], "namespaces": []}, []
+        try:
+            data["pods"] = [row.raw for row in self.list_pods_for_analysis(namespace, full=True)]
+        except Exception as error:  # noqa: BLE001
+            problems.append(f"pods ({type(error).__name__})")
+        try:
+            data["namespaces"] = [row.raw for row in self.list_namespaces()]
+        except Exception as error:  # noqa: BLE001 - the pods can still be judged
+            problems.append(f"namespaces ({type(error).__name__})")
+        return data, problems
+
     def unused_data(self, namespace=None):
         """(data, problems, missing) for `k8s.unused.find_unused`: the manifests that *refer* to ConfigMaps, Secrets and claims (pods,
         workloads, Ingresses, Service Accounts) and the objects to judge (ConfigMaps and Secrets as metadata only, claims). Looking
