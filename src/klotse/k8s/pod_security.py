@@ -19,6 +19,7 @@ RESTRICTED_VOLUMES = {"configMap", "csi", "downwardAPI", "emptyDir", "ephemeral"
 SELINUX_TYPES = {"", "container_t", "container_init_t", "container_kvm_t", "container_engine_t"}
 SYSTEM_NAMESPACES = ("kube-system", "kube-public", "kube-node-lease")
 ENFORCE_LABEL = "pod-security.kubernetes.io/enforce"
+APPARMOR_ANNOTATION = "container.apparmor.security.beta.kubernetes.io"  # the part before the "/<container name>"
 # reasons that are about the node being reachable from the pod: the serious ones
 SERIOUS = ("privileged", "host network", "host PID", "host IPC", "hostPath", "host port", "added capability")
 
@@ -45,7 +46,7 @@ def baseline_reasons(pod):
     if any("hostPath" in v for v in spec.get("volumes") or []):
         reasons.append("hostPath volume")
     for annotation, value in (meta.get("annotations") or {}).items():
-        if annotation.startswith("container.apparmor.security.beta.kubernetes.io/") and value not in ("runtime/default",) and not value.startswith("localhost/"):
+        if annotation.partition("/")[0] == APPARMOR_ANNOTATION and value != "runtime/default" and value.partition("/")[0] != "localhost":
             reasons.append("unconfined seccomp or AppArmor")
     for c in _containers(spec):
         sc = c.get("securityContext") or {}

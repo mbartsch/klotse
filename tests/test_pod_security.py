@@ -104,3 +104,14 @@ def test_the_dialog_and_workspace(qtbot):
     qtbot.waitUntil(lambda: dialog.table.rowCount() == 1, timeout=5000)
     assert dialog.table.item(0, 1).text() == "Deployment" and "privileged container" in dialog.table.item(0, 4).text()
     ws.shutdown()
+
+
+def test_apparmor_annotations():
+    key = "container.apparmor.security.beta.kubernetes.io/c"
+    for value, bad in (("runtime/default", False), ("localhost/profile", False), ("unconfined", True)):
+        p = pod()
+        p["metadata"]["annotations"] = {key: value}
+        assert (ps.baseline_reasons(p) == ["unconfined seccomp or AppArmor"]) is bad, value
+    other = pod()
+    other["metadata"]["annotations"] = {"example.com/c": "unconfined"}
+    assert ps.baseline_reasons(other) == []
