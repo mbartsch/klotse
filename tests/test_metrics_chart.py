@@ -243,3 +243,22 @@ def test_a_service_that_cannot_read_metrics_says_so(qtbot):
     said = []
     ws.message.connect(said.append)
     assert ws.show_metrics("Pod", row_pod()) is None and "cannot read metrics" in said[0]
+
+
+def test_a_real_node_row_opens_the_window_it_has_no_namespace(qtbot):
+    """Regression: NodeRow has no `namespace`; the Nodes list's Usage history did nothing."""
+    from klotse.k8s.models import NodeRow
+    import dataclasses
+    fields = {f.name: ("" if f.type in (str, "str") else 0) for f in dataclasses.fields(NodeRow) if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING}
+    fields.update(name="n1", cpu=4.0, memory=16.0, raw={})
+    node = NodeRow(**fields)
+    assert not hasattr(node, "namespace")
+    seen = []
+    ws = make_ws(qtbot, metrics_sample=lambda *a: seen.append(a) or {"node": (1.0, 0.5, 100.0)}, metrics_available=lambda: True,
+                 find_prometheus=lambda: [], prometheus_check=lambda ref: True)
+    dialog = ws.show_metrics("Node", node)
+    assert dialog is not None and dialog.windowTitle() == "Usage history: Node n1 (ctx)"
+    qtbot.waitUntil(lambda: bool(seen), timeout=5000)
+    assert seen[0] == ("Node", "", "n1", "") and dialog.cpu_chart.refs == {"allocatable": 4.0}
+    assert ws.show_metrics("Node", node) is dialog
+    ws.shutdown()

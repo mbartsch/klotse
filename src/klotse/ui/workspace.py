@@ -1523,15 +1523,16 @@ class ClusterWorkspace(QMainWindow):
             if not selector:
                 QMessageBox.information(self, "Usage history", f"{kind} {row.name} has no label selector, so its pods cannot be found.")
                 return None
-        key = (kind, row.namespace, row.name)
+        namespace = getattr(row, "namespace", "")  # a Node row has no namespace
+        key = (kind, namespace, row.name)
         self._metrics_dialogs = [d for d in getattr(self, "_metrics_dialogs", []) if d.isVisible()]
         for existing in self._metrics_dialogs:
             if getattr(existing, "key", None) == key:
                 existing.raise_()
                 return existing
         available = getattr(self.service, "metrics_available", lambda: True)()
-        what = f"{kind} {row.namespace + '/' if row.namespace else ''}{row.name}"
-        dialog = MetricsDialog(f"Usage history: {what} ({self.context})", lambda: sample(kind, row.namespace, row.name, selector),
+        what = f"{kind} {namespace + '/' if namespace else ''}{row.name}"
+        dialog = MetricsDialog(f"Usage history: {what} ({self.context})", lambda: sample(kind, namespace, row.name, selector),
                                metrics_history.reference_lines(kind, row), available, parent=self)
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
@@ -1542,7 +1543,8 @@ class ClusterWorkspace(QMainWindow):
         return dialog
 
     def _prometheus_fetch(self, ref, kind, row, selector):
-        return lambda seconds: self.service.prometheus_history(ref, kind, row.namespace, row.name, selector, seconds)
+        namespace = getattr(row, "namespace", "")
+        return lambda seconds: self.service.prometheus_history(ref, kind, namespace, row.name, selector, seconds)
 
     def _offer_prometheus(self, dialog, kind, row, selector, force=False):
         """Look for a Prometheus or VictoriaMetrics service in the background and, when one answers, add it to the window and switch to
