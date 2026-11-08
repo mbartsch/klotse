@@ -16,7 +16,7 @@ Features other Kubernetes desktop tools have and Klotse does not yet. Items mark
 | 8 | Helm releases: list, values, history, uninstall (**done**, #58; rollback and install are not) | Aptakube, Lens | Medium (release Secrets or the `helm` CLI) |
 | 9 | File copy to and from a pod (**done**, #59) | Lens, k9s | Small to medium |
 | 10 | Embedded terminal with xterm.js (MIT) in QtWebEngine (**done**, #60; opt-in in Preferences > Terminal) | Lens, Aptakube | Medium to large |
-| 11 | Metrics history charts (needs Prometheus; today only current values) (**first part done**, #61: charts from metrics-server sampled while the window is open; Prometheus / VictoriaMetrics history is #114) | Lens, Aptakube | Large |
+| 11 | Metrics history charts (needs Prometheus; today only current values) (**done**, #61: charts from metrics-server sampled while the window is open, and #114: real history from Prometheus / VictoriaMetrics through the API server proxy; the Prometheus side has not been run against a real server) | Lens, Aptakube | Large |
 | 12 | Several clusters side by side in one view (**done** as a merged list of one kind, #62: View > Several clusters…; not side-by-side panes, not run with two real clusters) | Aptakube | Large |
 
 GitHub issues: items 1-12 are #51-#62 in table order; the Azure plugin is #63 and the GCP plugin #64.
@@ -71,7 +71,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 35 | Manual refresh only for CRDs, Access Control and other rarely changing lists: no timer or watch, refresh by the toolbar button or a right-click entry (**done**, issue #86; now the default for every list except workloads and nodes, which stay automatic) | Small to medium |
 | 36 | Log viewer options: wrap lines (Lens users' second most upvoted request, 61 votes), show timestamps, previous container instance (**done**, #112) | Small |
 | 37 | (**done**, #113: failures explained with the fix, helper stdin guard, `proxy-url` verified; the helper is not run to test it, no in-app sign-in) Sign-in check for exec auth helpers (AWS SSO, `aws-iam-authenticator` with an MFA prompt, OIDC): the Python client runs the helper without a terminal, so a prompt can fail; test and report a clear error. Also honour the kubeconfig `proxy-url`. Requested often in Lens (72 votes) and Headlamp (SSO 16, 15; proxy 14) | Medium |
-| 38 | Metrics from Prometheus or VictoriaMetrics and clearer metrics-server messages: the most upvoted Freelens requests (40, 21, 16). Overlaps item 11 (charts); do the data source first | Medium to large |
+| 38 | Metrics from Prometheus or VictoriaMetrics and clearer metrics-server messages: the most upvoted Freelens requests (40, 21, 16). Overlaps item 11 (charts); do the data source first (**Prometheus / VictoriaMetrics part done**, #114; the clearer metrics-server messages are not) | Medium to large |
 
 ### Undecided or not planned
 

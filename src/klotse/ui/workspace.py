@@ -35,11 +35,12 @@ from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
+from .metrics_sources import MetricsSources
 from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health, metrics_history, pod_security, trivy, unused
+from ..k8s import health, metrics_history, pod_security, prometheus, trivy, unused
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -157,6 +158,8 @@ class ClusterWorkspace(QMainWindow):
             service.audit = lambda action, target, result, detail='': audit_log.record(self.context, action, target, result, detail)
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = terminal_settings if terminal_settings is not None else TerminalSettings(parent=self)
+        self.metrics_sources = MetricsSources(self.label_settings.store)  # the Prometheus / VictoriaMetrics service chosen for this cluster
+        self._prometheus = None  # None = not looked for yet, False = none found, else the ref that answered
         self.refresh_settings = RefreshSettings(self.label_settings.store)  # which lists reload only on request
         self.pool = QThreadPool.globalInstance()
         self._workers = set()
@@ -1531,9 +1534,86 @@ class ClusterWorkspace(QMainWindow):
                                metrics_history.reference_lines(kind, row), available, parent=self)
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
+        dialog.source_requested.connect(lambda: self._configure_prometheus(dialog, kind, row, selector))
         dialog.show()
         self._metrics_dialogs.append(dialog)
+        self._offer_prometheus(dialog, kind, row, selector)
         return dialog
+
+    def _prometheus_fetch(self, ref, kind, row, selector):
+        return lambda seconds: self.service.prometheus_history(ref, kind, row.namespace, row.name, selector, seconds)
+
+    def _offer_prometheus(self, dialog, kind, row, selector, force=False):
+        """Look for a Prometheus or VictoriaMetrics service in the background and, when one answers, add it to the window and switch to
+        it. The service typed in Source… is used if there is one, else the Services of the cluster are searched (the best three candidates
+        are tried through the API server proxy); the result is remembered for the next window. Nothing is shown if none is found."""
+        find, check = getattr(self.service, "find_prometheus", None), getattr(self.service, "prometheus_check", None)
+        if find is None or check is None:
+            return
+        manual = self.metrics_sources.get(self.context)
+        try:
+            typed = prometheus.parse_ref(manual) if manual else None
+        except ValueError as error:
+            dialog.status.setText(f"The saved Prometheus address is not valid: {error}")
+            return
+        if typed is None and isinstance(self._prometheus, dict):
+            dialog.set_prometheus(prometheus.ref_text(self._prometheus), self._prometheus_fetch(self._prometheus, kind, row, selector))
+            return
+        if typed is None and self._prometheus is False and not force:
+            return
+
+        def work():
+            """The first service that answers the Prometheus API: (ref, [what failed])."""
+            notes = []
+            for ref in ([typed] if typed else find()[:3]):
+                try:
+                    check(ref)
+                    return ref, notes
+                except Exception as error:  # noqa: BLE001 - try the next candidate
+                    notes.append(f"{prometheus.ref_text(ref)}: {type(error).__name__}: {str(error).splitlines()[0][:120] if str(error) else ''}")
+            return None, notes
+
+        def done(answer):
+            ref, notes = answer
+            if ref is None:
+                self._prometheus = False
+                if typed or notes:  # something was tried: say why it was not used
+                    try:
+                        dialog.status.setText("Prometheus / VictoriaMetrics was not used. " + "; ".join(notes[:2]))
+                    except RuntimeError:
+                        pass
+                return
+            self._prometheus = ref
+            try:
+                dialog.set_prometheus(prometheus.ref_text(ref), self._prometheus_fetch(ref, kind, row, selector))
+            except RuntimeError:  # the window was closed while the service was being checked
+                pass
+
+        self._run(work, done, on_error=lambda _message: None)
+
+    def _configure_prometheus(self, dialog, kind, row, selector):
+        """Source… in a usage window: ask for the service (empty = look for one), check it, remember it for this cluster."""
+        text, ok = QInputDialog.getText(self, "Prometheus or VictoriaMetrics",
+                                        "Service to read history from, as namespace/service:port (a path prefix may follow,\n"
+                                        "for example /select/0/prometheus). Leave empty to look for one automatically.",
+                                        text=self.metrics_sources.get(self.context))
+        if not ok:
+            return
+        text = text.strip()
+        if text:
+            try:
+                prometheus.parse_ref(text)
+            except ValueError as error:
+                QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
+                return
+        try:
+            self.metrics_sources.set(self.context, text)
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot save", str(error))
+            return
+        self._prometheus = None
+        dialog.clear_prometheus()
+        self._offer_prometheus(dialog, kind, row, selector, force=True)
 
     def show_trivy(self):
         """View > Trivy reports…: the Trivy Operator's vulnerability, config audit, exposed secret and RBAC reports, read on a worker

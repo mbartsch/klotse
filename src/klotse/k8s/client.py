@@ -14,7 +14,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, metrics_history, preflight, related, rollout, search, trivy
+from . import connect_help, helm, metrics_history, preflight, prometheus, related, rollout, search, trivy
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
@@ -1077,6 +1077,52 @@ class KubeService:
             return page.get("items") or []
         except Exception:
             return []
+
+    def find_prometheus(self):
+        """Services that look like a Prometheus or VictoriaMetrics query endpoint, best first (`k8s.prometheus.candidates`), from the Services
+        of every namespace (small objects). [] when none is found or Services may not be listed. Looking only."""
+        try:
+            services = [row.raw for row in self.list_resource("services")]
+        except Exception:  # noqa: BLE001 - not permitted: the user can type the service by hand
+            return []
+        return prometheus.candidates(services)
+
+    def _prometheus_lines(self, ref, promql, start, end, step, label):
+        """One range query through the API server's service proxy: {line: [(t, value)]}."""
+        return prometheus.parse_matrix(self._get_text(prometheus.range_path(ref, promql, start, end, step), "application/json", 60), label)
+
+    def prometheus_check(self, ref):
+        """Raises when the service does not answer the Prometheus API through the API server proxy (no such service, no endpoints, no
+        permission on services/proxy, not Prometheus); returns True when it does."""
+        body = json.loads(self._get_text(prometheus.instant_path(ref, "up"), "application/json", 30))
+        if body.get("status") != "success":
+            raise prometheus.PrometheusError(str(body.get("error") or "the source returned an error"))
+        return True
+
+    def prometheus_history(self, ref, kind, namespace="", name="", selector="", seconds=3600):
+        """({line: [(t, cores)]}, {line: [(t, MiB)]}) of a Pod (a line per container, and a total), a workload (a total and a line per current
+        pod) or a Node, from the last `seconds`, read from the Prometheus / VictoriaMetrics service `ref`. Looking only."""
+        end = time.time()
+        start, step = end - seconds, prometheus.step_for(seconds)
+        pods, nodes, label = (), (), ("container" if kind == "Pod" else "pod")
+        if kind == "Pod":
+            pods = [name]
+        elif kind == "Node":
+            addresses = self._core.read_node(name, _request_timeout=15).status.addresses or []
+            nodes = [name] + [a.address for a in addresses if a.type == "InternalIP"]
+            label = None
+        else:
+            pods = [p[0] for p in self.pods_by_selector(namespace, selector)]
+            if not pods:
+                return {}, {}
+        window = "2m" if seconds <= 3600 else "5m"
+        q = prometheus.queries(kind, namespace, pods, nodes, window)
+        cpu = self._prometheus_lines(ref, q["cpu"], start, end, step, label)
+        mem = self._prometheus_lines(ref, q["mem"], start, end, step, label)
+        if kind == "Node" and not (cpu or mem):  # no `instance` match: try the `node` label
+            cpu = self._prometheus_lines(ref, q["cpu_alt"], start, end, step, label)
+            mem = self._prometheus_lines(ref, q["mem_alt"], start, end, step, label)
+        return prometheus.to_chart(prometheus.with_total(cpu), prometheus.with_total(mem))
 
     def metrics_available(self):
         """True when this cluster serves the metrics.k8s.io API (metrics-server is installed and registered)."""
