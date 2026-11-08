@@ -12,7 +12,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, related, rollout, search
+from . import connect_help, helm, preflight, related, rollout, search
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
@@ -1044,6 +1044,58 @@ class KubeService:
             if r.name in usage:
                 r.cpu_used, r.mem_used = usage[r.name]
         return rows
+
+    def _get_text(self, path, accept="*/*", timeout=30):
+        """The body of a GET on an API server path as text (for /metrics), with the client's own authentication. Raises on any error."""
+        api = self._api_client
+        cfg = api.configuration
+        headers = dict(getattr(api, "default_headers", {}) or {})
+        headers["Accept"] = accept
+        for setting in cfg.auth_settings().values():
+            if setting.get("in") == "header" and setting.get("value"):
+                headers[setting["key"]] = setting["value"]
+        response = api.rest_client.request("GET", f"{cfg.host}{path}", headers=headers, _request_timeout=timeout)
+        status = getattr(response, "status", 200)
+        if status and status >= 400:
+            raise ApiException(status=status, reason=getattr(response, "reason", ""))
+        data = response.data if getattr(response, "data", None) is not None else response.read()
+        return data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data)
+
+    def served_api_versions(self):
+        """Every (group, version) the cluster serves, not only the preferred versions (the core group is ("", "v1"))."""
+        groups = client.ApisApi(self._api_client).get_api_versions(_request_timeout=30).groups or []
+        return [("", "v1")] + [(g.name, v.version) for g in groups for v in g.versions or []]
+
+    def preflight_data(self):
+        """(data, problems) for `k8s.preflight.check`: the server version, the API versions served, the server's deprecated-API request
+        counts (None when /metrics may not be read), PodDisruptionBudgets, nodes and cert-manager Certificates. Looking only; a part
+        that cannot be read is left out and named in `problems`, never fatal."""
+        data, problems = {"served": [], "deprecated": None, "pdbs": [], "nodes": [], "certificates": [], "server_version": None}, []
+
+        def attempt(label, read):
+            try:
+                return read()
+            except Exception as error:  # noqa: BLE001 - one forbidden part must not hide the others
+                problems.append(f"{label} ({type(error).__name__})")
+                return None
+
+        data["server_version"] = attempt("server version", lambda: client.VersionApi(self._api_client).get_code(_request_timeout=15).git_version)
+        data["served"] = attempt("API versions", self.served_api_versions) or []
+        text = attempt("deprecated API requests (/metrics)", lambda: self._get_text("/metrics", timeout=60))
+        data["deprecated"] = preflight.parse_deprecated_metrics(text) if text is not None else None
+        data["pdbs"] = attempt("PodDisruptionBudgets", lambda: [r.raw for r in self.list_resource("poddisruptionbudgets")]) or []
+        data["nodes"] = attempt("nodes", lambda: [r.raw for r in self.list_nodes()]) or []
+
+        def certificates():
+            try:
+                return list(self._iter_dicts(self._custom.list_cluster_custom_object, "cert-manager.io", "v1", "certificates"))
+            except ApiException as error:
+                if error.status == 404:  # cert-manager is not installed: nothing to check
+                    return []
+                raise
+
+        data["certificates"] = attempt("certificates", certificates) or []
+        return data, problems
 
     def _table_pages(self, path, params, limit):
         """Pages of a server-side **Table** (what `kubectl get` asks for): yields (column names, rows) where a row is a list of cell

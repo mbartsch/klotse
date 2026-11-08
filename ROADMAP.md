@@ -82,7 +82,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 
 | # | Item | Effort | Issue |
 | --- | --- | --- | --- |
-| 39 | Upgrade preflight: deprecated APIs, PodDisruptionBudgets at zero, version skew, certificate dates (kubent, pluto, k8s-preflight, Shoalcheck) | Medium | #122 |
+| 39 | Upgrade preflight: deprecated APIs, PodDisruptionBudgets at zero, version skew, certificate dates (kubent, pluto, k8s-preflight, Shoalcheck) (**done**, #122: View > Upgrade preflight…) | Medium | #122 |
 | 40 | Compare two objects side by side (kbu, kubediff) (**done** for two objects of one list, #123; across clusters or namespaces is still open) | Small to medium | #123 |
 | 41 | CronJob: run now, suspend and resume (Kronic) (**done**, #124) | Small | #124 |
 | 42 | Saved port-forwards that can be started again (kftray) (**done**, #125) | Small to medium | #125 |

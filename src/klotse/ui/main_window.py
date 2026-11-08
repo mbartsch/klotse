@@ -116,6 +116,12 @@ class MainWindow(QMainWindow):
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
         view_menu.addAction(self.rightsizing_action)
         view_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.preflight_action = QAction("Upgrade preflight…", self)
+        self.preflight_action.setToolTip("Before an upgrade or a drain: deprecated APIs, PodDisruptionBudgets that allow no disruption, "
+                                         "kubelet version skew, certificate dates")
+        self.preflight_action.triggered.connect(self.show_preflight)
+        view_menu.addAction(self.preflight_action)
+        view_menu.aboutToShow.connect(lambda: self.preflight_action.setEnabled(self.clusters.currentWidget() is not None))
         self.unused_action = QAction("Unused objects…", self)
         self.unused_action.setToolTip("ConfigMaps, Secrets and claims that no pod, workload, Ingress or Service Account refers to")
         self.unused_action.triggered.connect(self.show_unused)
@@ -403,6 +409,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_rightsizing()
+        return True
+
+    def show_preflight(self):
+        """View > Upgrade preflight…, for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_preflight()
         return True
 
     def show_unused(self):

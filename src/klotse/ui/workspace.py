@@ -32,6 +32,7 @@ from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
+from .preflight_dialog import PreflightDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
 from ..k8s import health, unused
@@ -1127,6 +1128,8 @@ class ClusterWorkspace(QMainWindow):
             self._search_dialog.close()  # stops a search still reading pages
         if getattr(self, "_capacity_dialog", None) is not None:
             self._capacity_dialog.close()
+        if getattr(self, "_preflight_dialog", None) is not None:
+            self._preflight_dialog.close()
         if getattr(self, "_unused_dialog", None) is not None:
             self._unused_dialog.close()
         if getattr(self, "_health_dialog", None) is not None:
@@ -1489,6 +1492,28 @@ class ClusterWorkspace(QMainWindow):
         dialog.summary.setText("Loading pods and usage…")
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+
+    def show_preflight(self):
+        """View > Upgrade preflight…: deprecated APIs, PodDisruptionBudgets that allow no disruption, kubelet version skew and
+        cert-manager certificate dates (k8s/preflight.py), read on a worker. Looking only. Non-modal, one per workspace."""
+        dialog = getattr(self, "_preflight_dialog", None)
+        if dialog is None:
+            dialog = self._preflight_dialog = PreflightDialog(self.context, "cluster-wide", self)
+            dialog.reload_button.clicked.connect(self._load_preflight)
+            dialog.go_to_requested.connect(self.go_to_object)
+        dialog.show()
+        dialog.raise_()
+        self._load_preflight()
+        return dialog
+
+    def _load_preflight(self):
+        dialog = self._preflight_dialog
+        dialog.summary.setText("Reading…")
+        read = getattr(self.service, "preflight_data", None)
+        if read is None:
+            dialog.show_error("this service cannot do the preflight")
+            return
+        self._run(read, lambda answer: dialog.show_data(*answer), on_error=dialog.show_error)
 
     def show_unused(self):
         """View > Unused objects…: ConfigMaps, Secrets and claims that nothing refers to, in the namespace in front (or all of them),
