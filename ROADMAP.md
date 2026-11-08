@@ -65,7 +65,7 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 29 | Gateway API (Gateway, HTTPRoute) views and editors (**done**, #110: lists with their own columns and YAML editing; there is no form editor) | Medium |
 | 30 | Karpenter (NodePool, NodeClaim) views (**done**: extra columns, and a Karpenter group in the navigator, shown only when the cluster serves Karpenter's API groups, with NodePools, NodeClaims and the provider's node classes; field names unverified against a running Karpenter) | Small to medium |
 | 31 | GitOps: read-only Argo CD and Flux views with Sync and Refresh (needs cluster-wide plugin actions, which are not designed yet) | Medium |
-| 32 | Schema help in the YAML editor: field docs and completion from the cluster's OpenAPI | Large |
+| 32 | Schema help in the YAML editor: field docs and completion from the cluster's OpenAPI (**done**, #111: docs panel, Ctrl+Space, unknown fields; not in Apply YAML) | Large |
 | 33 | Custom Resources > Groups: list CRDs by API group, next to Definitions (**done**, issue #74; the groups are also sub items in the navigator) | Small to medium |
 | 34 | Node tab: overview of status, CPU and memory at the top, beside the pod list (**done**, issue #84) | Small to medium |
 | 35 | Manual refresh only for CRDs, Access Control and other rarely changing lists: no timer or watch, refresh by the toolbar button or a right-click entry (**done**, issue #86; now the default for every list except workloads and nodes, which stay automatic) | Small to medium |

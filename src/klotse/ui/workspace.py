@@ -40,7 +40,7 @@ from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health, metrics_history, pod_security, prometheus, trivy, unused
+from ..k8s import health, metrics_history, pod_security, prometheus, schema as schema_help, trivy, unused
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -159,6 +159,7 @@ class ClusterWorkspace(QMainWindow):
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = terminal_settings if terminal_settings is not None else TerminalSettings(parent=self)
         self.metrics_sources = MetricsSources(self.label_settings.store)  # the Prometheus / VictoriaMetrics service chosen for this cluster
+        self._schemas = {}  # OpenAPI document path -> the document, for the YAML editor's schema help
         self._prometheus = None  # None = not looked for yet, False = none found, else the ref that answered
         self.refresh_settings = RefreshSettings(self.label_settings.store)  # which lists reload only on request
         self.pool = QThreadPool.globalInstance()
@@ -2045,6 +2046,7 @@ class ClusterWorkspace(QMainWindow):
                 ([aggregated_note(current)] if kind in RULE_KINDS and aggregated_note(current) else []) + warnings)
             title = f"New {kind}" if creating else f"Edit {kind} {name}"
             dlg = EditDialog(title, current, self, note=note, can_form=self._has_form(kind, current))
+            self._attach_schema(dlg, kind, current)
             if dlg.exec() == EditDialog.Accepted:
                 if not confirm_risky(self, kind, name, warnings):
                     return
@@ -2059,6 +2061,37 @@ class ClusterWorkspace(QMainWindow):
             if not getattr(dlg, "wants_form", False):
                 return
             current, from_yaml = dlg.pending_body, True  # the YAML as typed, shown in the form
+
+    def _attach_schema(self, dialog, kind, manifest):
+        """Give the YAML editor field help from this cluster's OpenAPI: the document for the kind's group and version is read on a worker (and kept
+        for the next editor); until it arrives, and when the cluster has none, the editor says so and works as before."""
+        if getattr(dialog, "help", None) is None:
+            return
+        path = schema_help.openapi_path(kind, str((manifest or {}).get("apiVersion", "")))
+        load = getattr(self.service, "openapi_document", None)
+        if path is None or load is None:
+            dialog.help.set_unavailable("this kind's schema document is not known" if path is None else "this service cannot read OpenAPI")
+            return
+        api_version = str((manifest or {}).get("apiVersion", ""))
+        if path in self._schemas:
+            dialog.help.set_schema(self._schemas[path], kind, api_version)
+            return
+        dialog.help.set_loading()
+
+        def done(document):
+            self._schemas[path] = document
+            try:
+                dialog.help.set_schema(document, kind, api_version)
+            except RuntimeError:  # the editor was closed while the document was loading
+                pass
+
+        def failed(message):
+            try:
+                dialog.help.set_unavailable((message.splitlines() or [""])[0][:120] or "the cluster did not answer")
+            except RuntimeError:
+                pass
+
+        self._run(lambda: load(path), done, on_error=failed)
 
     def _review(self, kind, name, body, original, creating):
         """Before an edit is stored: ask the server for a dry run (it validates, applies defaults and admission, stores nothing) and

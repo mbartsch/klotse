@@ -1,10 +1,11 @@
 import yaml
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
-                               QVBoxLayout)
+                               QTextBrowser, QVBoxLayout)
 
 from . import theme
 from .manifest import dump_manifest
+from .schema_help import SchemaHelper
 
 
 def leave_for_yaml(form):
@@ -44,7 +45,17 @@ class EditDialog(QDialog):
             warning.setWordWrap(True)
             warning.setStyleSheet(theme.warning_style())
             lay.addWidget(warning)
-        lay.addWidget(self.editor)
+        lay.addWidget(self.editor, 1)
+        # schema help: field documentation and completion from the cluster's OpenAPI (loaded by the owner with set_schema)
+        self.docs = QTextBrowser()
+        self.docs.setMaximumHeight(130)
+        self.docs.setOpenLinks(False)
+        self.fields_status = QLabel("")
+        self.fields_status.setStyleSheet(theme.warning_style())
+        self.fields_status.setWordWrap(True)
+        lay.addWidget(self.docs)
+        lay.addWidget(self.fields_status)
+        self.help = SchemaHelper(self.editor, self.docs, self.fields_status, self)
         self.form_button = QPushButton("Edit in form…")
         self.form_button.setToolTip("Go back to the form with the changes made here")
         self.form_button.clicked.connect(self._to_form)

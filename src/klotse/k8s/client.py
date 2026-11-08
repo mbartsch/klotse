@@ -1078,6 +1078,12 @@ class KubeService:
         except Exception:
             return []
 
+    def openapi_document(self, path):
+        """One OpenAPI v3 document of this cluster (for example `/openapi/v3/apis/apps/v1`) as a dict: the descriptions and field types the API
+        server itself serves, for the YAML editor's schema help. Raises when the cluster has no OpenAPI v3 (before Kubernetes 1.24) or the account
+        may not read it. Looking only."""
+        return json.loads(self._get_text(path, "application/json", 60))
+
     def find_prometheus(self):
         """Services that look like a Prometheus or VictoriaMetrics query endpoint, best first (`k8s.prometheus.candidates`), from the Services
         of every namespace (small objects). [] when none is found or Services may not be listed. Looking only."""
