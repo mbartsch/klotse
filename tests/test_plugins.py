@@ -130,16 +130,18 @@ def test_broken_plugins_are_reported_and_never_stop_the_others(tmp_path):
     (folder / "d_badid.py").write_text("from klotse.plugins import Plugin\nclass B(Plugin):\n    id = 'Bad Id'\nplugin = B()\n")
     (folder / "e_dup.py").write_text("from klotse.plugins import Plugin\nclass D(Plugin):\n    id = 'good'\nplugin = D()\n")
     (folder / "f_raises.py").write_text("raise RuntimeError('boom at import')\n")
+    (folder / "g_exits.py").write_text("raise SystemExit('plugin tried to exit')\n")
     (folder / "_private.py").write_text("raise RuntimeError('must be skipped')\n")
     manager = PluginManager(store(tmp_path), folder=folder, bundled=(), entry_points=False)
     by_origin = {f.origin.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]: f for f in manager.loaded}
-    assert set(by_origin) == {"a_good.py", "b_syntax.py", "c_empty.py", "d_badid.py", "e_dup.py", "f_raises.py"}
+    assert set(by_origin) == {"a_good.py", "b_syntax.py", "c_empty.py", "d_badid.py", "e_dup.py", "f_raises.py", "g_exits.py"}
     assert by_origin["a_good.py"].plugin is not None and by_origin["a_good.py"].error == ""
     assert "SyntaxError" in by_origin["b_syntax.py"].error
     assert "neither a `plugin` object" in by_origin["c_empty.py"].error
     assert "invalid plugin id" in by_origin["d_badid.py"].error
     assert "already uses the id" in by_origin["e_dup.py"].error
     assert "boom at import" in by_origin["f_raises.py"].error
+    assert "SystemExit" in by_origin["g_exits.py"].error
     assert [p.id for p in [f.plugin for f in manager.loaded if f.plugin]] == ["good"]
 
 

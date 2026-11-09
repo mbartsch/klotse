@@ -114,7 +114,7 @@ class PluginManager(QObject):
                 plugin = _as_plugin(load())
                 if plugin.id in ids:
                     raise ValueError(f"another plugin already uses the id {plugin.id!r}")
-            except Exception as error:  # a broken plugin must never stop Klotse (or the other plugins)
+            except (Exception, SystemExit) as error:  # a broken plugin must never stop Klotse (or the other plugins)
                 found.append(Loaded(origin, source, origin, None, f"{type(error).__name__}: {error}"))
                 continue
             ids.add(plugin.id)

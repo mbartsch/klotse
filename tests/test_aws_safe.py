@@ -62,3 +62,9 @@ def test_xml_with_a_dtd_or_entities_is_refused_not_parsed():
     for data in (bomb, b"<!doctype a><a/>", b"<a><!ENTITY x 'y'></a>"):
         with pytest.raises(safe.ParseError):
             safe.parse_xml(data)
+    utf16_bomb = '<!DOCTYPE a [<!ENTITY x "expanded">]><a>&x;</a>'.encode("utf-16")
+    with pytest.raises(safe.ParseError, match="unexpected DTD"):
+        safe.parse_xml(utf16_bomb)
+    utf32_bomb = '<!DOCTYPE a [<!ENTITY x "expanded">]><a>&x;</a>'.encode("utf-32")
+    with pytest.raises(safe.ParseError, match="unexpected DTD"):
+        safe.parse_xml(utf32_bomb)

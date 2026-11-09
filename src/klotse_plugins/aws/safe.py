@@ -25,7 +25,21 @@ def require_https(url):
 def parse_xml(data):
     """Parse an XML answer from AWS. AWS never sends a DTD or entity declarations, so any is refused instead of parsed
     (entity expansion is the way a hostile XML document exhausts memory)."""
-    head = data if isinstance(data, bytes) else str(data).encode("utf-8", "replace")
-    if re.search(rb"<!(?:DOCTYPE|ENTITY)", head, re.IGNORECASE):
+    if isinstance(data, bytes):
+        # AWS answers UTF-8, but XML parsers also accept UTF-16/32. Normalize those
+        # encodings before scanning so declarations cannot hide behind NUL bytes.
+        if data.startswith(b"\xff\xfe\x00\x00") or data.startswith(b"<\x00\x00\x00"):
+            head = data.decode("utf-32-le" if not data.startswith(b"\xff\xfe\x00\x00") else "utf-32")
+        elif data.startswith(b"\x00\x00\xfe\xff") or data.startswith(b"\x00\x00\x00<"):
+            head = data.decode("utf-32-be" if not data.startswith(b"\x00\x00\xfe\xff") else "utf-32")
+        elif data.startswith(b"\xff\xfe") or data.startswith(b"<\x00"):
+            head = data.decode("utf-16-le" if not data.startswith(b"\xff\xfe") else "utf-16")
+        elif data.startswith(b"\xfe\xff") or data.startswith(b"\x00<"):
+            head = data.decode("utf-16-be" if not data.startswith(b"\xfe\xff") else "utf-16")
+        else:
+            head = data.decode("utf-8-sig", "replace")
+    else:
+        head = str(data)
+    if re.search(r"<!(?:DOCTYPE|ENTITY)", head, re.IGNORECASE):
         raise ET.ParseError("unexpected DTD in the answer")
     return ET.fromstring(data)  # nosec B314 - checked above
