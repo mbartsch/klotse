@@ -274,6 +274,7 @@ def test_node_pods_view_is_across_namespaces_and_keeps_pod_actions(qtbot, monkey
     ws.node_action("node-pods", node_row())
     qtbot.waitUntil(lambda: len(calls) == 2 and not ws._loading)
     assert sum(ws.tabs.widget(i) is table for i in range(ws.tabs.count())) == 1
+    assert "node-a" in ws.detail.toPlainText()
     ws.shutdown()
 
 
