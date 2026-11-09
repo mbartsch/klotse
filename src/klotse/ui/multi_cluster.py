@@ -90,6 +90,8 @@ class MultiClusterDialog(QDialog):
         hidden = set(DEFAULT_HIDDEN.get(kind, []))
         columns = [CLUSTER_COLUMN] + [c for c in self.source.columns(key) if c[1] not in hidden]
         self.table = ResourceTable(columns, kind, editable=False, customizable=False)
+        if key == "crds":
+            self.table.filter.setPlaceholderText("Search CRDs…")
         self.table.context_actions = self._context_actions
         self.table.view.doubleClicked.connect(lambda _index: self._open_selected())
         self.holder.addWidget(self.table, 1)

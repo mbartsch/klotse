@@ -49,8 +49,12 @@ class _MultiSource:
     def kinds(self):
         from .resource_table import ResourceTable
         ws = self._first()
-        return [(key, title) for key, (widget, title) in ws.views.items()
-                if isinstance(widget, ResourceTable) and key in ws.loaders and ":" not in key and key not in self.NOT_TABLES]
+        kinds = []
+        for key, (widget, title) in ws.views.items():
+            if (isinstance(widget, ResourceTable) and key in ws.loaders and ":" not in key
+                    and key not in self.NOT_TABLES and key != "crd-groups"):
+                kinds.append((key, "CRDs" if key == "crds" else title))
+        return kinds
 
     def columns(self, key):
         return list(self._first().views[key][0].base_columns)

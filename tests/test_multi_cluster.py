@@ -300,7 +300,8 @@ def test_the_menu_entry_needs_an_open_cluster_and_offers_the_lists_of_the_worksp
     ws = win.clusters.currentWidget()
     source = _MultiSource(win)
     keys = [k for k, _t in source.kinds()]
-    assert source.contexts() == [ws.context] and {"pods", "deployments", "nodes", "namespaces", "services"} <= set(keys)
+    assert source.contexts() == [ws.context] and {"pods", "deployments", "nodes", "namespaces", "services", "crds"} <= set(keys)
+    assert "crd-groups" not in keys
     assert "overview" not in keys and not any(":" in k for k in keys) and source.table_kind("pods") == "Pod"
     assert source.columns("pods")[0] == ("Name", "name")
     assert win.show_multi() is True and win.multi_action.shortcut().toString() == "Ctrl+Shift+M"
