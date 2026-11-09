@@ -11,7 +11,9 @@ from .manifest import dump_manifest
 
 
 def label(row):
-    return f"{row.namespace}/{row.name}" if getattr(row, "namespace", "") else row.name
+    name = f"{row.namespace}/{row.name}" if getattr(row, "namespace", "") else row.name
+    cluster = getattr(row, "cluster", "")
+    return f"{cluster}/{name}" if cluster else name
 
 
 def render(lines):

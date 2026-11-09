@@ -75,3 +75,15 @@ def test_workspace_opens_the_dialog(qtbot, monkeypatch):
     monkeypatch.setattr(CompareDialog, "exec", lambda self: seen.append(self.windowTitle()))
     ws.compare_objects("Deployment", [dep("a", "x"), dep("b", "y")])
     assert seen == ["Compare Deployments"]
+
+
+def test_cluster_labels_distinguish_same_named_objects_and_escape_markup(qtbot):
+    left, right = dep("api", "x:1"), dep("api", "x:2")
+    left.cluster, right.cluster = "<prod>", "staging&test"
+    dialog = CompareDialog("<prod> / staging&test", "Deployment", left, right)
+    qtbot.addWidget(dialog)
+    assert "<prod>" not in dialog.header.text()
+    assert "&lt;prod&gt;/shop/api" in dialog.header.text()
+    assert "staging&amp;test/shop/api" in dialog.header.text()
+    assert "--- <prod>/shop/api" in dialog.view.toPlainText()
+    assert "+++ staging&test/shop/api" in dialog.view.toPlainText()

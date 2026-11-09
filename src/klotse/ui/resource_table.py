@@ -94,6 +94,7 @@ class ResourceTable(QWidget):
         self.base_columns = list(columns)
         self._label_args = None
         self.plugin_actions = None  # callable(kind, rows) -> [(plugin name, plugin id, [Action])], set by the workspace
+        self.context_actions = None  # optional (menu, selected rows) builder for views with their own supported actions
         self.model = TableModel(columns, search_metadata=kind == "Node")
         self.proxy = _FilterProxy(self)
         self.proxy.resolver = self._resolve
@@ -577,6 +578,11 @@ class ResourceTable(QWidget):
             if not self.view.selectionModel().isRowSelected(idx.row(), idx.parent()):
                 self.view.selectRow(idx.row())  # right-click outside the selection acts on that row alone
             rows = self.selected_rows()
+            if self.context_actions is not None:
+                self.context_actions(menu, rows)
+                if not menu.isEmpty():
+                    menu.exec(self.view.viewport().mapToGlobal(pos))
+                return
             if len(rows) > 1:
                 self._bulk_menu(menu, rows)
                 self._plugin_menu(menu, rows)
@@ -648,6 +654,8 @@ class ResourceTable(QWidget):
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
             menu.addAction("Browse instances", lambda: self.action_requested.emit("open-crd", row))
+        if self.context_actions is not None:
+            return
         if self.kind == "HelmRelease" and idx.isValid():
             menu.addAction("Details / history…", lambda: self.action_requested.emit("helm-details", row))
             menu.addAction("Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row))

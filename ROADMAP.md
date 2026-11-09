@@ -17,7 +17,7 @@ Features other Kubernetes desktop tools have and Klotse does not yet. Items mark
 | 9 | File copy to and from a pod (**done**, #59) | Lens, k9s | Small to medium |
 | 10 | Embedded terminal with xterm.js (MIT) in QtWebEngine (**done**, #60; opt-in in Preferences > Terminal) | Lens, Aptakube | Medium to large |
 | 11 | Metrics history charts (needs Prometheus; today only current values) (**done**, #61, closed with two gaps: without Prometheus the chart runs rather than being off, as the issue asked; and the Prometheus path has not been run against a real server. Charts from metrics-server sampled while the window is open; several pods, nodes or workloads picked together in one chart (up to 12, metrics-server only); and #114: real history from Prometheus / VictoriaMetrics through the API server proxy; the Prometheus side has not been run against a real server) | Lens, Aptakube | Large |
-| 12 | Several clusters side by side in one view (**done** as a merged list of one kind, #62: View > Several clusters…; not side-by-side panes; switching kinds during a read no longer leaves Read disabled; not run with two real clusters) | Aptakube | Large |
+| 12 | Several clusters side by side in one view (**done** as a merged list of one kind, #62: View > Several clusters…; not side-by-side panes; switching kinds during a read no longer leaves Read disabled; cross-cluster Compare is wired, and unsupported resource actions are omitted from the read-only table; not run with two real clusters) | Aptakube | Large |
 
 GitHub issues: items 1-12 are #51-#62 in table order; the Azure plugin is #63 and the GCP plugin #64.
 

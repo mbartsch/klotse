@@ -3,9 +3,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from kubernetes import client
+
 from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QMenu
+
+from klotse.ui.compare_dialog import CompareDialog
 
 from klotse.k8s.models import DeploymentRow, PodRow
+from klotse.k8s.resources import map_secret
 from klotse.ui.customizations import LabelSettings
 from klotse.ui.main_window import MainWindow, _MultiSource
 from klotse.ui.multi_cluster import MultiClusterDialog
@@ -166,6 +172,109 @@ def test_pod_columns_that_are_hidden_in_the_pods_list_are_hidden_here_too(qtbot)
     qtbot.addWidget(dialog)
     attrs = [c[1] for c in dialog.table.model.columns]
     assert attrs[0] == "cluster" and "restarts" in attrs and "cpu_req" not in attrs and "cpu_lim_pct" not in attrs
+
+
+@pytest.mark.parametrize("kind", ["Pod", "Deployment", "Secret"])
+def test_combined_view_context_menu_compares_two_clusters_and_has_no_unhandled_actions(qtbot, monkeypatch, kind):
+    source = Source()
+    source.data = {"eu": [pod("api")], "us": [pod("api")]}
+    source.data["eu"][0].raw["spec"] = {"image": "api:1"}
+    source.data["us"][0].raw["spec"] = {"image": "api:2"}
+    if kind == "Deployment":
+        source.data = {context: [DeploymentRow("api", "shop", "1/1", 1, 1, "5m", rows[0].raw)]
+                       for context, rows in source.data.items()}
+    elif kind == "Secret":
+        source.data = {context: [map_secret(client.V1Secret(
+            metadata=client.V1ObjectMeta(name="api", namespace="shop"),
+            type=secret_type, data={"password": "c2VjcmV0"}))]
+            for context, secret_type in (("eu", "Opaque"), ("us", "example.com/demo"))}
+    source.table_kind = lambda _key: kind
+    source.columns = lambda _key: [("Name", "name"), ("Namespace", "namespace")]
+    dialog = MultiClusterDialog(source)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.read_button.click()
+    qtbot.waitUntil(lambda: dialog.read_button.isEnabled() and dialog.table.model.rowCount() == 2)
+    table = dialog.table
+    table.view.selectAll()
+    seen = []
+    comparisons = []
+    class Comparison(CompareDialog):
+        def exec(self):
+            comparisons.append((self.header.text(), self.view.toPlainText()))
+
+    monkeypatch.setattr("klotse.ui.multi_cluster.CompareDialog", Comparison)
+
+    def choose_compare(menu, *_args):
+        actions = [action for action in menu.actions() if not action.isSeparator()]
+        seen.extend(action.text() for action in actions)
+        next(action for action in actions if action.text() == "Compare these two…").trigger()
+
+    class Menu(QMenu):
+        def exec(self, *args):
+            return choose_compare(self, *args)
+
+    monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
+    pos = table.view.visualRect(table.proxy.index(0, 0)).center()
+    table._context_menu(pos)
+    assert seen == ["Compare these two…"]
+    assert len(comparisons) == 1
+    header, diff = comparisons[0]
+    assert "eu/shop/api" in header and "us/shop/api" in header
+    assert "eu/shop/api" in diff and "us/shop/api" in diff
+    if kind == "Secret":
+        assert "c2VjcmV0" not in diff and "secret" not in diff
+        assert all(row.raw["data"]["password"] == "<hidden>" for row in dialog._rows)
+        assert "Opaque" in diff and "example.com/demo" in diff
+    else:
+        assert "image: api:1" in diff and "image: api:2" in diff
+
+
+def test_combined_view_more_than_two_rows_has_no_unsupported_actions(qtbot, monkeypatch):
+    dialog = MultiClusterDialog(Source())
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.read_button.click()
+    qtbot.waitUntil(lambda: dialog.read_button.isEnabled() and dialog.table.model.rowCount() == 4)
+    dialog.table.view.selectAll()
+
+    class Menu(QMenu):
+        def exec(self, *_args):
+            pytest.fail("No actions are supported for this selection")
+
+    monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
+    pos = dialog.table.view.visualRect(dialog.table.proxy.index(0, 0)).center()
+    dialog.table._context_menu(pos)
+
+
+@pytest.mark.parametrize("kind", ["Pod", "Node", "Deployment", "ServiceAccount", "HelmRelease", "Namespace"])
+def test_combined_view_single_row_menu_only_navigates_to_its_cluster(qtbot, monkeypatch, kind):
+    source = Source()
+    source.table_kind = lambda _key: kind
+    source.columns = lambda _key: [("Name", "name"), ("Namespace", "namespace")]
+    dialog = MultiClusterDialog(source)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.read_button.click()
+    qtbot.waitUntil(lambda: dialog.read_button.isEnabled() and dialog.table.model.rowCount() == 4)
+    table = dialog.table
+    wanted = []
+    dialog.go_to_requested.connect(lambda *args: wanted.append(args))
+
+    def choose_navigation(menu, *_args):
+        actions = [action for action in menu.actions() if not action.isSeparator()]
+        assert [action.text() for action in actions] == ["Show in cluster"]
+        actions[0].trigger()
+
+    class Menu(QMenu):
+        def exec(self, *args):
+            return choose_navigation(self, *args)
+
+    monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
+    row = table.model.rows[0]
+    pos = table.view.visualRect(table.proxy.index(0, 0)).center()
+    table._context_menu(pos)
+    assert wanted == [(row.cluster, kind, row.namespace, row.name)]
 
 
 # ---- the main window's adapter ---------------------------------------------------------------------------------------

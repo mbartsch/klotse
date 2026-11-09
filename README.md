@@ -19,7 +19,8 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
 - **Multiple clusters.** Open contexts from your existing kubeconfig in separate tabs, organise them into nested
   groups, and suggest groups from name prefixes or a regular expression. Nothing connects on first start; when
   you exit, choose whether to restore your open clusters next time. **View → Several clusters…** combines one
-  resource kind from several open clusters in a single list.
+  resource kind from several open clusters in a single read-only list. Select two objects there to compare their YAML
+  across clusters; right-click one object to open it in its cluster.
 - **Resources and details.** Browse workloads, nodes, networking, storage, RBAC, Helm releases and custom
   resources, with CRDs grouped by API group. Karpenter, Gateway API and cert-manager views appear when available.
   Details include YAML, Events and linked Related objects. Secret values stay masked until you choose keys to decode;

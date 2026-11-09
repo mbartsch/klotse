@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabe
 
 from ..workers import Worker
 from . import theme
+from .compare_dialog import CompareDialog
 from .customizations import DEFAULT_HIDDEN
 from .resource_table import ResourceTable
 
@@ -87,12 +88,26 @@ class MultiClusterDialog(QDialog):
         hidden = set(DEFAULT_HIDDEN.get(kind, []))
         columns = [CLUSTER_COLUMN] + [c for c in self.source.columns(key) if c[1] not in hidden]
         self.table = ResourceTable(columns, kind, editable=False, customizable=False)
+        self.table.context_actions = self._context_actions
         self.table.view.doubleClicked.connect(lambda _index: self._open_selected())
         self.holder.addWidget(self.table, 1)
         self._rows, self._failed, self._pending = [], {}, set()
         self._serial += 1  # answers still coming for the previous kind are dropped
         self.read_button.setEnabled(True)
         self.status.setText("Choose a kind and the clusters, then Read.")
+
+    def _context_actions(self, menu, rows):
+        # Workspace actions need a cluster-specific service; only offer what this view handles.
+        if len(rows) == 1:
+            menu.addAction("Show in cluster", self._open_selected)
+        elif len(rows) == 2 and all(getattr(row, "raw", None) for row in rows):
+            menu.addAction("Compare these two…", lambda: self._compare(rows))
+
+    def _compare(self, rows):
+        context = " / ".join(dict.fromkeys(row.cluster for row in rows))
+        dialog = CompareDialog(context, self.source.table_kind(self.kind_key()), rows[0], rows[1], self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def _open_selected(self):
         rows = self.table.selected_rows()
