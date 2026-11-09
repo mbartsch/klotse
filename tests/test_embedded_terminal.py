@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import QMessageBox
 
 from klotse.ui import embedded_terminal as et
 from klotse.ui.pty_session import PtySession
@@ -299,11 +300,25 @@ def test_the_default_still_uses_the_external_terminal(qtbot, tmp_path, monkeypat
 def test_without_qtwebengine_the_external_terminal_is_used(qtbot, tmp_path, monkeypatch):
     ws = make_ws(qtbot, tmp_path)
     monkeypatch.setattr(et, "available", lambda: False)
+    monkeypatch.setattr(et, "unavailable_reason", lambda: "missing QtWebEngine")
     external = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
     monkeypatch.setattr("klotse.ui.workspace.open_terminal", lambda argv, mac: external.append(argv))
     ws._launch_terminal(["kubectl", "exec"], "Opened shell")
     qtbot.waitUntil(lambda: bool(external), timeout=5000)
     assert ws.log_tabs.count() == 0 and ws._terminal_hosts == []
+    ws.shutdown()
+
+
+def test_missing_embedded_terminal_can_cancel_external_fallback(qtbot, tmp_path, monkeypatch):
+    ws = make_ws(qtbot, tmp_path)
+    monkeypatch.setattr(et, "unavailable_reason", lambda: "missing QtWebEngine")
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.No)
+    external = []
+    monkeypatch.setattr("klotse.ui.workspace.open_terminal", lambda argv, mac: external.append(argv))
+    ws._launch_terminal(["kubectl", "exec"], "Opened shell")
+    qtbot.wait(100)
+    assert external == []
     ws.shutdown()
 
 
