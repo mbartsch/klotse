@@ -15,6 +15,12 @@ def render(raw):
     raw = raw if isinstance(raw, dict) else {}
     meta, spec, status = raw.get("metadata") or {}, raw.get("spec") or {}, raw.get("status") or {}
     info = status.get("nodeInfo") or {}
+    labels = meta.get("labels") or {}
+    instance_id = next((labels.get(key) for key in (
+        "node.kubernetes.io/instance-id", "failure-domain.beta.kubernetes.io/instance-id",
+        "beta.kubernetes.io/instance-id") if labels.get(key)), "")
+    ami_id = next((labels.get(key) for key in (
+        "node.kubernetes.io/ami-id", "eks.amazonaws.com/nodegroup-image", "alpha.eksctl.io/ami-id") if labels.get(key)), "")
     conditions = status.get("conditions") or []
     ready = next((c.get("status") for c in conditions if c.get("type") == "Ready"), "Unknown")
     tone = "ok" if ready == "True" else "bad" if ready == "False" else "warn"
@@ -24,8 +30,12 @@ def render(raw):
     html.append(_section("Identity", _table(("Field", "Value"), [
         ("Roles", ", ".join(sorted(k.split("/", 1)[1] for k in (meta.get("labels") or {}) if k.startswith("node-role.kubernetes.io/"))) or "<none>"),
         ("Kubelet", info.get("kubeletVersion", "")),
+        ("Kernel", info.get("kernelVersion", "")),
         ("OS / architecture", f"{info.get('operatingSystem', '')} / {info.get('architecture', '')}"),
         ("Container runtime", info.get("containerRuntimeVersion", "")),
+        ("Provider ID", spec.get("providerID", "")),
+        ("Instance ID", instance_id),
+        ("AMI ID", ami_id),
         ("Internal IP", next((a.get("address") for a in status.get("addresses") or [] if a.get("type") == "InternalIP"), "")),
         ("Scheduling", "Cordoned" if spec.get("unschedulable") else "Schedulable"),
     ])))
@@ -47,7 +57,6 @@ def render(raw):
             (t.get("key", ""), f"{t.get('effect', '')}{' = ' + str(t.get('value')) if t.get('value') else ''}")
             for t in taints
         ])))
-    labels = meta.get("labels") or {}
     annotations = meta.get("annotations") or {}
     if labels:
         html.append(_section("Labels", _table(("Key", "Value"), [(k, v) for k, v in sorted(labels.items())])))
