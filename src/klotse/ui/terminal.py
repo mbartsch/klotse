@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 
 
@@ -82,6 +83,26 @@ def _mac_session_command(argv, mac_terminal):
     return "exec " + shlex.join([sys.executable, runner, mac_terminal, json.dumps(argv)])
 
 
+def _external_session_script(argv):
+    """Create a unique self-cleaning shell script for a local terminal session."""
+    fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".sh")
+    try:
+        with open(fd, "w", encoding="utf-8", newline="\n") as script:
+            script.write("#!/bin/sh\n")
+            script.write("trap 'rm -f -- \"$0\"' EXIT\n")
+            script.write(f"{shlex.join(argv)}; status=$?\n")
+            script.write("printf '\\nSession ended. Press Enter to close.'\n")
+            script.write("read -r answer\n")
+            script.write("exit \"$status\"\n")
+        return path
+    except Exception:
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+        raise
+
+
 def open_terminal(argv, mac_terminal="Terminal"):
     """Open an interactive session; macOS sessions close after a successful command."""
     if sys.platform == "win32":
@@ -114,12 +135,18 @@ def open_terminal(argv, mac_terminal="Terminal"):
         except subprocess.CalledProcessError as error:
             raise RuntimeError(f"Could not open {mac_terminal}: {error.stderr or error}") from error
     else:
-        command = (shlex.join(argv) + '; status=$?; printf "\\nSession ended. Press Enter to close."; '
-                   'read -r answer; exit "$status"')
         for terminal, args in (("x-terminal-emulator", ["-e"]), ("gnome-terminal", ["--"]),
                                ("konsole", ["-e"]), ("xterm", ["-e"])):
             executable = shutil.which(terminal)
             if executable:
-                subprocess.Popen([executable, *args, "bash", "-c", command])
+                script = _external_session_script(argv)
+                try:
+                    subprocess.Popen([executable, *args, script])
+                except Exception:
+                    try:
+                        Path(script).unlink()
+                    except OSError:
+                        pass
+                    raise
                 return
         raise RuntimeError("No supported terminal found (x-terminal-emulator, gnome-terminal, konsole or xterm)")

@@ -2,6 +2,7 @@ import json
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -93,6 +94,26 @@ def test_macos_terminal_quoting_and_failure(monkeypatch, app):
     monkeypatch.setattr(terminal.subprocess, "run", fail)
     with pytest.raises(RuntimeError, match=f"Could not open {app}: Automation denied"):
         terminal.open_terminal(argv, app)
+
+
+def test_linux_terminal_uses_a_unique_script_instead_of_inline_command(monkeypatch, tmp_path):
+    from klotse.ui import terminal
+    monkeypatch.setattr(terminal.sys, "platform", "linux")
+    real_mkstemp = terminal.tempfile.mkstemp
+    monkeypatch.setattr(terminal.tempfile, "mkstemp", lambda **kwargs: real_mkstemp(dir=tmp_path, **kwargs))
+    monkeypatch.setattr(terminal.shutil, "which", lambda name: "/usr/bin/x-terminal-emulator" if name == "x-terminal-emulator" else None)
+    calls = []
+    monkeypatch.setattr(terminal.subprocess, "Popen", lambda argv: calls.append(argv))
+    argv = ["kubectl", "--context", "cluster;$(echo nope)", "exec", "pod"]
+    terminal.open_terminal(argv)
+    assert calls[0][:2] == ["/usr/bin/x-terminal-emulator", "-e"]
+    assert Path(calls[0][-1]).parent == tmp_path
+    script = Path(calls[0][-1]).read_text()
+    assert "cluster;$(echo nope)" in script
+    assert "cluster;$(echo nope)" not in " ".join(calls[0])
+    assert "Session ended. Press Enter to close." in script
+    assert "trap 'rm -f -- \"$0\"' EXIT" in script
+    Path(calls[0][-1]).unlink()
 
 
 @pytest.mark.parametrize("status", [0, 7])
