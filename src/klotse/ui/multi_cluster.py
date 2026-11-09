@@ -2,7 +2,7 @@
 
 The table is the ordinary list table, so sorting and the filter box work, filter expressions included (`Cluster = prod* and Restarts > 3`).
 Each cluster is read on its own worker with the loader its own list uses; one cluster failing leaves the others on screen and is named in
-the status line. It is read-only and reads on request (Read again), never by itself. Double-click goes to the object in its cluster.
+the status line. It reads on request (Read again), never by itself. Workload logs and confirmed restarts route to each object's cluster. Double-click goes to the object in its cluster.
 The window knows nothing about clusters itself: a `source` (`MainWindow`'s adapter) lists the open clusters and kinds and hands out loaders."""
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout)
@@ -11,13 +11,14 @@ from ..workers import Worker
 from . import theme
 from .compare_dialog import CompareDialog
 from .customizations import DEFAULT_HIDDEN
-from .resource_table import ResourceTable
+from .resource_table import LOG_SOURCES, RESTARTABLE, ResourceTable
 
 CLUSTER_COLUMN = ("Cluster", "cluster")
 
 
 class MultiClusterDialog(QDialog):
     go_to_requested = Signal(str, str, str, str)  # cluster, kind, namespace, name
+    action_requested = Signal(str, str, list)  # kind, action, selected rows carrying their cluster
 
     def __init__(self, source, parent=None):
         super().__init__(parent)
@@ -56,7 +57,8 @@ class MultiClusterDialog(QDialog):
         self.holder = QVBoxLayout()
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
-        note = QLabel("Looking only. Each cluster is read with the same loader its own list uses; a cluster that cannot be read is named above "
+        note = QLabel("Lists load on request. Workload logs open in each cluster; restarts need confirmation per cluster. "
+                      "Each cluster is read with the same loader its own list uses; a cluster that cannot be read is named above "
                       "and the others stay. A very large cluster gives the first page of its list (big-cluster mode). Double-click goes to the "
                       "object in its cluster.")
         note.setWordWrap(True)
@@ -102,6 +104,11 @@ class MultiClusterDialog(QDialog):
             menu.addAction("Show in cluster", self._open_selected)
         elif len(rows) == 2 and all(getattr(row, "raw", None) for row in rows):
             menu.addAction("Compare these two…", lambda: self._compare(rows))
+        kind = self.source.table_kind(self.kind_key())
+        if kind in LOG_SOURCES:
+            menu.addAction("Logs of all pods…", lambda: self.action_requested.emit(kind, "logs", list(rows)))
+        if kind in RESTARTABLE:
+            menu.addAction("Restart selected workloads…", lambda: self.action_requested.emit(kind, "restart", list(rows)))
 
     def _compare(self, rows):
         context = " / ".join(dict.fromkeys(row.cluster for row in rows))
@@ -120,7 +127,7 @@ class MultiClusterDialog(QDialog):
         return [context for context, box in self.boxes.items() if box.isChecked()]
 
     def read(self):
-        """Start one worker per chosen cluster. Answers arrive one by one and are added to the list as they come."""
+        """Start one worker per cluster and render the combined rows when all have answered."""
         contexts = self.chosen()
         if not contexts:
             self.status.setText("Tick at least one cluster.")
@@ -155,8 +162,8 @@ class MultiClusterDialog(QDialog):
             for row in rows:
                 row.cluster = context
             self._rows += rows
-            self.table.set_rows(self._rows)
         if not self._pending:
+            self.table.set_rows(self._rows)
             self.read_button.setEnabled(True)
         self._status()
 

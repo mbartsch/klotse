@@ -6,7 +6,7 @@ import pytest
 from kubernetes import client
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QMenu, QMessageBox
 
 from klotse.ui.compare_dialog import CompareDialog
 
@@ -217,7 +217,10 @@ def test_combined_view_context_menu_compares_two_clusters_and_has_no_unhandled_a
     monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
     pos = table.view.visualRect(table.proxy.index(0, 0)).center()
     table._context_menu(pos)
-    assert seen == ["Compare these two…"]
+    expected = ["Compare these two…"]
+    if kind == "Deployment":
+        expected += ["Logs of all pods…", "Restart selected workloads…"]
+    assert seen == expected
     assert len(comparisons) == 1
     header, diff = comparisons[0]
     assert "eu/shop/api" in header and "us/shop/api" in header
@@ -263,7 +266,10 @@ def test_combined_view_single_row_menu_only_navigates_to_its_cluster(qtbot, monk
 
     def choose_navigation(menu, *_args):
         actions = [action for action in menu.actions() if not action.isSeparator()]
-        assert [action.text() for action in actions] == ["Show in cluster"]
+        expected = ["Show in cluster"]
+        if kind == "Deployment":
+            expected += ["Logs of all pods…", "Restart selected workloads…"]
+        assert [action.text() for action in actions] == expected
         actions[0].trigger()
 
     class Menu(QMenu):
@@ -364,3 +370,161 @@ def test_going_to_an_object_brings_its_cluster_to_the_front(qtbot, tmp_path):
     assert went == [("Pod", "shop", "a")]
     win._goto_cluster_object("closed", "Pod", "shop", "a")  # no error
     assert "no longer open" in win.status.currentMessage()
+
+
+def workload(name, context):
+    return DeploymentRow(name, "shop", "1/1", 1, 1, "5m", {
+        "metadata": {"name": name, "namespace": "shop"},
+        "spec": {"selector": {"matchLabels": {"app": name}}}})
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_combined_table_is_rendered_once_after_all_clusters_finish(qtbot, fail):
+    gate = threading.Event()
+    source = Source()
+    if fail:
+        source.fail.add("us")
+    fetch = source.fetch
+
+    def delayed_fetch(context, key):
+        read = fetch(context, key)
+        def delayed(namespace):
+            if context == "us":
+                gate.wait(5)
+            return read(namespace)
+        return delayed
+
+    source.fetch = delayed_fetch
+    dialog = MultiClusterDialog(source)
+    qtbot.addWidget(dialog)
+    renders = []
+    set_rows = dialog.table.set_rows
+    dialog.table.set_rows = lambda rows: (renders.append(len(rows)), set_rows(rows))[-1]
+    try:
+        dialog.read_button.click()
+        qtbot.waitUntil(lambda: "eu" not in dialog._pending)
+        assert renders == [0] and dialog.table.model.rowCount() == 0
+        gate.set()
+        qtbot.waitUntil(lambda: dialog.read_button.isEnabled())
+        total = 2 if fail else 4
+        assert renders == [0, total] and dialog.table.model.rowCount() == total
+        assert ("could not read us" in dialog.status.text()) is fail
+    finally:
+        gate.set()
+
+
+@pytest.mark.parametrize("kind, logs, restart", [
+    ("Deployment", True, True), ("StatefulSet", True, True), ("DaemonSet", True, True),
+    ("ReplicaSet", True, False), ("Job", True, False), ("Service", True, False),
+    ("Node", False, False), ("Secret", False, False),
+])
+def test_workload_menu_only_offers_supported_actions_and_emits_selected_clusters(qtbot, kind, logs, restart):
+    source = Source()
+    source.table_kind = lambda _key: kind
+    source.columns = lambda _key: [("Name", "name")]
+    dialog = MultiClusterDialog(source)
+    qtbot.addWidget(dialog)
+    rows = [workload("api", context) for context in ("eu", "us")]
+    for row, context in zip(rows, ("eu", "us")):
+        row.cluster = context
+    requested = []
+    dialog.action_requested.connect(lambda *args: requested.append(args))
+    menu = QMenu()
+    dialog._context_actions(menu, rows)
+    actions = {action.text(): action for action in menu.actions()}
+    assert ("Logs of all pods…" in actions) is logs
+    assert ("Restart selected workloads…" in actions) is restart
+    for title, action in (("Logs of all pods…", "logs"), ("Restart selected workloads…", "restart")):
+        if title in actions:
+            actions[title].trigger()
+            assert requested[-1] == (kind, action, rows)
+
+
+def test_cross_cluster_restarts_confirm_once_per_cluster_and_respect_cancellation(qtbot, tmp_path, monkeypatch):
+    win = window(qtbot, tmp_path)
+    calls, confirmations = [], []
+    for context in ("eu", "us"):
+        win.open_cluster(context)
+    qtbot.waitUntil(lambda: all(ws._ready for ws in win.workspaces.values()))
+    for context, ws in win.workspaces.items():
+        ws.service.restart = lambda kind, name, namespace, c=context: calls.append((c, kind, name, namespace))
+        ws.refresh = lambda: None
+    rows = [workload("api", "eu"), workload("worker", "eu"), workload("api", "us")]
+    for row, context in zip(rows, ("eu", "eu", "us")):
+        row.cluster = context
+
+    def confirm(_parent, _title, text, *_args):
+        confirmations.append(text)
+        return QMessageBox.Yes if "Cluster: eu" in text else QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", confirm)
+    assert win.show_multi()
+    win._multi_dialog.action_requested.emit("Deployment", "restart", rows)
+    qtbot.waitUntil(lambda: not win.workspaces["eu"]._workers)
+    assert calls == [("eu", "Deployment", "api", "shop"), ("eu", "Deployment", "worker", "shop")]
+    assert len(confirmations) == 2 and "Restart 2 Deployments?" in confirmations[0]
+    assert "Cluster: us" in confirmations[1]
+
+
+def test_cross_cluster_actions_use_own_workspace_and_report_closed_clusters(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    for context in ("eu", "us"):
+        win.open_cluster(context)
+    qtbot.waitUntil(lambda: all(ws._ready for ws in win.workspaces.values()))
+    rows = [workload("api", context) for context in ("eu", "us", "closed")]
+    for row, context in zip(rows, ("eu", "us", "closed")):
+        row.cluster = context
+    logs = []
+    for context, ws in win.workspaces.items():
+        ws.multi_logs = lambda kind, row, c=context: logs.append((c, kind, row.name))
+    assert win.show_multi()
+    win._multi_dialog.action_requested.emit("Deployment", "logs", rows)
+    assert logs == [("eu", "Deployment", "api"), ("us", "Deployment", "api")]
+    assert "closed" in win.status.currentMessage() and "no longer open" in win.status.currentMessage()
+
+
+def test_cross_cluster_restart_keeps_read_only_protection_and_reports_failures(qtbot, tmp_path, monkeypatch):
+    win = window(qtbot, tmp_path)
+    for context in ("eu", "us"):
+        win.open_cluster(context)
+    qtbot.waitUntil(lambda: all(ws._ready for ws in win.workspaces.values()))
+    calls, warnings = [], []
+    win.workspaces["eu"].read_only = True
+    for context, ws in win.workspaces.items():
+        ws.refresh = lambda: None
+        def restart(kind, name, namespace, context=context):
+            calls.append((context, name))
+            raise PermissionError("refused restart")
+        ws.service.restart = restart
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args, **_kwargs: QMessageBox.Yes)
+    monkeypatch.setattr(QMessageBox, "warning", lambda _parent, _title, text, *_args: warnings.append(text))
+    monkeypatch.setattr(QMessageBox, "information", lambda _parent, _title, text, *_args: warnings.append(text))
+    rows = [workload("api", context) for context in ("eu", "us")]
+    for row, context in zip(rows, ("eu", "us")):
+        row.cluster = context
+    win._multi_cluster_action("Deployment", "restart", rows)
+    qtbot.waitUntil(lambda: not win.workspaces["us"]._workers)
+    assert calls == [("us", "api")]
+    assert any("read-only" in text for text in warnings)
+    assert any("us" in text and "refused restart" in text for text in warnings)
+
+
+def test_cross_cluster_logs_open_real_workload_log_tabs_in_each_workspace(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    for context in ("eu", "us"):
+        win.open_cluster(context)
+    qtbot.waitUntil(lambda: all(ws._ready for ws in win.workspaces.values()))
+    lookups = []
+    for context, ws in win.workspaces.items():
+        ws.service.pods_by_selector = lambda namespace, selector, c=context: (
+            lookups.append((c, namespace, selector)), [])[1]
+    rows = [workload("api", context) for context in ("eu", "us")]
+    for row, context in zip(rows, ("eu", "us")):
+        row.cluster = context
+    win._multi_cluster_action("Deployment", "logs", rows)
+    qtbot.waitUntil(lambda: len(lookups) == 2)
+    assert sorted(lookups) == [("eu", "shop", "app=api"), ("us", "shop", "app=api")]
+    for ws in win.workspaces.values():
+        assert ws.log_tabs.count() == 1
+        assert ws.log_tabs.tabText(0) == "Logs: Deployment api"
+        ws._close_log_tab(0)

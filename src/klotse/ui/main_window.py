@@ -563,8 +563,31 @@ class MainWindow(QMainWindow):
         dialog = self._multi_dialog = MultiClusterDialog(_MultiSource(self), self)
         dialog.setWindowFlag(Qt.Window, True)
         dialog.go_to_requested.connect(self._goto_cluster_object)
+        dialog.action_requested.connect(self._multi_cluster_action)
         dialog.show()
         return True
+
+    def _multi_cluster_action(self, kind, action, rows):
+        from .resource_table import LOG_SOURCES, RESTARTABLE
+
+        if not ((action == "restart" and kind in RESTARTABLE) or (action == "logs" and kind in LOG_SOURCES)):
+            return
+        groups = {}
+        for row in rows:
+            groups.setdefault(row.cluster, []).append(row)
+        closed = []
+        for context, selected in groups.items():
+            workspace = self.workspaces.get(context)
+            if workspace is None:
+                closed.append(context)
+                continue
+            if action == "restart":
+                workspace.bulk_action(kind, "restart", selected)
+            else:
+                for row in selected:
+                    workspace.multi_logs(kind, row)
+        if closed:
+            self.status.showMessage("Clusters no longer open: " + ", ".join(closed), 6000)
 
     def _goto_cluster_object(self, cluster, kind, namespace, name):
         ws = self.workspaces.get(cluster)
