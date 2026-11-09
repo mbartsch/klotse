@@ -325,6 +325,16 @@ def test_cluster_can_be_detached_and_reopens_as_a_tab_when_closed(qtbot, tmp_pat
     assert win.clusters.currentWidget() is ws
 
 
+def test_cluster_picker_lists_connected_clusters_and_switches_tabs(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    for context in ("eu", "us"):
+        win.open_cluster(context)
+    assert [win.cluster_picker.itemText(i) for i in range(win.cluster_picker.count())] == ["eu", "us"]
+    win.cluster_picker.setCurrentIndex(win.cluster_picker.findText("eu"))
+    win._pick_cluster(win.cluster_picker.currentIndex())
+    assert win.clusters.currentWidget().context == "eu"
+
+
 @pytest.mark.parametrize("key, kind, name", [
     ("deployments", "Deployment", "api"),
     ("pods", "Pod", "web"),

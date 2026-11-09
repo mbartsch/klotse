@@ -4,13 +4,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDockWidget, QInputDialog, QMainWindow, QMenu, QMessageBox,
-                               QSizePolicy, QTabWidget, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
+                               QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QWidget)
 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
-from .cluster_aliases import ClusterAliases
 from .cluster_aliases import ClusterAliases
 from .audit_log import AuditLog
 from .audit_dialog import AuditDialog
@@ -242,10 +241,21 @@ class MainWindow(QMainWindow):
         self.clusters.setContextMenuPolicy(Qt.CustomContextMenu)
         self.clusters.customContextMenuRequested.connect(self._cluster_tab_menu)
         self.clusters.currentChanged.connect(self._on_cluster_changed)
+        self.clusters.currentChanged.connect(lambda _index: self._sync_cluster_picker())
         self.setCentralWidget(self.clusters)
 
         self.nav = Navigator()
-        nav_dock = QDockWidget("Clusters", self)
+        nav_dock = QDockWidget(self)
+        title = QWidget()
+        title_layout = QHBoxLayout(title)
+        title_layout.setContentsMargins(6, 0, 4, 0)
+        title_layout.addWidget(QLabel("Clusters"))
+        self.cluster_picker = QComboBox()
+        self.cluster_picker.setMinimumWidth(150)
+        self.cluster_picker.setToolTip("Switch between connected clusters")
+        self.cluster_picker.activated.connect(self._pick_cluster)
+        title_layout.addWidget(self.cluster_picker, 1)
+        nav_dock.setTitleBarWidget(title)
         nav_dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         nav_dock.setWidget(self.nav)
         nav_dock.setMinimumWidth(220)
@@ -265,6 +275,7 @@ class MainWindow(QMainWindow):
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
         self.contexts, _ = self.new_service().load_contexts()
         self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
+        self._sync_cluster_picker()
         self._update_plugins_menu()
         self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
@@ -304,6 +315,29 @@ class MainWindow(QMainWindow):
         return f"No kubeconfig contexts found in {path}" if path else "No kubeconfig contexts found"
 
     # ---- clusters ------------------------------------------------------
+    def _sync_cluster_picker(self, preferred=None):
+        contexts = list(self.workspaces)
+        self.cluster_picker.blockSignals(True)
+        self.cluster_picker.clear()
+        self.cluster_picker.addItems(contexts)
+        current = preferred
+        if current is None:
+            active = QApplication.activeWindow()
+            current = next((context for context, window in self._detached.items() if window is active), None)
+        if current is None and self.clusters.currentWidget() is not None:
+            current = self.clusters.currentWidget().context
+        index = self.cluster_picker.findText(current or "")
+        if index >= 0:
+            self.cluster_picker.setCurrentIndex(index)
+        self.cluster_picker.blockSignals(False)
+
+    def _pick_cluster(self, index):
+        context = self.cluster_picker.itemText(index)
+        workspace = self.workspaces.get(context)
+        if workspace is not None and context not in self._detached:
+            self.clusters.setCurrentWidget(workspace)
+        self.nav.reveal_cluster(context)
+
     def _cluster_tab_menu(self, position):
         index = self.clusters.tabBar().tabAt(position)
         if index < 0:
@@ -321,6 +355,10 @@ class MainWindow(QMainWindow):
         owner = self
 
         class DetachedClusterWindow(QMainWindow):
+            def focusInEvent(window, event):  # noqa: N802
+                owner._sync_cluster_picker(ws.context)
+                super().focusInEvent(event)
+
             def closeEvent(window, event):  # noqa: N802
                 workspace = window.takeCentralWidget()
                 if workspace is not None:
@@ -337,6 +375,7 @@ class MainWindow(QMainWindow):
         window.setCentralWidget(ws)
         ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
         self._detached[ws.context] = window
+        self._sync_cluster_picker(ws.context)
         window.resize(self.size())
         window.show()
         return True
@@ -833,6 +872,7 @@ class MainWindow(QMainWindow):
         ws.deleteLater()
         self.nav.hide_views(ctx)
         self.nav.set_state(ctx, "idle")
+        self._sync_cluster_picker()
 
     def _open_view(self, ctx, key):
         ws = self.workspaces.get(ctx)
