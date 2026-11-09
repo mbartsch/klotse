@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
         self.review_action.setChecked(str(self.label_settings.store.value("edit/review_changes", "true")).lower() != "false")
         self.review_action.toggled.connect(self.set_review_changes)
         view_menu.addAction(self.review_action)
-        self.multi_action = QAction("Several clusters…", self)
+        self.multi_action = QAction("Multi Cluster…", self)
         self.multi_action.setShortcut(QKeySequence("Ctrl+Shift+M"))
         self.multi_action.setToolTip("One list of a kind (Pods, Deployments, Nodes, ...) from several open clusters, with a Cluster column")
         self.multi_action.triggered.connect(self.show_multi)
