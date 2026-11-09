@@ -116,6 +116,9 @@ def test_the_chart_scales_labels_and_names_the_nearest_values(qtbot):
     assert (t0, t1) == (t, t + 30) and top > 0.5  # the reference line is inside the scale
     text = chart.tooltip_at(chart.plot_rect().right() - 1)
     assert "total: 300m" in text and "app: 200m" in text
+    x = chart.plot_rect().right() - 1
+    assert chart.line_at(x, chart._to_point(t + 30, 0.3, chart.plot_rect(), chart.ranges()).y()) == "total"
+    assert chart.line_at(1, 1) == ""
     assert chart.tooltip_at(1) == ""  # left of the plot
     pixmap = QPixmap(chart.size())
     chart.render(pixmap)  # painting must not fail

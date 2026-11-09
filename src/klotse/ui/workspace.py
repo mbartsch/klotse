@@ -1537,6 +1537,15 @@ class ClusterWorkspace(QMainWindow):
                                metrics_history.reference_lines(kind, row), available, parent=self)
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
+        def go_to_line(name):
+            if name in ("total", row.name) or kind in ("Pod", "Node"):
+                target_kind, target_namespace, target_name = kind, namespace, row.name
+            elif kind in ("Deployment", "StatefulSet", "DaemonSet"):
+                target_kind, target_namespace, target_name = "Pod", namespace, name
+            else:
+                return
+            self.go_to_object(target_kind, target_namespace, target_name)
+        dialog.go_to_requested.connect(go_to_line)
         dialog.source_requested.connect(lambda: self._configure_prometheus(dialog, kind, row, selector))
         dialog.show()
         self._metrics_dialogs.append(dialog)

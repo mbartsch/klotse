@@ -3,7 +3,7 @@ reference lines (a request, a limit). Lines differ by colour, thickness and a le
 never the only cue; reference lines are dashed. Hovering shows the values nearest to the pointer."""
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
@@ -14,6 +14,9 @@ LEFT, RIGHT, TOP, BOTTOM = 66, 16, 30, 26
 
 
 class LineChart(QWidget):
+    hovered_line = Signal(str)
+    line_activated = Signal(str)
+
     def __init__(self, title="", formatter=str, parent=None):
         super().__init__(parent)
         self.title, self.formatter = title, formatter
@@ -124,9 +127,34 @@ class LineChart(QWidget):
             lines.append(f"{name}: {self.formatter(nearest[1])}")
         return "\n".join(lines)
 
+    def line_at(self, x, y):
+        """Return the series nearest to the pointer, or an empty string outside the plot."""
+        if not self.series:
+            return ""
+        rect = self.plot_rect()
+        if not rect.contains(x, y):
+            return ""
+        t0, t1, top = self.ranges()
+        t = t0 + (x - rect.left()) / rect.width() * (t1 - t0)
+        nearest_name, nearest_distance = "", float("inf")
+        for name, points in self.series.items():
+            point = min(points, key=lambda p: abs(p[0] - t))
+            screen_y = rect.bottom() - point[1] / top * rect.height()
+            distance = abs(screen_y - y)
+            if distance < nearest_distance:
+                nearest_name, nearest_distance = name, distance
+        return nearest_name if nearest_distance <= 12 else ""
+
     def mouseMoveEvent(self, event):
+        self.hovered_line.emit(self.line_at(event.position().x(), event.position().y()))
         text = self.tooltip_at(event.position().x())
         if text:
             QToolTip.showText(event.globalPosition().toPoint(), text, self)
         else:
             QToolTip.hideText()
+
+    def mouseDoubleClickEvent(self, event):
+        name = self.line_at(event.position().x(), event.position().y())
+        if name:
+            self.line_activated.emit(name)
+        super().mouseDoubleClickEvent(event)

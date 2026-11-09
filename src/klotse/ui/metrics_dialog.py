@@ -28,6 +28,7 @@ REFRESH_S = 30
 
 class MetricsDialog(QDialog):
     source_requested = Signal()  # the Source… button: the owner asks for a Prometheus address
+    go_to_requested = Signal(str)  # series name under the pointer
 
     def __init__(self, title, sample, refs=None, available=True, interval_s=15, parent=None, allow_source=True):
         """`sample()` returns {line: (timestamp, cores, MiB)} (called on a worker); `refs` is mh.reference_lines(...);
@@ -42,6 +43,7 @@ class MetricsDialog(QDialog):
         self.fetch_remote, self.remote_label, self.remote_note = None, "", ""
         self.cpu_chart = LineChart("CPU", mh.format_cores)
         self.mem_chart = LineChart("Memory", mh.format_mib)
+        self._hovered_line = ""
         self.status = QLabel("")
         self.status.setWordWrap(True)
         theme.muted(self.status)
@@ -61,6 +63,10 @@ class MetricsDialog(QDialog):
         self.pause_button.toggled.connect(self._pause)
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self.clear)
+        self.go_to_button = QPushButton("Go to object")
+        self.go_to_button.setEnabled(False)
+        self.go_to_button.setToolTip("Move to the object represented by the chart line under the pointer")
+        self.go_to_button.clicked.connect(lambda: self.go_to_requested.emit(self._hovered_line))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         self.note = QLabel(NOTE_SAMPLED)
@@ -75,6 +81,7 @@ class MetricsDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addWidget(self.pause_button)
         buttons.addWidget(self.clear_button)
+        buttons.addWidget(self.go_to_button)
         buttons.addStretch(1)
         buttons.addWidget(close)
         lay = QVBoxLayout(self)
@@ -87,6 +94,10 @@ class MetricsDialog(QDialog):
         self.timer = QTimer(self, interval=int(interval_s * 1000))
         self.timer.timeout.connect(self.refresh)
         self.source_box.currentIndexChanged.connect(lambda _=None: self._source_changed())
+        self.cpu_chart.hovered_line.connect(self._set_hovered_line)
+        self.mem_chart.hovered_line.connect(self._set_hovered_line)
+        self.cpu_chart.line_activated.connect(self._activate_line)
+        self.mem_chart.line_activated.connect(self._activate_line)
         self.range_box.currentIndexChanged.connect(lambda _=None: self.query())
         self._redraw()
         if available:
@@ -95,6 +106,15 @@ class MetricsDialog(QDialog):
         else:
             self.status.setText("This cluster does not serve the metrics API (metrics.k8s.io), so there is nothing to chart from metrics-server. "
                                 "Install it, or use Source… to point at a Prometheus or VictoriaMetrics service.")
+
+    def _set_hovered_line(self, name):
+        if name:
+            self._hovered_line = name
+            self.go_to_button.setEnabled(True)
+
+    def _activate_line(self, name):
+        self._set_hovered_line(name)
+        self.go_to_requested.emit(name)
 
     # ---- which source ---------------------------------------------------------------------------------------------
     def mode(self):
