@@ -1,9 +1,11 @@
-import dataclasses
+import threading
 from types import SimpleNamespace
+
+import pytest
 
 from PySide6.QtCore import QSettings
 
-from klotse.k8s.models import PodRow
+from klotse.k8s.models import DeploymentRow, PodRow
 from klotse.ui.customizations import LabelSettings
 from klotse.ui.main_window import MainWindow, _MultiSource
 from klotse.ui.multi_cluster import MultiClusterDialog
@@ -111,6 +113,40 @@ def test_changing_the_kind_starts_a_fresh_list_and_drops_late_answers(qtbot):
     assert dialog.table.model.rowCount() == 0 and [c[0] for c in dialog.table.model.columns] == ["Cluster", "Name", "Namespace"]
 
 
+def test_switching_kind_during_a_read_can_read_the_new_kind_and_ignores_old_errors(qtbot):
+    gate = threading.Event()
+    source = Source()
+    original_fetch = source.fetch
+
+    def fetch(context, key):
+        if key != "pods":
+            return original_fetch(context, key)
+
+        def delayed(namespace):
+            gate.wait(5)
+            raise PermissionError("old pod read")
+        return delayed
+
+    source.fetch = fetch
+    dialog = MultiClusterDialog(source)
+    qtbot.addWidget(dialog)
+    try:
+        dialog.read_button.click()
+        assert not dialog.read_button.isEnabled()
+        dialog.kind_box.setCurrentIndex(1)
+        assert dialog.read_button.isEnabled()
+        dialog.read_button.click()
+        qtbot.waitUntil(lambda: dialog.read_button.isEnabled() and dialog.table.model.rowCount() == 4, timeout=5000)
+        assert sorted(source.calls) == [("eu", "deployments", None), ("us", "deployments", None)]
+        gate.set()
+        qtbot.waitUntil(lambda: not dialog._workers, timeout=5000)
+        assert shown(dialog) == [("eu", "a"), ("eu", "b"), ("us", "a"), ("us", "c")]
+        assert dialog._pending == set() and dialog._failed == {}
+        assert "4 rows from 2 of 2 clusters" in dialog.status.text()
+    finally:
+        gate.set()
+
+
 def test_double_click_asks_to_go_to_the_object_in_its_cluster(qtbot):
     source = Source()
     dialog = MultiClusterDialog(source)
@@ -151,6 +187,36 @@ def test_the_menu_entry_needs_an_open_cluster_and_offers_the_lists_of_the_worksp
     assert source.columns("pods")[0] == ("Name", "name")
     assert win.show_multi() is True and win.multi_action.shortcut().toString() == "Ctrl+Shift+M"
     win._multi_dialog.close()
+
+
+@pytest.mark.parametrize("key, kind, name", [
+    ("deployments", "Deployment", "api"),
+    ("pods", "Pod", "web"),
+    ("nodes", "Node", "n1"),
+    ("services", "Service", "thing"),
+])
+def test_same_named_objects_from_two_workspace_services_are_both_shown(qtbot, tmp_path, key, kind, name):
+    win = window(qtbot, tmp_path)
+    for context in ("eu", "us"):
+        win.open_cluster(context)
+    qtbot.waitUntil(lambda: all(ws._ready for ws in win.workspaces.values()), timeout=5000)
+    assert win.show_multi() is True
+    dialog = win._multi_dialog
+    dialog.kind_box.setCurrentIndex(dialog.kind_box.findData(key))
+    dialog.read_button.click()
+    qtbot.waitUntil(lambda: dialog.read_button.isEnabled() and dialog.table.model.rowCount() == 2, timeout=5000)
+    assert shown(dialog) == [("eu", name), ("us", name)]
+    assert "2 rows from 2 of 2 clusters" in dialog.status.text()
+    assert dialog.table.kind == kind
+    if kind == "Deployment":
+        assert all(isinstance(row, DeploymentRow) and row.namespace == "default" for row in dialog._rows)
+    selected = set()
+    for index in range(2):
+        dialog.table.view.selectRow(index)
+        row = dialog.table.selected_rows()[0]
+        selected.add((row.cluster, row.name))
+    assert selected == {("eu", name), ("us", name)}
+    dialog.close()
 
 
 def test_the_adapter_reads_with_the_workspaces_own_loader_and_survives_a_closed_cluster(qtbot, tmp_path):

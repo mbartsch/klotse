@@ -89,8 +89,9 @@ class MultiClusterDialog(QDialog):
         self.table = ResourceTable(columns, kind, editable=False, customizable=False)
         self.table.view.doubleClicked.connect(lambda _index: self._open_selected())
         self.holder.addWidget(self.table, 1)
-        self._rows = []
+        self._rows, self._failed, self._pending = [], {}, set()
         self._serial += 1  # answers still coming for the previous kind are dropped
+        self.read_button.setEnabled(True)
         self.status.setText("Choose a kind and the clusters, then Read.")
 
     def _open_selected(self):
