@@ -4,7 +4,7 @@ The table is the ordinary list table, so sorting and the filter box work, filter
 Each cluster is read on its own worker with the loader its own list uses; one cluster failing leaves the others on screen and is named in
 the status line. It reads on request (Read again), never by itself. Workload logs and confirmed restarts route to each object's cluster. Double-click goes to the object in its cluster.
 The window knows nothing about clusters itself: a `source` (`MainWindow`'s adapter) lists the open clusters and kinds and hands out loaders."""
-from PySide6.QtCore import QThreadPool, Qt, Signal
+from PySide6.QtCore import QThreadPool, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout)
 
 from ..workers import Worker
@@ -29,8 +29,16 @@ class MultiClusterDialog(QDialog):
         self._workers = set()
         self._pending, self._failed, self._rows = set(), {}, []
         self.kind_box = QComboBox()
-        for key, title in source.kinds():
-            self.kind_box.addItem(title, key)
+        self.kind_box.setEditable(True)
+        self.kind_box.setInsertPolicy(QComboBox.NoInsert)
+        self.kind_box.lineEdit().setPlaceholderText("Search kinds…")
+        self.kind_box.lineEdit().setClearButtonEnabled(True)
+        self._kind_items = []
+        self._set_kind_items(source.kinds())
+        self.kind_box.lineEdit().textEdited.connect(self._filter_kinds)
+        self._kind_refresh = QTimer(self, interval=750)
+        self._kind_refresh.timeout.connect(self._refresh_kinds)
+        self._kind_refresh.start()
         self.namespace = QLineEdit(placeholderText="All namespaces")
         self.namespace.setMaximumWidth(220)
         self.boxes = {}
@@ -76,6 +84,35 @@ class MultiClusterDialog(QDialog):
         self.kind_box.currentIndexChanged.connect(lambda _=None: self._new_table())
         self._new_table()
 
+    def _filter_kinds(self, text):
+        """Keep the editable selector useful as a searchable dropdown without losing its chosen item."""
+        needle = text.casefold().strip()
+        for index in range(self.kind_box.count()):
+            title = self.kind_box.itemText(index)
+            self.kind_box.view().setRowHidden(index, bool(needle and needle not in title.casefold()))
+
+    def _set_kind_items(self, items):
+        self._kind_items = list(items)
+        for key, title in self._kind_items:
+            self.kind_box.addItem(title, key)
+
+    def _refresh_kinds(self):
+        """Pick up CRD-backed views registered after the dialog opened, without disturbing active typing."""
+        items = self.source.kinds()
+        if items == self._kind_items:
+            return
+        selected_key = self.kind_key()
+        text = self.kind_box.lineEdit().text()
+        self.kind_box.blockSignals(True)
+        self.kind_box.clear()
+        self._set_kind_items(items)
+        index = self.kind_box.findData(selected_key)
+        if index >= 0:
+            self.kind_box.setCurrentIndex(index)
+        self.kind_box.setEditText(text)
+        self.kind_box.blockSignals(False)
+        self._filter_kinds(text)
+
     # ---- the table for the chosen kind ------------------------------------------------------------------------------
     def kind_key(self):
         return self.kind_box.currentData()
@@ -90,6 +127,8 @@ class MultiClusterDialog(QDialog):
         hidden = set(DEFAULT_HIDDEN.get(kind, []))
         columns = [CLUSTER_COLUMN] + [c for c in self.source.columns(key) if c[1] not in hidden]
         self.table = ResourceTable(columns, kind, editable=False, customizable=False)
+        if key == "crds":
+            self.table.filter.setPlaceholderText("Search CustomResourceDefinitions…")
         self.table.context_actions = self._context_actions
         self.table.view.doubleClicked.connect(lambda _index: self._open_selected())
         self.holder.addWidget(self.table, 1)

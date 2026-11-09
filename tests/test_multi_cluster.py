@@ -62,6 +62,8 @@ def test_rows_of_several_clusters_land_in_one_list_with_a_cluster_column(qtbot):
     qtbot.addWidget(dialog)
     assert dialog.windowTitle() == "Multi Cluster"
     assert dialog.table.filter.placeholderText() == "Filter…"
+    assert dialog.kind_box.isEditable()
+    assert dialog.kind_box.lineEdit().placeholderText() == "Search kinds…"
     assert [dialog.kind_box.itemText(i) for i in range(2)] == ["Pods", "Deployments"] and set(dialog.boxes) == {"eu", "us"}
     dialog.read()
     qtbot.waitUntil(lambda: dialog.table.model.rowCount() == 4 and dialog.read_button.isEnabled(), timeout=5000)
@@ -300,7 +302,8 @@ def test_the_menu_entry_needs_an_open_cluster_and_offers_the_lists_of_the_worksp
     ws = win.clusters.currentWidget()
     source = _MultiSource(win)
     keys = [k for k, _t in source.kinds()]
-    assert source.contexts() == [ws.context] and {"pods", "deployments", "nodes", "namespaces", "services"} <= set(keys)
+    assert source.contexts() == [ws.context] and {"pods", "deployments", "nodes", "namespaces", "services", "crds"} <= set(keys)
+    assert "crd-groups" not in keys
     assert "overview" not in keys and not any(":" in k for k in keys) and source.table_kind("pods") == "Pod"
     assert source.columns("pods")[0] == ("Name", "name")
     assert win.show_multi() is True and win.multi_action.shortcut().toString() == "Ctrl+Shift+M"

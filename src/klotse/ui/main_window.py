@@ -4,12 +4,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QMainWindow,
-                               QMenu, QMessageBox, QSizePolicy, QTabWidget, QWidget)
+<<<<<<< HEAD
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
+                               QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QWidget)
 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
+from .cluster_aliases import ClusterAliases
 from .audit_log import AuditLog
 from .audit_dialog import AuditDialog
 from .cluster_session import ClusterSession
@@ -49,8 +51,13 @@ class _MultiSource:
     def kinds(self):
         from .resource_table import ResourceTable
         ws = self._first()
-        return [(key, title) for key, (widget, title) in ws.views.items()
-                if isinstance(widget, ResourceTable) and key in ws.loaders and ":" not in key and key not in self.NOT_TABLES]
+        kinds = []
+        for key, (widget, title) in ws.views.items():
+            if (isinstance(widget, ResourceTable) and key in ws.loaders
+                    and (":" not in key or key.startswith("cr:"))
+                    and key not in self.NOT_TABLES and key != "crd-groups"):
+                kinds.append((key, "CustomResourceDefinition" if key == "crds" else title))
+        return sorted(kinds, key=lambda item: item[1].casefold())
 
     def columns(self, key):
         return list(self._first().views[key][0].base_columns)
@@ -96,6 +103,7 @@ class MainWindow(QMainWindow):
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.theme_settings = ThemeSettings(self.label_settings.store)
         self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
+        self.aliases = ClusterAliases(self.label_settings.store)
         # plugins: bundled, pip (entry points) and the plugins folder next to the settings file; all off until enabled
         self.plugins = plugin_manager if plugin_manager is not None else PluginManager(
             self.label_settings.store, folder=Path(self.label_settings.store.fileName()).parent / "plugins", parent=self)
@@ -261,12 +269,13 @@ class MainWindow(QMainWindow):
         self.nav.plugin_entries = lambda: [(p.id, f"{p.name or p.id}: settings for this cluster…")
                                            for p in self.plugins.cluster_plugins()]
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
+        self.nav.alias_requested.connect(self.rename_cluster_alias)
 
         self.status = self.statusBar()
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
         self.contexts, _ = self.new_service().load_contexts()
-        self.nav.set_contexts(self.contexts, self.groups)
+        self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
         self._sync_cluster_picker()
         self._update_plugins_menu()
         self.nav.groups_changed.connect(self._save_groups)
@@ -278,6 +287,22 @@ class MainWindow(QMainWindow):
             self.groups.save()
         except OSError as error:
             QMessageBox.warning(self, "Cannot save the cluster groups", str(error))
+
+    def rename_cluster_alias(self, context):
+        current = self.aliases.display(context)
+        alias, accepted = QInputDialog.getText(self, "Rename cluster alias", f"Display name for {context} (blank clears it):", text=current)
+        if not accepted:
+            return False
+        try:
+            self.aliases.set(context, alias)
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot save cluster alias", str(error))
+            return False
+        self.nav.set_alias(context, self.aliases.display(context))
+        ws = self.workspaces.get(context)
+        if ws is not None and context not in self._detached:
+            self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(context))
+        return True
 
     def new_service(self):
         """A fresh service for one cluster, reading the custom kubeconfig when one is selected in Preferences."""
@@ -393,7 +418,7 @@ class MainWindow(QMainWindow):
         ws.gateway_found.connect(lambda entries, c=ctx: self.nav.show_gateway(c, entries))
         ws.crd_groups_found.connect(lambda entries, c=ctx: self.nav.show_crd_groups(c, entries))
         ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
-        self.clusters.setCurrentIndex(self.clusters.addTab(ws, ctx))
+        self.clusters.setCurrentIndex(self.clusters.addTab(ws, self.aliases.display(ctx)))
         ws.read_only_changed.connect(lambda _on, w=ws: self._retitle(w))
         ws.set_read_only(self.read_only_clusters.is_read_only(ctx))
         ws.review_changes = self.review_action.isChecked()
@@ -405,7 +430,7 @@ class MainWindow(QMainWindow):
     def _retitle(self, ws):
         """The cluster's tab title: its name, then 🔒 for read-only and (big) for big-cluster mode."""
         marks = (" 🔒" if ws.read_only else "") + (" (big)" if ws.big else "")
-        self.clusters.setTabText(self.clusters.indexOf(ws), ws.context + marks)
+        self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(ws.context) + marks)
 
     def _found_big(self, ws, nodes, pods):
         """The Overview showed a big cluster. Unless the user chose before, remember it, switch the lighter mode on and say so."""
@@ -797,7 +822,7 @@ class MainWindow(QMainWindow):
             self._discard(ctx)
         contexts, _ = self.new_service().load_contexts()
         self.contexts = contexts
-        self.nav.set_contexts(contexts, self.groups)
+        self.nav.set_contexts(contexts, self.groups, self.aliases.aliases)
         self.status.showMessage(
             f"Loaded {len(contexts)} context(s) from {path or 'the default kubeconfig'}" if contexts
             else self._no_contexts_message())
