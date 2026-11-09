@@ -585,10 +585,15 @@ class ResourceTable(QWidget):
         found = self._resolve(self.model.rows[source.row()], name)
         expression = None
         if self._column_map().get(name) == attr and found is not None and found[0] is not None:
-            # Exact regex matching keeps wildcard characters, quotes and comparison signs literal. Hex escapes
-            # keep quotes out of the filter language's string delimiters, including values containing both kinds.
-            pattern = re.escape(str(found[0])).replace("'", r"\x27").replace('"', r"\x22")
-            expression = f"{name} ~ '\\A{pattern}\\Z'"
+            value_text = str(found[0])
+            quote = "'" if "'" not in value_text else '"' if '"' not in value_text else None
+            if quote and not any(c in value_text for c in "*?\n\r"):
+                expression = f"{name} = {quote}{value_text}{quote}"
+            else:
+                # Equality treats * and ? as wildcards. Keep exact regex matching for those values
+                # and values that cannot fit in a quoted filter string without escaping.
+                pattern = re.escape(value_text).replace("'", r"\x27").replace('"', r"\x22")
+                expression = f"{name} ~ '\\A{pattern}\\Z'"
         use = menu.addAction("Filter by this value", lambda: self.filter.setText(expression))
         use.setEnabled(expression is not None)
         menu.addSeparator()

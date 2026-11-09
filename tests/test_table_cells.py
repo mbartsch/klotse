@@ -38,6 +38,7 @@ def test_copy_clicked_cell_after_sorting_and_with_multiple_rows_selected(qtbot, 
     assert QApplication.clipboard().text() == rows[1].status
     assert len(table.selected_rows()) == 2
     open_menu(table, monkeypatch, column=1, choose="Filter by this value")
+    assert table.filter.text() == f"status = '{rows[1].status}'"
     qtbot.waitUntil(lambda: not table._filter_timer.isActive())
     assert table.proxy.rowCount() == 1
     assert table.proxy.index(0, 0).data() == "z"
@@ -109,3 +110,18 @@ def test_copy_snapshot_survives_refresh_while_menu_is_open(qtbot, monkeypatch):
     monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
     table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
     assert QApplication.clipboard().text() == "old"
+
+
+@pytest.mark.parametrize("value", ["my-pod", "10.0.0.1", "a [b] = (c|d)", "it's ready", 'say "ready"', r"path\to\file"])
+def test_cell_filter_display_uses_readable_equality(qtbot, monkeypatch, value):
+    table = ResourceTable([("Name", "name"), ("Status", "status")], "Pod")
+    qtbot.addWidget(table)
+    table.set_rows([PodRow("selected", "ns", "1/1", value, 0, "n", "1d", {}),
+                    PodRow("other", "ns", "1/1", value + " extra", 0, "n", "1d", {})])
+    table.show()
+    open_menu(table, monkeypatch, column=1, choose="Filter by this value")
+    quote = '"' if "'" in value else "'"
+    assert table.filter.text() == f"status = {quote}{value}{quote}"
+    qtbot.waitUntil(lambda: not table._filter_timer.isActive())
+    assert table.proxy.rowCount() == 1
+    assert table.proxy.index(0, 0).data() == "selected"
