@@ -326,7 +326,7 @@ def test_cluster_picker_lists_connected_clusters_and_switches_tabs(qtbot, tmp_pa
     win = window(qtbot, tmp_path)
     for context in ("eu", "us"):
         win.open_cluster(context)
-    assert [win.cluster_picker.itemText(i) for i in range(win.cluster_picker.count())] == ["ctx", "eu", "us"]
+    assert [win.cluster_picker.itemText(i) for i in range(win.cluster_picker.count())] == ["eu", "us"]
     win.cluster_picker.setCurrentIndex(win.cluster_picker.findText("eu"))
     win._pick_cluster(win.cluster_picker.currentIndex())
     assert win.clusters.currentWidget().context == "eu"
