@@ -62,6 +62,7 @@ class Navigator(QTreeWidget):
     disconnect_requested = Signal(str)
     reconnect_requested = Signal(str)
     plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
+    alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
 
     ROLE_KIND = Qt.UserRole
@@ -110,7 +111,7 @@ class Navigator(QTreeWidget):
             painter.restore()
         super().drawRow(painter, option, index)
 
-    def set_contexts(self, names, groups=None):
+    def set_contexts(self, names, groups=None, aliases=None):
         self.clear()
         self._clusters, self._states, self._group_items = {}, {}, {}
         self.groups = groups
@@ -118,13 +119,18 @@ class Navigator(QTreeWidget):
         self._connected_hdr = self._header("Connected")
         self._idle_hdr = self._header("Disconnected")
         for n in names:
-            it = QTreeWidgetItem([n])
+            it = QTreeWidgetItem([(aliases or {}).get(n, n)])
             it.setData(0, self.ROLE_KIND, "cluster")
             it.setData(0, self.ROLE_KEY, n)
             it.setIcon(0, dot_icon(STATE_COLORS["idle"]))
             self._clusters[n] = it
             self._states[n] = "idle"
         self._layout_idle()
+
+    def set_alias(self, name, alias):
+        item = self._clusters.get(name)
+        if item is not None:
+            item.setText(0, alias or name)
 
     def _group_of(self, name):
         return self.groups.group_of(name) if self.groups is not None else ""
@@ -352,6 +358,7 @@ class Navigator(QTreeWidget):
             if cluster is None:
                 return None
             name = cluster.data(0, self.ROLE_KEY)
+            menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
             for label, signal in self.actions_for(name):
                 menu.addAction(label, lambda sig=signal: sig.emit(name))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
