@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLi
                                QWidgetAction)
 
 from ..k8s.related import KINDS as RELATED_KINDS
-from . import events_view, rbac_view, related_view, theme, workload_view
+from . import events_view, node_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
 
 
@@ -215,6 +215,18 @@ class DetailPanel(QWidget):
             self.events.setHtml(events_view.render(events or [], getattr(row, "name", "")))
 
     def _render_formatted(self, row):
+        if getattr(row, "table_kind", None) == "Node" or hasattr(row, "is_ready"):
+            try:
+                self.formatted.setHtml(node_view.render(row.raw))
+                self._formatted_ok = True
+            except Exception as e:  # noqa: BLE001
+                self.formatted.setPlainText(f"Cannot format this Node: {type(e).__name__}: {e}")
+            self.view_bar.setVisible(self._formatted_ok or self._events_ok or self._related_ok)
+            self.formatted_button.setVisible(self._formatted_ok)
+            self.events_button.setVisible(self._events_ok)
+            self.related_button.setVisible(self._related_ok)
+            self._show_mode()
+            return
         kind, view = getattr(row, "rbac_kind", None), rbac_view
         if kind not in rbac_view.RBAC_KINDS:
             kind, view = workload_view.kind_of(row.raw), workload_view
