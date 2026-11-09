@@ -53,8 +53,8 @@ class _MultiSource:
         for key, (widget, title) in ws.views.items():
             if (isinstance(widget, ResourceTable) and key in ws.loaders and ":" not in key
                     and key not in self.NOT_TABLES and key != "crd-groups"):
-                kinds.append((key, "CRDs" if key == "crds" else title))
-        return kinds
+                kinds.append((key, "CustomResourceDefinition" if key == "crds" else title))
+        return sorted(kinds, key=lambda item: item[1].casefold())
 
     def columns(self, key):
         return list(self._first().views[key][0].base_columns)
