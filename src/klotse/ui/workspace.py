@@ -2477,6 +2477,7 @@ class ClusterWorkspace(QMainWindow):
             return
         if action == "node-pods":
             self.open_node_pods(row.name, row)
+            self.detail.show_row(row)
         elif action in ("cordon", "uncordon"):
             verb = "Cordon" if action == "cordon" else "Uncordon"
             effect = "Prevent new pods from scheduling here." if action == "cordon" else "Allow new pods to schedule here."
