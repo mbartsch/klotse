@@ -4,7 +4,7 @@ The table is the ordinary list table, so sorting and the filter box work, filter
 Each cluster is read on its own worker with the loader its own list uses; one cluster failing leaves the others on screen and is named in
 the status line. It reads on request (Read again), never by itself. Workload logs and confirmed restarts route to each object's cluster. Double-click goes to the object in its cluster.
 The window knows nothing about clusters itself: a `source` (`MainWindow`'s adapter) lists the open clusters and kinds and hands out loaders."""
-from PySide6.QtCore import QThreadPool, Qt, Signal
+from PySide6.QtCore import QSortFilterProxyModel, QThreadPool, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout)
 
 from ..workers import Worker
@@ -29,8 +29,13 @@ class MultiClusterDialog(QDialog):
         self._workers = set()
         self._pending, self._failed, self._rows = set(), {}, []
         self.kind_box = QComboBox()
+        self.kind_box.setEditable(True)
+        self.kind_box.setInsertPolicy(QComboBox.NoInsert)
+        self.kind_box.lineEdit().setPlaceholderText("Search kinds…")
+        self.kind_box.lineEdit().setClearButtonEnabled(True)
         for key, title in source.kinds():
             self.kind_box.addItem(title, key)
+        self.kind_box.lineEdit().textEdited.connect(self._filter_kinds)
         self.namespace = QLineEdit(placeholderText="All namespaces")
         self.namespace.setMaximumWidth(220)
         self.boxes = {}
@@ -75,6 +80,14 @@ class MultiClusterDialog(QDialog):
         lay.addLayout(buttons)
         self.kind_box.currentIndexChanged.connect(lambda _=None: self._new_table())
         self._new_table()
+
+    def _filter_kinds(self, text):
+        """Keep the editable selector useful as a searchable dropdown without losing its chosen item."""
+        needle = text.casefold().strip()
+        for index in range(self.kind_box.count()):
+            title = self.kind_box.itemText(index)
+            self.kind_box.view().setRowHidden(index, bool(needle and needle not in title.casefold()))
+        self.kind_box.showPopup()
 
     # ---- the table for the chosen kind ------------------------------------------------------------------------------
     def kind_key(self):

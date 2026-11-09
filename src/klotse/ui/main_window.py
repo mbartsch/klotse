@@ -51,7 +51,8 @@ class _MultiSource:
         ws = self._first()
         kinds = []
         for key, (widget, title) in ws.views.items():
-            if (isinstance(widget, ResourceTable) and key in ws.loaders and ":" not in key
+            if (isinstance(widget, ResourceTable) and key in ws.loaders
+                    and (":" not in key or key.startswith("cr:"))
                     and key not in self.NOT_TABLES and key != "crd-groups"):
                 kinds.append((key, "CustomResourceDefinition" if key == "crds" else title))
         return sorted(kinds, key=lambda item: item[1].casefold())
