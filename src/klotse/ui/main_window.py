@@ -312,6 +312,7 @@ class MainWindow(QMainWindow):
         workspace = self.workspaces.get(context)
         if workspace is not None and context not in self._detached:
             self.clusters.setCurrentWidget(workspace)
+        self.nav.reveal_cluster(context)
 
     def _cluster_tab_menu(self, position):
         index = self.clusters.tabBar().tabAt(position)

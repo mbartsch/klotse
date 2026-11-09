@@ -306,6 +306,19 @@ class Navigator(QTreeWidget):
         if item is not None:
             self.setCurrentItem(item)
 
+    def reveal_cluster(self, name):
+        """Select a cluster and scroll its row into view."""
+        item = self._clusters.get(name)
+        if item is None:
+            return False
+        parent = item.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
+        self.setCurrentItem(item)
+        self.scrollToItem(item, QTreeWidget.PositionAtCenter)
+        return True
+
     def select_view(self, name, key):
         def walk(item):
             for i in range(item.childCount()):
