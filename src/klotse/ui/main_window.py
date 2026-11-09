@@ -4,7 +4,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-<<<<<<< HEAD
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
                                QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QWidget)
 
