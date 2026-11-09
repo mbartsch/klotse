@@ -64,11 +64,11 @@ class PluginActionRunner(QObject):
     # ---- running ----------------------------------------------------------------------
     def run(self, plugin_id, key, rows, kind):
         found = self.ws.plugins.get(plugin_id)
-        action = next((a for a in found.plugin.actions if a.key == key), None) if found else None
+        plugin = found.plugin if found and self.ws.plugins.is_enabled(plugin_id) else None
+        action = next((a for a in plugin.actions if a.key == key), None) if plugin else None
         if action is None:
             self.ws._on_error(f"The plugin action {plugin_id}:{key} is not available")
             return
-        plugin = found.plugin
         label = plugin.name or plugin.id
         if action.dangerous and not self.ws._writable(f"run the plugin action {action.title!r}, which can change things"):
             return

@@ -55,17 +55,30 @@ def _self_test_checks():
         return title
 
     def plugins():
-        # the plugins bundled with Klotse must load (a missing hidden import in a packaged app would show here)
+        # Prove both bundled manifest data and dynamic Python imports survived packaging.
         import tempfile
+        import time
 
-        from PySide6.QtCore import QSettings
+        from PySide6.QtCore import QCoreApplication, QSettings
         from .plugins.manager import BUNDLED_MODULES, PluginManager
-        scratch = QSettings(os.path.join(tempfile.gettempdir(), "klotse-selftest.ini"), QSettings.IniFormat)
-        manager = PluginManager(scratch, folder=None, bundled=BUNDLED_MODULES, entry_points=False)
-        failed = [f"{found.origin}: {found.error}" for found in manager.loaded if found.plugin is None]
-        if failed:
-            raise RuntimeError("; ".join(failed))
-        return f"{len(manager.loaded)} bundled plugin(s) load"
+        with tempfile.TemporaryDirectory(prefix="klotse-selftest-") as folder:
+            scratch = QSettings(os.path.join(folder, "plugins.ini"), QSettings.IniFormat)
+            manager = PluginManager(scratch, folder=None, bundled=BUNDLED_MODULES, entry_points=False)
+            failed = [f"{found.origin}: {found.error}" for found in manager.loaded if found.manifest is None]
+            if failed:
+                raise RuntimeError("; ".join(failed))
+            for found in manager.loaded:
+                manager.set_enabled(found.id, True)
+            deadline = time.monotonic() + 30
+            while any(manager.is_loading(found.id) for found in manager.loaded):
+                QCoreApplication.processEvents()
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("bundled plugins did not finish loading within 30 seconds")
+                time.sleep(0.01)
+            failed = [f"{found.origin}: {found.error}" for found in manager.loaded if found.plugin is None]
+            if failed:
+                raise RuntimeError("; ".join(failed))
+            return f"{len(manager.loaded)} bundled plugin manifest(s) and implementation(s) load"
 
     def embedded_terminal():
         # The embedded terminal needs QtWebEngine, the bundled xterm.js files and, on Windows, pywinpty. A packaged app must have

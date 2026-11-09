@@ -37,7 +37,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 7  # 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
+API_VERSION = 8  # 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 

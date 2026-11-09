@@ -34,6 +34,8 @@ class PluginsPanel(QWidget):
         self.error = QLabel()
         self.error.setWordWrap(True)
         self.error.setStyleSheet("color: #e5484d;")
+        for label in (self.title, self.description, self.source, self.provides, self.error):
+            label.setTextFormat(Qt.PlainText)
         self.settings_box = QGroupBox("Settings")
         self.settings_form = QFormLayout(self.settings_box)
         details = QWidget()
@@ -66,6 +68,7 @@ class PluginsPanel(QWidget):
         layout.addWidget(self.empty)
         layout.addLayout(buttons)
         manager.errors_changed.connect(self._refresh_details)
+        manager.changed.connect(self._manager_changed)
         self.populate()
 
     # ---- the list ------------------------------------------------------------
@@ -73,24 +76,47 @@ class PluginsPanel(QWidget):
         self.list.blockSignals(True)
         self.list.clear()
         for found in self.manager.loaded:
-            item = QListWidgetItem(found.plugin.name or found.id if found.plugin else f"⚠ {found.id}")
+            plugin = found.manifest or found.plugin
+            item = QListWidgetItem(plugin.name or found.id if plugin else f"⚠ {found.id}")
             item.setData(Qt.UserRole, found)
-            if found.plugin is not None:
+            if plugin is not None:
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked if self.manager.is_enabled(found.id) else Qt.Unchecked)
+                item.setCheckState(Qt.Checked if found.loading or self.manager.is_enabled(found.id) else Qt.Unchecked)
             else:  # it did not load: it can be read about but not enabled
                 item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)
             self.list.addItem(item)
         self.list.blockSignals(False)
         self.empty.setText("" if self.manager.loaded else (
-            "No plugins found. Plugins are Python files in the plugins folder, or pip packages that declare a "
-            "klotse.plugins entry point."))
+            "No plugins found. Add a Python plugin and its JSON manifest to the plugins folder, or install a "
+            "package with klotse.plugins and klotse.plugin_manifests entry points."))
         wanted = next((i for i in range(self.list.count())
                        if select and self.list.item(i).data(Qt.UserRole).id == select), 0)
         if self.list.count():
             self.list.setCurrentRow(wanted)
         else:
             self._show_details(None, None)
+        self._manager_changed()
+
+    def _manager_changed(self):
+        """Reflect asynchronous loading without replacing settings boxes while the user is editing them."""
+        items = [self.list.item(i) for i in range(self.list.count())]
+        if len(items) != len(self.manager.loaded) or any(
+                item.data(Qt.UserRole) is not found for item, found in zip(items, self.manager.loaded)):
+            current = self._current()
+            self.populate(select=current.id if current else None)
+            return
+        self.list.blockSignals(True)
+        try:
+            for item in items:
+                found = item.data(Qt.UserRole)
+                plugin = found.manifest or found.plugin
+                name = plugin.name or found.id if plugin else f"⚠ {found.id}"
+                item.setText(f"{name} (loading…)" if found.loading else name)
+                if plugin is not None:
+                    item.setCheckState(Qt.Checked if found.loading or self.manager.is_enabled(found.id) else Qt.Unchecked)
+        finally:
+            self.list.blockSignals(False)
+        self._refresh_details()
 
     def reload(self):
         current = self._current()
@@ -103,7 +129,7 @@ class PluginsPanel(QWidget):
 
     def _toggled(self, item):
         found = item.data(Qt.UserRole)
-        if found.plugin is None:
+        if found.manifest is None and found.plugin is None:
             return
         enabled = item.checkState() == Qt.Checked
         try:
@@ -142,7 +168,7 @@ class PluginsPanel(QWidget):
             for label in (self.title, self.description, self.source, self.provides, self.error):
                 label.clear()
             return
-        plugin = found.plugin
+        plugin = found.manifest or found.plugin
         self.title.setText(plugin.name or plugin.id if plugin else found.id)
         self.description.setText(plugin.description if plugin else "")
         self.source.setText(f"Source: {found.source}: {found.origin}" + (f"\nVersion: {plugin.version}" if plugin and plugin.version else ""))
@@ -200,6 +226,10 @@ class PluginsPanel(QWidget):
                 f"{'⚠ ' if a.dangerous else ''}{a.title} ({'/'.join(a.kinds)})" for a in plugin.actions))
             if any(a.dangerous for a in plugin.actions):
                 lines.append("⚠ marks actions that can change things; they always ask before they run.")
+        if plugin.overview_cards:
+            lines.append("Overview cards: " + ", ".join(card.title for card in plugin.overview_cards))
+        if plugin.cluster_settings:
+            lines.append("Per-cluster settings: " + ", ".join(setting.label for setting in plugin.cluster_settings))
         return "\n".join(lines)
 
     def _refresh_details(self):
@@ -207,7 +237,7 @@ class PluginsPanel(QWidget):
         if found is None:
             return
         problem = found.error or self.manager.errors.get(found.id, "")
-        self.error.setText(f"Problem: {problem}" if problem else "")
+        self.error.setText("Loading plugin…" if found.loading else (f"Problem: {problem}" if problem else ""))
 
     def _save_setting(self, plugin_id, key, value):
         try:

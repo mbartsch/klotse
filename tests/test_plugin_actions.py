@@ -95,7 +95,7 @@ def test_actions_and_the_required_api_are_validated():
             _as_plugin(bad)
     with pytest.raises(ValueError, match="needs plugin API"):
         _as_plugin(TooNew)
-    assert _as_plugin(Acts).actions[0].key == "copy" and API_VERSION == 7
+    assert _as_plugin(Acts).actions[0].key == "copy" and API_VERSION == 8
 
 
 def test_actions_for_follows_kind_multi_selection_and_enabling(tmp_path):
@@ -356,3 +356,20 @@ def test_the_dialog_says_what_a_plugin_adds_and_warns_about_dangerous_actions(qt
     text = dialog.provides.text()
     assert "Right-click actions: Copy name (Node), ⚠ Kill (Node/Pod), Only in zone a (Node), Pod thing (Pod)" in text
     assert "always ask before they run" in text and "Columns" not in text
+
+
+@pytest.mark.parametrize("state", ["disabled", "unloaded"])
+def test_stale_actions_do_not_run_disabled_or_unloaded_plugins(qtbot, tmp_path, state):
+    plugin = Acts()
+    ws, manager, _ = workspace(qtbot, tmp_path, plugin)
+    errors, queued = [], []
+    ws._on_error = errors.append
+    ws._run = lambda *args, **kwargs: queued.append(args)
+    if state == "disabled":
+        manager.set_enabled(plugin.id, False)
+    else:
+        # Reload replaced the object behind a previously opened action menu with a catalog entry.
+        manager.loaded = [Loaded(plugin.id, "plugins folder", "acts.py", manifest=plugin)]
+    ws.plugin_runner.run(plugin.id, "copy", [node("n1")], "Node")
+    assert errors == ["The plugin action acts:copy is not available"]
+    assert queued == [] and plugin.requests == []

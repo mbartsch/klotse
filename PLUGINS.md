@@ -47,6 +47,27 @@ class NodeZone(Plugin):
 plugin = NodeZone()             # Klotse looks for a module-level `plugin`, or a `register()` function
 ```
 
+Save that code as `node_zone.py` alongside `node_zone.json`:
+
+```json
+{
+  "manifest_version": 1,
+  "id": "node-zone",
+  "name": "Node zone",
+  "description": "Shows the availability zone of every node.",
+  "requires_api": 1,
+  "columns": [{"key": "zone", "title": "Zone"}],
+  "actions": [{"key": "copy", "title": "Copy zone", "multi": true}]
+}
+```
+
+The manifest is required. Klotse reads it to list the plugin without importing Python code.
+The ID, display metadata, API requirement and declarations must match the Python plugin;
+`version` defaults to an empty string, omitted declaration lists to empty lists, and omitted
+declaration fields to their API defaults (for example column/action `kinds` defaults to `["Node"]`).
+Declare `columns`, `actions`, `overview_cards`, `settings` and `cluster_settings` with the same
+fields as their API classes, using JSON arrays for `kinds`. Omit Python column `format` callables.
+
 ## Columns
 
 `enrich()` returns `{resource.key: {column key: value}}`. Values can be strings or numbers (or `None`). A resource you
@@ -95,26 +116,49 @@ Plugins are found in three places, and none runs until you enable it on the **Pl
 
 1. **The plugins folder**: `.py` files, or folders with an `__init__.py`, in the `plugins` folder next to Klotse's
    settings file. The Plugins dialog has **Open plugins folder** and **Reload plugins**. This works in the packaged
-   apps too. A file or folder whose name starts with `_` or `.` is ignored.
+   apps too. A file or folder whose name starts with `_` or `.` is ignored. A file `name.py` needs
+   `name.json` beside it; a package folder needs `klotse-plugin.json` inside it.
 2. **A pip package** that declares an entry point in the `klotse.plugins` group, installed in the same environment as
    Klotse (`pipx inject klotse my-klotse-plugin`):
 
    ```toml
    [project.entry-points."klotse.plugins"]
    node-zone = "my_klotse_plugin:plugin"      # a Plugin instance, a Plugin subclass, or a function returning one
+
+   [project.entry-points."klotse.plugin_manifests"]
+   node-zone = "my_klotse_plugin.klotse_manifest"
+
+   [tool.setuptools.package-data]
+   my_klotse_plugin = ["klotse_manifest.json"]
    ```
+
+   The companion entry has the same name, belongs to the same installed distribution, and names a dotted
+   resource stem: `my_klotse_plugin.klotse_manifest` identifies `my_klotse_plugin/klotse_manifest.json`
+   relative to the installed distribution. Each dotted component must be a Python identifier; omit `.json`.
+   This syntax meets the [packaging entry-point schema](https://packaging.python.org/en/latest/specifications/entry-points/).
+   Klotse reads the JSON file through distribution
+   metadata without importing the named module or calling either entry point. Include the JSON file
+   in the wheel and source distribution.
 
 3. **Bundled with Klotse**, for plugins the project ships itself. They are loaded like any other plugin and are just as
    disabled until enabled.
 
-A plugin that fails to import, has an invalid id, reuses another plugin's id, or needs a newer API than this Klotse
-provides (`requires_api`) is listed in the dialog with the reason; it never stops Klotse or the other plugins.
+Discovery reads manifests only, including at startup. Enabling a plugin imports and validates its code on a worker
+thread; Preferences shows loading until that succeeds. Only a successful load activates and saves a newly enabled
+plugin. An exception, `SystemExit`, or a declaration mismatch leaves it disabled and shows the reason. Plugins already
+enabled in saved settings load asynchronously at startup.
+
+A missing, invalid or unsupported manifest makes a plugin unavailable without importing it, even if it was enabled
+before this change. Its saved enablement entry and general and per-cluster settings are retained: installing a valid
+manifest with the same plugin ID restores them on discovery. This is the migration path for older plugins; there is no
+legacy import fallback. Duplicate IDs and unsupported `requires_api` values are also reported in Preferences.
 
 ## API versions
 
-`klotse.plugins.API_VERSION` is 7: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
+`klotse.plugins.API_VERSION` is 8: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
 `EnrichRequest.warn`, version 4 added multi-line settings, version 5 added Overview cards, version 6 added cluster
-settings, version 7 added password settings. Set `requires_api` to the lowest
+settings, version 7 added password settings, and version 8 requires manifests and defers imports until enablement.
+The manifest requirement applies to every plugin, including plugins declaring an older API. Set `requires_api` to the lowest
 version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings, 5 for Overview cards, 6 for cluster settings, 7 for password settings); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
 
 ## Cluster settings
@@ -218,7 +262,7 @@ as the case may be. Not tested against real AWS here.
 
 **Status: not implemented.** This is a feasibility note from reading the plugin API and the AWS plugin, not from running anything. No code exists, and none of it has been tried against Google Cloud or Azure, mainly because there is no test environment (no GKE or AKS cluster, no cloud accounts) to build and check it against. The provider details below come from memory of the public documentation and must be re-checked before anyone relies on them.
 
-API v7 already has what a sibling of the AWS plugin needs (columns, right-click actions, Overview cards, global and per-cluster settings); no core change is expected.
+API v8 already has what a sibling of the AWS plugin needs (columns, right-click actions, Overview cards, global and per-cluster settings); no core change is expected.
 
 | | GCP (GKE) | Azure (AKS) |
 | --- | --- | --- |

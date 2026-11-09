@@ -32,6 +32,9 @@ packaging/macos/build.sh
 Build on each kind of Mac you want to support: an Apple Silicon Mac makes `arm64`, an Intel Mac makes `x86_64`.
 
 Both scripts finish by running the packaged app's own self-test (below), and fail if it does not pass.
+The plugin check first discovers the bundled JSON manifests, then explicitly enables and validates each bundled
+plugin asynchronously. This checks both manifest data inclusion and Python hidden imports on Windows and macOS.
+`klotse.spec` includes `src/klotse_plugins/*.json`; setuptools includes the same files in Python packages.
 
 ## Building in CI
 

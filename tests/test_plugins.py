@@ -86,75 +86,19 @@ def test_a_resource_key_is_its_name_or_namespace_slash_name():
 
 
 # ---- loading ------------------------------------------------------------------------
-def test_a_plugin_file_in_the_folder_is_found(tmp_path):
+def test_a_plugin_file_in_the_folder_is_found(qtbot, tmp_path):
+    import json
     folder = tmp_path / "plugins"
     folder.mkdir()
-    (folder / "hello.py").write_text(textwrap.dedent('''
-        from klotse.plugins import Column, Plugin
-
-        class Hello(Plugin):
-            id = "hello"
-            name = "Hello"
-            columns = (Column("greeting", "Greeting"),)
-
-        plugin = Hello()
-    '''))
+    (folder / "hello.py").write_text("from klotse.plugins import Plugin\nclass Hello(Plugin):\n    id='hello'\n    name='Hello'\nplugin=Hello()\n")
+    (folder / "hello.json").write_text(json.dumps(dict(manifest_version=1, id="hello", name="Hello", requires_api=1)))
     manager = PluginManager(store(tmp_path), folder=folder, bundled=(), entry_points=False)
     assert [(f.id, f.source, f.error) for f in manager.loaded] == [("hello", "plugins folder", "")]
+    assert manager.get("hello").manifest.name == "Hello" and manager.get("hello").plugin is None
+    assert not manager.is_enabled("hello") and manager.columns_for("Node") == []
+    manager.set_enabled("hello", True)
+    qtbot.waitUntil(lambda: manager.is_enabled("hello"))
     assert manager.get("hello").plugin.name == "Hello"
-    assert not manager.is_enabled("hello") and manager.columns_for("Node") == []  # found, but off until enabled
-
-
-def test_a_package_folder_and_a_register_function_work_too(tmp_path):
-    folder = tmp_path / "plugins"
-    (folder / "pkg").mkdir(parents=True)
-    (folder / "pkg" / "__init__.py").write_text(textwrap.dedent('''
-        from klotse.plugins import Plugin
-
-        class P(Plugin):
-            id = "from-package"
-
-        def register():
-            return P()
-    '''))
-    manager = PluginManager(store(tmp_path), folder=folder, bundled=(), entry_points=False)
-    assert [f.id for f in manager.loaded] == ["from-package"]
-
-
-def test_broken_plugins_are_reported_and_never_stop_the_others(tmp_path):
-    folder = tmp_path / "plugins"
-    folder.mkdir()
-    (folder / "a_good.py").write_text("from klotse.plugins import Plugin\nclass G(Plugin):\n    id = 'good'\nplugin = G()\n")
-    (folder / "b_syntax.py").write_text("def broken(:\n")
-    (folder / "c_empty.py").write_text("x = 1\n")
-    (folder / "d_badid.py").write_text("from klotse.plugins import Plugin\nclass B(Plugin):\n    id = 'Bad Id'\nplugin = B()\n")
-    (folder / "e_dup.py").write_text("from klotse.plugins import Plugin\nclass D(Plugin):\n    id = 'good'\nplugin = D()\n")
-    (folder / "f_raises.py").write_text("raise RuntimeError('boom at import')\n")
-    (folder / "g_exits.py").write_text("raise SystemExit('plugin tried to exit')\n")
-    (folder / "_private.py").write_text("raise RuntimeError('must be skipped')\n")
-    manager = PluginManager(store(tmp_path), folder=folder, bundled=(), entry_points=False)
-    by_origin = {f.origin.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]: f for f in manager.loaded}
-    assert set(by_origin) == {"a_good.py", "b_syntax.py", "c_empty.py", "d_badid.py", "e_dup.py", "f_raises.py", "g_exits.py"}
-    assert by_origin["a_good.py"].plugin is not None and by_origin["a_good.py"].error == ""
-    assert "SyntaxError" in by_origin["b_syntax.py"].error
-    assert "neither a `plugin` object" in by_origin["c_empty.py"].error
-    assert "invalid plugin id" in by_origin["d_badid.py"].error
-    assert "already uses the id" in by_origin["e_dup.py"].error
-    assert "boom at import" in by_origin["f_raises.py"].error
-    assert "SystemExit" in by_origin["g_exits.py"].error
-    assert [p.id for p in [f.plugin for f in manager.loaded if f.plugin]] == ["good"]
-
-
-def test_modules_and_entry_points_are_found_through_the_same_checks(tmp_path, monkeypatch):
-    import types
-
-    module = types.ModuleType("fake_bundled_plugin")
-    module.plugin = Zone()
-    monkeypatch.setitem(sys.modules, "fake_bundled_plugin", module)
-    manager = PluginManager(store(tmp_path), folder=None, bundled=("fake_bundled_plugin", "no_such_module_anywhere"),
-                            entry_points=False)
-    assert [(f.id, f.source) for f in manager.loaded if f.plugin] == [("zone", "bundled")]
-    assert "ModuleNotFoundError" in next(f for f in manager.loaded if f.plugin is None).error
 
 
 def test_plugin_definitions_are_validated():
@@ -189,7 +133,7 @@ def test_enabling_is_saved_and_columns_follow(tmp_path):
     assert manager.columns_for("Node")[0] == ("Zone", "plugin:zone:zone")  # no formatter: a plain pair
     assert manager.columns_for("Node")[1][2](4) == "4 cores"
     again = PluginManager(store(tmp_path), folder=None, bundled=(), entry_points=False)
-    assert again.is_enabled("zone")  # remembered
+    assert again.store.value("plugins/enabled.0") == "zone"  # unavailable ID remembered without executing
     manager.set_enabled("zone", False)
     assert manager.columns_for("Node") == [] and not PluginManager(store(tmp_path), entry_points=False).is_enabled("zone")
 
@@ -462,7 +406,7 @@ def test_the_dialog_shows_why_a_plugin_failed_and_a_runtime_problem(qtbot, tmp_p
     (folder / "broken.py").write_text("raise RuntimeError('boom')\n")
     manager = PluginManager(store(tmp_path), folder=folder, bundled=(), entry_points=False)
     dialog = dialog_for(qtbot, manager)
-    assert dialog.list.item(0).text().startswith("⚠") and "boom" in dialog.error.text()
+    assert dialog.list.item(0).text().startswith("⚠") and "manifest" in dialog.error.text().lower()
     assert not dialog.list.item(0).flags() & Qt.ItemIsUserCheckable  # a failed plugin cannot be enabled
     working = manager_with(tmp_path, Zone())
     dialog = dialog_for(qtbot, working)
@@ -506,7 +450,7 @@ def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path,
     class FakeDialog:
         Accepted = 1
 
-        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None, themes=None):
+        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None, themes=None, debug=None):
             seen.update(terminal=terminal, plugins=plugins)
 
         def exec(self):

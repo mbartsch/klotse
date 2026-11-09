@@ -31,7 +31,7 @@ IS_WINDOWS, IS_MAC = sys.platform == "win32", sys.platform == "darwin"
 
 # The files under src/klotse/assets go to klotse/assets in the app, subfolders included (assets/xterm holds the embedded terminal's
 # page; without it the packaged self-test fails). The editable sources in assets/source/ are not packaged.
-datas = []
+datas = [(str(path), "klotse_plugins") for path in (ROOT / "src" / "klotse_plugins").glob("*.json")]
 for path in ASSETS.rglob("*"):
     if not path.is_file() or path.relative_to(ASSETS).parts[0] == "source":
         continue

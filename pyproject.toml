@@ -48,6 +48,7 @@ version = { attr = "klotse._version.__version__" }
 
 [tool.setuptools.package-data]
 klotse = ["assets/*", "assets/xterm/*"]
+klotse_plugins = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,16 +2,19 @@ import importlib
 import importlib.util
 import sys
 import types
+import uuid
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, Signal
+from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer, Signal, Slot
 
 from ..ui.settings_store import default_store
 from .api import API_VERSION, Action, Column, OverviewCard, Plugin, Setting, column_attr, valid_id
+from .manifest import declarations, read_manifest
 
 ENTRY_POINT_GROUP = "klotse.plugins"
+MANIFEST_ENTRY_POINT_GROUP = "klotse.plugin_manifests"
 BUNDLED_MODULES = ("klotse_plugins.aws",)  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
 
 
@@ -24,6 +27,10 @@ class Loaded:
     origin: str  # module, entry point or file
     plugin: object = None
     error: str = ""
+    manifest: object = None
+    loading: bool = False
+    loader: object = None
+    generation: int = 0
 
 
 def _as_plugin(obj):
@@ -41,7 +48,7 @@ def _as_plugin(obj):
         raise TypeError("it does not provide a klotse.plugins.Plugin")
     if not valid_id(obj.id):
         raise ValueError(f"invalid plugin id {obj.id!r} (use lower case letters, digits, '-' and '_')")
-    if not isinstance(obj.requires_api, int) or obj.requires_api > API_VERSION:
+    if type(obj.requires_api) is not int or not 1 <= obj.requires_api <= API_VERSION:
         raise ValueError(f"it needs plugin API {obj.requires_api}, this Klotse provides {API_VERSION}")
     for group, kind in ((obj.columns, Column), (obj.actions, Action), (obj.overview_cards, OverviewCard), (obj.settings, Setting),
                         (obj.cluster_settings, Setting)):
@@ -58,7 +65,7 @@ def _as_plugin(obj):
 def _load_file(path):
     """Import a plugin from a .py file or a package folder in the plugins folder."""
     path = Path(path)
-    name = "klotse_user_plugin_" + path.stem.replace("-", "_").replace(".", "_")
+    name = "klotse_user_plugin_" + path.stem.replace("-", "_").replace(".", "_") + "_" + uuid.uuid4().hex
     target = path / "__init__.py" if path.is_dir() else path
     spec = importlib.util.spec_from_file_location(name, target, submodule_search_locations=[str(path)] if path.is_dir() else None)
     module = importlib.util.module_from_spec(spec)
@@ -71,6 +78,30 @@ def _load_file(path):
     return module
 
 
+class _LoadSignals(QObject):
+    finished = Signal(object)
+
+
+class _LoadPlugin(QRunnable):
+    def __init__(self, item):
+        super().__init__()
+        self.item, self.generation = item, item.generation
+        self.signals = _LoadSignals()
+
+    def run(self):
+        plugin, error = None, ""
+        try:
+            plugin = _as_plugin(self.item.loader())
+            if declarations(plugin) != declarations(self.item.manifest):
+                raise ValueError("plugin metadata or static declarations do not match its manifest")
+        except (Exception, SystemExit) as problem:
+            plugin, error = None, f"{type(problem).__name__}: {problem}"
+        try:
+            self.signals.finished.emit((self.item, self.generation, plugin, error))
+        except RuntimeError:
+            pass  # manager was closed while importing
+
+
 class PluginManager(QObject):
     """Finds plugins, remembers which are enabled and their settings, and tells the tables which columns to show.
 
@@ -79,6 +110,7 @@ class PluginManager(QObject):
     A plugin that fails to load or to run is reported, never allowed to break Klotse.
     """
 
+    load_finished = Signal(str, str)  # plugin id, error (empty on success)
     changed = Signal()  # plugins were (de)activated, reloaded or their settings changed
     settings_changed = Signal(str)  # a plugin's setting changed (emitted just before `changed`): its cached values are stale
     errors_changed = Signal()  # a plugin reported a problem while running (or it was cleared)
@@ -90,43 +122,113 @@ class PluginManager(QObject):
         self._bundled, self._use_entry_points = tuple(bundled), entry_points
         self.errors = {}  # plugin id -> the last problem while running it
         self.loaded = []
+        self._loads = {}
         self._enabled = self._read_enabled()
         self.discover()
 
     # ---- finding plugins ---------------------------------------------------
+    @staticmethod
+    def _bundled_manifest(module):
+        # Searching files directly avoids importing a package __init__ just to locate its data.
+        relative = Path(*module.split("."))
+        for root in sys.path:
+            base = Path(root or ".") / relative
+            for path in (base.with_suffix(".json"), base / "klotse-plugin.json"):
+                if path.is_file():
+                    return path
+        raise ValueError(f"required plugin manifest is missing for {module}")
+
+    @staticmethod
+    def _entry_manifest(entry):
+        distribution = entry.dist
+        companions = [e for e in distribution.entry_points
+                      if e.group == MANIFEST_ENTRY_POINT_GROUP and e.name == entry.name]
+        if len(companions) != 1:
+            raise ValueError("required companion klotse.plugin_manifests entry point is missing or ambiguous")
+        # Entry point values must use Python object-reference syntax for packaging tools.
+        # This is a resource stem only: never call load() or import its package.
+        parts = companions[0].value.split(".")
+        if not parts or not all(part.isidentifier() for part in parts):
+            raise ValueError("manifest entry point must be a dotted resource stem such as my_plugin.klotse_manifest")
+        relative = Path(*parts).with_suffix(".json")
+        return distribution.locate_file(relative)
+
     def _candidates(self):
         for module in self._bundled:
-            yield "bundled", module, lambda m=module: importlib.import_module(m)
+            yield "bundled", module, lambda m=module: self._bundled_manifest(m), lambda m=module: importlib.import_module(m)
         if self._use_entry_points:
             for entry in metadata.entry_points(group=ENTRY_POINT_GROUP):
-                yield "entry point", f"{entry.name} = {entry.value}", entry.load
+                yield "entry point", f"{entry.name} = {entry.value}", lambda e=entry: self._entry_manifest(e), entry.load
         if self.folder is not None and self.folder.is_dir():
             for path in sorted(self.folder.iterdir()):
                 if path.name.startswith(("_", ".")):
                     continue
                 if (path.suffix == ".py" and path.is_file()) or (path.is_dir() and (path / "__init__.py").is_file()):
-                    yield "plugins folder", str(path), lambda p=path: _load_file(p)
+                    manifest = path / "klotse-plugin.json" if path.is_dir() else path.with_suffix(".json")
+                    yield "plugins folder", str(path), lambda p=manifest: p, lambda p=path: _load_file(p)
 
     def discover(self):
         found, ids = [], set()
-        for source, origin, load in self._candidates():
+        for source, origin, manifest_path, load in self._candidates():
             try:
-                plugin = _as_plugin(load())
-                if plugin.id in ids:
-                    raise ValueError(f"another plugin already uses the id {plugin.id!r}")
-            except (Exception, SystemExit) as error:  # a broken plugin must never stop Klotse (or the other plugins)
-                found.append(Loaded(origin, source, origin, None, f"{type(error).__name__}: {error}"))
+                manifest = read_manifest(manifest_path())
+                if manifest.id in ids:
+                    raise ValueError(f"another plugin already uses the id {manifest.id!r}")
+            except (Exception, SystemExit) as error:
+                found.append(Loaded(origin, source, origin, error=f"{type(error).__name__}: {error}"))
                 continue
-            ids.add(plugin.id)
-            found.append(Loaded(plugin.id, source, origin, plugin))
+            ids.add(manifest.id)
+            found.append(Loaded(manifest.id, source, origin, manifest=manifest, loader=load))
         self.loaded = found
+        # A startup/reload catalog pass never runs plugin code itself.
+        QTimer.singleShot(0, self._load_saved)
+
+    def _load_saved(self):
+        for item in self.loaded:
+            if item.manifest is not None and item.id in self._enabled and item.plugin is None and not item.loading and not item.error:
+                self._start_load(item)
 
     def reload(self):
         self.discover()
         self.changed.emit()
 
     def get(self, plugin_id):
-        return next((item for item in self.loaded if item.plugin is not None and item.id == plugin_id), None)
+        return next((item for item in self.loaded if item.id == plugin_id and
+                     (item.manifest is not None or item.plugin is not None)), None)
+
+    def is_loading(self, plugin_id):
+        item = self.get(plugin_id)
+        return bool(item and item.loading)
+
+    def _start_load(self, item):
+        item.error = ""
+        item.loading = True
+        item.generation += 1
+        worker = _LoadPlugin(item)
+        self._loads[(id(item), item.generation)] = worker
+        worker.signals.finished.connect(self._loaded)
+        self.changed.emit()
+        QThreadPool.globalInstance().start(worker)
+
+    @Slot(object)
+    def _loaded(self, result):
+        item, generation, plugin, error = result
+        self._loads.pop((id(item), generation), None)
+        if not any(current is item for current in self.loaded) or generation != item.generation:
+            return  # disabled or catalog replaced during import
+        item.loading = False
+        if not error:
+            try:
+                self._persist_enabled(item.id, True)
+            except OSError as problem:
+                error = str(problem)
+        if error:
+            # Preserve a saved startup preference; failed code is never active.
+            item.error = error
+        else:
+            item.plugin = plugin
+        self.changed.emit()
+        self.load_finished.emit(item.id, error)
 
     # ---- enabled / settings ------------------------------------------------
     def _read_enabled(self):
@@ -142,24 +244,49 @@ class PluginManager(QObject):
         return [found[n] for n in sorted(found) if found[n]]
 
     def is_enabled(self, plugin_id):
-        return plugin_id in self._enabled
+        item = self.get(plugin_id)
+        return bool(item and item.plugin is not None and plugin_id in self._enabled)
 
     def set_enabled(self, plugin_id, enabled):
-        """Enable or disable a plugin and save it; raises OSError (and changes nothing) if it cannot be saved."""
+        """Load newly enabled code on a worker; persist only after successful validation."""
+        item = self.get(plugin_id)
+        if enabled and item is None:
+            raise ValueError("plugin is unavailable; a valid manifest is required")
+        if enabled and item.plugin is None:
+            if not item.loading:
+                self._start_load(item)
+            return
+        self._persist_enabled(plugin_id, enabled)
+        if item and not enabled:
+            item.generation += 1
+            item.loading = False
+        self.changed.emit()
+
+    def _persist_enabled(self, plugin_id, enabled):
         wanted = [p for p in self._enabled if p != plugin_id] + ([plugin_id] if enabled else [])
+        self.store.beginGroup("plugins")
+        try:
+            previous = {key: self.store.value(key) for key in self.store.allKeys()}
+        finally:
+            self.store.endGroup()
         self.store.remove("plugins")
         for number, name in enumerate(wanted):
             self.store.setValue(f"plugins/enabled.{number}", name)
-        self._sync()
+        try:
+            self._sync()
+        except OSError:
+            self.store.remove("plugins")
+            for key, value in previous.items():
+                self.store.setValue(f"plugins/{key}", value)
+            raise
         self._enabled = wanted
-        self.changed.emit()
 
     def settings_for(self, plugin_id, context=None):
         """The plugin's settings as {key: value}, saved values over the defaults. With `context`, the cluster settings
         the user set for that cluster are added (every cluster setting is present, "" when not set)."""
         item = self.get(plugin_id)
         values = {}
-        for setting in item.plugin.settings if item else ():
+        for setting in (item.manifest or item.plugin).settings if item else ():
             saved = self.store.value(f"plugin_{plugin_id}/{setting.key}", None)
             if saved is None:
                 values[setting.key] = setting.default
@@ -169,7 +296,7 @@ class PluginManager(QObject):
                 values[setting.key] = str(saved)
         if context is not None and item:
             mine = self.cluster_settings_for(plugin_id, context)
-            values.update({s.key: mine.get(s.key, "") for s in item.plugin.cluster_settings})
+            values.update({s.key: mine.get(s.key, "") for s in (item.manifest or item.plugin).cluster_settings})
         return values
 
     def set_setting(self, plugin_id, key, value):
@@ -205,7 +332,7 @@ class PluginManager(QObject):
     def cluster_settings_for(self, plugin_id, context):
         """What the user set for this cluster: {key: value} for the cluster settings that are not empty."""
         item = self.get(plugin_id)
-        known = {s.key for s in item.plugin.cluster_settings} if item else set()
+        known = {s.key for s in (item.manifest or item.plugin).cluster_settings} if item else set()
         return {k: v for k, v in self._read_clusters(plugin_id).get(context, {}).items() if k in known}
 
     def set_cluster_settings(self, plugin_id, context, values):
