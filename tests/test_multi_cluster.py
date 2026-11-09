@@ -316,6 +316,7 @@ def test_cluster_can_be_detached_and_reopens_as_a_tab_when_closed(qtbot, tmp_pat
     assert win._detach_cluster(0)
     assert win.clusters.count() == 0 and context in win._detached
     detached = win._detached[context]
+    assert detached.centralWidget() is ws
     detached.close()
     qtbot.waitUntil(lambda: win.clusters.count() == 1 and context not in win._detached, timeout=2000)
     assert win.clusters.currentWidget() is ws
