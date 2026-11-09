@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDockWidget, QMainWindow, QMessageBox, QSizePolicy,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDockWidget, QMainWindow, QMenu, QMessageBox, QSizePolicy,
                                QTabWidget, QWidget)
 
 from .about import AboutDialog
@@ -87,6 +87,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.factory = service_factory
         self.workspaces = {}  # context name -> ClusterWorkspace
+        self._detached = {}  # context name -> top-level window containing its workspace
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
@@ -235,6 +236,8 @@ class MainWindow(QMainWindow):
         self.clusters = QTabWidget()
         self.clusters.setTabsClosable(True)
         self.clusters.tabCloseRequested.connect(self._close_cluster_tab)
+        self.clusters.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.clusters.customContextMenuRequested.connect(self._cluster_tab_menu)
         self.clusters.currentChanged.connect(self._on_cluster_changed)
         self.setCentralWidget(self.clusters)
 
@@ -281,6 +284,43 @@ class MainWindow(QMainWindow):
         return f"No kubeconfig contexts found in {path}" if path else "No kubeconfig contexts found"
 
     # ---- clusters ------------------------------------------------------
+    def _cluster_tab_menu(self, position):
+        index = self.clusters.tabBar().tabAt(position)
+        if index < 0:
+            return
+        menu = QMenu(self)
+        menu.addAction("Detach cluster", lambda i=index: self._detach_cluster(i))
+        menu.exec(self.clusters.tabBar().mapToGlobal(position))
+
+    def _detach_cluster(self, index):
+        """Move one cluster workspace into its own window; closing that window reattaches it as a tab."""
+        ws = self.clusters.widget(index)
+        if ws is None or ws.context in self._detached:
+            return False
+
+        owner = self
+
+        class DetachedClusterWindow(QMainWindow):
+            def closeEvent(window, event):  # noqa: N802
+                workspace = window.takeCentralWidget()
+                if workspace is not None:
+                    workspace.setParent(owner.clusters)
+                    tab = owner.clusters.addTab(workspace, workspace.context)
+                    owner.clusters.setCurrentIndex(tab)
+                owner._detached.pop(ws.context, None)
+                event.accept()
+
+        self.clusters.removeTab(index)
+        window = DetachedClusterWindow()
+        window.setAttribute(Qt.WA_DeleteOnClose)
+        window.setWindowTitle(f"{ws.context} — Klotse")
+        window.setCentralWidget(ws)
+        ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
+        self._detached[ws.context] = window
+        window.resize(self.size())
+        window.show()
+        return True
+
     def restore_clusters(self):
         """Reconnect the clusters remembered at the last exit (those still in the kubeconfig); returns them."""
         remembered, current = self.session.saved()

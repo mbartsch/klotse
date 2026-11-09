@@ -310,6 +310,21 @@ def test_the_menu_entry_needs_an_open_cluster_and_offers_the_lists_of_the_worksp
     win._multi_dialog.close()
 
 
+def test_cluster_can_be_detached_and_reopens_as_a_tab_when_closed(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    open_active(win)
+    ws = win.clusters.currentWidget()
+    context = ws.context
+
+    assert win._detach_cluster(0)
+    assert win.clusters.count() == 0 and context in win._detached
+    detached = win._detached[context]
+    assert detached.centralWidget() is ws
+    detached.close()
+    qtbot.waitUntil(lambda: win.clusters.count() == 1 and context not in win._detached, timeout=2000)
+    assert win.clusters.currentWidget() is ws
+
+
 @pytest.mark.parametrize("key, kind, name", [
     ("deployments", "Deployment", "api"),
     ("pods", "Pod", "web"),

@@ -2,6 +2,7 @@ import json
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -82,10 +83,10 @@ def test_macos_terminal_quoting_and_failure(monkeypatch, app):
     assert f'tell application "{app}"' in command[2]
     assert argv[2] not in command[2]
     wrapper = shlex.split(command[3])
-    assert wrapper[:2] == ["exec", sys.executable]
-    assert wrapper[2].endswith("terminal_session.py")
-    assert wrapper[3] == app
-    assert json.loads(wrapper[4]) == argv
+    assert wrapper[0] == "exec"
+    script = Path(wrapper[1]).read_text()
+    assert sys.executable in script and app in script and json.dumps(argv) in script
+    Path(wrapper[1]).unlink()
     assert calls[0][1]["timeout"] == 15
 
     def fail(*args, **kwargs):
@@ -93,6 +94,43 @@ def test_macos_terminal_quoting_and_failure(monkeypatch, app):
     monkeypatch.setattr(terminal.subprocess, "run", fail)
     with pytest.raises(RuntimeError, match=f"Could not open {app}: Automation denied"):
         terminal.open_terminal(argv, app)
+
+
+def test_linux_terminal_uses_a_unique_script_instead_of_inline_command(monkeypatch, tmp_path):
+    from klotse.ui import terminal
+    monkeypatch.setattr(terminal.sys, "platform", "linux")
+    real_mkstemp = terminal.tempfile.mkstemp
+    monkeypatch.setattr(terminal.tempfile, "mkstemp", lambda **kwargs: real_mkstemp(dir=tmp_path, **kwargs))
+    monkeypatch.setattr(terminal.shutil, "which", lambda name: "/usr/bin/x-terminal-emulator" if name == "x-terminal-emulator" else None)
+    calls = []
+    monkeypatch.setattr(terminal.subprocess, "Popen", lambda argv: calls.append(argv))
+    argv = ["kubectl", "--context", "cluster;$(echo nope)", "exec", "pod"]
+    terminal.open_terminal(argv)
+    assert calls[0][:2] == ["/usr/bin/x-terminal-emulator", "-e"]
+    assert Path(calls[0][-1]).parent == tmp_path
+    script = Path(calls[0][-1]).read_text()
+    assert "cluster;$(echo nope)" in script
+    assert "cluster;$(echo nope)" not in " ".join(calls[0])
+    assert "Session ended. Press Enter to close." in script
+    assert "trap 'rm -f -- \"$0\"' EXIT" in script
+    Path(calls[0][-1]).unlink()
+
+
+def test_windows_terminal_uses_a_batch_script(monkeypatch, tmp_path):
+    from klotse.ui import terminal
+    monkeypatch.setattr(terminal.sys, "platform", "win32")
+    real_mkstemp = terminal.tempfile.mkstemp
+    monkeypatch.setattr(terminal.tempfile, "mkstemp", lambda **kwargs: real_mkstemp(dir=tmp_path, **kwargs))
+    calls = []
+    monkeypatch.setattr(terminal.subprocess, "Popen", lambda argv, **kwargs: calls.append((argv, kwargs)))
+    argv = ["kubectl.exe", "--context", "cluster & nope", "exec", "pod"]
+    terminal.open_terminal(argv)
+    assert calls[0][0][:2] == ["cmd", "/k"]
+    script_path = Path(calls[0][0][-1])
+    script = script_path.read_text()
+    assert "cluster & nope" in script and "cluster & nope" not in " ".join(calls[0][0])
+    assert "del \"%~f0\"" in script
+    script_path.unlink()
 
 
 @pytest.mark.parametrize("status", [0, 7])

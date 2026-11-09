@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 
 
@@ -82,10 +83,77 @@ def _mac_session_command(argv, mac_terminal):
     return "exec " + shlex.join([sys.executable, runner, mac_terminal, json.dumps(argv)])
 
 
+def _external_session_script(argv):
+    """Create a unique self-cleaning shell script for a local terminal session."""
+    fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".sh")
+    try:
+        with open(fd, "w", encoding="utf-8", newline="\n") as script:
+            script.write("#!/bin/sh\n")
+            script.write("trap 'rm -f -- \"$0\"' EXIT\n")
+            script.write(f"{shlex.join(argv)}; status=$?\n")
+            script.write("printf '\\nSession ended. Press Enter to close.'\n")
+            script.write("read -r answer\n")
+            script.write("exit \"$status\"\n")
+        return path
+    except Exception:
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _windows_session_script(argv):
+    """Create a unique self-cleaning batch file for a Windows terminal session."""
+    fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".cmd")
+    try:
+        with open(fd, "w", encoding="utf-8", newline="\r\n") as script:
+            script.write("@echo off\r\n")
+            script.write(f"{subprocess.list2cmdline(argv)}\r\n")
+            script.write("set status=%ERRORLEVEL%\r\n")
+            script.write("echo.\r\nSession ended. Press Enter to close.\r\npause >nul\r\n")
+            script.write("del \"%~f0\" >nul 2>&1\r\n")
+            script.write("exit /b %status%\r\n")
+        return path
+    except Exception:
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _mac_session_script(argv, mac_terminal):
+    """Create a unique script; AppleScript passes only the new window/session target to it."""
+    fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".sh")
+    runner = str(Path(__file__).with_name("terminal_session.py").resolve())
+    if getattr(sys, "frozen", False):
+        runner_args = [sys.executable, "--terminal-session", mac_terminal, json.dumps(argv)]
+    else:
+        runner_args = [sys.executable, runner, mac_terminal, json.dumps(argv)]
+    try:
+        with open(fd, "w", encoding="utf-8", newline="\n") as script:
+            script.write("#!/bin/sh\n")
+            script.write(f"{shlex.join(runner_args)} \"$@\"; status=$?\n")
+            script.write("rm -f -- \"$0\"\nexit \"$status\"\n")
+        return path
+    except Exception:
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+        raise
+
+
 def open_terminal(argv, mac_terminal="Terminal"):
     """Open an interactive session; macOS sessions close after a successful command."""
     if sys.platform == "win32":
-        subprocess.Popen(["cmd", "/k"] + argv, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        script = _windows_session_script(argv)
+        try:
+            subprocess.Popen(["cmd", "/k", script], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        except Exception:
+            Path(script).unlink(missing_ok=True)
+            raise
     elif sys.platform == "darwin":
         # Pass the shell command as an AppleScript argument, never as script source.
         if mac_terminal == "Terminal":
@@ -108,18 +176,27 @@ def open_terminal(argv, mac_terminal="Terminal"):
                       ' end tell\n end tell\nend run')
         else:
             raise ValueError(f"Unsupported macOS terminal: {mac_terminal}")
+        script_path = _mac_session_script(argv, mac_terminal)
+        command = "exec " + shlex.join([script_path])
         try:
             subprocess.run(["osascript", "-e", script, command], check=True,
                            capture_output=True, text=True, timeout=15)
         except subprocess.CalledProcessError as error:
+            Path(script_path).unlink(missing_ok=True)
             raise RuntimeError(f"Could not open {mac_terminal}: {error.stderr or error}") from error
     else:
-        command = (shlex.join(argv) + '; status=$?; printf "\\nSession ended. Press Enter to close."; '
-                   'read -r answer; exit "$status"')
         for terminal, args in (("x-terminal-emulator", ["-e"]), ("gnome-terminal", ["--"]),
                                ("konsole", ["-e"]), ("xterm", ["-e"])):
             executable = shutil.which(terminal)
             if executable:
-                subprocess.Popen([executable, *args, "bash", "-c", command])
+                script = _external_session_script(argv)
+                try:
+                    subprocess.Popen([executable, *args, script])
+                except Exception:
+                    try:
+                        Path(script).unlink()
+                    except OSError:
+                        pass
+                    raise
                 return
         raise RuntimeError("No supported terminal found (x-terminal-emulator, gnome-terminal, konsole or xterm)")
