@@ -21,7 +21,7 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
   you exit, choose whether to restore your open clusters next time. **View → Several clusters…** combines one
   resource kind from several open clusters in a single list. Select two objects there to compare their YAML
   across clusters; right-click one object to open it in its cluster. Open pod logs for selected Deployments, StatefulSets,
-  DaemonSets, ReplicaSets, Jobs, Services or CronJobs across clusters. Restart selected Deployments, StatefulSets and
+  DaemonSets, ReplicaSets, Jobs or Services across clusters. Restart selected Deployments, StatefulSets and
   DaemonSets with a separate confirmation for each cluster.
 - **Resources and details.** Browse workloads, nodes, networking, storage, RBAC, Helm releases and custom
   resources, with CRDs grouped by API group. Karpenter, Gateway API and cert-manager views appear when available.
