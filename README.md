@@ -10,100 +10,107 @@ resources; read logs; open shells; scale, cordon and drain, all from one window.
 Built with Python, PySide6 (Qt Widgets) and the official Kubernetes Python client. It uses your existing
 kubeconfig and authentication helpers, so there is nothing to sign in to and no server component.
 
-> **Status:** early. Read-only use against real clusters has been tried; most of the
-> mutating actions (cordon, drain, delete, scale, restart, rollback, apply, uninstall) and the newest features
-> (port-forward, Helm, related objects, permission hints, Karpenter views) are covered by automated tests with fake
-> services, not yet by live-cluster runs. Try them on a non-production cluster first, and turn on
-> **View → Read-only mode** for clusters you only want to look at.
+> **Status:** early. Automated tests cover the UI and service behavior with fake data; live-cluster
+> coverage varies by feature. See [LIVE_TESTING.md](https://github.com/mbartsch/klotse/blob/master/LIVE_TESTING.md)
+> for what has been tried and what remains unverified. **View → Read-only mode** refuses changes per cluster.
 
 ## Features
 
-- **Multiple clusters.** Every context in your kubeconfig is listed on the left; each open cluster gets its own
-  tab and its own connection. Klotse never connects by itself: it starts with a clean list. When you exit with clusters
-  open it asks whether to reconnect them next time (Yes remembers them, No starts clean, Cancel stays open).
-- **Cluster groups.** Organise a long context list into nested groups (`prod/eu`): right-click the Disconnected
-  section or a cluster to create groups and move clusters, or choose **Suggest groups…** to propose them from the
-  context names (shared prefixes such as `team.api.prod.us1` and `us2`, or a regular expression whose capture
-  groups become the levels). Right-click a group for **Connect all**.
-- **Resources.** Overview, Workloads, Nodes, Namespaces, Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets,
-  Jobs, CronJobs, Horizontal Pod Autoscalers, ConfigMaps, Secrets, Resource Quotas, Limit Ranges, Pod Disruption
-  Budgets, Priority Classes, webhook configurations, Leases, Services, Endpoints, Endpoint Slices, Ingresses,
-  NetworkPolicies, PVCs, PVs, StorageClasses, the Access Control kinds (Service Accounts, Roles, bindings), Events,
-  Helm releases, CustomResourceDefinitions (also listed **by API group**, with each group as a sub item in the
-  navigator) and read-only browsing of custom resource instances. A **Karpenter** group (NodePools, NodeClaims, node
-  classes) appears when the cluster runs Karpenter.
-- **Fresh where it matters.** Workloads and nodes refresh every 10 s (the toolbar's **Auto-refresh**: Off, 5, 10, 30
-  or 60 s) and immediately when the cluster reports a change. Every other list loads when you open it and reloads on
-  **Refresh** (the toolbar button or a right-click), which keeps definitions such as CRDs and Access Control quiet.
-  Right-click any list to switch its automatic refresh on or off; the choice is remembered. Hidden tabs and clusters
-  are not polled.
-- **Details.** Formatted pages for workloads and RBAC objects, a YAML view for anything, an **Events** view and a
-  **Related** view (owners, what an object owns, uses and is used by, each a link that takes you there). Secret
-  values stay masked until you pick the keys to decode. `managedFields` are hidden by default (View → Show
-  managedFields in details). Right-click a pod or any namespaced object for **Go to node** / **Go to namespace**.
-- **Pods and containers.** Logs (streaming, search, follow), Shell, Attach, terminate and force terminate.
-  Double-click a pod for its own tab with every regular, init and ephemeral container.
-- **Nodes.** Cordon/uncordon, drain (with the usual kubectl options), a privileged nsenter shell, delete. Double-click
-  a node for its pods, with the node actions in a bar above them. Pod counts per node.
-- **Bulk actions.** Select several rows (Ctrl/Shift) to scale, restart, terminate, cordon or delete them in one
-  confirmed step. Scale accepts a number or a relative change such as `*2`, `/2`, `+1`, `-1`.
-- **Editing.** Form editors for workloads (the Environment table adds field, Secret, ConfigMap and resource
-  variables), Services, Ingresses, NetworkPolicies, Roles, bindings, ServiceAccounts, ConfigMaps and Secrets, and a
-  YAML editor for the rest. **File → Apply YAML…** checks manifests with a server-side dry run and applies them.
-  **Restart** (rollout restart) for Deployments, StatefulSets and DaemonSets, and **Rollout history / Undo** for
-  Deployments.
-- **Safety.** **View → Read-only mode** (per cluster, remembered) refuses every change, for production clusters.
-  **View → My permissions…** lists what you may do in the namespace and answers "Can I…?"; menu entries your rules
-  forbid say so (they stay clickable: the cluster has the last word).
-- **Port-forward and Helm.** Right-click a pod or service for **Port forward…** (a Port forwards tab lists them and
-  stops them all when you close it). **Helm → Releases** lists releases with their history and values (hidden until
-  you show them); uninstalling needs the `helm` command.
-- **Usage.** CPU and memory in use (from metrics-server, when present) on Nodes and Pods, plus optional request,
-  limit and percent-of-request/limit columns on Pods.
-- **Your columns.** The **Columns…** button on every list lets you hide and reorder built-in columns and add label
-  columns with short headings. Saved per resource kind.
-- **Plugins.** Extra columns, right-click actions, Overview cards and per-cluster settings from plugins (Klotse ships an AWS Plugin: instance ID, AMI, price per hour and month, spot price, launch time, and the cluster's cost on the Overview), off until you enable them in Preferences → Plugins. Settings that differ per cluster, such as the AWS profile, are in the **Plugins** menu and in the right-click menu of a connected cluster. Write your own as a single Python file: see [PLUGINS.md](https://github.com/mbartsch/klotse/blob/master/PLUGINS.md).
-- **Edit menu and Preferences.** Undo/redo/cut/copy/paste/select all (Copy in a table copies the selected rows as
-  tab-separated text). Preferences lets you choose a custom kubeconfig and open the settings folder.
-- **macOS.** Choose Terminal or iTerm2 for shells (Preferences → Terminal).
-- **Shells inside Klotse.** Preferences → Terminal → *Open shells in* → *Inside Klotse* opens pod shells, attach sessions and node shells in windows of their own (not kept on top) with a button to dock each into the Klotse window (off by default). It runs [xterm.js](https://xtermjs.org/) (MIT, bundled) in QtWebEngine, which is why the install is large (about 300 MB more). If it cannot start, the external terminal is used.
+- **Multiple clusters.** Open contexts from your existing kubeconfig in separate tabs, organise them into nested
+  groups, and suggest groups from name prefixes or a regular expression. Nothing connects on first start; when
+  you exit, choose whether to restore your open clusters next time. **View → Several clusters…** combines one
+  resource kind from several open clusters in a single list.
+- **Resources and details.** Browse workloads, nodes, networking, storage, RBAC, Helm releases and custom
+  resources, with CRDs grouped by API group. Karpenter, Gateway API and cert-manager views appear when available.
+  Details include YAML, Events and linked Related objects. Secret values stay masked until you choose keys to decode;
+  TLS Secrets also show the public certificate's subject and expiry.
+- **Find your place.** Search across resource kinds, jump to views, namespaces, clusters and actions with the
+  **Ctrl+K** command palette, and pin frequently used namespaces. Lists support plain-text filters and expressions
+  such as `Restarts > 3` or `CPULim = 2*CPUReq`, plus named saved filters. Hide, reorder and add label columns with
+  **Columns…**; choices are saved per resource kind.
+- **Refresh.** Workloads and nodes refresh every 10 seconds and when the cluster reports a change. Other lists
+  load when opened or refreshed manually. Set the interval in the toolbar or change a list's automatic refresh
+  from its right-click menu. Hidden tabs and clusters are not polled; refresh preserves selection and scroll position.
+- **Pods and logs.** Open a pod's own tab for regular, init and ephemeral containers. Stream logs from one
+  container, selected pods, a workload or a label selector, with follow, time range, regex filters and Save.
+  Open Shell or Attach sessions, add a debug container, or copy files. **Browse files…** lists a pod's files;
+  a PVC can be browsed through a running pod that already mounts it.
+- **Nodes and bulk actions.** Cordon, uncordon, preview a drain, drain, open a privileged node shell or delete.
+  Double-click a node to see its pods. Select several rows to scale, restart, terminate, cordon or delete them in
+  one confirmed step. Scale accepts a number or a relative change such as `*2`, `/2`, `+1`, `-1`.
+- **Editing and review.** Form editors cover common workloads, networking and RBAC objects, ConfigMaps and Secrets;
+  a YAML editor handles the rest. Cluster OpenAPI schema help follows the YAML cursor and **Ctrl+Space** completes
+  fields and enum values. **View → Review changes before saving** adds a server dry run and diff to editor saves.
+  **File → Apply YAML…** dry-runs and applies manifests. Compare two objects, **Copy as new…**, restart workloads,
+  inspect Deployment rollout history and undo a rollout, or run and suspend CronJobs.
+- **Usage charts.** CPU and memory usage, requests and limits appear in resource columns. **Usage history…** charts
+  Pods, Nodes and workloads: metrics-server is sampled every 15 seconds while the window is open, with no earlier
+  history. **Source…** can read real history from a Prometheus or VictoriaMetrics service through the Kubernetes API
+  server. Select up to 12 objects of one kind to chart them together with metrics-server.
+- **Cluster analysis.** **View** includes Capacity, Health check, Right-sizing, Unused objects, Upgrade preflight,
+  Pod security, RBAC lookup and Trivy Operator reports. These views inspect data without changing the cluster.
+  Right-sizing advice uses a single current usage sample; compare it with real history before changing requests.
+- **Permissions and change log.** Read-only mode is remembered per cluster. **My permissions…** lists your namespace
+  permissions and answers "Can I…?"; action menus flag permissions your rules forbid. The local **Change log…** records
+  changes made through Klotse, without resource bodies or Secret values. It does not record commands typed in shells.
+- **Port-forward and Helm.** Forward a Pod or Service port, manage active forwards and save forwards to start again
+  later. Helm releases show history and values (hidden until requested); uninstalling needs the `helm` command.
+- **Plugins.** Add columns, resource actions, Overview cards and settings. The bundled AWS plugin shows instance
+  details, on-demand and spot prices, and cluster cost estimates. Plugins are off until enabled in
+  **Preferences → Plugins**; discovery reads JSON manifests without importing their Python code. Per-cluster settings,
+  such as the AWS profile, are in the **Plugins** menu and a connected cluster's right-click menu. Write your own
+  Python plugin with a JSON manifest: see [PLUGINS.md](https://github.com/mbartsch/klotse/blob/master/PLUGINS.md).
+- **Preferences and terminals.** Choose a kubeconfig, built-in light or dark theme, or a custom INI theme;
+  open the settings folder and choose a terminal. On macOS,
+  choose Terminal or iTerm2. Opt into **Terminal → Open shells in → Inside Klotse** for pod shells, attach and node
+  shells in windows that can dock into Klotse. The embedded terminal uses bundled [xterm.js](https://xtermjs.org/)
+  and QtWebEngine; an external terminal is used if it cannot start.
 
 ## Screenshots
 
-The screenshots below were made with **invented data** (a made-up eight-node EKS cluster with fake prices and
-instance IDs), not a real cluster or AWS account. They show the AWS Plugin, which is off until you enable it
-in Preferences → Plugins. The text was rendered with Windows fonts, so spacing on your system may differ a little.
+These captures use the current Qt widgets with **invented demo data**. No real cluster, credentials or AWS
+account was used. The charts contain generated samples, not a recording from metrics-server.
 
-**Cluster Overview.** The usual cluster and workload cards, plus the plugin's *Cost per hour*, *Cost per month* and
-*Nodes priced* cards (the sum of every node's current price; spot nodes without a spot price are not counted).
+**Pod filters.** An expression such as `Restarts > 3` narrows the list to pods that need a closer look.
 
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/01-overview-cost-cards.png" alt="Cluster Overview with the AWS cost cards">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/08-pods-filter-expression.png" alt="Pods table filtered by Restarts greater than 3, showing invented unhealthy and restarting pods">
 
-**Nodes with plugin columns.** Instance ID, instance type, capacity, AMI, on-demand and current price per hour, and
-price per month, next to the built-in node columns. The values come from the Node objects (instance ID, type,
-capacity, node group image), from AWS's public price data, and, when AWS credentials are available, from EC2 (the AMI
-and launch time of every node, and current spot prices: the spot nodes here show a lower price than their on-demand
-rate).
+**Usage history.** CPU and memory charts show samples collected while the window is open, with request and limit
+reference lines. Real history can also come from Prometheus or VictoriaMetrics through the API server.
 
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/02-nodes-aws-columns.png" alt="Nodes list with AWS columns">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/09-usage-history.png" alt="Usage history window with generated CPU and memory samples and resource reference lines">
 
-**Right-click a node.** After the built-in node actions, each plugin adds a submenu (here: Copy instance ID, Open in
-the EC2 console, Estimate the cost of the selected nodes).
+**Health check.** Findings name the affected object, explain the problem and suggest what to inspect. Checking
+reads manifests and changes nothing in the cluster.
 
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/06-node-right-click-aws-actions.png" alt="Node context menu with the AWS Plugin submenu">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/10-health-check.png" alt="Health check with invented pod and workload findings, severity filters and advice">
 
-**Per-cluster plugin settings.** Right-click a connected cluster in the left list, or use the **Plugins** menu, to
-open a plugin's settings for that cluster only: here the AWS profile (and, if you need it, the account) for that
-cluster. The Plugins menu appears only while an enabled plugin has such settings.
+**Preferences → Plugins.** Inspect a plugin's declared features and settings before enabling it. Discovery reads
+its JSON manifest; Python code loads only after enablement. Only enable plugins you trust.
 
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/03-cluster-right-click-menu.png" alt="Cluster context menu with the plugin settings entry">
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/04-plugins-menu.png" alt="The Plugins menu">
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/05-cluster-settings-dialog.png" alt="Per-cluster settings dialog">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/11-preferences-plugin-manifest.png" alt="Current Plugins preferences page showing the bundled AWS plugin's manifest metadata and settings">
 
-**Preferences → Plugins.** Plugins are off until you tick them here; the page lists what each one adds and its
-general settings, and applies changes at once.
+<details>
+<summary>AWS plugin examples</summary>
 
-<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/07-preferences-plugins.png" alt="Preferences, Plugins page">
+These earlier captures use a made-up eight-node EKS cluster with fake prices and instance IDs. The AWS plugin
+is off until enabled in Preferences → Plugins.
+
+**Cluster Overview.** The plugin adds cost-per-hour, cost-per-month and priced-node cards.
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/01-overview-cost-cards.png" alt="Cluster Overview with invented AWS cost cards">
+
+**Nodes with plugin columns.** Instance IDs, types, AMIs and estimated prices alongside built-in node columns.
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/02-nodes-aws-columns.png" alt="Nodes list with invented AWS instance details and prices">
+
+**Node actions and per-cluster settings.** The plugin's node submenu includes instance and console actions.
+Open per-cluster settings from the Plugins menu or a connected cluster's right-click menu.
+
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/06-node-right-click-aws-actions.png" alt="Node context menu with the AWS plugin actions">
+<img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/05-cluster-settings-dialog.png" alt="AWS plugin settings for one invented cluster">
+
+</details>
 
 ## Requirements
 
@@ -111,12 +118,13 @@ general settings, and applies changes at once.
 - A kubeconfig with at least one context (or pick one in Edit → Preferences)
 - [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH`, for drain, shells, attach and port-forward
 - [`helm`](https://helm.sh/docs/intro/install/) on your `PATH`, only to uninstall a Helm release
-- Python dependencies (installed by the launchers): `PySide6-Essentials`, `PySide6-Addons` (QtWebEngine, for the embedded terminal), `kubernetes`, `PyYAML`, and `pywinpty` on Windows
+- Python dependencies (installed by the launchers): `PySide6-Essentials`, `PySide6-Addons`,
+  `PySide6-WebEngine` (for the embedded terminal), `kubernetes`, `PyYAML`, and `pywinpty` on Windows
 
 ## Install
 
 Native packages are built for Windows (an installer and a portable `.zip`) and macOS (a `.dmg` for Apple Silicon and
-one for Intel). The latest version, 0.2.0, is on the project's [Releases](https://github.com/mbartsch/klotse/releases) page, with
+one for Intel). Downloads are on the project's [Releases](https://github.com/mbartsch/klotse/releases) page, with
 a `SHA256SUMS.txt` to check the downloads against. You can also run Klotse from source (below) or build the packages
 yourself (see [Development](#development)).
 
@@ -136,8 +144,9 @@ There is no native Linux package yet. Install with [pipx](https://pipx.pypa.io),
 dependencies in their own environment and puts a `klotse` command on your `PATH`:
 
 ```sh
-pipx install git+https://github.com/mbartsch/klotse   # straight from GitHub (works today)
-pipx install klotse                                   # from PyPI
+pipx install klotse                                # released version from PyPI
+# Or install the current development version:
+pipx install git+https://github.com/mbartsch/klotse
 klotse --install-desktop-entry                        # optional, Linux: add Klotse to the application menu
 ```
 
@@ -218,6 +227,15 @@ PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m pytest -q
 Tests run offscreen with fake services and synthetic Kubernetes objects; they never touch a real cluster or your
 real settings. `run_tests.sh` / `run_tests.bat` wrap the same command.
 
+Recreate the four current demo screenshots without connecting to a cluster:
+
+```sh
+PYTHONPATH=src python scripts/capture_screenshots.py
+```
+
+The helper renders offscreen, uses temporary settings and writes `screens/08-11`. Fonts and spacing may
+differ between operating systems. The older AWS examples are retained separately.
+
 After all tests pass the pytest process can still exit non-zero (a crash during Qt teardown in some test orders).
 This is a known, unresolved issue that predates recent work, so check the pass count and the exit status separately.
 
@@ -229,7 +247,7 @@ packaging/macos/build.sh                                               # macOS: 
 ```
 
 A packaged app can check itself: `Klotse --version` and `Klotse --self-test [REPORT_FILE]`. GitHub Actions builds
-everything on a version tag (`v0.2.0`, made by the Release workflow) or on demand and drafts a release.
+the native packages on a version tag (made by the Release workflow) or on demand; tagged builds draft a release.
 
 [`AGENTS.md`](https://github.com/mbartsch/klotse/blob/master/AGENTS.md) documents the architecture, file map and behavior to preserve; read it before larger
 changes. Work goes through pull requests from a branch; do not commit to `master` directly.

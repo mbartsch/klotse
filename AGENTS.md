@@ -395,6 +395,8 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 
 ## Change conventions
 
+- README demo captures are regenerated with `PYTHONPATH=src python scripts/capture_screenshots.py` (Windows PowerShell: `$env:PYTHONPATH="src"; .venv/Scripts/python.exe scripts/capture_screenshots.py`). The helper renders current Qt widgets offscreen with invented data and temporary settings, never connects to a cluster or AWS, and writes `screens/08-11`. Registering Windows fonts keeps the text visible. The older AWS captures (`screens/01-07`) are separate; screenshots do not prove live-cluster behavior.
+
 - Keep changes scoped to the requested behavior and preserve existing uncommitted work. Update this guide when behavior or the file map changes.
 - Put shared table behavior in ResourceTable/TableModel, shared formatting in manifest.py, and service mutations in KubeService rather than duplicating UI-specific mechanisms.
 - Keep blocking network/terminal-opening work off the GUI thread. Use existing Worker or QProcess patterns and respect workspace shutdown guards.
