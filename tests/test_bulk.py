@@ -33,6 +33,20 @@ def test_table_allows_extended_selection_and_lists_selected_rows(qtbot):
     assert sorted(r.name for r in ws.pod_table.selected_rows()) == ["p0", "p2"]
 
 
+def test_table_shows_selected_row_count(qtbot):
+    ws = make_ws(qtbot)
+    table = ws.pod_table
+    table.set_rows([PodRow(f"p{i}", "ns", "1/1", "Running", 0, "n", "1d", {}) for i in range(3)])
+
+    assert table.selection_count.text() == "0 selected"
+    table.view.selectRow(0)
+    assert table.selection_count.text() == "1 selected"
+    table.view.selectAll()
+    assert table.selection_count.text() == "3 selected"
+    table.view.clearSelection()
+    assert table.selection_count.text() == "0 selected"
+
+
 def test_bulk_menu_offers_actions_per_kind(qtbot):
     ws = make_ws(qtbot)
     for table, expected in ((ws.pod_table, ["Usage history of 2 Pods…", "Logs of 2 pods…", "Terminate 2 pods…", "Force terminate 2 pods…"]),

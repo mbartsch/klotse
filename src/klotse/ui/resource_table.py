@@ -117,6 +117,9 @@ class ResourceTable(QWidget):
         self.filter.textChanged.connect(lambda _: self._filter_timer.start())
         self.status = QLabel("Not loaded")
         self.status.setWordWrap(True)
+        self.selection_count = QLabel()
+        self.selection_count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.selection_count.setText("0 selected")
         self._load_clock = QElapsedTimer()
         self._load_timer = QTimer(self, interval=1000)
         self._load_timer.timeout.connect(self._loading_tick)
@@ -142,6 +145,7 @@ class ResourceTable(QWidget):
         for signal in (self.proxy.modelReset, self.proxy.layoutChanged, self.proxy.rowsInserted, self.proxy.rowsRemoved):
             signal.connect(lambda *_: self._visible_timer.start())
         self.view.selectionModel().currentRowChanged.connect(self._on_row)
+        self.view.selectionModel().selectionChanged.connect(self._update_selection_count)
         self.view.doubleClicked.connect(self._on_double_click)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context_menu)
@@ -164,7 +168,10 @@ class ResourceTable(QWidget):
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(self.filter_note)
-        lay.addWidget(self.status)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status, 1)
+        status_row.addWidget(self.selection_count)
+        lay.addLayout(status_row)
         # Long lists (Nodes, Pods) can take a while the first time: while there is nothing to show yet, a large
         # message takes the place of the empty table. Reloads with rows on screen only use the status line.
         self.loading_page = LoadingPane()
@@ -172,6 +179,10 @@ class ResourceTable(QWidget):
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.loading_page)
         lay.addWidget(self.stack, 1)
+
+    def _update_selection_count(self, *_):
+        count = len(self.view.selectionModel().selectedRows())
+        self.selection_count.setText(f"{count} selected")
 
     def set_loading(self):
         self._load_clock.start()
