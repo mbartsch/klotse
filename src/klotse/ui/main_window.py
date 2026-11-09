@@ -310,6 +310,7 @@ class MainWindow(QMainWindow):
         window.setAttribute(Qt.WA_DeleteOnClose)
         window.setWindowTitle(f"{ws.context} — Klotse")
         window.setCentralWidget(ws)
+        ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
         self._detached[ws.context] = window
         window.resize(self.size())
         window.show()
