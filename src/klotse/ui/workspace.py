@@ -2685,11 +2685,24 @@ class ClusterWorkspace(QMainWindow):
         self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), row.name, row.namespace)
 
     def _launch_terminal(self, argv, message, title=None):
-        """Open an interactive kubectl session: a tab inside Klotse when Preferences > Terminal says so and QtWebEngine works, else
-        the external terminal (the fallback also when the embedded session cannot start)."""
-        if self.terminal_settings.embedded and embedded_terminal.available():
-            if self.open_embedded_terminal(argv, message, title):
+        """Open an interactive kubectl session in the configured terminal."""
+        if self.terminal_settings.embedded:
+            reason = embedded_terminal.unavailable_reason()
+            if not reason and self.open_embedded_terminal(argv, message, title):
                 return
+            if reason:
+                answer = QMessageBox.question(
+                    self,
+                    "Embedded terminal unavailable",
+                    "The embedded terminal cannot be used because its required components are unavailable.\n\n"
+                    f"Reason: {reason}\n\n"
+                    "Install the missing components (usually with `pip install PySide6-Addons`; Windows also needs "
+                    "`pip install pywinpty`) and restart Klotse.\n\nUse the external terminal instead?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes,
+                )
+                if answer != QMessageBox.Yes:
+                    return
         self._run(open_terminal, lambda _: self.message.emit(message), argv,
                   self.terminal_settings.mac_terminal)
 
