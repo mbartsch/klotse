@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         # on Windows and Linux it remains in Edit.
         self.preferences_action.setMenuRole(QAction.PreferencesRole)
         self.preferences_action.setShortcut(QKeySequence.Preferences)
-        self.preferences_action.triggered.connect(self.open_preferences)
+        self.preferences_action.triggered.connect(lambda: QTimer.singleShot(0, self.open_preferences))
         self.edit_menu.addAction(self.preferences_action)
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
