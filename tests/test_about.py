@@ -109,3 +109,19 @@ def test_help_menu_opens_the_about_dialog(qtbot, monkeypatch):
     assert win.about_action in help_menu.actions() and win.about_action.text() == "About Klotse"
     win.about_action.trigger()
     assert shown == [win]
+
+
+def test_view_menu_groups_actions_by_task_and_preserves_action_objects(qtbot):
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    view = next(a.menu() for a in win.menuBar().actions() if a.text() == "View")
+    groups = {a.text(): a.menu() for a in view.actions() if a.menu()}
+    assert set(groups) == {"Navigate", "Insights", "Operations", "Settings"}
+    assert win.search_action in groups["Navigate"].actions()
+    assert win.palette_action in groups["Navigate"].actions()
+    assert win.health_action in groups["Insights"].actions()
+    assert win.audit_action in groups["Operations"].actions()
+    assert win.read_only_action in groups["Settings"].actions()
+    assert win.managed_fields_action in view.actions()
+    assert win.search_action.shortcut().toString() == "Ctrl+Shift+F"
+    assert win.palette_action.shortcut().toString() == "Ctrl+K"
