@@ -27,6 +27,8 @@ Table field actions (#203): right-click any cell to copy its value or use it as 
 
 ## More ideas (second investigation)
 
+Manifest filter paths (#215, implemented locally, pending independent review; not merged): filter scalar `spec` and `status` fields, for example `spec.replicas >= 2` or `status.phase = Running`. Nested keys are case-sensitive; lists use zero-based dot indices (`spec.containers.0.image`). Numbers remain numeric, booleans compare as `true`/`false`, and missing or non-scalar values match nothing. Raw quantity strings require quotes and have no column unit conversion. Offscreen regression coverage is in `tests/test_filter_expr_table.py`; no live-cluster or manual display check. Complete #215 before taking #231 subtasks in order.
+
 Also not implemented and **no issue filed yet**; effort and value are estimates. Ideas come from k9s, Lens, Headlamp and Aptakube (public pages; some from memory). Numbering continues the table above.
 
 ### Safety and productivity

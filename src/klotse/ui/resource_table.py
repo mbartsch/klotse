@@ -25,6 +25,10 @@ FILTER_HELP = "\n".join([
     "Type text to match it in any column. Or write a comparison on columns:",
     "  Restarts > 3        Status ~ crash        Name = web-*        Namespace != kube-system",
     "  CPULim = 2*CPUReq   CPUUsed > 500m        MemLim < 1Gi        Age > 2h",
+    "  spec.replicas >= 2   status.phase = Running   spec.suspend = true",
+    "spec/status paths use exact manifest keys and raw scalar values, without column unit conversion.",
+    "Use zero-based list indices: spec.containers.0.image = 'nginx:*' (no brackets or wildcards in paths).",
+    "Booleans compare as true/false text. Missing, null, empty, object and list values match nothing.",
     "  app = web (a label)  Kind = Pod            a and b, a or b, (…) to group",
     "= and != ignore case and take * as a wildcard; ~ is a regular expression. Blank values match nothing."])
 
@@ -230,6 +234,8 @@ class ResourceTable(QWidget):
 
     def _unit_of(self, name):
         """For validating an expression: the unit of a column, "" for another column, a label or `kind`, None for nothing known."""
+        if name.partition(".")[0] in ("spec", "status") and "." in name:
+            return ""  # raw manifest values never inherit a similarly named column's unit
         attr = self._column_map().get(filter_expr.normalize(name))
         if attr is not None:
             return self._unit_of_attr(attr) or ""
@@ -238,6 +244,24 @@ class ResourceTable(QWidget):
     def _resolve(self, row, name):
         """`(value, unit)` of a column, label or `kind` for one row; None when the name is nothing known; a blank cell has value None."""
         lowered = name.lower()
+        if name.partition(".")[0] in ("spec", "status") and "." in name:
+            value = getattr(row, "raw", None)
+            for part in name.split("."):
+                if isinstance(value, dict) and part:
+                    value = value.get(part)
+                elif isinstance(value, list) and re.fullmatch(r"[0-9]+", part):
+                    # Compare before int() so even a very long index cannot raise.
+                    index = part.lstrip("0") or "0"
+                    if len(index) > len(str(len(value))) or int(index) >= len(value):
+                        return None, None
+                    value = value[int(index)]
+                else:
+                    return None, None
+            if isinstance(value, bool):
+                value = "true" if value else "false"
+            elif not isinstance(value, (str, int, float)) or value == "":
+                value = None
+            return value, None  # negative/zero raw numbers are values, not column sentinels
         for prefix, field in (("label.", "labels"), ("labels.", "labels"), ("annotation.", "annotations"), ("annotations.", "annotations")):
             if lowered.startswith(prefix):
                 return (((getattr(row, "raw", None) or {}).get("metadata") or {}).get(field) or {}).get(name[len(prefix):]), None
