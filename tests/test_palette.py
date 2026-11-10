@@ -102,3 +102,33 @@ def test_a_menu_action_runs_through_the_palette(qtbot, tmp_path):
     assert win.managed_fields_action.isChecked()
     again = next(e for e in win.palette_entries() if e.label == "Show managedFields in details")
     assert "checked" in again.detail
+
+
+def test_recent_navigation_targets_are_bounded_clearable_and_live_only(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    open_active(win)
+    ws = win.clusters.currentWidget()
+    ws._ns_names = ["shop"]
+    pods = next(e for e in win.palette_entries() if e.category == "Go to" and e.label == "Pods")
+    pods.run()
+    shop = next(e for e in win.palette_entries() if e.category == "Namespace" and e.label == "shop")
+    shop.run()
+
+    entries = win.palette_entries()
+    assert [(e.category, e.label) for e in entries[:2]] == [("Recent", "shop"), ("Recent", "Pods")]
+    assert next(e for e in entries if e.category == "Recent").key == shop.key
+    ws._ns_names = []
+    assert not any(e.key == shop.key for e in win.palette_entries() if e.key)
+    ws._ns_names = ["shop"]
+
+    for index in range(12):
+        win._run_palette_target(f"target:{index}", lambda: None)
+    assert len(win._recent_palette_keys()) == 8
+    # Unknown targets are dropped when the live palette is rebuilt.
+    win._save_recent_palette_keys([pods.key, "removed-target"])
+    entries = win.palette_entries()
+    assert "removed-target" not in win._recent_palette_keys()
+    clear = next(e for e in entries if e.category == "Recent" and e.label == "Clear recent entries")
+    clear.run()
+    assert win._recent_palette_keys() == []
+    assert not any(e.category == "Recent" for e in win.palette_entries())
