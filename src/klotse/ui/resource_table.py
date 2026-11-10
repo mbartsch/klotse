@@ -427,6 +427,9 @@ class ResourceTable(QWidget):
         """The line under the list: the row count, and for a list that reloads only on request when it was loaded."""
         count = self.model.rowCount()
         text = f"{count:,} rows" if count else "No resources found"
+        metric_rows = [row for row in self.model.rows if hasattr(row, "cpu_used") or hasattr(row, "mem_used")]
+        if metric_rows and all(all(getattr(row, field, -1) < 0 for field in ("cpu_used", "mem_used")) for row in metric_rows):
+            text += " · Metrics unavailable (metrics-server)"
         if self.refresh_mode is not None and self.refresh_mode() and self._loaded_at:
             text += f" · manual refresh, loaded {self._loaded_at}"
         if self.paging_note:

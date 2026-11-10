@@ -125,6 +125,18 @@ def test_filtered_empty_state_can_clear_filter(qtbot):
     assert table.filter.text() == ""
 
 
+def test_missing_metrics_are_identified_in_the_list_status(qtbot):
+    from klotse.k8s.models import PodRow
+    from klotse.ui.resource_table import ResourceTable
+    table = ResourceTable([("Name", "name"), ("Status", "status"), ("Age", "age"),
+                           ("CPU", "cpu_used"), ("Memory", "mem_used")], "Pod", editable=False, customizable=False)
+    qtbot.addWidget(table)
+    table.set_rows([PodRow("web", "default", "1/1", "Running", 0, "node", "1d")])
+    assert "Metrics unavailable (metrics-server)" in table.status.text()
+    table.set_rows([PodRow("web", "default", "1/1", "Running", 0, "node", "1d", cpu_used=0.1, mem_used=20)])
+    assert "Metrics unavailable" not in table.status.text()
+
+
 def test_the_clock_hands_turn_at_fixed_speeds():
     from klotse.ui.loading_pane import hand_angles
     assert hand_angles(0) == (0.0, 0.0)

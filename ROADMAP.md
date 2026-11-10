@@ -115,4 +115,4 @@ Keep this file and the issues in step: when an item is merged, mark it done here
 
 ### UX follow-ups
 
-- **Actionable resource-list states (#234, implemented locally; pending review):** ResourceTable distinguishes loading, empty results, filtered-empty results, refused lists and other failed loads. Retry and Copy error appear for initial failures, View permissions appears for refused lists, successful empty results can Refresh, and filtered-empty results can Clear filter. Refresh failures preserve rows already on screen. Focused offscreen tests; missing-metrics guidance is outside this subtask. Not merged.
+- **Actionable resource-list states (#234, implemented locally; pending review):** ResourceTable distinguishes loading, empty results, filtered-empty results, refused lists and other failed loads. Retry and Copy error appear for initial failures, View permissions appears for refused lists, successful empty results can Refresh, and filtered-empty results can Clear filter. Refresh failures preserve rows already on screen. Metrics-capable lists with no readings identify metrics-server unavailability in the status line. Focused offscreen tests. Not merged.
