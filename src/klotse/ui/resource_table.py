@@ -2,8 +2,8 @@ from dataclasses import dataclass
 import re
 import time
 
-from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QSortFilterProxyModel, Qt, Signal, QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
+from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.clone import COPYABLE
@@ -28,6 +28,7 @@ FILTER_HELP = "\n".join([
     "  Restarts > 3        Status ~ crash        Name = web-*        Namespace != kube-system",
     "  CPULim = 2*CPUReq   CPUUsed > 500m        MemLim < 1Gi        Age > 2h",
     "  spec.replicas >= 2   status.phase = Running   spec.suspend = true",
+    "Type a column or spec/status path to see suggestions; accept one to complete the word at the cursor.",
     "spec/status paths use exact manifest keys and raw scalar values, without column unit conversion.",
     "Use zero-based list indices: spec.containers.0.image = 'nginx:*' (no brackets or wildcards in paths).",
     "Booleans compare as true/false text. Missing, null, empty, object and list values match nothing.",
@@ -66,6 +67,15 @@ class _FilterProxy(QSortFilterProxyModel):
             return super().filterAcceptsRow(source_row, source_parent)
         row = self.sourceModel().rows[source_row]
         return self.expression.matches(lambda name: self.resolver(row, name))
+
+
+class _FilterCompleter(QCompleter):
+    """Complete the word at the cursor, leaving the rest of a filter expression intact."""
+
+    def splitPath(self, path):
+        cursor = self.widget().cursorPosition() if self.widget() else len(path)
+        match = re.search(r"[A-Za-z0-9_.:-]*$", path[:cursor])
+        return [match.group(0) if match else ""]
 
 
 class ResourceTable(QWidget):
@@ -126,6 +136,14 @@ class ResourceTable(QWidget):
             self.proxy.setFilterRole(TableModel.SearchRole)
         self.filter = QLineEdit(placeholderText="Filter…", clearButtonEnabled=True)
         self.filter.setAccessibleName(f"Filter {kind} list")
+        self._completion_model = QStringListModel(self)
+        self._completer = _FilterCompleter(self._completion_model, self)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._completer.popup().setFocusPolicy(Qt.NoFocus)
+        self._completer.activated.connect(self._insert_filter_completion)
+        self.filter.setCompleter(self._completer)
+        self.filter.textEdited.connect(self._show_filter_completions)
         if kind == "Node":
             self.filter.setPlaceholderText("Filter nodes, labels and annotations…")
         self._filter_timer = QTimer(self, interval=200, singleShot=True)
@@ -237,6 +255,64 @@ class ResourceTable(QWidget):
             self.stack.setCurrentWidget(self.loading_page)
 
     # ---- filter expressions (see filter_expr) ------------------------------------------------------------------
+    def _show_filter_completions(self, text):
+        """Offer candidates while typing without changing the filter until one is accepted."""
+        cursor = self.filter.cursorPosition()
+        match = re.search(r"[A-Za-z0-9_.:-]*$", text[:cursor])
+        prefix = match.group(0) if match else ""
+        if len(prefix) < 2:
+            self._completer.popup().hide()
+            return
+        self._completer.setCompletionPrefix(prefix)
+        if self._completer.completionCount():
+            self._completer.complete()
+
+    def _insert_filter_completion(self, completion):
+        cursor = self.filter.cursorPosition()
+        match = re.search(r"[A-Za-z0-9_.:-]*$", self.filter.text()[:cursor])
+        start = match.start() if match else cursor
+        self.filter.setSelection(start, cursor - start)
+        self.filter.insert(str(completion))
+
+    @staticmethod
+    def _manifest_paths(value, prefix, output, depth=0):
+        if depth >= 8 or len(output) >= 5000:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key):
+                    continue
+                path = f"{prefix}.{key}" if prefix else key
+                output.add(path)
+                ResourceTable._manifest_paths(child, path, output, depth + 1)
+        elif isinstance(value, list):
+            for index, child in enumerate(value[:10]):
+                path = f"{prefix}.{index}"
+                output.add(path)
+                ResourceTable._manifest_paths(child, path, output, depth + 1)
+
+    def _refresh_filter_completions(self):
+        candidates = set(self._column_map())
+        candidates.update(("kind", "label.", "annotation.", "spec", "status"))
+        manifests = 0
+        for row in self.model.rows:
+            raw = getattr(row, "raw", None)
+            if not isinstance(raw, dict):
+                continue
+            metadata = raw.get("metadata") or {}
+            for field in ("labels", "annotations"):
+                values = metadata.get(field) or {}
+                candidates.update(f"{field[:-1]}.{key}" for key in values if isinstance(key, str))
+                if field == "labels":
+                    candidates.update(key for key in values if isinstance(key, str))
+            for section in ("spec", "status"):
+                if section in raw:
+                    self._manifest_paths(raw[section], section, candidates)
+            manifests += 1
+            if manifests >= 200 or len(candidates) >= 5000:
+                break
+        self._completion_model.setStringList(sorted(candidates, key=str.casefold))
+
     def _column_map(self):
         """{normalized name: attribute} of the columns: attributes first (`cpu_req`), then headings without their unit (`CPU req (m)`)."""
         columns = self.model.columns
@@ -410,6 +486,7 @@ class ResourceTable(QWidget):
         was_blocked = selection.blockSignals(True)
         try:
             self.model.set_rows(rows)
+            self._refresh_filter_completions()
             self.view.resizeColumnsToContents()
             self._restore_selection(*kept)
         finally:
@@ -479,6 +556,7 @@ class ResourceTable(QWidget):
         self.rows_incoming.emit(rows)
         began = time.perf_counter() if timings.enabled else 0.0
         self.model.append_rows(rows)
+        self._refresh_filter_completions()
         if timings.enabled:
             timings.record("gui", f"table.{self.kind}.append", time.perf_counter() - began, rows=len(rows), total=self.model.rowCount())
         self._loaded_at = time.strftime("%H:%M:%S")
@@ -538,6 +616,7 @@ class ResourceTable(QWidget):
         self.extra_columns = columns
         self.base_columns = self.core_columns + columns
         self.set_label_columns(*(self._label_args or ([],)))
+        self._refresh_filter_completions()
 
     def set_label_columns(self, keys, headings=None, layout=None, annotations=(), annotation_headings=None):
         """Apply label and annotation columns plus the saved built-in column order/visibility
@@ -566,6 +645,7 @@ class ResourceTable(QWidget):
         sort_attr = self.model.columns[sort_column][1] if 0 <= sort_column < len(self.model.columns) else None
         sort_order = header.sortIndicatorOrder()
         self.model.set_columns(columns)
+        self._refresh_filter_completions()
         new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
         self.view.sortByColumn(new_sort, sort_order)
         self.view.resizeColumnsToContents()

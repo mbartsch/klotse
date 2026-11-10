@@ -32,6 +32,23 @@ def test_filter_and_resource_list_have_accessible_names(table):
     assert table.view.accessibleName() == "Pod list"
 
 
+def test_filter_completions_include_columns_labels_and_nested_manifest_paths(table):
+    candidates = set(table._completion_model.stringList())
+    assert {"restarts", "status.phase", "spec.containers.0.resources.requests.cpu", "app", "label.app"} <= candidates
+
+
+def test_completing_a_word_preserves_the_rest_of_the_filter_expression(table, qtbot):
+    table.filter.setText("status.ph = Running")
+    table.filter.setCursorPosition(len("status.ph"))
+    table._completer.setCompletionPrefix("status.ph")
+    matches = [table._completion_model.data(table._completion_model.index(i, 0))
+               for i in range(table._completion_model.rowCount())
+               if table._completion_model.data(table._completion_model.index(i, 0)).casefold().startswith("status.ph")]
+    assert "status.phase" in matches
+    table._completer.activated.emit("status.phase")
+    assert table.filter.text() == "status.phase = Running"
+
+
 def shown(table, qtbot, text):
     table.filter.setText(text)
     qtbot.waitUntil(lambda: not table._filter_timer.isActive(), timeout=2000)
