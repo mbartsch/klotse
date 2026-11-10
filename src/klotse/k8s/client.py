@@ -100,11 +100,13 @@ def map_node(n, include_raw=True):
             statuses.append(f"{condition.type}=Unknown")
     ip = next((a.address for a in n.status.addresses or [] if a.type == "InternalIP"), "")
     alloc = n.status.allocatable or {}
+    pod_capacity = int(parse_quantity(alloc["pods"])) if alloc.get("pods") else -1
     return NodeRow(
         n.metadata.name, ",".join(statuses), roles,
         n.status.node_info.kubelet_version if n.status.node_info else "", ip,
         float(parse_quantity(alloc.get("cpu", 0))), float(parse_quantity(alloc.get("memory", 0))) / 2**30,
         format_age(n.metadata.creation_timestamp), _raw(n) if include_raw else {},
+        pod_capacity=pod_capacity,
     )
 
 
@@ -1633,13 +1635,18 @@ class KubeService:
                  else self._iter_list(api.list_pod_for_all_namespaces))
         counts = {"pods": 0, "running": 0, "pending": 0, "failed": 0}
         problems = {"pending": [], "failed": []}
-        namespace_counts = {} if include_namespace_counts else None
+        namespace_counts = {"namespaces": {}, "nodes": {}} if include_namespace_counts else None
         for pod in items:
             counts["pods"] += 1
             row = map_pod(pod, include_raw=False)
             if namespace_counts is not None:
-                namespace_counts[row.namespace] = namespace_counts.get(row.namespace, 0) + 1
+                by_namespace = namespace_counts["namespaces"]
+                by_namespace[row.namespace] = by_namespace.get(row.namespace, 0) + 1
             bucket = pod_bucket(row.status)
+            if (namespace_counts is not None and row.node
+                    and getattr(pod.status, "phase", None) not in ("Succeeded", "Failed")):
+                by_node = namespace_counts["nodes"]
+                by_node[row.node] = by_node.get(row.node, 0) + 1
             if bucket in counts:
                 counts[bucket] += 1
             if bucket in problems and len(problems[bucket]) < OVERVIEW_LIST_CAP:
@@ -1678,13 +1685,21 @@ class KubeService:
         })
         namespace_distribution = None
         if namespace_counts is not None:
-            namespace_distribution = {name: namespace_counts.get(name, 0) for name in namespaces}
+            by_namespace = namespace_counts.get("namespaces", {})
+            namespace_distribution = {name: by_namespace.get(name, 0) for name in namespaces}
+            by_node = namespace_counts.get("nodes", {})
+            for node in nodes:
+                node.pods = by_node.get(node.name, 0)
         if used:  # metrics-server present: the overview draws usage bars against allocatable
             counts["usage"] = {"cpu": (sum(u[0] for u in used.values()), cpu),
                                "memory": (sum(u[1] for u in used.values()), mem)}
             for node in nodes:
                 if node.name in used:
                     node.cpu_used, node.mem_used = used[node.name]
+        if namespace_counts is not None and nodes and all(node.pod_capacity > 0 for node in nodes):
+            pod_slots = sum(node.pod_capacity for node in nodes)
+            if pod_slots:
+                counts.setdefault("usage", {})["pods"] = (sum(node.pods for node in nodes if node.pods >= 0), pod_slots)
         return {"counts": counts, "events": events, "lists": lists, "nodes": nodes,
                 "namespace_distribution": namespace_distribution}
 

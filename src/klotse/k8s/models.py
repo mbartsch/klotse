@@ -88,6 +88,7 @@ class NodeRow:
     cpu_used: float = -1.0  # cores in use now; -1 when metrics-server is unavailable
     mem_used: float = -1.0  # GiB in use now
     pods: int = -1  # running/pending pods on the node; -1 until counted (only visible rows are counted)
+    pod_capacity: int = -1  # allocatable pod slots from node status
 
     @property
     def is_ready(self):

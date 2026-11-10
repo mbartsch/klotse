@@ -129,6 +129,9 @@ class TableModel(QAbstractTableModel):
                 return "\n".join([str(value)] + [
                     f"{c.get('type', '')}: {c.get('status', 'Unknown')} "
                     f"{c.get('reason') or ''} {c.get('message') or ''}".rstrip() for c in conditions])
+            custom_tip = getattr(self.rows[index.row()], f"{col[1]}_tooltip", None)
+            if custom_tip is not None:
+                return str(custom_tip)
             return str(value)
         if role in (Qt.DisplayRole, self.SearchRole):
             text = col[2](value) if len(col) > 2 else str(value)
