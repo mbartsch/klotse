@@ -734,6 +734,20 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert clicks == [("a", "workloads")]  # selecting a cluster never starts a connection
 
 
+def test_cluster_search_is_accessible_and_filters_the_navigator(qtbot):
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    win.nav.set_alias("a", "Production Europe")
+
+    assert win.cluster_search.accessibleName() == "Search clusters"
+    win.cluster_search.setText("production")
+    assert not win.nav.cluster_item("a").isHidden()
+    assert win.nav.cluster_item("b").isHidden() and win.nav.cluster_item("bad").isHidden()
+
+    win.cluster_search.clear()
+    assert all(not win.nav.cluster_item(name).isHidden() for name in ("a", "b", "bad"))
+
+
 def test_disconnect_reconnect_via_navigator(qtbot):
     MultiService.instances.clear()
     win = MainWindow(MultiService)

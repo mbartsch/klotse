@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
-                               QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QWidget)
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
@@ -281,7 +281,18 @@ class MainWindow(QMainWindow):
         title_layout.addWidget(self.cluster_picker, 1)
         nav_dock.setTitleBarWidget(title)
         nav_dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
-        nav_dock.setWidget(self.nav)
+        nav_panel = QWidget()
+        nav_layout = QVBoxLayout(nav_panel)
+        nav_layout.setContentsMargins(6, 4, 6, 6)
+        self.cluster_search = QLineEdit()
+        self.cluster_search.setObjectName("clusterSearch")
+        self.cluster_search.setAccessibleName("Search clusters")
+        self.cluster_search.setPlaceholderText("Search clusters…")
+        self.cluster_search.setClearButtonEnabled(True)
+        self.cluster_search.textChanged.connect(self.nav.set_filter)
+        nav_layout.addWidget(self.cluster_search)
+        nav_layout.addWidget(self.nav, 1)
+        nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(220)
         self.addDockWidget(Qt.LeftDockWidgetArea, nav_dock)
         self.nav.context_clicked.connect(self.open_cluster)
