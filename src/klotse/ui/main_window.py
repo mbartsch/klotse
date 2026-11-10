@@ -108,6 +108,8 @@ class MainWindow(QMainWindow):
             self.label_settings.store, folder=Path(self.label_settings.store.fileName()).parent / "plugins", parent=self)
         self.setWindowTitle("Klotse")
         self.resize(1500, 850)
+        if sys.platform == "darwin":
+            self.menuBar().setNativeMenuBar(True)
         self._shutting_down = False
         self.exit_action = QAction("Exit", self)
         self.exit_action.setShortcut(QKeySequence.Quit)

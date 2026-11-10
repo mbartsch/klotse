@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pytest
 from PySide6.QtCore import QSettings
@@ -46,6 +47,8 @@ def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path)
     assert win.edit_actions.actions["copy"].shortcut().toString()
     from PySide6.QtGui import QAction
     assert win.preferences_action.menuRole() == QAction.MenuRole.PreferencesRole
+    if sys.platform == "darwin":
+        assert win.menuBar().isNativeMenuBar()
 
 
 def test_text_box_commands_cut_copy_paste_undo(qtbot):
