@@ -145,8 +145,12 @@ class MultiClusterDialog(QDialog):
             menu.addAction("Compare these two…", lambda: self._compare(rows))
         kind = self.source.table_kind(self.kind_key())
         if kind in LOG_SOURCES:
+            if not menu.actions()[-1].isSeparator():
+                menu.addSeparator()
             menu.addAction("Logs of all pods…", lambda: self.action_requested.emit(kind, "logs", list(rows)))
         if kind in RESTARTABLE:
+            if not menu.actions()[-1].isSeparator():
+                menu.addSeparator()
             menu.addAction("Restart selected workloads…", lambda: self.action_requested.emit(kind, "restart", list(rows)))
 
     def _compare(self, rows):

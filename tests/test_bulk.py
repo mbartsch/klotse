@@ -56,6 +56,19 @@ def test_bulk_menu_offers_actions_per_kind(qtbot):
         menu = QMenu()
         table._bulk_menu(menu, [object(), object()])
         assert [a.text() for a in menu.actions() if not a.isSeparator()] == expected
+        groups = []
+        current = []
+        for action in menu.actions():
+            if action.isSeparator():
+                if current:
+                    groups.append(current)
+                    current = []
+            else:
+                current.append(action.text())
+        if current:
+            groups.append(current)
+        destructive = expected[-2:] if table.kind in ("Pod", "Node") else expected[-1:]
+        assert groups[-1] == destructive
 
 
 def test_bulk_scale_applies_one_replica_count_to_every_row(qtbot, monkeypatch):

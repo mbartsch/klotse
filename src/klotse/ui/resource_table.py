@@ -544,28 +544,45 @@ class ResourceTable(QWidget):
     def _bulk_menu(self, menu, rows):
         n = len(rows)
         bulk = lambda action: (lambda: self.bulk_requested.emit(self.kind, action, rows))
+        destructive = QMenu(menu)
+        def separate(target):
+            if not target.isEmpty() and not target.actions()[-1].isSeparator():
+                target.addSeparator()
         if n == 2 and all(getattr(r, "raw", None) for r in rows):  # looking only, so it is always offered
             menu.addAction("Compare these two…", lambda: self.compare_requested.emit(self.kind, list(rows)))
-            menu.addSeparator()
         if self.kind in METRIC_KINDS:  # looking only
+            separate(menu)
             menu.addAction(f"Usage history of {n} {self.kind}s…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
-        if self.kind in SCALABLE:
-            menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
-        if self.kind in RESTARTABLE:
-            menu.addAction(f"Restart {n} {self.kind}s…", bulk("restart"))
-        if self.kind in DELETABLE_KINDS:
-            menu.addAction(f"Delete {n} {self.kind}s…", bulk("delete"))
+        if self.kind == "Pod":
+            separate(menu)
         if self.kind == "Pod":
             menu.addAction(f"Logs of {n} pods…", lambda: self.multi_logs_requested.emit("Pod", list(rows)))
-            menu.addAction(f"Terminate {n} pods…", bulk("terminate"))
-            menu.addAction(f"Force terminate {n} pods…", bulk("force-terminate"))
+        if self.kind in SCALABLE:
+            separate(menu)
+            menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
+        if self.kind in RESTARTABLE:
+            separate(menu)
+            menu.addAction(f"Restart {n} {self.kind}s…", bulk("restart"))
         if self.kind == "Node":
+            separate(menu)
             menu.addAction(f"Cordon {n} nodes…", bulk("cordon"))
             menu.addAction(f"Uncordon {n} nodes…", bulk("uncordon"))
             menu.addAction(f"Drain {n} nodes…", bulk("drain"))
-            menu.addSeparator()
-            menu.addAction(f"Delete {n} nodes…", bulk("delete-node"))
-            menu.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
+        if self.kind == "Pod":
+            separate(destructive)
+            destructive.addAction(f"Terminate {n} pods…", bulk("terminate"))
+            destructive.addAction(f"Force terminate {n} pods…", bulk("force-terminate"))
+        if self.kind in DELETABLE_KINDS:
+            separate(destructive)
+            destructive.addAction(f"Delete {n} {self.kind}s…", bulk("delete"))
+        if self.kind == "Node":
+            separate(destructive)
+            destructive.addAction(f"Delete {n} nodes…", bulk("delete-node"))
+            destructive.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
+        if not destructive.isEmpty():
+            separate(menu)
+            for action in destructive.actions():
+                menu.addAction(action)
 
     NOT_ALLOWED = "  (not allowed for you)"
 
@@ -636,6 +653,7 @@ class ResourceTable(QWidget):
     def _context_menu(self, pos):
         idx = self.view.indexAt(pos)
         menu = QMenu(self)
+        destructive = QMenu(menu)
         if idx.isValid():
             if not self.view.selectionModel().isRowSelected(idx.row(), idx.parent()):
                 self.view.selectRow(idx.row())  # right-click outside the selection acts on that row alone
@@ -647,22 +665,29 @@ class ResourceTable(QWidget):
                     menu.exec(self.view.viewport().mapToGlobal(pos))
                 return
             if len(rows) > 1:
-                self._bulk_menu(menu, rows)
                 self._plugin_menu(menu, rows)
+                self._bulk_menu(menu, rows)
                 if not menu.isEmpty():
                     menu.exec(self.view.viewport().mapToGlobal(pos))
                 return
             row = self.model.rows[self.proxy.mapToSource(idx).row()]
+            def section():
+                if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
+                    menu.addSeparator()
             if self.editable:
                 menu.addAction(self._hint("Edit…", "edit", row), lambda: self.edit_requested.emit(self.kind, row))
             if self.kind in COPYABLE and self.editable:
                 menu.addAction(self._hint("Copy as new…", "create", row), lambda: self.duplicate_requested.emit(self.kind, row))
+            if self.kind == "ServiceAccount" or self.kind in METRIC_KINDS or self.kind in LOG_SOURCES:
+                section()
             if self.kind == "ServiceAccount":
                 menu.addAction("Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
             if self.kind in METRIC_KINDS:
                 menu.addAction("Usage history…", lambda: self.metrics_requested.emit(self.kind, row))
             if self.kind in LOG_SOURCES:
                 menu.addAction("Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row))
+            if self.kind in SCALABLE or self.kind in RESTARTABLE or self.kind == "CronJob":
+                section()
             if self.kind in SCALABLE:
                 menu.addAction(self._hint("Scale…", "scale", row), lambda: self.scale_requested.emit(self.kind, row))
             if self.kind in RESTARTABLE:
@@ -675,16 +700,18 @@ class ResourceTable(QWidget):
             if self.kind == "Deployment":
                 menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
             if self.kind in DELETABLE_KINDS or self.deletable:
-                menu.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
+                destructive.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
             if self.kind in ("Pod", "Service"):
+                section()
                 menu.addAction("Port forward…", lambda: self.port_forward_requested.emit(self.kind, row))
             if self.kind == "Pod":
                 menu.addAction("Browse files…", lambda: self.action_requested.emit("browse-files", row))
                 menu.addAction("Copy files…", lambda: self.copy_files_requested.emit(row))
             if self.kind == "PersistentVolumeClaim":
+                section()
                 menu.addAction("Browse files…", lambda: self.action_requested.emit("browse-files", row))
             if self.kind == "Node":
-                menu.addSeparator()
+                section()
                 menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))
                 cordoned = (row.raw.get("spec") or {}).get("unschedulable", False)
                 action = "uncordon" if cordoned else "cordon"
@@ -692,16 +719,16 @@ class ResourceTable(QWidget):
                                lambda: self.action_requested.emit(action, row))
                 menu.addAction(self._hint("Drain…", "cordon", row), lambda: self.action_requested.emit("drain", row))
                 menu.addAction("Shell (nsenter)…", lambda: self.action_requested.emit("node-shell", row))
-                menu.addSeparator()
-                menu.addAction(self._hint("Delete node…", "delete-node", row), lambda: self.action_requested.emit("delete-node", row))
-                menu.addAction(self._hint("Force delete node…", "delete-node", row),
+                destructive.addAction(self._hint("Delete node…", "delete-node", row), lambda: self.action_requested.emit("delete-node", row))
+                destructive.addAction(self._hint("Force delete node…", "delete-node", row),
                                lambda: self.action_requested.emit("force-delete-node", row))
             if self.kind == "Container":
+                section()
                 menu.addAction("Logs", lambda: self.action_requested.emit("logs", row))
                 menu.addAction("Connect (shell)…", lambda: self.action_requested.emit("shell", row))
                 menu.addAction("Attach…", lambda: self.action_requested.emit("attach", row))
             if self.kind == "Pod":
-                menu.addSeparator()
+                section()
                 menu.addAction(self._hint("Logs", "logs", row), lambda: self.action_requested.emit("logs", row))
                 menu.addAction(self._hint("Connect (shell)…", "shell", row), lambda: self.action_requested.emit("shell", row))
                 menu.addAction(self._hint("Attach…", "attach", row), lambda: self.action_requested.emit("attach", row))
@@ -709,9 +736,8 @@ class ResourceTable(QWidget):
                 if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
                     menu.addAction(self._hint("Remove debug containers (recreate pod)…", "terminate", row),
                                    lambda: self.action_requested.emit("remove-debug", row))
-                menu.addSeparator()
-                menu.addAction(self._hint("Terminate…", "terminate", row), lambda: self.action_requested.emit("terminate", row))
-                menu.addAction(self._hint("Force terminate…", "terminate", row),
+                destructive.addAction(self._hint("Terminate…", "terminate", row), lambda: self.action_requested.emit("terminate", row))
+                destructive.addAction(self._hint("Force terminate…", "terminate", row),
                                lambda: self.action_requested.emit("force-terminate", row))
         if idx.isValid():
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
@@ -721,7 +747,7 @@ class ResourceTable(QWidget):
             return
         if self.kind == "HelmRelease" and idx.isValid():
             menu.addAction("Details / history…", lambda: self.action_requested.emit("helm-details", row))
-            menu.addAction("Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row))
+            destructive.addAction("Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row))
         if self.kind == "CRDGroup" and idx.isValid():
             menu.addAction("Show CRDs of this group", lambda: self.action_requested.emit("open-crd-group", row))
         if self.kind == "Namespace":
@@ -742,6 +768,11 @@ class ResourceTable(QWidget):
             auto.triggered.connect(lambda checked: self.refresh_mode_requested.emit(bool(checked)))
         if idx.isValid():  # plugin entries come last, after the built-in ones
             self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
+        if not destructive.isEmpty():
+            if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
+                menu.addSeparator()
+            for action in destructive.actions():
+                menu.addAction(action)
         if not menu.isEmpty():
             menu.exec(self.view.viewport().mapToGlobal(pos))
 
