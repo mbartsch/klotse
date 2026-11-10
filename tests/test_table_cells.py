@@ -20,6 +20,41 @@ def open_menu(table, monkeypatch, row=0, column=0, choose=None):
     return actions
 
 
+def test_pod_context_menu_groups_actions_and_keeps_destructive_actions_last(qtbot, monkeypatch):
+    table = ResourceTable([("Name", "name")], "Pod", editable=True)
+    qtbot.addWidget(table)
+    table.set_rows([PodRow("p", "ns", "1/1", "Running", 0, "n", "1d", {})])
+    table.show()
+    captured = []
+
+    class Menu(QMenu):
+        def exec(self, *args):
+            captured.extend(("separator" if a.isSeparator() else a.text()) for a in self.actions())
+
+    monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
+    table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
+    assert captured.index("Usage history…") < captured.index("Port forward…")
+    assert captured.index("Port forward…") < captured.index("Logs")
+    assert captured[-2:] == ["Terminate…", "Force terminate…"]
+
+
+def test_node_context_menu_puts_node_deletion_after_navigation_and_operations(qtbot, monkeypatch):
+    table = ResourceTable([("Name", "name")], "Node", editable=True)
+    qtbot.addWidget(table)
+    table.set_rows([NodeRow("n", "Ready", "worker", "v1", "", 1, 1, "1d", {})])
+    table.show()
+    captured = []
+
+    class Menu(QMenu):
+        def exec(self, *args):
+            captured.extend(a.text() for a in self.actions() if not a.isSeparator())
+
+    monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
+    table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
+    assert captured.index("List pods on this node") < captured.index("Shell (nsenter)…")
+    assert captured[-2:] == ["Delete node…", "Force delete node…"]
+
+
 @pytest.mark.parametrize("kind", ["Node", "Pod"])
 def test_copy_clicked_cell_after_sorting_and_with_multiple_rows_selected(qtbot, monkeypatch, kind):
     if kind == "Node":

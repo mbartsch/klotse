@@ -27,6 +27,8 @@ Table field actions (#203): right-click any cell to copy its value or use it as 
 
 ## More ideas (second investigation)
 
+Resource table context menus (#233, implemented locally; pending review): row and bulk menus group inspection, workload operations, navigation/connectivity, and list controls with separators; delete, terminate, force terminate, node deletion and Helm uninstall actions sit in a final destructive section. Permission hints, read-only availability, and existing confirmations are preserved. Focused offscreen menu ordering checks are in `tests/test_bulk.py` and `tests/test_table_cells.py`.
+
 Main menu organization (#232, implemented locally; pending review): View actions are grouped under Navigate, Insights, Operations, and Settings, with managedFields remaining directly accessible. Existing actions, shortcuts, and per-cluster enablement are preserved. Offscreen menu and related behavior checks: 121 passed; no manual display review.
 
 Manifest filter paths (#215, implemented locally, pending independent review; not merged): filter scalar `spec` and `status` fields, for example `spec.replicas >= 2` or `status.phase = Running`. Nested keys are case-sensitive; lists use zero-based dot indices (`spec.containers.0.image`). Numbers remain numeric, booleans compare as `true`/`false`, and missing or non-scalar values match nothing. Raw quantity strings require quotes and have no column unit conversion. Offscreen regression coverage is in `tests/test_filter_expr_table.py`; no live-cluster or manual display check. Complete #215 before taking #231 subtasks in order.
