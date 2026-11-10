@@ -1,10 +1,9 @@
 """AWS Plugin: what the nodes of an EKS (or other AWS) cluster are and cost, as columns and right-click actions.
 
-Without any login it shows, from the Node objects, the instance ID, instance type, capacity (on-demand or spot) and, on
-managed node groups, the AMI; and, from AWS's public price list, the on-demand price per hour and per month. If boto3 is
-installed and AWS credentials work it also shows the real launch time and AMI of every node (Karpenter nodes carry no
-AMI label) and current spot prices. Prices are list prices for the instance only: no EBS, data transfer, EKS fee,
-savings plans or reserved instances.
+From Node objects it shows the instance ID, type and capacity; it reads on-demand prices from AWS price lists (China's
+Price List Query API requires AWS credentials with `pricing:GetProducts`). When AWS credentials work, it can also show
+the real launch time, AMI and current spot price. Prices are list prices for the instance only: no EBS, data transfer,
+EKS fee, savings plans or reserved instances.
 """
 import threading
 from collections import defaultdict
@@ -18,15 +17,38 @@ from .identity import caller_account
 from .federation import FederationError, console_credentials, fetch_json, login_url
 from .instances import InstanceCache
 from .nodeinfo import parse_node
-from .pricing import HOURS_PER_MONTH, PriceError, on_demand_prices
+from .pricing import HOURS_PER_MONTH, Price, PriceError, currency_for_region, on_demand_prices
 
 
 def per_hour(value):
-    return f"${value:.4f}"
+    return f"{_currency_symbol(value)}{value:.4f}"
 
 
 def per_month(value):
-    return f"${value:,.2f}"
+    return f"{_currency_symbol(value)}{value:,.2f}"
+
+
+def _currency_symbol(value):
+    return {"CNY": "¥"}.get(getattr(value, "currency", "USD"), "$")
+
+
+def _price_totals(values):
+    totals = defaultdict(float)
+    for price in values:
+        if price is not None:
+            totals[getattr(price, "currency", "USD")] += float(price)
+    return totals
+
+
+def _format_totals(totals, monthly=False):
+    formatted = []
+    for currency, total in sorted(totals.items()):
+        value = Price(total * HOURS_PER_MONTH, currency) if monthly else Price(total, currency)
+        formatted.append(per_month(value) if monthly else per_hour(value))
+    if formatted:
+        return " / ".join(formatted)
+    zero = Price(0)
+    return per_month(zero) if monthly else per_hour(zero)
 
 
 def when(value):
@@ -45,16 +67,16 @@ class AwsPlugin(Plugin):
     requires_api = 7  # password and note settings
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
-                   "Works without a login (the cluster's own data plus AWS's public price list); with boto3 and AWS "
-                   "credentials it also shows spot prices, the real launch time and the AMI of every node.")
+                   "China region prices use the AWS Price List API and need AWS credentials with "
+                   "pricing:GetProducts permission.")
     columns = (
         Column("instance_id", "Instance ID"),
         Column("instance_type", "Instance type"),
         Column("capacity", "Capacity"),
         Column("ami", "AMI"),
-        Column("price_od", "On-demand $/h", format=per_hour),
-        Column("price_now", "Price $/h", format=per_hour),
-        Column("price_month", "Price $/month", format=per_month),
+        Column("price_od", "On-demand price/h", format=per_hour),
+        Column("price_now", "Price/h", format=per_hour),
+        Column("price_month", "Price/month", format=per_month),
         Column("launched", "Launched", format=when),
     )
     actions = (
@@ -70,8 +92,9 @@ class AwsPlugin(Plugin):
     settings = (
         Setting("use_aws_api", "Use the AWS API when credentials are available", True, kind="bool",
                 help="Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. "
+                     "China region prices also use the AWS Price List API and need pricing:GetProducts permission. "
                      "It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick "
-                     "to use only the cluster and the public price list."),
+                     "to skip EC2 metadata and Spot lookups; list-price lookup continues."),
         Setting("aws_profile", "AWS profile (default for all clusters)", "",
                 help="A profile from your AWS config. Empty uses the default credentials."),
         Setting("profile_map", "AWS profile for each cluster", "", kind="multiline",
@@ -193,17 +216,18 @@ class AwsPlugin(Plugin):
                         "capacity": n.capacity, "ami": n.ami or None} for key, n in nodes.items()}
         if not nodes:
             return result
+        profile = profile_for(context, settings)
         tables = {}
         for region, os_name in sorted({(n.region, n.os) for n in nodes.values()}):
             try:
-                table = on_demand_prices(region, os_name, cache_dir)
+                table = on_demand_prices(region, os_name, cache_dir, profile=profile)
             except PriceError as error:
                 warn(str(error))
                 continue
             if table.note:
                 warn(f"{region}: {table.note}")
-            tables[(region, os_name)] = table.prices
-        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir, profile_for(context, settings))
+            tables[(region, os_name)] = table
+        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir, profile)
         without_ami = [n for n in nodes.values() if not n.ami and not (details.get(n.instance_id) or {}).get("ami")]
         if no_boto3 and without_ami:  # these AMIs can only come from EC2, which needs boto3 and credentials
             warn(f"{len(without_ami)} node(s) have no node group image label, so their AMI can only be looked up in "
@@ -211,14 +235,21 @@ class AwsPlugin(Plugin):
         for key, node in nodes.items():
             extra = details.get(node.instance_id) or {}
             capacity = "spot" if extra.get("spot") else node.capacity
-            on_demand = tables.get((node.region, node.os), {}).get(node.instance_type)
+            table = tables.get((node.region, node.os))
+            currency = getattr(table, "currency", currency_for_region(node.region))
+            on_demand = (table.prices.get(node.instance_type) if table else None)
+            if on_demand is not None:
+                on_demand = Price(on_demand, currency)
             if capacity == "spot":  # a spot node is not billed at the on-demand rate: unknown without AWS's answer
                 price = spot.get((node.region, node.instance_type, extra.get("zone") or node.zone))
             else:
                 price = on_demand
+            if price is not None:
+                price = Price(price, currency)
             result[key].update(
                 capacity=capacity, ami=extra.get("ami") or node.ami or None, price_od=on_demand, price_now=price,
-                price_month=price * HOURS_PER_MONTH if price is not None else None, launched=extra.get("launched"))
+                price_month=Price(price * HOURS_PER_MONTH, currency) if price is not None else None,
+                launched=extra.get("launched"))
         return result
 
     # ---- the plugin interface -------------------------------------------------------------------
@@ -231,8 +262,8 @@ class AwsPlugin(Plugin):
         if not values:
             return {}  # not an AWS cluster: no cards
         priced = [v["price_now"] for v in values.values() if v["price_now"] is not None]
-        total = sum(priced)
-        return {"cost_hour": per_hour(total), "cost_month": per_month(total * HOURS_PER_MONTH),
+        totals = _price_totals(priced)
+        return {"cost_hour": _format_totals(totals), "cost_month": _format_totals(totals, monthly=True),
                 "priced": f"{len(priced)} of {len(values)}"}
 
     def applies(self, action, resource):
@@ -299,18 +330,19 @@ class AwsPlugin(Plugin):
         warnings = []
         values = self.collect([r for r, _ in infos], request.settings, request.cache_dir,
                               lambda text: warnings.append(text) if text not in warnings else None, request.context)
-        rows, total_hour, unpriced = [], 0.0, []
+        rows, total_hour, unpriced = [], defaultdict(float), []
         for resource, info in infos:
             v = values[resource.key]
             if v["price_now"] is None:
                 unpriced.append(resource.name)
                 rows.append(f"{resource.name}  {info.instance_type or '?'}  {v['capacity']}  no price")
                 continue
-            total_hour += v["price_now"]
+            currency = getattr(v["price_now"], "currency", "USD")
+            total_hour[currency] += float(v["price_now"])
             rows.append(f"{resource.name}  {info.instance_type or '?'}  {v['capacity']}  "
                         f"{per_hour(v['price_now'])}/h  {per_month(v['price_month'])}/month")
         lines = [f"Cost estimate for {len(infos)} node(s)", ""] + rows + [
-            "", f"Total: {per_hour(total_hour)}/hour, {per_month(total_hour * HOURS_PER_MONTH)}/month "
+            "", f"Total: {_format_totals(total_hour)}/hour, {_format_totals(total_hour, monthly=True)}/month "
                 f"({HOURS_PER_MONTH} hours)"]
         if unpriced:
             lines.append(f"Not counted (no price known): {', '.join(unpriced)}")

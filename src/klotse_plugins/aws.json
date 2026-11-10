@@ -4,7 +4,7 @@
   "name": "AWS Plugin",
   "version": "0.1",
   "requires_api": 7,
-  "description": "Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. Works without a login (the cluster's own data plus AWS's public price list); with boto3 and AWS credentials it also shows spot prices, the real launch time and the AMI of every node.",
+  "description": "Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. China region prices use the AWS Price List API and need AWS credentials with pricing:GetProducts permission.",
   "columns": [
     {
       "key": "instance_id",
@@ -24,15 +24,15 @@
     },
     {
       "key": "price_od",
-      "title": "On-demand $/h"
+      "title": "On-demand price/h"
     },
     {
       "key": "price_now",
-      "title": "Price $/h"
+      "title": "Price/h"
     },
     {
       "key": "price_month",
-      "title": "Price $/month"
+      "title": "Price/month"
     },
     {
       "key": "launched",
@@ -75,7 +75,7 @@
       "label": "Use the AWS API when credentials are available",
       "default": true,
       "kind": "bool",
-      "help": "Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick to use only the cluster and the public price list."
+      "help": "Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. China region prices also use the AWS Price List API and need pricing:GetProducts permission. It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick to skip EC2 metadata and Spot lookups; list-price lookup continues."
     },
     {
       "key": "aws_profile",

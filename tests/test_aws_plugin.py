@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QSettings
 
-from klotse.plugins import ActionRequest, EnrichRequest, ResourceInfo
+from klotse.plugins import ActionRequest, EnrichRequest, OverviewRequest, ResourceInfo
 from klotse.plugins.manager import BUNDLED_MODULES, PluginManager
 from klotse_plugins.aws import AwsPlugin, console_url, per_hour, per_month, when
 from klotse_plugins.aws import ec2 as ec2_module
@@ -35,6 +35,17 @@ def price_file(prices, sql=None):
     for t, p in (sql or {}).items():
         entries[f"{t} sql"] = {"Instance Type": t, "price": f"{p:.10f}", "Pre Installed S/W": "SQL Std"}
     return gzip.compress(json.dumps({"manifest": {}, "regions": {"EU (Ireland)": entries}}).encode())
+
+
+def china_query_item(instance="m5.large", price="1.25", os_name="Linux", tenancy="Shared", region="cn-north-1"):
+    sku = f"SKU-{instance}-{os_name}-{tenancy}"
+    return json.dumps({
+        "product": {"productFamily": "Compute Instance", "attributes": {"regionCode": region,
+            "instanceType": instance, "operatingSystem": os_name, "tenancy": tenancy,
+            "preInstalledSw": "NA", "licenseModel": "No License required"}},
+        "terms": {"OnDemand": {sku: {"priceDimensions": {
+            "rate": {"unit": "Hrs", "startingRange": "0", "pricePerUnit": {"CNY": price}}}}}},
+    })
 
 
 # ---- reading the node ---------------------------------------------------------------------
@@ -77,6 +88,13 @@ def test_the_price_url_uses_the_regions_price_list_name_and_the_os():
     with pytest.raises(PriceError, match="no price list is known for the region ap-nowhere-9"):
         price_url("ap-nowhere-9", "Linux")
     assert REGION_NAMES["eu-central-2"] == "EU (Zurich)" and REGION_NAMES["sa-east-1"] == "South America (Sao Paulo)"
+    china = price_url("cn-north-1", "Linux")
+    assert china == "https://api.pricing.cn-northwest-1.amazonaws.com.cn/"
+    assert price_url("cn-northwest-1", "Windows") == china
+    gov = price_url("us-gov-east-1", "Linux")
+    assert gov.startswith("https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/")
+    assert pricing.currency_for_region("cn-northwest-1") == "CNY"
+    assert pricing.currency_for_region("us-gov-west-1") == "USD"
 
 
 def test_parsing_a_price_file_reads_gzip_or_plain_and_skips_extras():
@@ -103,6 +121,79 @@ def test_prices_are_downloaded_once_and_then_come_from_the_cache(tmp_path):
     clock[0] += 5 * 86400
     on_demand_prices("eu-west-1", "Linux", tmp_path, fetch=fetch, now=lambda: clock[0])
     assert len(calls) == 2  # now it is stale
+
+
+def test_china_prices_keep_cny_when_loaded_from_cache(tmp_path):
+    calls = []
+    first = on_demand_prices("cn-north-1", "Linux", tmp_path,
+                             query_china=lambda *args, **kwargs: calls.append(kwargs["profile"]) or {"m5.large": 1.25},
+                             profile="china-profile", now=lambda: 1000)
+    cached = on_demand_prices("cn-north-1", "Linux", tmp_path,
+                              fetch=lambda url: pytest.fail("fresh CNY cache should be reused"), now=lambda: 1001)
+    assert first.currency == cached.currency == "CNY"
+    assert first.prices == cached.prices == {"m5.large": 1.25}
+    assert calls == ["china-profile"]
+
+
+def test_china_query_ignores_legacy_calculator_cache(tmp_path):
+    old = tmp_path / "ondemand-cn-north-1-Linux.json"
+    old.write_text(json.dumps({"fetched": 1000, "prices": {"old-type": 1.0}}))
+    calls = []
+    table = on_demand_prices("cn-north-1", "Linux", tmp_path,
+                             query_china=lambda *args, **kwargs: calls.append(True) or {"m5.large": 1.25},
+                             now=lambda: 1001)
+    assert calls == [True] and table.prices == {"m5.large": 1.25}
+
+
+def test_china_price_query_pages_and_filters_on_demand_prices():
+    calls = []
+
+    def send(payload, credentials, timestamp):
+        calls.append(payload)
+        if len(calls) == 1:
+            return {"PriceList": [china_query_item()], "NextToken": "page-2"}
+        return {"PriceList": [china_query_item("c6g.large", "0.82"), china_query_item("m5.large", "8.0", "Windows"),
+                               china_query_item("m5.large", "7.0", tenancy="Dedicated"),
+                               china_query_item("m5.large", "6.0", region="cn-northwest-1")]}
+
+    creds = SimpleNamespace(access_key="key", secret_key="secret", token="")
+    prices = pricing._query_china_prices("cn-north-1", "Linux", credentials=creds, send=send, now=lambda: 1000)
+    assert prices == {"m5.large": 1.25, "c6g.large": 0.82}
+    assert len(calls) == 2 and calls[1]["NextToken"] == "page-2"
+    assert calls[0]["FormatVersion"] == "aws_v1"
+    assert {f["Field"]: f["Value"] for f in calls[0]["Filters"]} == {
+        "regionCode": "cn-north-1", "operatingSystem": "Linux", "tenancy": "Shared",
+        "preInstalledSw": "NA", "licenseModel": "No License required", "productFamily": "Compute Instance"}
+
+
+def test_china_price_query_signs_the_request_to_the_china_endpoint(monkeypatch):
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return b'{"PriceList":[]}'
+
+    def fake_open(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = request.headers
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(pricing.urllib.request, "urlopen", fake_open)
+    creds = SimpleNamespace(access_key="AKID", secret_key="secret", token="session")
+    assert pricing._send_price_query({"ServiceCode": "AmazonEC2"}, creds, 1_700_000_000) == {"PriceList": []}
+    assert captured["url"] == pricing.CHINA_PRICE_API_URL
+    assert captured["headers"]["X-amz-target"] == "AWSPriceListService.GetProducts"
+    assert captured["headers"]["X-amz-security-token"] == "session"
+    assert captured["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKID/")
+    assert captured["body"] == {"ServiceCode": "AmazonEC2"} and captured["timeout"] == 30
 
 
 def test_a_failed_refresh_keeps_using_the_old_copy_and_says_so(tmp_path):
@@ -268,6 +359,24 @@ def collect(plugin, resources, settings=None, hints=False):
     return values, warnings if hints else [w for w in warnings if "node group image label" not in w]
 
 
+def test_china_node_costs_and_cluster_totals_are_formatted_in_cny(monkeypatch):
+    resource = node("n1", zone="cn-north-1a", itype="m5.large")
+    monkeypatch.setattr("klotse_plugins.aws.on_demand_prices",
+                        lambda *args, **kwargs: pricing.PriceTable({"m5.large": 1.25}, currency="CNY"))
+    plugin, _ = make_plugin()
+    values, warnings = collect(plugin, [resource], settings={"use_aws_api": False})
+    assert warnings == []
+    assert values["n1"]["price_now"].currency == "CNY"
+    assert values["n1"]["price_month"].currency == "CNY"
+    assert per_hour(values["n1"]["price_now"]) == "¥1.2500"
+
+    overview = plugin.overview(OverviewRequest("aws", "ctx", [resource], {"use_aws_api": False}))
+    assert overview["cost_hour"] == "¥1.2500" and overview["cost_month"] == "¥912.50"
+    report = plugin.cost_report(ActionRequest("aws", "cost", "Node", "ctx", [resource], {"use_aws_api": False}),
+                                [(resource, parse_node(resource))])
+    assert "¥1.2500/h" in report and "Total: ¥1.2500/hour, ¥912.50/month" in report
+
+
 def test_without_any_login_the_columns_come_from_the_node_and_the_public_prices(fake_prices):
     plugin, _ = make_plugin()
     values, warnings = collect(plugin, [node("n1", "i-1"), node("n2", "i-2", itype="c6g.xlarge",
@@ -391,6 +500,8 @@ def test_enrich_uses_the_request(fake_prices):
 # ---- columns, formats and actions --------------------------------------------------------------------------
 def test_value_formats_and_the_console_link():
     assert per_hour(0.096) == "$0.0960" and per_month(70.08) == "$70.08" and per_month(1234.5) == "$1,234.50"
+    assert per_hour(pricing.Price(1.25, "CNY")) == "¥1.2500"
+    assert per_month(pricing.Price(912.5, "CNY")) == "¥912.50"
     assert when(1_700_000_000) == "2023-11-14 22:13 UTC"
     assert console_url(parse_node(node("n"))).startswith(
         "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#InstanceDetails:instanceId=i-0abc123")
@@ -445,7 +556,7 @@ def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(qtbot, tmp_p
     manager.set_enabled("aws", True)
     qtbot.waitUntil(lambda: manager.is_enabled("aws"))
     assert [c[0] for c in manager.columns_for("Node")] == [
-        "Instance ID", "Instance type", "Capacity", "AMI", "On-demand $/h", "Price $/h", "Price $/month", "Launched"]
+        "Instance ID", "Instance type", "Capacity", "AMI", "On-demand price/h", "Price/h", "Price/month", "Launched"]
     assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost"]
     assert manager.settings_for("aws") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
                                                  "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": "", "profile_map": "", "keys_warning": "", "access_key_id": "", "secret_access_key": "", "session_token": ""}
