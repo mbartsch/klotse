@@ -67,6 +67,27 @@ def test_dialog_add_save_and_cancel(qtbot, tmp_path):
     assert preferences(tmp_path).labels("Pod") == ["team", "app"]
 
 
+def test_custom_label_and_annotation_columns_can_be_reordered(qtbot, tmp_path):
+    dialog = LabelColumnsDialog("Role", preferences(tmp_path), available_annotations=["owner"])
+    qtbot.addWidget(dialog)
+    dialog.editor.setPlainText("team = Team\napp = Application")
+    cursor = dialog.editor.textCursor()
+    cursor.setPosition(dialog.editor.document().findBlockByNumber(1).position())
+    dialog.editor.setTextCursor(cursor)
+    dialog._move_custom(dialog.editor, -1)
+    assert dialog.editor.toPlainText() == "app = Application\nteam = Team"
+
+    dialog.annotation_editor.setPlainText("owner = Owner\nteam = Team")
+    cursor = dialog.annotation_editor.textCursor()
+    cursor.setPosition(dialog.annotation_editor.document().findBlockByNumber(0).position())
+    dialog.annotation_editor.setTextCursor(cursor)
+    dialog._move_custom(dialog.annotation_editor, 1)
+    assert dialog.annotation_editor.toPlainText() == "team = Team\nowner = Owner"
+    dialog._save()
+    assert preferences(tmp_path).labels("Role") == ["app", "team"]
+    assert preferences(tmp_path).annotations("Role") == ["team", "owner"]
+
+
 def test_label_columns_sort_filter_and_restore_age_sort(qtbot):
     columns = [("Name", "name"), ("Status", "status"), ("Roles", "roles"), ("Age", "age")]
     table = ResourceTable(columns, "Node")
