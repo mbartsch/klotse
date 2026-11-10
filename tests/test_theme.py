@@ -236,3 +236,10 @@ def test_hovering_a_selected_row_does_not_hide_the_selection():
     assert "QTableView::item:hover:!selected" in sheet and "QTreeView::item:hover:!selected" in sheet
     assert "QTreeView:focus::item:selected" in sheet and "QTableView:focus::item:selected" in sheet
     assert "outline: 0" not in sheet
+
+
+def test_text_editors_have_visible_focus_in_every_builtin_theme():
+    for t in theme.BUILTIN:
+        sheet = theme.stylesheet(t)
+        assert "QPlainTextEdit:focus" in sheet and "QTextBrowser:focus" in sheet, t.name
+        assert _ratio(t.accent_hi, t.base) >= 3.0, t.name
