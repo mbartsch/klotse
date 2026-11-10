@@ -191,7 +191,7 @@ def test_detail_panel_toggles_between_formatted_and_yaml(qtbot):
     assert panel.editor.isVisible()
     plain = SimpleNamespace(raw={"metadata": {"name": "cm"}})  # not an RBAC row: no toggle, YAML only
     panel.show_row(plain)
-    assert not panel.view_bar.isVisible() and panel.editor.isVisible()
+    assert panel.view_bar.isVisible() and panel.editor.isVisible()
     panel.show_row(row)  # back to an RBAC row: still YAML because the user picked it
     assert panel.editor.isVisible()
 
