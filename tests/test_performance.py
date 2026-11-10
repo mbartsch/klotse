@@ -229,8 +229,9 @@ def test_cluster_overview_uses_numeric_node_units_without_serializing(monkeypatc
     svc = KubeService()
     svc._core = SimpleNamespace(
         list_node=lambda **kw: SimpleNamespace(items=[node], metadata=None),
-        list_namespace=lambda **kw: SimpleNamespace(items=[object()], metadata=None))
-    svc._overview_pods = lambda: ({'pods': 3, 'running': 2, 'pending': 1, 'failed': 0}, {'pending': [], 'failed': []})
+        list_namespace=lambda **kw: SimpleNamespace(items=[SimpleNamespace(metadata=SimpleNamespace(name='default'))], metadata=None))
+    svc._overview_pods = lambda **kw: (
+        {'pods': 3, 'running': 2, 'pending': 1, 'failed': 0}, {'pending': [], 'failed': []}, {})
     svc._overview_events = lambda: ([], 4, [])
     monkeypatch.setattr(module, '_raw', lambda _: pytest.fail('Overview serialized a node manifest'))
     counts = svc.overview_cluster()['counts']

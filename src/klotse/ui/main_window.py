@@ -1011,6 +1011,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save preferences", str(error))
             return False
         theme.apply(QApplication.instance(), self.theme_settings.selected())
+        for workspace in self.workspaces.values():
+            workspace.overview.refresh_theme()
+            workspace.wl_overview.refresh_theme()
         return True
 
     def apply_kubeconfig(self, path):

@@ -313,6 +313,6 @@ def test_overview_ready_count_includes_cordoned_ready_nodes():
                               conditions=[client.V1NodeCondition(type="Ready", status="True")]))]
     svc._core = SimpleNamespace(list_node=lambda **kw: SimpleNamespace(items=nodes, metadata=None),
                                 list_namespace=lambda **kw: SimpleNamespace(items=[], metadata=None))
-    svc._overview_pods = lambda: ({}, {})
+    svc._overview_pods = lambda **kw: ({}, {}, {})
     svc._overview_events = lambda: ([], 0, [])
     assert svc.overview_cluster()["counts"]["nodes_ready"] == 1
