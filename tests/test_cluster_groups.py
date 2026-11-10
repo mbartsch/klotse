@@ -128,7 +128,10 @@ def make_nav(qtbot, names=("a", "b", "c", "d"), assignments=None, empty=()):
 
 
 def texts(parent):
-    return [parent.child(i).text(0) for i in range(parent.childCount())]
+    return [parent.child(i).data(0, Navigator.ROLE_KEY)
+            if parent.child(i).data(0, Navigator.ROLE_KIND) == "cluster"
+            else parent.child(i).text(0)
+            for i in range(parent.childCount())]
 
 
 def test_groups_are_folders_in_the_disconnected_section(qtbot):
@@ -139,7 +142,7 @@ def test_groups_are_folders_in_the_disconnected_section(qtbot):
     prod = idle.child(0)
     assert texts(prod) == ["eu (2)", "a"]
     assert texts(prod.child(0)) == ["b", "c"]
-    assert nav.cluster_item("b").toolTip(0) == "Group: prod/eu"
+    assert nav.cluster_item("b").toolTip(0) == "Status: Disconnected\nGroup: prod/eu"
 
 
 def test_a_connected_cluster_leaves_its_folder_and_returns_on_disconnect(qtbot):
@@ -194,7 +197,7 @@ def test_context_menus_offer_the_group_actions(qtbot):
     assert labels(nav.menu_for(idle)) == ["New group…", "Suggest groups…"]
     assert labels(nav.menu_for(idle.child(0))) == ["Connect all", "New subgroup…", "Rename…", "Delete group"]
     cluster_menu = nav.menu_for(nav.cluster_item("a"))
-    assert labels(cluster_menu) == ["Connect", "Move to group"]
+    assert labels(cluster_menu) == ["Rename alias…", "Connect", "Move to group"]
     move = next(a for a in cluster_menu.actions() if a.text() == "Move to group").menu()
     assert labels(move) == ["prod", "New group…", "No group"]
     assert nav.menu_for(nav.topLevelItem(0)) is None  # the Connected header has nothing to offer
@@ -204,9 +207,10 @@ def test_without_groups_the_list_is_the_plain_two_sections(qtbot):
     nav = Navigator()
     qtbot.addWidget(nav)
     nav.set_contexts(["a", "b"])
-    assert texts(nav.topLevelItem(1)) == ["a", "b"] and nav.groups is None
+    assert [nav.topLevelItem(1).child(i).data(0, nav.ROLE_KEY)
+            for i in range(nav.topLevelItem(1).childCount())] == ["a", "b"] and nav.groups is None
     labels = [a.text() for a in nav.menu_for(nav.cluster_item("a")).actions() if a.text()]
-    assert labels == ["Connect"] and nav.menu_for(nav.topLevelItem(1)) is None  # no groups: nothing to offer on the header
+    assert labels == ["Rename alias…", "Connect"] and nav.menu_for(nav.topLevelItem(1)) is None  # no groups: nothing to offer on the header
 
 
 # ---- the window saves them --------------------------------------------------------

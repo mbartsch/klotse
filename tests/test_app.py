@@ -708,9 +708,14 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     clicks = []
     nav.context_clicked.connect(clicks.append)
     nav.view_requested.connect(lambda *x: clicks.append(x))
+    nav.connect_requested.connect(lambda name: clicks.append(("connect", name)))
     nav._on_click(nav.topLevelItem(0), 0)  # clicking a section header does nothing
     assert clicks == [] and not (nav.topLevelItem(0).flags() & Qt.ItemIsSelectable)
     assert [label for label, _ in nav.actions_for("a")] == ["Connect"]
+    menu = nav.menu_for(nav.cluster_item("a"))
+    next(action for action in menu.actions() if action.text() == "Connect").trigger()
+    assert clicks == [("connect", "a")]
+    clicks.clear()
     nav.set_state("a", "failed")
     assert [label for label, _ in nav.actions_for("a")] == ["Connect"]  # retry
     nav.set_state("a", "connecting")
@@ -725,6 +730,8 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert nav._cluster_of(group.child(0)) is nav.cluster_item("a") and nav._cluster_of(nav.topLevelItem(0)) is None
     nav._on_click(group.child(0), 0)
     assert clicks == [("a", "workloads")]
+    nav._on_click(nav.cluster_item("a"), 0)
+    assert clicks == [("a", "workloads")]  # selecting a cluster never starts a connection
 
 
 def test_disconnect_reconnect_via_navigator(qtbot):
