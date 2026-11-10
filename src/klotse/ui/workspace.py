@@ -224,6 +224,8 @@ class ClusterWorkspace(QMainWindow):
             table.permission_check = self.permission_for
             self._wire_refresh(table)
             table.enable_saved_filters(SavedFilters(self.label_settings.store), self.context)
+            if table is self.overview.events_table:
+                table.saved_button.hide()  # the compact overview events panel has no filter controls
         self.label_settings.changed.connect(self.apply_label_columns)
         if self.plugin_host is not None:
             for table in self.resource_tables():
@@ -597,9 +599,11 @@ class ClusterWorkspace(QMainWindow):
 
     def _overview_action(self, action):
         handlers = {
+            "refresh": lambda: self.load_view("overview"),
             "workloads": lambda: self.open_view("workloads"),
             "nodes": lambda: self.open_view("nodes"),
             "namespaces": lambda: self.open_view("namespaces"),
+            "events": lambda: self.open_view("events"),
             "capacity": self.show_capacity,
             "health": self.show_health,
             "permissions": self.show_permissions,

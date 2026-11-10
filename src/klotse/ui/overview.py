@@ -1,7 +1,8 @@
 from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton,
-                               QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+                               QHeaderView, QMenu, QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.resources import SPEC_BY_KEY
 from .loading_pane import LoadingPane
@@ -64,11 +65,16 @@ class Card(QFrame):
         self.setFocusPolicy(Qt.NoFocus)
         self.setAccessibleName(title)
         self.value = QLabel("–")
-        caption = QLabel(title)
-        theme.muted(caption)
+        self.caption = QLabel(title)
+        theme.muted(self.caption)
+        self.detail = QLabel("")
+        self.detail.setStyleSheet(f"font-size: 10px; color: {theme.MUTED}; border: 0;")
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(13, 10, 13, 10)
+        lay.setSpacing(3)
+        lay.addWidget(self.caption)
         lay.addWidget(self.value)
-        lay.addWidget(caption)
+        lay.addWidget(self.detail)
         self.set_value("–")
         self._restyle()
 
@@ -77,6 +83,9 @@ class Card(QFrame):
         self.setAccessibleDescription(f"{self.value.text()}")
         color = {"warn": theme.WARN, "bad": theme.BAD}.get(self.tone) if v not in (0, "0", "–") else None
         self.value.setStyleSheet(f"font-size: 22px; font-weight: 600;{f' color: {color};' if color else ''}")
+
+    def set_detail(self, text):
+        self.detail.setText(text)
 
     def set_clickable(self, on):
         self._clickable = on
@@ -93,7 +102,7 @@ class Card(QFrame):
         border = theme.ACCENT if self._selected else theme.BORDER
         hover = f"Card:hover {{ border-color: {theme.ACCENT}; }}" if self._clickable else ""
         focus = f"Card:focus {{ border: 2px solid {theme.ACCENT_HI}; }}" if self._clickable else ""
-        self.setStyleSheet(f"Card {{ border: 1px solid {border}; border-radius: 7px; }} {hover} {focus}")
+        self.setStyleSheet(f"Card {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {theme.BASE},stop:1 {theme.BG}); border: 1px solid {border}; border-radius: 9px; }} {hover} {focus}")
 
     def mousePressEvent(self, event):
         if self._clickable and event.button() == Qt.LeftButton:
@@ -113,11 +122,11 @@ def bar_percent(used, total):
 
 
 class UsageBar(QWidget):
-    """One horizontal bar: how much of a capacity is in use (green, amber above 70%, red above 90%)."""
+    """One compact bar showing observed use against allocatable cluster capacity."""
 
-    def __init__(self, caption):
+    def __init__(self, caption, color_key="ACCENT"):
         super().__init__()
-        self.caption, self.used, self.total, self.text = caption, 0.0, 0.0, ""
+        self.caption, self.color_key, self.used, self.total, self.text = caption, color_key, 0.0, 0.0, ""
         self.setMinimumHeight(34)
 
     @property
@@ -137,7 +146,7 @@ class UsageBar(QWidget):
         p.setBrush(QColor(theme.BORDER))
         p.drawRoundedRect(QRectF(0, 18, self.width(), 10), 5, 5)
         fraction = self.fraction
-        p.setBrush(QColor(theme.BAD if fraction > 0.9 else theme.WARN if fraction > 0.7 else theme.OK))
+        p.setBrush(QColor(getattr(theme, self.color_key)))
         p.drawRoundedRect(QRectF(0, 18, self.width() * fraction, 10), 5, 5)
 
 
@@ -176,16 +185,37 @@ class OverviewView(QWidget):
             card.clicked.connect(self._on_card)
             self.cards[key] = card
 
-        self.cpu_bar, self.mem_bar = UsageBar("CPU in use"), UsageBar("Memory in use")
+        self.cpu_bar, self.mem_bar = UsageBar("CPU in use", "ACCENT_HI"), UsageBar("Memory in use", "SELECTED_ROW")
+        self.pod_bar = UsageBar("Pods", "OK")
         self.usage = QWidget()
         usage = QHBoxLayout(self.usage)
         usage.setContentsMargins(0, 0, 0, 0)
+        usage.setSpacing(10)
         usage.addWidget(self.cpu_bar)
-        usage.addSpacing(18)
         usage.addWidget(self.mem_bar)
+        usage.addWidget(self.pod_bar)
         self.usage.hide()
 
-        self.events_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
+        event_columns = list(SPEC_BY_KEY["events"].columns)
+        event_columns[3] = ("Event", "overview_summary")
+        event_columns[6] = ("When", "last_seen")
+        self.events_table = ResourceTable(event_columns, "Event", editable=False, customizable=False)
+        if self.is_cluster_overview:
+            self.events_table.filter.hide()
+            self.events_table.filter_note.hide()
+            self.events_table.status.hide()
+            self.events_table.selection_count.hide()
+            self.events_table.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.events_table.view.setColumnHidden(0, True)
+            self.events_table.view.setColumnHidden(1, True)
+            self.events_table.view.setColumnHidden(2, True)
+            self.events_table.view.setColumnHidden(4, True)
+            self.events_table.view.setColumnHidden(5, True)
+            self.events_table.view.setColumnHidden(6, True)
+            self.events_table.view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+            self.events_table.view.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+            self.events_table.view.setMinimumWidth(0)
+            self.events_table.loading_page.label.setStyleSheet(f"font-size: 13px; color: {theme.MUTED};")
         self.pods_table = ResourceTable(POD_COLUMNS_BASIC, "Pod", customizable=False)
         self.warnings_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
         self.stack = QStackedWidget()
@@ -221,77 +251,170 @@ class OverviewView(QWidget):
 
     @staticmethod
     def _style_panel(frame):
-        frame.setStyleSheet(f"QFrame#overviewPanel {{ background: {theme.BASE}; border: 1px solid {theme.BORDER}; border-radius: 9px; }}")
+        frame.setStyleSheet(f"QFrame#overviewPanel {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {theme.BASE},stop:1 {theme.BG}); border: 1px solid {theme.BORDER}; border-radius: 10px; }}")
 
     def _build_cluster_dashboard(self):
         self.setAccessibleName(f"Cluster overview for {self.context}" if self.context else "Cluster overview dashboard")
         self.page_title = QLabel("Cluster overview")
-        self.page_title.setStyleSheet("font-size: 22px; font-weight: 650;")
-        self.context_label = QLabel(self.context)
+        self.page_title.setStyleSheet("font-size: 23px; font-weight: 650; letter-spacing: -0.4px;")
+        self.context_label = QLabel(f"{self.context}  ·  Live cluster summary")
         theme.muted(self.context_label)
-        page_head = QHBoxLayout()
-        page_head.addWidget(self.page_title)
-        page_head.addWidget(self.context_label)
-        page_head.addStretch(1)
-        self.health_summary = QLabel("Cluster status is loading")
+        heading = QVBoxLayout()
+        heading.setSpacing(3)
+        heading.addWidget(self.page_title)
+        heading.addWidget(self.context_label)
+        self.dashboard_button = QPushButton("Dashboard")
+        self.dashboard_button.setCheckable(True)
+        self.dashboard_button.setChecked(True)
+        self.dashboard_button.setAccessibleName("Cluster dashboard view")
+        self.workloads_button = QPushButton("Workloads")
+        self.workloads_button.setCheckable(True)
+        self.workloads_button.setAccessibleName("Open workload overview")
+        self.workloads_button.clicked.connect(lambda: self.action_requested.emit("workloads"))
+        self.overview_switch = QWidget()
+        switch_layout = QHBoxLayout(self.overview_switch)
+        switch_layout.setContentsMargins(3, 3, 3, 3)
+        switch_layout.setSpacing(2)
+        for button in (self.dashboard_button, self.workloads_button):
+            button.setStyleSheet(f"QPushButton {{ border: 0; background: transparent; color: {theme.MUTED}; padding: 6px 10px; }} QPushButton:checked {{ background: {theme.BORDER}; color: {theme.TEXT}; }}")
+            switch_layout.addWidget(button)
+        self.quick_actions_button = QToolButton()
+        self.quick_actions_button.setText("More")
+        self.quick_actions_button.setPopupMode(QToolButton.InstantPopup)
+        self.quick_actions_button.setAccessibleName("More cluster actions")
+        menu = QMenu(self.quick_actions_button)
+        for label, action in (("Node capacity…", "capacity"), ("Health check…", "health"),
+                              ("My permissions…", "permissions")):
+            menu.addAction(label, lambda key=action: self.action_requested.emit(key))
+        self.quick_actions_button.setMenu(menu)
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setAccessibleName("Refresh cluster overview")
+        self.refresh_button.clicked.connect(lambda: self.action_requested.emit("refresh"))
+        self.health_summary = QLabel("Cluster status is loading…")
         self.health_summary.setAccessibleName("Cluster health summary")
-        self.health_summary.setWordWrap(True)
-        self.health_summary.setStyleSheet(f"background: {theme.BASE}; border: 1px solid {theme.BORDER}; border-radius: 8px; padding: 10px 12px;")
+        self.health_summary.setWordWrap(False)
+        self.health_summary.setMinimumHeight(40)
+        self.health_summary.setStyleSheet(f"background: {theme.BASE}; border: 1px solid {theme.BORDER}; border-radius: 9px; padding: 9px 13px;")
 
         self.stats_grid = QGridLayout()
-        stat_keys = ("nodes", "pods", "namespaces", "running")
-        for column, key in enumerate(stat_keys):
+        self.stats_grid.setHorizontalSpacing(9)
+        self.stats_grid.setVerticalSpacing(9)
+        for column, key in enumerate(("nodes", "pods", "namespaces", "warnings")):
             if key in self.cards:
                 self.stats_grid.addWidget(self.cards[key], 0, column)
-        self.alerts_grid = QGridLayout()
-        for column, key in enumerate(("pending", "failed", "warnings")):
-            if key in self.cards:
-                self.alerts_grid.addWidget(self.cards[key], 0, column)
         self.plugin_host = QWidget()
         self.plugin_host.setLayout(self.plugin_grid)
 
-        capacity, capacity_layout = self._panel("Resource allocation", "Current use against node capacity")
+        capacity, capacity_layout = self._panel("Resource allocation")
+        capacity_layout.setAlignment(Qt.AlignTop)
+        self.usage.layout().setDirection(QBoxLayout.TopToBottom)
+        self.usage.layout().setSpacing(4)
         capacity_layout.addWidget(self.usage)
         self.capacity_note = QLabel("Usage metrics are unavailable. Install metrics-server to see live CPU and memory use.")
         self.capacity_note.setWordWrap(True)
         theme.muted(self.capacity_note)
         capacity_layout.addWidget(self.capacity_note)
 
+        health_panel, health_layout = self._panel("Workload health")
+        self.workload_rows = {}
+        health_state = QWidget()
+        health_state_layout = QVBoxLayout(health_state)
+        health_state_layout.setContentsMargins(0, 0, 8, 0)
+        health_state_layout.setSpacing(9)
+        for key, label in (("running", "Running"), ("pending", "Pending"), ("failed", "Failed")):
+            row = QHBoxLayout()
+            name = QLabel(label)
+            name.setMinimumWidth(62)
+            theme.muted(name)
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(8)
+            bar.setStyleSheet(f"QProgressBar {{ border: 0; border-radius: 4px; background: {theme.BORDER}; }} QProgressBar::chunk {{ border-radius: 4px; background: {theme.OK if key == 'running' else theme.WARN if key == 'pending' else theme.BAD}; }}")
+            value = QLabel("–")
+            value.setMinimumWidth(34)
+            value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row.addWidget(name)
+            row.addWidget(bar, 1)
+            row.addWidget(value)
+            if key in ("pending", "failed"):
+                view = QPushButton("View")
+                view.setFlat(True)
+                view.setAccessibleName(f"View {label.lower()} pods")
+                view.clicked.connect(lambda _checked=False, k=key: self._on_card(k))
+                row.addWidget(view)
+            health_state_layout.addLayout(row)
+            self.workload_rows[key] = (bar, value)
+        self.health_foot = QLabel("Counts reflect pod phase; use Health check for container-level issues.")
+        self.health_foot.setWordWrap(True)
+        theme.muted(self.health_foot)
+        self.health_foot.setToolTip(self.health_foot.text())
+        self.health_foot.hide()
+
         self.namespace_table = QTableWidget(0, 3)
+        self._namespace_share_bars = []
         self.namespace_table.setAccessibleName("Pod distribution by namespace")
         self.namespace_table.setHorizontalHeaderLabels(["Namespace", "Pods", "Share"])
+        self.namespace_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.namespace_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.namespace_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.namespace_table.verticalHeader().hide()
+        self.namespace_table.verticalHeader().setDefaultSectionSize(27)
         self.namespace_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.namespace_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.namespace_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.namespace_table.setFocusPolicy(Qt.StrongFocus)
-        self.namespace_table.setMaximumHeight(250)
+        self.namespace_table.setMaximumHeight(82)
+        self.namespace_table.setMinimumWidth(0)
+        self.namespace_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.namespace_table.horizontalHeader().hide()
         self.namespace_table.itemActivated.connect(self._open_namespace_item)
-        namespace_panel, namespace_layout = self._panel("Namespaces", "Pod count by namespace")
-        namespace_panel_head = namespace_layout.itemAt(0).layout()
-        self.all_namespaces_button = QPushButton("All namespaces ›")
+        namespace_summary = QWidget()
+        namespace_layout = QVBoxLayout(namespace_summary)
+        namespace_layout.setContentsMargins(0, 0, 0, 0)
+        namespace_layout.setSpacing(4)
+        namespace_head = QHBoxLayout()
+        namespace_head.addWidget(QLabel("Top namespaces"))
+        namespace_head.addStretch(1)
+        self.all_namespaces_button = QPushButton("All namespaces")
+        self.all_namespaces_button.setFlat(True)
         self.all_namespaces_button.setAccessibleName("Open all namespaces")
         self.all_namespaces_button.clicked.connect(lambda: self.action_requested.emit("namespaces"))
-        namespace_panel_head.addWidget(self.all_namespaces_button)
+        namespace_head.addWidget(self.all_namespaces_button)
+        namespace_layout.addLayout(namespace_head)
         namespace_layout.addWidget(self.namespace_table)
         self.namespace_note = QLabel("Namespace pod counts will appear after cluster data loads.")
         theme.muted(self.namespace_note)
         namespace_layout.addWidget(self.namespace_note)
+        self.namespace_note.setVisible(False)
+        health_columns = QVBoxLayout()
+        health_columns.setSpacing(8)
+        health_columns.addWidget(health_state)
+        health_columns.addWidget(namespace_summary)
+        health_layout.addLayout(health_columns)
+        top_panels = QHBoxLayout()
+        top_panels.setSpacing(10)
+        top_panels.addWidget(capacity, 1)
+        top_panels.addWidget(health_panel, 1)
 
-        self.nodes_table = QTableWidget(0, 4)
+        self.nodes_table = QTableWidget(0, 5)
         self.nodes_table.setAccessibleName("Node health summary")
-        self.nodes_table.setHorizontalHeaderLabels(["Node", "Status", "CPU", "Memory"])
+        self.nodes_table.setHorizontalHeaderLabels(["Node", "Status", "CPU", "Memory", "Pods"])
+        self.nodes_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in range(1, 5):
+            self.nodes_table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
         self.nodes_table.verticalHeader().hide()
+        self.nodes_table.verticalHeader().setDefaultSectionSize(27)
         self.nodes_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.nodes_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.nodes_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.nodes_table.setFocusPolicy(Qt.StrongFocus)
-        self.nodes_table.setMaximumHeight(250)
+        self.nodes_table.setMaximumHeight(190)
         self.nodes_table.itemSelectionChanged.connect(self._node_selection_changed)
         self.nodes_table.itemActivated.connect(self._open_node_item)
         node_panel, node_layout = self._panel("Node health", "Ready state and live resource use")
         node_panel_head = node_layout.itemAt(0).layout()
-        self.all_nodes_button = QPushButton("All nodes ›")
+        self.all_nodes_button = QPushButton("All nodes")
         self.all_nodes_button.setAccessibleName("Open all nodes")
         self.all_nodes_button.clicked.connect(lambda: self.action_requested.emit("nodes"))
         node_panel_head.addWidget(self.all_nodes_button)
@@ -299,49 +422,47 @@ class OverviewView(QWidget):
         self.node_note = QLabel("Node health will appear after cluster data loads.")
         theme.muted(self.node_note)
         node_layout.addWidget(self.node_note)
-        summaries = QHBoxLayout()
-        summaries.addWidget(namespace_panel, 1)
-        summaries.addWidget(node_panel, 1)
+        self._style_overview_tables()
 
         recent_panel, recent_layout = self._panel("Recent events")
         recent_header = recent_layout.itemAt(0).layout()
         recent_header.addStretch(1)
+        all_events_button = QPushButton("All events")
+        all_events_button.setFlat(True)
+        all_events_button.setAccessibleName("Open all events")
+        all_events_button.clicked.connect(lambda: self.action_requested.emit("events"))
+        recent_header.addWidget(all_events_button)
         self.back.setStyleSheet("border: 0;")
         recent_header.addWidget(self.back)
         recent_layout.addWidget(self.stack, 1)
+        self.stack.setMinimumHeight(135)
+        self.stack.setMaximumHeight(160)
         self.title.hide()  # kept as the dynamic heading for the existing drill-down state
-
-        quick_panel, quick_layout = self._panel("Quick actions")
-        actions = QHBoxLayout()
-        for label, accessible, key in (
-            ("Workloads", "Open workload overview", "workloads"),
-            ("Node capacity…", "Open node capacity", "capacity"),
-            ("Health check…", "Run cluster health check", "health"),
-            ("My permissions…", "Review cluster permissions", "permissions"),
-        ):
-            button = QPushButton(label)
-            button.setAccessibleName(accessible)
-            button.clicked.connect(lambda _checked=False, action=key: self.action_requested.emit(action))
-            actions.addWidget(button)
-        quick_layout.addLayout(actions)
-
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(18, 16, 18, 18)
-        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(20, 16, 20, 20)
+        content_layout.setSpacing(10)
+        page_head = QHBoxLayout()
+        page_head.addLayout(heading, 1)
+        page_head.addWidget(self.overview_switch)
+        page_head.addWidget(self.quick_actions_button)
+        page_head.addWidget(self.refresh_button)
         content_layout.addLayout(page_head)
         content_layout.addWidget(self.health_summary)
         content_layout.addLayout(self.stats_grid)
-        content_layout.addLayout(self.alerts_grid)
         content_layout.addWidget(self.plugin_host)
-        content_layout.addWidget(capacity)
-        content_layout.addLayout(summaries)
-        content_layout.addWidget(recent_panel, 1)
-        content_layout.addWidget(quick_panel)
+        content_layout.addLayout(top_panels)
+        lower = QGridLayout()
+        lower.setSpacing(10)
+        lower.addWidget(node_panel, 0, 0)
+        lower.addWidget(recent_panel, 0, 1)
+        content_layout.addLayout(lower, 1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content.setMinimumWidth(0)
         scroll.setWidget(content)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -368,8 +489,27 @@ class OverviewView(QWidget):
         for card in (*self.cards.values(), *self.plugin_cards.values()):
             card._restyle()
             card.set_value(card.value.text())
+        if self.is_cluster_overview:
+            switch_style = f"QPushButton {{ border: 0; background: transparent; color: {theme.MUTED}; padding: 6px 10px; }} QPushButton:checked {{ background: {theme.BORDER}; color: {theme.TEXT}; }}"
+            self.dashboard_button.setStyleSheet(switch_style)
+            self.workloads_button.setStyleSheet(switch_style)
+            self._style_overview_tables()
+            for key, (bar, _value) in self.workload_rows.items():
+                color = theme.OK if key == "running" else theme.WARN if key == "pending" else theme.BAD
+                bar.setStyleSheet(f"QProgressBar {{ border: 0; border-radius: 4px; background: {theme.BORDER}; }} QProgressBar::chunk {{ border-radius: 4px; background: {color}; }}")
+            for bar in self._namespace_share_bars:
+                bar.setStyleSheet(f"QProgressBar {{ border: 0; border-radius: 3px; background: {theme.BORDER}; color: {theme.TEXT}; text-align: center; }} QProgressBar::chunk {{ border-radius: 3px; background: {theme.ACCENT}; }}")
         if self.is_cluster_overview and self._data is not None:
             self._set_health_summary(self._data.get("counts", {}))
+
+    def _style_overview_tables(self):
+        style = f"QTableWidget {{ border: 0; background: transparent; alternate-background-color: {theme.BG}; }} QTableWidget::item {{ padding: 4px; border-bottom: 1px solid {theme.BORDER}; }} QHeaderView::section {{ background: transparent; color: {theme.MUTED}; border: 0; border-bottom: 1px solid {theme.BORDER}; padding: 4px; font-size: 10px; }}"
+        self.namespace_table.setStyleSheet(style)
+        self.nodes_table.setStyleSheet(style)
+        for row in range(self.nodes_table.rowCount()):
+            item = self.nodes_table.item(row, 1)
+            if item:
+                item.setForeground(QColor(theme.OK if item.text().startswith("Ready") else theme.BAD))
 
     def tables(self):
         return [self.events_table, self.pods_table, self.warnings_table]
@@ -406,6 +546,8 @@ class OverviewView(QWidget):
             card.set_value(old.get(key, "–"))
             self.plugin_cards[key] = card
             self.plugin_grid.addWidget(card, i // COLUMNS, i % COLUMNS)
+        if self.is_cluster_overview:
+            self.plugin_host.setVisible(bool(self.plugin_cards))
 
     def set_plugin_values(self, values):
         for key, card in self.plugin_cards.items():
@@ -420,66 +562,115 @@ class OverviewView(QWidget):
         for key, card in self.cards.items():
             card.set_value(counts.get(key, "–"))
             card.set_clickable(key in DRILL_DOWN and bool(lists.get(key)))
-        usage = counts.get("usage")
-        self.usage.setVisible(bool(usage))
-        self.capacity_note.setVisible(not bool(usage)) if self.is_cluster_overview else None
-        if usage:
-            for bar, (used, total), unit, digits in ((self.cpu_bar, usage["cpu"], "cores", 1),
-                                                     (self.mem_bar, usage["memory"], "GiB", 2)):
-                bar.set_usage(used, total, f"{used:.{digits}f} / {total:.{digits}f} {unit} ({bar_percent(used, total)}%)")
+            if self.is_cluster_overview:
+                details = {
+                    "nodes": f"{counts.get('nodes_ready', 0)} of {counts.get('nodes', 0)} ready",
+                    "pods": f"{counts.get('running', 0)} running · {counts.get('pending', 0)} pending · {counts.get('failed', 0)} failed",
+                    "namespaces": "Pod distribution below",
+                    "warnings": "Warning events",
+                }
+                card.set_detail(details.get(key, ""))
+        usage = counts.get("usage") or {}
+        cpu_usage, mem_usage, pod_usage = usage.get("cpu"), usage.get("memory"), usage.get("pods")
+        self.cpu_bar.setVisible(bool(cpu_usage))
+        self.mem_bar.setVisible(bool(mem_usage))
+        self.pod_bar.setVisible(bool(pod_usage))
+        self.usage.setVisible(bool(cpu_usage or mem_usage or pod_usage))
+        if self.is_cluster_overview:
+            self.capacity_note.setVisible(not (cpu_usage and mem_usage))
+            visible_bars = sum(bool(value) for value in (cpu_usage, mem_usage, pod_usage))
+            self.usage.setFixedHeight(41 * visible_bars + 4 * max(0, visible_bars - 1))
+        for bar, values, unit, digits in ((self.cpu_bar, cpu_usage, "cores", 1),
+                                          (self.mem_bar, mem_usage, "GiB", 2),
+                                          (self.pod_bar, pod_usage, "slots", 0)):
+            if values:
+                used, total = values
+                amount = f"{used:.{digits}f}" if digits else f"{int(used)}"
+                capacity = f"{total:.{digits}f}" if digits else f"{int(total)}"
+                bar.set_usage(used, total, f"{amount} / {capacity} {unit} ({bar_percent(used, total)}%)")
         if self.is_cluster_overview:
             self._set_health_summary(counts)
+            total_pods = max(int(counts.get("pods", 0) or 0), 1)
+            for key, (bar, value) in self.workload_rows.items():
+                count = int(counts.get(key, 0) or 0)
+                bar.setValue(round(100 * count / total_pods))
+                value.setText(str(count))
             self._set_namespace_distribution(data.get("namespace_distribution"))
             self._set_nodes(data.get("nodes") or [])
-        self.events_table.set_rows(data.get("events") or [])
+        events = data.get("events") or []
+        if self.is_cluster_overview:
+            for row in events:
+                reason = getattr(row, "reason", "")
+                message = " ".join(str(getattr(row, "message", "")).split())
+                target = getattr(row, "object", "")
+                age = getattr(row, "last_seen", "")
+                row.overview_summary = " · ".join(part for part in (target, reason, age) if part)
+                row.overview_tooltip = "\n".join(part for part in (
+                    f"{target}: {reason}".strip(": "), message,
+                    f"Last seen {age}" if age else "",
+                ) if part)
+        self.events_table.set_rows(events)
+        if self.is_cluster_overview:
+            self._size_recent_events()
         if self.focus and not lists.get(self.focus):
             self.focus = None
         self._render()
 
+    def _size_recent_events(self):
+        header = self.events_table.view.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.events_table.view.clearFocus()
+
     def _set_health_summary(self, counts):
         nodes, ready = counts.get("nodes", 0), counts.get("nodes_ready", 0)
         pending, failed, warnings = (counts.get(key, 0) for key in ("pending", "failed", "warnings"))
+        attention = failed + warnings
         if nodes and ready < nodes:
             headline = f"{nodes - ready} of {nodes} nodes need attention"
-        elif failed or warnings:
-            headline = f"Needs attention · {failed} failed pods · {warnings} warning events"
+        elif attention:
+            headline = f"Cluster needs attention · {failed} failed pods · {warnings} warning events"
         else:
-            headline = "Cluster healthy"
-        detail = f"{ready} of {nodes} nodes ready · {counts.get('running', 0)} running pods · {pending} pending pods"
+            headline = "Cluster is healthy"
+        detail = f"{ready} of {nodes} nodes ready · {pending} pods pending"
         if counts.get("by_phase"):
-            detail += " · pod counts use Kubernetes phase"
-        self.health_summary.setText(f"{headline}\n{detail}")
+            detail += " · phase counts"
+        self.health_summary.setText(f"{headline}   ·   {detail}")
         self.health_summary.setAccessibleDescription(f"{headline}. {detail}")
-        self.health_summary.setStyleSheet(f"background: {theme.BASE}; border: 1px solid {theme.WARN if failed or warnings or (nodes and ready < nodes) else theme.BORDER}; border-radius: 8px; padding: 10px 12px;")
+        color = theme.BAD if nodes and ready < nodes else theme.WARN if attention else theme.OK
+        bg = theme.BASE if nodes and ready < nodes else theme.WARN_BG if attention else theme.BASE
+        self.health_summary.setStyleSheet(f"background: {bg}; color: {color}; border: 1px solid {color}; border-radius: 9px; padding: 9px 13px; font-weight: 600;")
 
     def _set_namespace_distribution(self, distribution):
+        self._namespace_share_bars = []
         self.namespace_table.clearContents()
         self.namespace_table.setRowCount(0)
         if distribution is None:
             self.namespace_note.setText("Distribution is unavailable in Big Cluster mode to keep refreshes light.")
+            self.namespace_table.hide()
             self.namespace_note.show()
             return
         rows = sorted(distribution.items(), key=lambda item: (-item[1], item[0].casefold()))
         total = sum(count for _name, count in rows)
-        shown, remainder = rows[:7], rows[7:]
-        if remainder:
-            shown.append(("Other namespaces", sum(count for _name, count in remainder)))
+        shown = rows[:3]
         for row, (name, count) in enumerate(shown):
             self.namespace_table.insertRow(row)
             item = QTableWidgetItem(name)
-            item.setData(Qt.UserRole, name if name != "Other namespaces" else "")
+            item.setData(Qt.UserRole, name)
             self.namespace_table.setItem(row, 0, item)
             self.namespace_table.setItem(row, 1, QTableWidgetItem(str(count)))
             share = QProgressBar()
+            share.setMinimumWidth(0)
             share.setRange(0, max(total, 1))
             share.setValue(count)
             share.setTextVisible(True)
             share.setFormat(f"{bar_percent(count, total)}%")
             share.setAccessibleName(f"{name}: {count} of {total} pods")
+            share.setStyleSheet(f"QProgressBar {{ border: 0; border-radius: 3px; background: {theme.BORDER}; color: {theme.TEXT}; text-align: center; }} QProgressBar::chunk {{ border-radius: 3px; background: {theme.ACCENT}; }}")
+            self._namespace_share_bars.append(share)
             self.namespace_table.setCellWidget(row, 2, share)
-        self.namespace_table.resizeColumnsToContents()
-        self.namespace_note.setText("Select a namespace and press Enter to open its pods." if rows else "No pods are currently assigned to a namespace.")
-        self.namespace_note.show()
+        self.namespace_note.setText("No pods are currently assigned to a namespace.")
+        self.namespace_note.setVisible(not rows)
         self.namespace_table.setVisible(bool(rows))
 
     def _set_nodes(self, nodes):
@@ -493,11 +684,21 @@ class OverviewView(QWidget):
             name_item = QTableWidgetItem(node.name)
             name_item.setData(Qt.UserRole, node)
             status_item = QTableWidgetItem(node.status)
+            if node.is_ready:
+                status_item.setForeground(QColor(theme.OK))
+            else:
+                status_item.setForeground(QColor(theme.BAD))
             self.nodes_table.setItem(row, 0, name_item)
             self.nodes_table.setItem(row, 1, status_item)
-            self.nodes_table.setItem(row, 2, QTableWidgetItem(self._node_usage_text(node.cpu_used, node.cpu)))
-            self.nodes_table.setItem(row, 3, QTableWidgetItem(self._node_usage_text(node.mem_used, node.memory)))
-        self.nodes_table.resizeColumnsToContents()
+            cpu_item = QTableWidgetItem(self._node_usage_percent(node.cpu_used, node.cpu))
+            cpu_item.setToolTip(self._node_usage_text(node.cpu_used, node.cpu))
+            mem_item = QTableWidgetItem(self._node_usage_percent(node.mem_used, node.memory))
+            mem_item.setToolTip(self._node_usage_text(node.mem_used, node.memory))
+            self.nodes_table.setItem(row, 2, cpu_item)
+            self.nodes_table.setItem(row, 3, mem_item)
+            self.nodes_table.setItem(row, 4, QTableWidgetItem(str(node.pods) if node.pods >= 0 else "–"))
+        for column, width in ((1, 56), (2, 52), (3, 57), (4, 38)):
+            self.nodes_table.setColumnWidth(column, width)
         if len(ordered) > len(shown):
             self.node_note.setText(f"Showing {len(shown)} of {len(ordered)} nodes · open All nodes to browse the full list.")
         else:
@@ -509,6 +710,10 @@ class OverviewView(QWidget):
         if used < 0:
             return "Not reported"
         return f"{bar_percent(used, total)}% · {used:.2f} / {total:.2f}" if total > 0 else f"{used:.2f} used"
+
+    @staticmethod
+    def _node_usage_percent(used, total):
+        return f"{bar_percent(used, total)}%" if used >= 0 and total > 0 else "–"
 
     def _node_selection_changed(self):
         row = self.nodes_table.currentRow()
