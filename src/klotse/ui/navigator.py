@@ -102,6 +102,7 @@ class Navigator(QTreeWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
+        self.itemDoubleClicked.connect(self._on_double_click)
 
     def _style_item(self, item, kind):
         """Give each navigation level a theme-aware cue while keeping leaf rows compact."""
@@ -482,7 +483,6 @@ class Navigator(QTreeWidget):
                 return None
             name = cluster.data(0, self.ROLE_KEY)
             selected_disconnected = self._selected_disconnected_clusters() if item is cluster else []
-            menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
             if len(selected_disconnected) > 1 and self._states.get(name) not in ACTIVE_STATES:
                 names = tuple(c.data(0, self.ROLE_KEY) for c in selected_disconnected)
                 menu.addAction(f"Connect selected clusters ({len(names)})",
@@ -490,6 +490,7 @@ class Navigator(QTreeWidget):
             else:
                 for label, signal in self.actions_for(name):
                     menu.addAction(label, lambda sig=signal: sig.emit(name))
+            menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if entries:
                 menu.addSeparator()
@@ -598,3 +599,10 @@ class Navigator(QTreeWidget):
         if kind == "view":
             cluster = self._cluster_of(item)  # views live under groups under the cluster item
             self.view_requested.emit(cluster.data(0, self.ROLE_KEY), item.data(0, self.ROLE_KEY))
+
+    def _on_double_click(self, item, _col):
+        if item.data(0, self.ROLE_KIND) != "cluster":
+            return
+        name = item.data(0, self.ROLE_KEY)
+        if self._states.get(name) not in ACTIVE_STATES:
+            self.connect_requested.emit(name)

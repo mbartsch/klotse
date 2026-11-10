@@ -116,6 +116,8 @@ def test_context_menu_connects_all_selected_disconnected_clusters(qtbot):
     assert eu.isSelected() and us.isSelected() and dev.isSelected()
 
     menu = nav.menu_for(eu)
+    labels = [action.text() for action in menu.actions()]
+    assert labels[:2] == ["Connect selected clusters (2)", "Rename alias…"]
     action = next(action for action in menu.actions() if action.text() == "Connect selected clusters (2)")
     connected = []
     nav.connect_requested.connect(connected.append)
