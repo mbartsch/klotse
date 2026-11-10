@@ -1,11 +1,12 @@
 """View > My permissions…: what the signed-in user may do in a namespace (SelfSubjectRulesReview) and a "Can I?" check
 for one verb on one resource (SelfSubjectAccessReview). Both are the user's own permissions, read from the API server."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout)
 
 from . import theme
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 VERBS = ("get", "list", "watch", "create", "update", "patch", "delete", "deletecollection")
 
@@ -68,10 +69,11 @@ class PermissionsDialog(QDialog):
         form.addRow("API group", self.group)
         form.addRow("named", self.name)
         buttons = QHBoxLayout()
-        buttons.addWidget(self.check_button)
         buttons.addWidget(self.result, 1)
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
+        buttons.addWidget(action_box(self, (self.check_button, QDialogButtonBox.AcceptRole),
+                                     (close, QDialogButtonBox.RejectRole)))
         layout = QVBoxLayout(self)
         layout.addWidget(self.header)
         layout.addWidget(self.note)
@@ -80,7 +82,6 @@ class PermissionsDialog(QDialog):
         layout.addWidget(QLabel("<b>Can I…?</b> Ask the API server about one thing:"))
         layout.addLayout(form)
         layout.addLayout(buttons)
-        layout.addWidget(close, 0, Qt.AlignRight)
         self._fill(perms)
 
     def _fill(self, perms):

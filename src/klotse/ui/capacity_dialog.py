@@ -1,12 +1,13 @@
 """View > Capacity…: what the pods request and may use against what each node can give, per node and per namespace
 (like kube-capacity). Numbers come from `k8s.capacity`; percentages are written out, so nothing depends on colour."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
                                QVBoxLayout)
 
 from ..k8s import capacity
 from . import theme
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 NODE_COLUMNS = ["Node", "Pods", "CPU alloc", "CPU req", "CPU req %", "CPU lim", "CPU used", "Mem alloc GiB", "Mem req GiB",
                 "Mem req %", "Mem lim GiB", "Mem used GiB"]
@@ -93,15 +94,13 @@ class CapacityDialog(QDialog):
         self.reload_button = QPushButton("Refresh")
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.reload_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addWidget(self.tabs, 1)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
 
     def show_data(self, nodes, pods):
         node_rows = capacity.by_node(nodes, pods)

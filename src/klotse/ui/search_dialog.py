@@ -4,13 +4,14 @@ visited; double-click or Enter on a hit takes the workspace there. Results are b
 import threading
 
 from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout)
 
 from . import theme
 from ..k8s.resources import parse_timestamp
 from ..k8s.util import format_age
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 HELP = ("Words must all appear in the name. Also: key=value (a label), kind:pod (or deploy, svc, pvc, node, ...), ns:shop. "
         "Example:  api kind:deploy ns:shop   or   app.kubernetes.io/name=web")
@@ -58,8 +59,8 @@ class SearchDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addWidget(self.only_ns)
         buttons.addStretch(1)
-        buttons.addWidget(self.go_button)
-        buttons.addWidget(close)
+        buttons.addWidget(action_box(self, (self.go_button, QDialogButtonBox.AcceptRole),
+                                     (close, QDialogButtonBox.RejectRole)))
         layout = QVBoxLayout(self)
         layout.addWidget(self.box)
         layout.addWidget(hint)

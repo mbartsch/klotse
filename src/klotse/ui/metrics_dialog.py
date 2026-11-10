@@ -10,7 +10,8 @@ one; the window then switches to it. The charts show the object's request and li
 import time
 
 from PySide6.QtCore import QThreadPool, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMenu, QPushButton,
+                               QToolButton, QVBoxLayout)
 
 from ..k8s import metrics_history as mh
 from ..k8s import prometheus
@@ -18,6 +19,7 @@ from ..workers import Worker
 from . import theme
 from .line_chart import LineChart
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 NOTE_SAMPLED = ("metrics-server keeps no history, so this chart starts when the window opens and is kept in memory only. "
                 "Prometheus or VictoriaMetrics would show earlier data: use Source… to point Klotse at one.")
@@ -82,19 +84,17 @@ class MetricsDialog(QDialog):
         top.addWidget(self.range_box)
         top.addWidget(self.source_button)
         top.addStretch(1)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.pause_button)
-        buttons.addWidget(self.clear_button)
-        buttons.addWidget(self.go_to_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.pause_button, QDialogButtonBox.ActionRole),
+                             (self.clear_button, QDialogButtonBox.ActionRole),
+                             (self.go_to_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(self.status)
         lay.addWidget(self.cpu_chart, 1)
         lay.addWidget(self.mem_chart, 1)
         lay.addWidget(self.note)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
         self.timer = QTimer(self, interval=int(interval_s * 1000))
         self.timer.timeout.connect(self.refresh)
         self.source_box.currentIndexChanged.connect(lambda _=None: self._source_changed())
