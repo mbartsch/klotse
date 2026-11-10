@@ -78,6 +78,7 @@ class LogView(QWidget):
         self._streamer = None
 
         self.container = QComboBox()
+        self.container.setAccessibleName(f"Container for logs from {pod}")
         self.container.addItems(containers)
         if initial_container:
             self.container.setCurrentText(initial_container)
@@ -88,12 +89,16 @@ class LogView(QWidget):
         self.previous = QCheckBox("Previous instance")
         self.previous.setToolTip("Show the log of the container's previous run (for example after a crash)")
         self.tail = QSpinBox()
+        self.tail.setAccessibleName("Number of log lines to load")
         self.tail.setRange(10, 100000)
         self.tail.setSingleStep(100)
         self.tail.setValue(500)
         self.search = QLineEdit(placeholderText="Search in logs (Enter = next)", clearButtonEnabled=True)
+        self.search.setAccessibleName(f"Search logs for pod {pod}")
         clear = QPushButton("Clear")
+        clear.setAccessibleName(f"Clear logs for pod {pod}")
         self.text = QPlainTextEdit(readOnly=True)
+        self.text.setAccessibleName(f"Logs for pod {pod}")
         self.text.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.text.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.text.setMaximumBlockCount(20000)

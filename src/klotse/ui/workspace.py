@@ -332,11 +332,13 @@ class ClusterWorkspace(QMainWindow):
         self._ns_names = []
         self.pin_button = QToolButton()
         self.pin_button.setAutoRaise(True)
+        self.pin_button.setAccessibleName("Pin current namespace")
         self.pin_button.clicked.connect(self.toggle_pin)
         self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button)]
         self.ns_combo.currentIndexChanged.connect(lambda _=None: self._sync_pin_button())
         self._sync_pin_button()
         self.panes_button = QToolButton(text="Panels")
+        self.panes_button.setAccessibleName("Show or hide workspace panels")
         self.panes_button.setToolTip("Show or hide Details and Logs & activity panels")
         self.panes_button.setPopupMode(QToolButton.InstantPopup)
         self.panes_menu = QMenu(self.panes_button)
@@ -2960,8 +2962,11 @@ class ClusterWorkspace(QMainWindow):
         pinned = pinnable and self.pins.is_pinned(self.context, name)
         self.pin_button.setEnabled(pinnable)
         self.pin_button.setText("★" if pinned else "☆")
-        self.pin_button.setToolTip(f"Unpin namespace {name}" if pinned else
-                                   (f"Pin namespace {name}: pinned namespaces are listed first" if pinnable else "Choose a namespace to pin it"))
+        description = (f"Unpin namespace {name}" if pinned else
+                       (f"Pin namespace {name}: pinned namespaces are listed first" if pinnable else
+                        "Choose a namespace to pin it"))
+        self.pin_button.setToolTip(description)
+        self.pin_button.setAccessibleName(description.split(":", 1)[0])
 
     def toggle_pin(self):
         """Pin or unpin the namespace in front for this cluster; pinned ones come first in the selector."""

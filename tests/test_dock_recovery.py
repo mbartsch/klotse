@@ -17,6 +17,8 @@ def test_selection_and_tab_changes_clear_stale_details(qtbot):
     assert workspace.tabs.accessibleName() == "Resource views for ctx"
     assert workspace.log_tabs.accessibleName() == "Logs and activity for ctx"
     assert workspace.ns_combo.accessibleName() == "Filter resource lists by namespace"
+    assert workspace.pin_button.accessibleName().startswith("Pin namespace ")
+    assert workspace.panes_button.accessibleName() == "Show or hide workspace panels"
     row = PodRow("api-1", "shop", "1/1", "Running", 0, "node-a", "1m",
                  {"metadata": {"name": "api-1", "namespace": "shop", "uid": "uid-1"}})
     workspace.pod_table.set_rows([row])

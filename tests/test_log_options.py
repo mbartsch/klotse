@@ -27,6 +27,10 @@ class Service:
 def make(qtbot):
     service = Service()
     view = LogView(service, "ns", "pod", ["app"])
+    assert view.container.accessibleName() == "Container for logs from pod"
+    assert view.tail.accessibleName() == "Number of log lines to load"
+    assert view.search.accessibleName() == "Search logs for pod pod"
+    assert view.text.accessibleName() == "Logs for pod pod"
     qtbot.addWidget(view)
     qtbot.waitUntil(lambda: bool(service.calls))
     return service, view
