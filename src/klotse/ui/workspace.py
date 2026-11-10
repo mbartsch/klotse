@@ -259,6 +259,7 @@ class ClusterWorkspace(QMainWindow):
         self.log_dock.setWidget(self.log_tabs)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.log_dock)
         self.log_dock.hide()
+        self._log_dock_sized = False
 
         for widget, _ in self.views.values():
             tables = widget.tables() if isinstance(widget, OverviewView) else [widget]
@@ -329,6 +330,14 @@ class ClusterWorkspace(QMainWindow):
         self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button)]
         self.ns_combo.currentIndexChanged.connect(lambda _=None: self._sync_pin_button())
         self._sync_pin_button()
+        self.panes_button = QToolButton(text="Panels")
+        self.panes_button.setToolTip("Show or hide Details and Logs & activity panels")
+        self.panes_button.setPopupMode(QToolButton.InstantPopup)
+        self.panes_menu = QMenu(self.panes_button)
+        self.panes_menu.addAction(self.detail_dock.toggleViewAction())
+        self.panes_menu.addAction(self.log_dock.toggleViewAction())
+        self.panes_button.setMenu(self.panes_menu)
+        bar.addWidget(self.panes_button)
         refresh = QAction("Refresh", self)
         refresh.setShortcut(QKeySequence.Refresh)
         refresh.setToolTip(f"Reload the current lists ({refresh.shortcut().toString(QKeySequence.NativeText)})")
@@ -577,8 +586,32 @@ class ClusterWorkspace(QMainWindow):
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
 
     def _show_detail_row(self, table, row):
+        if row is None:
+            self.detail.clear_row()
+            return
         self.detail.show_row(row)
         self.detail.set_object_actions(table.row_actions(row))
+
+    def _sync_details_to_tab(self, widget):
+        """Show the active resource tab's current selection, or its clear empty state."""
+        tables = widget.tables() if isinstance(widget, OverviewView) else ([widget] if isinstance(widget, ResourceTable) else [])
+        for table in tables:
+            row = table.current_row()
+            if row is None:
+                rows = table.selected_rows()
+                row = rows[0] if rows else None
+            if row is not None:
+                self._show_detail_row(table, row)
+                return
+        self.detail.clear_row()
+
+    def _show_log_dock(self):
+        """Reveal Logs/activity at a restrained default size once, then respect the user's sizing."""
+        was_hidden = not self.log_dock.isVisible()
+        self.log_dock.show()
+        if was_hidden and not self._log_dock_sized:
+            self.resizeDocks([self.log_dock], [max(100, int(self.height() * 0.28))], Qt.Vertical)
+            self._log_dock_sized = True
 
     def _hooked_tables(self):
         return [t for t in self.resource_tables() if getattr(t, "_plugin_hooked", False)]
@@ -624,11 +657,15 @@ class ClusterWorkspace(QMainWindow):
 
     def _on_tab_changed(self, index):
         if index >= 0:
-            self.view_opened.emit(self.tabs.widget(index).view_key)
+            widget = self.tabs.widget(index)
+            self.view_opened.emit(widget.view_key)
             self._sync_ns_selector()
+            self._sync_details_to_tab(widget)
             if not self._opening:  # a tab that comes to the front is stale, reload it
                 self.load_foreground()
             self._sync_watch()
+        else:
+            self.detail.clear_row()
 
     def open_view(self, key):
         if key.startswith("crd-group:") and key not in self.views:  # a navigator sub item: its tab is made on first use
@@ -1079,7 +1116,7 @@ class ClusterWorkspace(QMainWindow):
             view.key = key
             title = f"Logs: {row.name}/{container}" if container else f"Logs: {row.name}"
             self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, title))
-        self.log_dock.show()
+        self._show_log_dock()
 
     def multi_logs(self, kind, what):
         """Right-click > Logs of all pods… (a workload or Service: its selector; or several selected Pods): one tab with the
@@ -1118,7 +1155,7 @@ class ClusterWorkspace(QMainWindow):
         for i in range(self.log_tabs.count()):
             if getattr(self.log_tabs.widget(i), "key", None) == key:
                 self.log_tabs.setCurrentIndex(i)
-                self.log_dock.show()
+                self._show_log_dock()
                 return self.log_tabs.widget(i)
         if fixed is not None:
             resolver = lambda _text, pods=fixed: pods
@@ -1127,7 +1164,7 @@ class ClusterWorkspace(QMainWindow):
         view = MultiLogView(self.service, namespace, resolver, self._run, selector=selector, fixed=fixed is not None)
         view.key = key
         self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, f"Logs: {title}"))
-        self.log_dock.show()
+        self._show_log_dock()
         return view
 
     def _close_log_tab(self, index):
@@ -1240,7 +1277,7 @@ class ClusterWorkspace(QMainWindow):
                                      start=self.start_saved_forward)
             self.log_tabs.setCurrentIndex(self.log_tabs.addTab(panel, "Port forwards"))
             self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab stops every forward")
-        self.log_dock.show()
+        self._show_log_dock()
 
     def remote_lister(self, namespace, pod):
         """fn(container, path, on_ok, on_error) for the file browser: `kubectl exec ... ls` on a worker. Looking only."""
@@ -1354,7 +1391,7 @@ class ClusterWorkspace(QMainWindow):
             panel = FileCopyPanel(self.file_copies)
             self.log_tabs.setCurrentIndex(self.log_tabs.addTab(panel, "File copies"))
             self.log_tabs.setTabToolTip(self.log_tabs.count() - 1, "Closing this tab cancels running copies")
-        self.log_dock.show()
+        self._show_log_dock()
 
     def show_apply_yaml(self):
         """File > Apply YAML…: paste or open manifests, check them with the server and apply them (server-side apply)."""
@@ -1979,9 +2016,9 @@ class ClusterWorkspace(QMainWindow):
             return
         area = self.dockWidgetArea(dock)
         if area in (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea):
-            dock.setMaximumSize(max(320, int(self.width() * self.MAX_DOCK_SHARE)), free)
+            dock.setMaximumSize(max(100, int(self.width() * self.MAX_DOCK_SHARE)), free)
         else:
-            dock.setMaximumSize(free, max(200, int(self.height() * self.MAX_DOCK_SHARE)))
+            dock.setMaximumSize(free, max(80, int(self.height() * self.MAX_DOCK_SHARE)))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -2480,14 +2517,14 @@ class ClusterWorkspace(QMainWindow):
             if getattr(view, "key", None) == key:
                 view.restart(old, new)
                 self.log_tabs.setCurrentIndex(i)
-                self.log_dock.show()
+                self._show_log_dock()
                 return view
         mon = ScaleMonitor(self._run, self.service, kind, row.name, row.namespace, old, new)
         mon.key = key
         mon.finished.connect(lambda state, text: self._scale_finished(kind, row.name, text))
         mon.polled.connect(lambda: self._reload_scaled(kind))
         self.log_tabs.setCurrentIndex(self.log_tabs.addTab(mon, f"Scale: {row.name}"))
-        self.log_dock.show()
+        self._show_log_dock()
         return mon
 
     def _reload_scaled(self, kind):
@@ -2557,7 +2594,7 @@ class ClusterWorkspace(QMainWindow):
             existing = self.log_tabs.widget(i)
             if set(nodes).intersection(getattr(existing, "drain_nodes", ())) and not existing._done:
                 self.log_tabs.setCurrentIndex(i)
-                self.log_dock.show()
+                self._show_log_dock()
                 self.message.emit("A selected node is already being drained; see the running drain before starting another.")
                 return
         loader = getattr(self.service, "drain_preview_data", None)
@@ -2585,7 +2622,7 @@ class ClusterWorkspace(QMainWindow):
         view.completed.connect(lambda success: self._node_changed(
             title, "Drain completed" if success else "Drain failed or stopped; see activity"))
         self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, f"Drain: {title}"))
-        self.log_dock.show()
+        self._show_log_dock()
         self.message.emit(f"Draining {title}…")
         view.start()
 

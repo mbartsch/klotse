@@ -204,6 +204,9 @@ class DetailPanel(QWidget):
         return self.editor.toPlainText()
 
     def show_row(self, row):
+        if row is None:
+            self.clear_row()
+            return
         self._secret_row = row
         self._secret_data = getattr(row, "secret_data", {})
         self._set_identity(row)
@@ -226,6 +229,32 @@ class DetailPanel(QWidget):
         self._related_ok = getattr(row, "table_kind", None) in RELATED_KINDS and isinstance(getattr(row, "raw", None), dict)
         self._related_row = None
         self._render_formatted(row)
+
+    def clear_row(self):
+        """Return Details to its empty state and discard object-specific actions and secret values."""
+        self._secret_row = None
+        self._secret_data = {}
+        self._decoded_keys.clear()
+        self.decode_list.clear()
+        self.decode_filter.clear()
+        self._selection_changed()
+        self.decode_menu.hide()
+        self.decode_button.hide()
+        self.hide_values_button.hide()
+        self._events_ok = self._related_ok = self._formatted_ok = False
+        self._events_row = self._related_row = None
+        self.events.clear()
+        self.related.clear()
+        self.editor.clear()
+        self.set_object_actions([])
+        self.identity_header.hide()
+        self.view_bar.hide()
+        self.yaml_tools.hide()
+        self.formatted.hide()
+        self.events.hide()
+        self.related.hide()
+        self.editor.show()
+        self.formatted_button.setChecked(True)
 
     def show_related(self, row, relations=None, error=None):
         """Fill the Related view with the answer for `row` (ignored when another row is selected by now)."""

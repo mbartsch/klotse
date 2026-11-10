@@ -199,9 +199,11 @@ class ResourceTable(QWidget):
         self.stack.addWidget(self.loading_page)
         lay.addWidget(self.stack, 1)
 
-    def _update_selection_count(self, *_):
+    def _update_selection_count(self, *_, emit_empty=True):
         count = len(self.view.selectionModel().selectedRows())
         self.selection_count.setText(f"{count} selected")
+        if emit_empty and count == 0:
+            self.selected.emit(None)
 
     def set_loading(self):
         self._load_clock.start()
@@ -399,11 +401,17 @@ class ResourceTable(QWidget):
         self.rows_incoming.emit(rows)  # before the columns are measured: a refresh must not blank or shrink plugin columns
         kept = self._selection_to_keep()
         began = time.perf_counter() if timings.enabled else 0.0
-        self.model.set_rows(rows)
-        self.view.resizeColumnsToContents()
+        selection = self.view.selectionModel()
+        was_blocked = selection.blockSignals(True)
+        try:
+            self.model.set_rows(rows)
+            self.view.resizeColumnsToContents()
+            self._restore_selection(*kept)
+        finally:
+            selection.blockSignals(was_blocked)
+        self._update_selection_count(emit_empty=False)
         if timings.enabled:
             timings.record("gui", f"table.{self.kind}", time.perf_counter() - began, rows=len(rows))
-        self._restore_selection(*kept)
         self._loaded_at = time.strftime("%H:%M:%S")
         self.show_status()
         self.rows_set.emit(self.model.rows)
@@ -579,6 +587,13 @@ class ResourceTable(QWidget):
 
     def selected_rows(self):
         return [self.model.rows[self.proxy.mapToSource(i).row()] for i in self.view.selectionModel().selectedRows()]
+
+    def current_row(self):
+        current = self.view.currentIndex()
+        if not current.isValid():
+            return None
+        source = self.proxy.mapToSource(current)
+        return self.model.rows[source.row()] if source.isValid() else None
 
     def _bulk_menu(self, menu, rows):
         n = len(rows)
@@ -899,6 +914,9 @@ class ResourceTable(QWidget):
             except AttributeError:  # a row type without room for it simply has no Related view
                 pass
             self.selected.emit(row)
+        else:
+            rows = self.selected_rows()
+            self.selected.emit(rows[0] if rows else None)
 
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
                     "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group",
