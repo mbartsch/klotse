@@ -27,6 +27,7 @@ from .multi_cluster import MultiClusterDialog
 from .palette import Entry
 from .palette_dialog import PaletteDialog
 from .action_icons import action_icon
+from .tab_scroll import ScrollableTabBar
 from .read_only import ReadOnlyClusters
 from . import embedded_terminal, theme
 from .theme import ThemeSettings
@@ -260,6 +261,7 @@ class MainWindow(QMainWindow):
         self.menuBar().addMenu("Help").addAction(self.about_action)
 
         self.clusters = QTabWidget()
+        self.clusters.setTabBar(ScrollableTabBar())
         self.clusters.setTabsClosable(True)
         self.clusters.tabCloseRequested.connect(self._close_cluster_tab)
         self.clusters.setContextMenuPolicy(Qt.CustomContextMenu)
