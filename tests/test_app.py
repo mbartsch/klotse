@@ -488,6 +488,23 @@ def test_cluster_navigation_controls_have_accessible_names(qtbot):
     assert win.cluster_picker.accessibleName() == "Switch connected cluster"
 
 
+def test_view_menu_reopens_a_closed_floating_details_dock(qtbot):
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    open_active(win)
+    workspace = win.workspace("ctx")
+    dock = workspace.detail_dock
+    dock.setFloating(True)
+    dock.close()
+    assert not dock.isVisible()
+
+    win._fill_workspace_panels_menu()
+    actions = {action.text(): action for action in win.panels_menu.actions()}
+    assert "Details" in actions and "Logs && activity" in actions
+    actions["Details"].trigger()
+    assert dock.isVisible()
+
+
 def test_failed_cluster_connection_closes_its_tab(qtbot, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
 
