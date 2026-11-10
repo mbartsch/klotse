@@ -116,7 +116,7 @@ def test_choice_is_saved_and_a_vanished_theme_falls_back(tmp_path):
 def test_apply_switches_palette_style_sheet_and_the_constants_views_read(qtbot):
     app = QApplication.instance()
     theme.apply(app, CLASSIC)
-    assert theme.ACCENT == "#3d7eff" and CLASSIC.accent in app.styleSheet() and "#197f7d" not in app.styleSheet()
+    assert theme.ACCENT == "#3474d7" and CLASSIC.accent in app.styleSheet() and "#197f7d" not in app.styleSheet()
     label = QLabel("x")
     qtbot.addWidget(label)
     theme.muted(label)
@@ -130,7 +130,7 @@ def test_rbac_view_reads_the_active_theme_when_it_renders():
     from klotse.ui import rbac_view
     raw = {"kind": "Role", "metadata": {"name": "r"}, "rules": []}
     theme.use(CLASSIC)
-    assert CLASSIC.accent in rbac_view.render("Role", raw)
+    assert CLASSIC.accent_hi in rbac_view.render("Role", raw)
     theme.use(HARBOUR)
     html = rbac_view.render("Role", raw)
     assert HARBOUR.accent_hi in html and CLASSIC.accent not in html
@@ -190,12 +190,11 @@ def _ratio(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
-def test_text_box_edges_are_visible_in_every_built_in_theme_and_by_default():
+def test_built_in_theme_controls_and_filled_actions_meet_contrast_targets():
     # WCAG 1.4.11: the edge of a control needs 3:1 against what is behind it; text on the accent needs 4.5:1
-    for t in (HARBOUR, CLASSIC, parse_theme(MINIMAL)):
+    for t in theme.BUILTIN:
         assert _ratio(t.input_border, t.base) >= 3.0, t.name
-    for t in (HARBOUR, parse_theme(MINIMAL)):
-        assert _ratio("#ffffff", t.accent) >= 4.5 or t.name == "Dusk", t.name
+        assert _ratio("#ffffff", t.accent) >= 4.5, t.name
 
 
 def test_input_border_is_used_for_text_boxes_and_can_be_set_in_a_file():
@@ -235,3 +234,5 @@ def test_the_selected_row_stands_out_and_keeps_readable_text_in_every_built_in_t
 def test_hovering_a_selected_row_does_not_hide_the_selection():
     sheet = theme.stylesheet(HARBOUR)
     assert "QTableView::item:hover:!selected" in sheet and "QTreeView::item:hover:!selected" in sheet
+    assert "QTreeView:focus::item:selected" in sheet and "QTableView:focus::item:selected" in sheet
+    assert "outline: 0" not in sheet

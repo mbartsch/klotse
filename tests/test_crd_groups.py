@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QPixmap
 
 from klotse.k8s.resources import KINDS_SHOWN, Row, crd_groups
 from klotse.ui.customizations import LabelSettings
@@ -149,6 +150,20 @@ def nav_with_cluster(qtbot):
     nav.set_state("a", "connected")
     nav.show_views("a")
     return nav
+
+
+def test_navigator_exposes_a_name_and_a_visible_keyboard_focus(qtbot):
+    nav = nav_with_cluster(qtbot)
+    item = nav.cluster_item("a")
+    nav.setCurrentItem(item)
+    nav.show()
+    nav.setFocus()
+    assert nav.accessibleName() == "Cluster and resource navigator"
+    qtbot.waitUntil(nav.hasFocus, timeout=1000)
+    assert nav.hasFocus() and nav.currentItem() is item
+    pixmap = QPixmap(nav.size())
+    nav.render(pixmap)
+    assert not pixmap.isNull()
 
 
 def groups_item(nav):

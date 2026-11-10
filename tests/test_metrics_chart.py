@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from kubernetes.client.exceptions import ApiException
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -130,6 +130,30 @@ def test_the_chart_scales_labels_and_names_the_nearest_values(qtbot):
     qtbot.addWidget(one)
     one.set_data({"total": [(t, 64.0)]})
     one.render(QPixmap(one.size()))  # a single point is drawn as a dot
+
+
+def test_charts_are_keyboard_navigable_accessible_and_render_at_high_dpi(qtbot):
+    chart = LineChart("CPU", mh.format_cores)
+    qtbot.addWidget(chart)
+    chart.resize(600, 220)
+    chart.set_data({"total": [(1.0, 0.3)], "web": [(1.0, 0.2)], "sidecar": [(1.0, 0.1)]})
+    activated = []
+    chart.line_activated.connect(activated.append)
+    chart.show()
+    chart.setFocus()
+    qtbot.waitUntil(chart.hasFocus, timeout=1000)
+    assert chart.hasFocus() and chart.accessibleName() == "CPU usage chart"
+    assert "Selected total" in chart.accessibleDescription() and "does not navigate" in chart.accessibleDescription()
+    qtbot.keyClick(chart, Qt.Key_Right)
+    assert chart.selected_line == "web" and "Selected web" in chart.accessibleDescription()
+    qtbot.keyClick(chart, Qt.Key_Return)
+    assert activated == ["web"]
+    qtbot.keyClick(chart, Qt.Key_End)
+    assert chart.selected_line == "sidecar"
+    high_dpi = QPixmap(1200, 440)
+    high_dpi.setDevicePixelRatio(2)
+    chart.render(high_dpi)
+    assert high_dpi.size().width() == 1200 and not high_dpi.isNull()
 
 
 def wait_for(qtbot, dialog, count):
