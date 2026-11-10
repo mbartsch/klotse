@@ -21,8 +21,24 @@ def test_mouse_wheel_switches_through_cluster_or_resource_tabs(qtbot):
     tabs.setCurrentIndex(1)
 
     assert wheel(tabs.tabBar(), -120).isAccepted()
+    assert tabs.currentIndex() == 1  # half a step; do not switch too eagerly
+    assert wheel(tabs.tabBar(), -120).isAccepted()
     assert tabs.currentIndex() == 2
     assert wheel(tabs.tabBar(), 120).isAccepted()
+    assert tabs.currentIndex() == 2
+    assert wheel(tabs.tabBar(), 120).isAccepted()
+    assert tabs.currentIndex() == 1
+
+
+def test_a_large_wheel_delta_never_skips_over_tabs(qtbot):
+    tabs = QTabWidget()
+    tabs.setTabBar(ScrollableTabBar())
+    for name in ("Overview", "Nodes", "Pods", "Workloads"):
+        tabs.addTab(QTabWidget(), name)
+    qtbot.addWidget(tabs)
+    tabs.setCurrentIndex(0)
+
+    assert wheel(tabs.tabBar(), -480).isAccepted()
     assert tabs.currentIndex() == 1
 
 
@@ -33,6 +49,6 @@ def test_wheel_at_the_end_does_not_wrap(qtbot):
     tabs.addTab(QTabWidget(), "Nodes")
     qtbot.addWidget(tabs)
     tabs.setCurrentIndex(0)
-    event = wheel(tabs.tabBar(), 120)
+    event = wheel(tabs.tabBar(), 240)
     assert not event.isAccepted()
     assert tabs.currentIndex() == 0

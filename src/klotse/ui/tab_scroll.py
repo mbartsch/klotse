@@ -3,15 +3,29 @@ from PySide6.QtWidgets import QTabBar
 
 
 class ScrollableTabBar(QTabBar):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._wheel_remainder = 0
+
     def wheelEvent(self, event):
-        delta = event.angleDelta().y() or event.angleDelta().x()
+        angle = event.angleDelta().y() or event.angleDelta().x()
+        delta = angle or event.pixelDelta().y() or event.pixelDelta().x()
         if not delta or self.count() < 2:
+            self._wheel_remainder = 0
             event.ignore()
             return
-        steps = max(1, abs(delta) // 120)
-        direction = -1 if delta > 0 else 1
-        target = max(0, min(self.count() - 1, self.currentIndex() + direction * steps))
+        # Require two wheel detents per tab change; trackpad pixel deltas use a
+        # smaller threshold. Consume at most one tab per event, even for a large delta.
+        threshold = 240 if angle else 120
+        self._wheel_remainder += delta
+        if abs(self._wheel_remainder) < threshold:
+            event.accept()
+            return
+        direction = -1 if self._wheel_remainder > 0 else 1
+        self._wheel_remainder -= (1 if self._wheel_remainder > 0 else -1) * threshold
+        target = max(0, min(self.count() - 1, self.currentIndex() + direction))
         if target == self.currentIndex():
+            self._wheel_remainder = 0
             event.ignore()
             return
         self.setCurrentIndex(target)
