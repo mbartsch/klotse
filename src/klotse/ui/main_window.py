@@ -322,6 +322,8 @@ class MainWindow(QMainWindow):
         ws = self.workspaces.get(context)
         if ws is not None and context not in self._detached:
             self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(context))
+        if ws is not None:
+            self._update_scope_title(ws)
         return True
 
     def new_service(self):
@@ -352,6 +354,20 @@ class MainWindow(QMainWindow):
             self.cluster_picker.setCurrentIndex(index)
         self.cluster_picker.blockSignals(False)
 
+    def _update_scope_title(self, ws):
+        """Keep the window title explicit about the cluster and resource scope in front."""
+        alias = self.aliases.display(ws.context)
+        view = ws.tabs.tabText(ws.tabs.currentIndex()) if ws.tabs.count() else "Overview"
+        key = ws.foreground_key() if ws.tabs.count() else "overview"
+        scoped = key in ws.loaders and ws.loaders[key][1]
+        namespace = ws.namespace() if scoped else "all namespaces"
+        title = f"{alias} ({ws.context}) — {view} — {namespace} — Klotse"
+        window = self._detached.get(ws.context)
+        if window is not None:
+            window.setWindowTitle(title)
+        if self.clusters.currentWidget() is ws:
+            self.setWindowTitle(title)
+
     def _pick_cluster(self, index):
         context = self.cluster_picker.itemText(index)
         workspace = self.workspaces.get(context)
@@ -378,6 +394,7 @@ class MainWindow(QMainWindow):
         class DetachedClusterWindow(QMainWindow):
             def focusInEvent(window, event):  # noqa: N802
                 owner._sync_cluster_picker(ws.context)
+                owner._update_scope_title(ws)
                 super().focusInEvent(event)
 
             def closeEvent(window, event):  # noqa: N802
@@ -392,10 +409,11 @@ class MainWindow(QMainWindow):
         self.clusters.removeTab(index)
         window = DetachedClusterWindow()
         window.setAttribute(Qt.WA_DeleteOnClose)
-        window.setWindowTitle(f"{ws.context} — Klotse")
+        window.setWindowTitle(f"{self.aliases.display(ws.context)} ({ws.context}) — Klotse")
         window.setCentralWidget(ws)
         ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
         self._detached[ws.context] = window
+        self._update_scope_title(ws)
         self._sync_cluster_picker(ws.context)
         window.resize(self.size())
         window.show()
@@ -434,6 +452,8 @@ class MainWindow(QMainWindow):
         ws.state.connect(lambda s, c=ctx: self._on_state(c, s))
         ws.failed.connect(lambda m, c=ctx: self._on_failed(c, m))
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
+        ws.view_opened.connect(lambda _key, w=ws: self._update_scope_title(w))
+        ws.ns_combo.currentIndexChanged.connect(lambda _index, w=ws: self._update_scope_title(w))
         ws.karpenter_found.connect(lambda entries, c=ctx: self.nav.show_karpenter(c, entries))
         ws.gateway_found.connect(lambda entries, c=ctx: self.nav.show_gateway(c, entries))
         ws.crd_groups_found.connect(lambda entries, c=ctx: self.nav.show_crd_groups(c, entries))
@@ -911,6 +931,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Klotse — {ws.context}" if ws else "Klotse")
         if ws is None:
             return
+        self._update_scope_title(ws)
         if ws.tabs.count():
             self.nav.select_view(ws.context, ws.tabs.currentWidget().view_key)
         else:
