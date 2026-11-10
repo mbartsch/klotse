@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLi
 from ..k8s.related import KINDS as RELATED_KINDS
 from . import events_view, node_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
+from .action_icons import action_icon
 
 
 class YamlHighlighter(QSyntaxHighlighter):
@@ -96,6 +97,8 @@ class DetailPanel(QWidget):
         self.identity_status = QLabel()
         self.identity_status.setAccessibleName("Object status")
         self.copy_identity_button = QToolButton(text="Copy name")
+        self.copy_identity_button.setIcon(action_icon("copy"))
+        self.copy_identity_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.copy_identity_button.setToolTip("Copy the object's namespace/name (or name for a cluster-scoped object)")
         self.copy_identity_button.clicked.connect(self._copy_identity)
         identity_top.addWidget(self.identity_title, 1)
@@ -107,10 +110,14 @@ class DetailPanel(QWidget):
         self.identity_uid = QLabel()
         self.identity_uid.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.copy_uid_button = QToolButton(text="Copy UID")
+        self.copy_uid_button.setIcon(action_icon("copy"))
+        self.copy_uid_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.copy_uid_button.clicked.connect(lambda: self._copy_text(self._identity_uid))
         self.identity_provider = QLabel()
         self.identity_provider.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.copy_provider_button = QToolButton(text="Copy provider ID")
+        self.copy_provider_button.setIcon(action_icon("copy"))
+        self.copy_provider_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.copy_provider_button.clicked.connect(lambda: self._copy_text(self._identity_provider))
         for widget in (self.identity_scope, self.identity_uid, self.copy_uid_button,
                        self.identity_provider, self.copy_provider_button):
@@ -174,6 +181,7 @@ class DetailPanel(QWidget):
         self.find_edit.returnPressed.connect(self._find_next)
         self.find_edit.textChanged.connect(lambda _t: self._find_from_start())
         self.copy_button = QPushButton("Copy YAML")
+        self.copy_button.setIcon(action_icon("copy"))
         self.copy_button.clicked.connect(self._copy_yaml)
         self.wrap_box = QCheckBox("Wrap lines")
         self.wrap_box.toggled.connect(lambda on: self.editor.setLineWrapMode(
