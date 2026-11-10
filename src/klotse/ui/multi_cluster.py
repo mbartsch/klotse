@@ -61,6 +61,10 @@ class MultiClusterDialog(QDialog):
         self.status = QLabel("Choose a kind and the clusters, then Read.")
         self.status.setWordWrap(True)
         theme.muted(self.status)
+        self.scope = QLabel()
+        self.scope.setWordWrap(True)
+        self.scope.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        theme.muted(self.scope)
         self.table = None
         self.holder = QVBoxLayout()
         close = QPushButton("Close")
@@ -74,6 +78,7 @@ class MultiClusterDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addLayout(picks)
+        lay.addWidget(self.scope)
         lay.addWidget(self.status)
         lay.addLayout(self.holder, 1)
         lay.addWidget(note)
@@ -82,7 +87,18 @@ class MultiClusterDialog(QDialog):
         buttons.addWidget(close)
         lay.addLayout(buttons)
         self.kind_box.currentIndexChanged.connect(lambda _=None: self._new_table())
+        for box in self.boxes.values():
+            box.toggled.connect(self._update_scope)
+        self.namespace.textChanged.connect(self._update_scope)
+        self._update_scope()
         self._new_table()
+
+    def _update_scope(self, *_):
+        """Keep the chosen cluster set and namespace visible beside the combined results."""
+        clusters = self.chosen()
+        label = ", ".join(clusters) if clusters else "no clusters selected"
+        namespace = self.namespace.text().strip() or "all namespaces"
+        self.scope.setText(f"Scope: {label} · namespace: {namespace}")
 
     def _filter_kinds(self, text):
         """Keep the editable selector useful as a searchable dropdown without losing its chosen item."""

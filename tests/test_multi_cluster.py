@@ -65,6 +65,12 @@ def test_rows_of_several_clusters_land_in_one_list_with_a_cluster_column(qtbot):
     assert dialog.kind_box.isEditable()
     assert dialog.kind_box.lineEdit().placeholderText() == "Search kinds…"
     assert [dialog.kind_box.itemText(i) for i in range(2)] == ["Pods", "Deployments"] and set(dialog.boxes) == {"eu", "us"}
+    assert dialog.scope.text() == "Scope: eu, us · namespace: all namespaces"
+    dialog.namespace.setText("shop")
+    dialog.boxes["us"].setChecked(False)
+    assert dialog.scope.text() == "Scope: eu · namespace: shop"
+    dialog.boxes["us"].setChecked(True)
+    dialog.namespace.clear()
     dialog.read()
     qtbot.waitUntil(lambda: dialog.table.model.rowCount() == 4 and dialog.read_button.isEnabled(), timeout=5000)
     assert shown(dialog) == [("eu", "a"), ("eu", "b"), ("us", "a"), ("us", "c")]  # the Cluster column first, then Name
@@ -320,9 +326,24 @@ def test_cluster_can_be_detached_and_reopens_as_a_tab_when_closed(qtbot, tmp_pat
     assert win.clusters.count() == 0 and context in win._detached
     detached = win._detached[context]
     assert detached.centralWidget() is ws
+    assert context in detached.windowTitle() and "Klotse" in detached.windowTitle()
     detached.close()
     qtbot.waitUntil(lambda: win.clusters.count() == 1 and context not in win._detached, timeout=2000)
     assert win.clusters.currentWidget() is ws
+
+
+def test_active_scope_is_visible_in_main_and_detached_window_titles(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    open_active(win)
+    ws = win.clusters.currentWidget()
+    assert "Overview" in win.windowTitle() and ws.context in win.windowTitle()
+    ws._show_view("pods")
+    ws._fill_namespace_combo(["default", "kube-system"], "default")
+    assert "default" in win.windowTitle()
+    assert win._detach_cluster(0)
+    detached = win._detached[ws.context]
+    ws.set_namespace("kube-system")
+    assert "kube-system" in detached.windowTitle()
 
 
 def test_cluster_picker_lists_connected_clusters_and_switches_tabs(qtbot, tmp_path):
