@@ -430,8 +430,13 @@ class ClusterWorkspace(QMainWindow):
         self.deploy_table = T([("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"),
                                ("Up-to-date", "up_to_date"), ("Available", "available"), ("Age", "age")], "Deployment")
         self.sts_table = T([("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Age", "age")], "StatefulSet")
-        self.overview = OverviewView(CLUSTER_CARDS)
+        self.overview = OverviewView(CLUSTER_CARDS, context=self.context)
         self.wl_overview = OverviewView(WORKLOAD_CARDS)
+        self._overview_namespace_pending = None
+        self.overview.node_selected.connect(self._overview_node_selected)
+        self.overview.node_open_requested.connect(lambda name: self.go_to("node", name))
+        self.overview.namespace_open_requested.connect(self._overview_open_namespace)
+        self.overview.action_requested.connect(self._overview_action)
 
         # navigator key -> (widget, tab title)
         self.views = {
@@ -578,6 +583,30 @@ class ClusterWorkspace(QMainWindow):
         self.overview.set_data(data)
         if self.plugin_host is not None:  # plugins' cards (a total cost, say): computed when due, last values kept meanwhile
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
+
+    def _overview_node_selected(self, row):
+        if row is not None:
+            self._show_detail_row(self.node_table, row)
+
+    def _overview_open_namespace(self, name):
+        if self.set_namespace(name):
+            self.open_view("pods")
+            return
+        self._overview_namespace_pending = name
+        self.load_view("namespaces")
+
+    def _overview_action(self, action):
+        handlers = {
+            "workloads": lambda: self.open_view("workloads"),
+            "nodes": lambda: self.open_view("nodes"),
+            "namespaces": lambda: self.open_view("namespaces"),
+            "capacity": self.show_capacity,
+            "health": self.show_health,
+            "permissions": self.show_permissions,
+        }
+        handler = handlers.get(action)
+        if handler:
+            handler()
 
     def _apply_plugin_overview(self):
         self.overview.set_plugin_cards(self.plugin_host.overview_cards())
@@ -3011,5 +3040,11 @@ class ClusterWorkspace(QMainWindow):
             previous_choice = previous
         keep = previous_choice if previous_choice in names or previous_choice == ALL_NS else ALL_NS  # missing: all namespaces
         self._fill_namespace_combo(names, keep)
+        pending, self._overview_namespace_pending = self._overview_namespace_pending, None
+        if pending:
+            if self.set_namespace(pending):
+                self.open_view("pods")
+            else:
+                self.message.emit(f"{self.context}: namespace {pending} is not in the list")
         if keep != previous:
             self.load_scoped()

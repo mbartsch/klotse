@@ -1622,25 +1622,30 @@ class KubeService:
         counts["running"] = max(0, total - counts["pending"] - counts["failed"] - finished)
         return counts, lists
 
-    def _overview_pods(self, namespace=None):
+    def _overview_pods(self, namespace=None, include_namespace_counts=False):
         """One streaming pass: (counts, {"pending": [...], "failed": [...]}); only problem pods keep their raw object."""
         if self.big:
             counted = self._overview_pods_by_phase(namespace)
             if counted is not None:
-                return counted
+                return (*counted, None) if include_namespace_counts else counted
         api = self._core
         items = (self._iter_list(api.list_namespaced_pod, namespace) if namespace
                  else self._iter_list(api.list_pod_for_all_namespaces))
         counts = {"pods": 0, "running": 0, "pending": 0, "failed": 0}
         problems = {"pending": [], "failed": []}
+        namespace_counts = {} if include_namespace_counts else None
         for pod in items:
             counts["pods"] += 1
-            bucket = pod_bucket(map_pod(pod, include_raw=False).status)
+            row = map_pod(pod, include_raw=False)
+            if namespace_counts is not None:
+                namespace_counts[row.namespace] = namespace_counts.get(row.namespace, 0) + 1
+            bucket = pod_bucket(row.status)
             if bucket in counts:
                 counts[bucket] += 1
             if bucket in problems and len(problems[bucket]) < OVERVIEW_LIST_CAP:
                 problems[bucket].append(pod)
-        return counts, {b: [map_pod(p) for p in pods] for b, pods in problems.items()}
+        result = (counts, {b: [map_pod(p) for p in pods] for b, pods in problems.items()})
+        return (*result, namespace_counts) if include_namespace_counts else result
 
     def overview_cluster(self):
         # The five reads are independent and each is mostly waiting for the API server, so they run side by side: on a large
@@ -1653,12 +1658,12 @@ class KubeService:
                 return pool.submit(run)
 
             nodes_f = phase("overview.nodes", lambda: [map_node(n, include_raw=False) for n in self._iter_list(self._core.list_node)])
-            pods_f = phase("overview.pods", self._overview_pods)
+            pods_f = phase("overview.pods", lambda: self._overview_pods(include_namespace_counts=True))
             events_f = phase("overview.events", self._overview_events)
-            spaces_f = phase("overview.namespaces", lambda: sum(1 for _ in self._iter_list(self._core.list_namespace)))
+            spaces_f = phase("overview.namespaces", lambda: [ns.metadata.name for ns in self._iter_list(self._core.list_namespace)])
             usage_f = phase("overview.metrics", self.node_usage)
             nodes = nodes_f.result()
-            counts, lists = pods_f.result()
+            counts, lists, namespace_counts = pods_f.result()
             events, warnings, warning_rows = events_f.result()
             namespaces = spaces_f.result()
             used = usage_f.result()
@@ -1667,14 +1672,21 @@ class KubeService:
         mem = sum(n.memory for n in nodes)
         counts.update({
             "nodes": len(nodes), "nodes_ready": sum(1 for n in nodes if n.is_ready),
-            "namespaces": namespaces,
+            "namespaces": len(namespaces),
             "cpu": f"{cpu:.1f} cores", "memory": f"{mem:.2f} GiB",
             "warnings": warnings,
         })
+        namespace_distribution = None
+        if namespace_counts is not None:
+            namespace_distribution = {name: namespace_counts.get(name, 0) for name in namespaces}
         if used:  # metrics-server present: the overview draws usage bars against allocatable
             counts["usage"] = {"cpu": (sum(u[0] for u in used.values()), cpu),
                                "memory": (sum(u[1] for u in used.values()), mem)}
-        return {"counts": counts, "events": events, "lists": lists}
+            for node in nodes:
+                if node.name in used:
+                    node.cpu_used, node.mem_used = used[node.name]
+        return {"counts": counts, "events": events, "lists": lists, "nodes": nodes,
+                "namespace_distribution": namespace_distribution}
 
     def overview_workloads(self, namespace=None):
         counts, lists = self._overview_pods(namespace)
