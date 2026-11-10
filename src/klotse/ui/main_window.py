@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from pathlib import Path
@@ -637,32 +638,105 @@ class MainWindow(QMainWindow):
                 leaves = [(entry[0], entry[1])] if len(entry) == 2 else entry[1]
                 group = "" if len(entry) == 2 else entry[0]
                 for key, label in leaves:
-                    entries.append(Entry("Go to", label, f"{group} · {ws.context}" if group else ws.context, lambda k=key, w=ws: self._goto_view(w, k)))
+                    entries.append(Entry("Go to", label, f"{group} · {ws.context}" if group else ws.context,
+                                         lambda k=key, w=ws: self._goto_view(w, k), f"view:{ws.context}:{key}"))
             for name in getattr(ws, "_ns_names", []):
                 if name != "All namespaces":
-                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.set_namespace(n)))
-            entries.append(Entry("Namespace", "All namespaces", ws.context, lambda w=ws: w.set_namespace("All namespaces")))
+                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.set_namespace(n),
+                                         f"namespace:{ws.context}:{name}"))
+            entries.append(Entry("Namespace", "All namespaces", ws.context,
+                                 lambda w=ws: w.set_namespace("All namespaces"), f"namespace:{ws.context}:All namespaces"))
         for ctx in self.contexts:
             if ctx in self.workspaces:
-                entries.append(Entry("Cluster", ctx, "switch to it", lambda c=ctx: self.clusters.setCurrentWidget(self.workspaces[c])))
+                entries.append(Entry("Cluster", ctx, "switch to it", lambda c=ctx: self._focus_workspace(self.workspaces[c]),
+                                     f"cluster:{ctx}"))
             else:
-                entries.append(Entry("Cluster", ctx, "connect", lambda c=ctx: self.open_cluster(c)))
-        for menu_action in self.menuBar().actions():
-            menu = menu_action.menu()
-            if menu is None:
-                continue
+                entries.append(Entry("Cluster", ctx, "connect", lambda c=ctx: self.open_cluster(c), f"cluster:{ctx}"))
+        def add_menu_actions(menu, path):
             menu.aboutToShow.emit()  # menus enable their entries lazily, when they are about to show
-            title = menu_action.text().replace("&", "")
             for action in menu.actions():
                 text = action.text().replace("&", "").replace("…", "").strip()
-                if action.isSeparator() or not text or action is self.palette_action or action.menu() is not None or not action.isEnabled():
+                if action.isSeparator() or not text or action is self.palette_action:
                     continue
-                entries.append(Entry("Action", text, f"{title} menu" + (" · checked" if action.isCheckable() and action.isChecked() else ""), action.trigger))
+                if action.menu() is not None:
+                    add_menu_actions(action.menu(), f"{path} · {text}")
+                elif action.isEnabled():
+                    entries.append(Entry("Action", text, f"{path} menu" + (" · checked" if action.isCheckable() and action.isChecked() else ""), action.trigger))
+
+        for menu_action in self.menuBar().actions():
+            if menu_action.menu() is not None:
+                add_menu_actions(menu_action.menu(), menu_action.text().replace("&", ""))
+        recent_keys = self._recent_palette_keys()
+        available = {entry.key: entry for entry in entries if entry.key}
+        # Recent targets can belong to another open workspace. Resolve them against every live workspace, while
+        # keeping the ordinary palette list scoped to the cluster currently in front.
+        for other in self.workspaces.values():
+            if other is ws:
+                continue
+            for entry in VIEWS:
+                leaves = [(entry[0], entry[1])] if len(entry) == 2 else entry[1]
+                group = "" if len(entry) == 2 else entry[0]
+                for key, label in leaves:
+                    target_key = f"view:{other.context}:{key}"
+                    available[target_key] = Entry("Go to", label, f"{group} · {other.context}" if group else other.context,
+                                                   lambda k=key, w=other: self._goto_view(w, k), target_key)
+            for name in getattr(other, "_ns_names", []):
+                if name != "All namespaces":
+                    target_key = f"namespace:{other.context}:{name}"
+                    available[target_key] = Entry("Namespace", name, other.context,
+                                                   lambda n=name, w=other: (self._focus_workspace(w), w.set_namespace(n)), target_key)
+            target_key = f"namespace:{other.context}:All namespaces"
+            available[target_key] = Entry("Namespace", "All namespaces", other.context,
+                                           lambda w=other: (self._focus_workspace(w), w.set_namespace("All namespaces")), target_key)
+        recent = []
+        kept = [key for key in recent_keys if key in available][:8]
+        if kept != recent_keys:
+            self._save_recent_palette_keys(kept)
+        for key in kept:
+            entry = available[key]
+            recent.append(Entry("Recent", entry.label, f"{entry.category} · {entry.detail}",
+                                lambda k=key, run=entry.run: self._run_palette_target(k, run), key))
+        if recent:
+            recent.append(Entry("Recent", "Clear recent entries", "remove saved palette history", self.clear_palette_history))
+        entries = recent + entries
+        for entry in entries:
+            if entry.key and entry.category in ("Go to", "Namespace", "Cluster") and entry.run:
+                action = entry.run
+                entry.run = lambda run=action, key=entry.key: self._run_palette_target(key, run)
         return entries
 
+    def _recent_palette_keys(self):
+        try:
+            value = json.loads(self.label_settings.store.value("palette/recent", "[]"))
+        except (TypeError, ValueError):
+            return []
+        return value[:8] if isinstance(value, list) and all(isinstance(item, str) for item in value) else []
+
+    def _save_recent_palette_keys(self, keys):
+        self.label_settings.store.setValue("palette/recent", json.dumps(keys[:8]))
+        self.label_settings.store.sync()
+
+    def _run_palette_target(self, key, action):
+        keys = [key] + [item for item in self._recent_palette_keys() if item != key]
+        self._save_recent_palette_keys(keys)
+        return action()
+
+    def clear_palette_history(self):
+        self._save_recent_palette_keys([])
+
     def _goto_view(self, ws, key):
-        self.clusters.setCurrentWidget(ws)
+        self._focus_workspace(ws)
         ws.open_view(key)
+
+    def _focus_workspace(self, ws):
+        detached = self._detached.get(ws.context)
+        if detached is not None:
+            detached.show()
+            detached.raise_()
+            detached.activateWindow()
+            self._sync_cluster_picker(ws.context)
+        else:
+            self.clusters.setCurrentWidget(ws)
 
     def show_palette(self):
         """View > Command palette… (Ctrl+K): one search box over views, namespaces, clusters and actions. What is typed that matches

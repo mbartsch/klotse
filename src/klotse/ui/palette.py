@@ -6,7 +6,7 @@ better matches rank first: whole-word and word-start hits, letters that are next
 from dataclasses import dataclass
 from typing import Callable
 
-CATEGORY_ORDER = ("Go to", "Namespace", "Action", "Cluster", "Search")
+CATEGORY_ORDER = ("Recent", "Go to", "Namespace", "Action", "Cluster", "Search")
 
 
 @dataclass
@@ -15,6 +15,7 @@ class Entry:
     label: str
     detail: str = ""
     run: Callable = None
+    key: str = ""
 
 
 def fuzzy_score(word, text):
