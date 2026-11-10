@@ -10,7 +10,7 @@ one; the window then switches to it. The charts show the object's request and li
 import time
 
 from PySide6.QtCore import QThreadPool, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout
 
 from ..k8s import metrics_history as mh
 from ..k8s import prometheus
@@ -30,7 +30,7 @@ class MetricsDialog(QDialog):
     source_requested = Signal()  # the Source… button: the owner asks for a Prometheus address
     go_to_requested = Signal(str)  # series name under the pointer
 
-    def __init__(self, title, sample, refs=None, available=True, interval_s=15, parent=None, allow_source=True):
+    def __init__(self, title, sample, refs=None, available=True, interval_s=15, parent=None, allow_source=True, object_options=None):
         """`sample()` returns {line: (timestamp, cores, MiB)} (called on a worker); `refs` is mh.reference_lines(...);
         `available` False when the cluster has no metrics API (then nothing is sampled). `allow_source` False (several objects picked
         together) hides Source…: Prometheus is asked about one object at a time."""
@@ -41,6 +41,7 @@ class MetricsDialog(QDialog):
         self.history, self.started = mh.History(), time.time()
         self._busy, self._closed, self._errors = False, False, 0
         self.fetch_remote, self.remote_label, self.remote_note = None, "", ""
+        self.object_options = dict(object_options or {})
         self.cpu_chart = LineChart("CPU", mh.format_cores)
         self.mem_chart = LineChart("Memory", mh.format_mib)
         self._hovered_line = ""
@@ -63,10 +64,12 @@ class MetricsDialog(QDialog):
         self.pause_button.toggled.connect(self._pause)
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self.clear)
-        self.go_to_button = QPushButton("Go to object")
-        self.go_to_button.setEnabled(False)
+        self.go_to_button = QToolButton()
+        self.go_to_button.setText("Go to object")
+        self.go_to_button.setPopupMode(QToolButton.InstantPopup)
+        self.go_to_menu = QMenu(self.go_to_button)
+        self.go_to_button.setMenu(self.go_to_menu)
         self.go_to_button.setToolTip("Move to the object represented by the chart line under the pointer")
-        self.go_to_button.clicked.connect(lambda: self.go_to_requested.emit(self._hovered_line))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         self.note = QLabel(NOTE_SAMPLED)
@@ -110,11 +113,20 @@ class MetricsDialog(QDialog):
     def _set_hovered_line(self, name):
         if name:
             self._hovered_line = name
-            self.go_to_button.setEnabled(True)
 
     def _activate_line(self, name):
         self._set_hovered_line(name)
         self.go_to_requested.emit(name)
+
+    def _refresh_object_menu(self):
+        self.go_to_menu.clear()
+        names = dict(self.object_options)
+        for chart in (self.cpu_chart, self.mem_chart):
+            for name in chart.series:
+                names.setdefault(name, name)
+        for name, label in names.items():
+            action = self.go_to_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, value=name: self.go_to_requested.emit(value))
 
     # ---- which source ---------------------------------------------------------------------------------------------
     def mode(self):
@@ -200,6 +212,7 @@ class MetricsDialog(QDialog):
         empty = "Prometheus answered with no data for this object. The kubelet cAdvisor metrics may not be scraped, or are labelled differently."
         self.cpu_chart.set_data(cpu, self.refs.get("cpu"), placeholder=empty)
         self.mem_chart.set_data(mem, self.refs.get("mem"), placeholder=empty)
+        self._refresh_object_menu()
         points = max((len(p) for p in list(cpu.values()) + list(mem.values())), default=0)
         self.status.setText(f"Prometheus / VictoriaMetrics · {self.remote_label} · {self.range_box.currentText().lower()} · {points} points per line"
                             f" · every {REFRESH_S} s" + (" · paused" if self.pause_button.isChecked() else ""))
@@ -231,6 +244,7 @@ class MetricsDialog(QDialog):
         waiting = "Waiting for the first metrics-server reading…"
         self.cpu_chart.set_data(self.history.series("cpu"), self.refs.get("cpu"), placeholder=waiting)
         self.mem_chart.set_data(self.history.series("mem"), self.refs.get("mem"), placeholder=waiting)
+        self._refresh_object_menu()
         if self.available and not self._errors:
             count = self.history.count()
             first = self.history.first_time()

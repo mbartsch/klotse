@@ -127,7 +127,7 @@ class LineChart(QWidget):
             lines.append(f"{name}: {self.formatter(nearest[1])}")
         return "\n".join(lines)
 
-    def line_at(self, x, y):
+    def line_at(self, x, y, strict=True):
         """Return the series nearest to the pointer, or an empty string outside the plot."""
         if not self.series:
             return ""
@@ -143,7 +143,7 @@ class LineChart(QWidget):
             distance = abs(screen_y - y)
             if distance < nearest_distance:
                 nearest_name, nearest_distance = name, distance
-        return nearest_name if nearest_distance <= 12 else ""
+        return nearest_name if not strict or nearest_distance <= 12 else ""
 
     def mouseMoveEvent(self, event):
         self.hovered_line.emit(self.line_at(event.position().x(), event.position().y()))
@@ -154,7 +154,9 @@ class LineChart(QWidget):
             QToolTip.hideText()
 
     def mouseDoubleClickEvent(self, event):
-        name = self.line_at(event.position().x(), event.position().y())
+        # A chart is an interaction surface, not a pixel-perfect hit target: choose the
+        # nearest series even when the double-click lands between two painted strokes.
+        name = self.line_at(event.position().x(), event.position().y(), strict=False)
         if name:
             self.line_activated.emit(name)
         super().mouseDoubleClickEvent(event)
