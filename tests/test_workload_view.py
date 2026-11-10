@@ -123,12 +123,17 @@ def test_the_panel_opens_workloads_formatted_with_a_yaml_switch(qtbot):
     assert panel.editor.isVisible() and panel.yaml_tools.isVisible() and "replicas: 3" in panel.toPlainText()
 
 
-def test_a_kind_without_a_formatted_page_shows_yaml_and_tools(qtbot):
+def test_a_kind_without_a_formatted_page_keeps_summary_and_yaml_navigation(qtbot):
     panel = DetailPanel()
     qtbot.addWidget(panel)
     panel.show()
     panel.show_row(row({"metadata": {"name": "cm"}, "data": {"a": "1"}}))
-    assert not panel.view_bar.isVisible() and panel.editor.isVisible() and panel.yaml_tools.isVisible()
+    assert panel.view_bar.isVisible() and panel.formatted_button.text() == "Summary"
+    assert panel.formatted.isVisible() and not panel.editor.isVisible()
+    assert panel.events_button.isVisible() and not panel.events_button.isEnabled()
+    assert panel.related_button.isVisible() and not panel.related_button.isEnabled()
+    panel.yaml_button.click()
+    assert panel.editor.isVisible() and panel.yaml_tools.isVisible()
 
 
 def test_find_copy_and_wrap_in_the_yaml_view(qtbot):

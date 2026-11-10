@@ -281,9 +281,9 @@ def test_the_related_button_is_for_rows_of_a_kind_that_has_it(qtbot):
     p.show_row(tagged())
     assert p.view_bar.isVisible() and p.related_button.isVisible()
     p.show_row(tagged(kind="Container"))
-    assert not p.related_button.isVisible()
+    assert p.related_button.isVisible() and not p.related_button.isEnabled()
     p.show_row(SimpleNamespace(name="x", namespace="", secret_data={}, raw={"metadata": {"name": "x"}}))  # a row never tagged
-    assert not p.related_button.isVisible()
+    assert p.related_button.isVisible() and not p.related_button.isEnabled()
 
 
 def test_choosing_related_asks_once_and_shows_the_answer_with_links(qtbot):

@@ -94,14 +94,14 @@ def panel(qtbot):
     return p
 
 
-def test_the_events_button_is_there_only_for_objects_with_a_uid_that_are_not_events(qtbot):
+def test_events_navigation_stays_in_place_and_is_disabled_when_unavailable(qtbot):
     p = panel(qtbot)
     p.show_row(row())
     assert p.view_bar.isVisible() and p.events_button.isVisible()
     p.show_row(SimpleNamespace(name="x", secret_data={}, raw={"metadata": {"name": "x"}, "data": {}}))
-    assert not p.view_bar.isVisible()
+    assert p.view_bar.isVisible() and p.events_button.isVisible() and not p.events_button.isEnabled()
     p.show_row(row(involvedObject={"kind": "Pod"}))
-    assert not p.events_button.isVisible()
+    assert p.events_button.isVisible() and not p.events_button.isEnabled()
 
 
 def test_choosing_events_asks_once_and_shows_the_answer(qtbot):

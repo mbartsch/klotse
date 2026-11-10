@@ -123,7 +123,8 @@ class DetailPanel(QWidget):
         self.formatted = QTextBrowser()
         self.formatted.setOpenLinks(False)
         self.formatted.setOpenExternalLinks(False)
-        self.formatted_button = QPushButton("Formatted", checkable=True)
+        self.formatted_button = QPushButton("Summary", checkable=True)
+        self.formatted_button.setToolTip("A readable summary of the selected resource")
         self.yaml_button = QPushButton("YAML", checkable=True)
         self.events_button = QPushButton("Events", checkable=True)
         self.events_button.setToolTip("What the cluster says happened to this object (kept by Kubernetes for about an hour)")
@@ -256,10 +257,8 @@ class DetailPanel(QWidget):
                 self._formatted_ok = True
             except Exception as e:  # noqa: BLE001
                 self.formatted.setPlainText(f"Cannot format this Node: {type(e).__name__}: {e}")
-            self.view_bar.setVisible(self._formatted_ok or self._events_ok or self._related_ok)
-            self.formatted_button.setVisible(self._formatted_ok)
-            self.events_button.setVisible(self._events_ok)
-            self.related_button.setVisible(self._related_ok)
+                self.formatted.append("No formatted summary is available for this resource kind.")
+            self._sync_view_choices()
             self._show_mode()
             return
         kind, view = getattr(row, "rbac_kind", None), rbac_view
@@ -272,11 +271,24 @@ class DetailPanel(QWidget):
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
-        self.view_bar.setVisible(self._formatted_ok or self._events_ok or self._related_ok)
-        self.formatted_button.setVisible(self._formatted_ok)
-        self.events_button.setVisible(self._events_ok)
-        self.related_button.setVisible(self._related_ok)
+        if not self._formatted_ok:
+            self.formatted.setHtml(f"<p style='color:{theme.MUTED}'>No formatted summary is available for this resource kind. Use YAML to inspect its fields.</p>")
+        self._sync_view_choices()
         self._show_mode()
+
+    def _sync_view_choices(self):
+        """Keep the four detail destinations in one stable place and disable only unavailable views."""
+        self.view_bar.setVisible(self._secret_row is not None)
+        self.formatted_button.setVisible(True)
+        self.formatted_button.setEnabled(True)
+        self.yaml_button.setVisible(True)
+        self.yaml_button.setEnabled(True)
+        self.events_button.setVisible(True)
+        self.events_button.setEnabled(self._events_ok)
+        self.events_button.setToolTip("Events for this object" if self._events_ok else "Events are unavailable for this object")
+        self.related_button.setVisible(True)
+        self.related_button.setEnabled(self._related_ok)
+        self.related_button.setToolTip("Related objects" if self._related_ok else "Related objects are unavailable for this kind")
 
     def _set_identity(self, row):
         raw = getattr(row, "raw", None)
@@ -333,9 +345,15 @@ class DetailPanel(QWidget):
             QGuiApplication.clipboard().setText(value)
 
     def _show_mode(self, *_):
+        if self.related_button.isChecked() and not self._related_ok:
+            self.formatted_button.setChecked(True)
+            return
+        if self.events_button.isChecked() and not self._events_ok:
+            self.formatted_button.setChecked(True)
+            return
         related = self._related_ok and self.related_button.isChecked()
         events = not related and self._events_ok and self.events_button.isChecked()
-        formatted = not events and not related and self._formatted_ok and self.formatted_button.isChecked()
+        formatted = not events and not related and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
         self.events.setVisible(events)
         self.related.setVisible(related)
