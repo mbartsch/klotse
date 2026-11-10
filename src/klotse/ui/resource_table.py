@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import re
 import time
 
@@ -31,6 +32,15 @@ FILTER_HELP = "\n".join([
     "Booleans compare as true/false text. Missing, null, empty, object and list values match nothing.",
     "  app = web (a label)  Kind = Pod            a and b, a or b, (…) to group",
     "= and != ignore case and take * as a wildcard; ~ is a regular expression. Blank values match nothing."])
+
+
+@dataclass(frozen=True)
+class RowAction:
+    key: str
+    title: str
+    callback: object
+    primary: bool = False
+    dangerous: bool = False
 
 
 class _FilterProxy(QSortFilterProxyModel):
@@ -623,6 +633,82 @@ class ResourceTable(QWidget):
             return text + self.NOT_ALLOWED
         return text
 
+    def row_actions(self, row):
+        """Shared per-object actions for the Details header and the row context menu."""
+        actions = []
+
+        def add(key, title, callback, primary=False, dangerous=False, permission=None):
+            shown = self._hint(title, permission, row) if permission else title
+            actions.append(RowAction(key, shown, callback, primary, dangerous))
+
+        if self.editable:
+            add("edit", "Edit…", lambda: self.edit_requested.emit(self.kind, row), primary=self.kind != "Node", permission="edit")
+        if self.kind in COPYABLE and self.editable:
+            add("copy", "Copy as new…", lambda: self.duplicate_requested.emit(self.kind, row), permission="create")
+        if self.kind in SCALABLE:
+            add("scale", "Scale…", lambda: self.scale_requested.emit(self.kind, row), primary=True, permission="scale")
+        if self.kind in RESTARTABLE:
+            add("restart", "Restart…", lambda: self.restart_requested.emit(self.kind, row), primary=True, permission="restart")
+        if self.kind in LOG_SOURCES:
+            add("multi-logs", "Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row),
+                primary=self.kind in ("Deployment", "StatefulSet", "DaemonSet"))
+        if self.kind == "ServiceAccount":
+            add("permissions", "Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
+        if self.kind in METRIC_KINDS:
+            add("usage-history", "Usage history…", lambda: self.metrics_requested.emit(self.kind, row))
+        if self.kind == "Pod":
+            add("logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True, permission="logs")
+            add("shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row), permission="shell")
+            add("attach", "Attach…", lambda: self.action_requested.emit("attach", row), permission="attach")
+            add("debug", "Debug (ephemeral container)…", lambda: self.action_requested.emit("debug", row), permission="debug")
+            if ((getattr(row, "raw", {}) or {}).get("spec") or {}).get("ephemeralContainers"):
+                add("remove-debug", "Remove debug containers (recreate pod)…",
+                    lambda: self.action_requested.emit("remove-debug", row), permission="terminate")
+            add("terminate", "Terminate…", lambda: self.action_requested.emit("terminate", row), dangerous=True, permission="terminate")
+            add("force-terminate", "Force terminate…", lambda: self.action_requested.emit("force-terminate", row), dangerous=True, permission="terminate")
+            add("browse-pod-files", "Browse files…", lambda: self.action_requested.emit("browse-files", row))
+            add("copy-files", "Copy files…", lambda: self.copy_files_requested.emit(row))
+        if self.kind == "Container":
+            add("container-logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True)
+            add("container-shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row))
+            add("container-attach", "Attach…", lambda: self.action_requested.emit("attach", row))
+        if self.kind in ("Pod", "Service"):
+            add("port-forward", "Port forward…", lambda: self.port_forward_requested.emit(self.kind, row),
+                primary=self.kind == "Service")
+        if self.kind == "Node":
+            add("node-pods", "List pods on this node", lambda: self.action_requested.emit("node-pods", row), primary=True)
+            cordoned = ((getattr(row, "raw", {}) or {}).get("spec") or {}).get("unschedulable", False)
+            key = "uncordon" if cordoned else "cordon"
+            add("cordon", "Uncordon…" if cordoned else "Cordon…",
+                lambda a=key: self.action_requested.emit(a, row), primary=True, permission="cordon")
+            add("drain", "Drain…", lambda: self.action_requested.emit("drain", row), permission="cordon")
+            add("node-shell", "Shell (nsenter)…", lambda: self.action_requested.emit("node-shell", row))
+            add("delete-node", "Delete node…", lambda: self.action_requested.emit("delete-node", row), dangerous=True, permission="delete-node")
+            add("force-delete-node", "Force delete node…", lambda: self.action_requested.emit("force-delete-node", row),
+                dangerous=True, permission="delete-node")
+        if self.kind == "CronJob":
+            add("cronjob-run", "Run now…", lambda: self.action_requested.emit("cronjob-run", row), primary=True)
+            suspended = str(getattr(row, "suspend", "")) == "True"
+            key, title = ("cronjob-resume", "Resume…") if suspended else ("cronjob-suspend", "Suspend…")
+            add("cronjob-suspend", title, lambda a=key: self.action_requested.emit(a, row), permission="cronjob-suspend")
+        if self.kind == "Deployment":
+            add("history", "Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
+        if self.kind == "PersistentVolumeClaim":
+            add("browse-claim-files", "Browse files…", lambda: self.action_requested.emit("browse-files", row))
+        if self.kind == "CustomResourceDefinition":
+            add("crd-instances", "Browse instances", lambda: self.action_requested.emit("open-crd", row), primary=True)
+        if self.kind == "CRDGroup":
+            add("crd-group", "Show CRDs of this group", lambda: self.action_requested.emit("open-crd-group", row), primary=True)
+        if self.kind == "HelmRelease":
+            add("helm-details", "Details / history…", lambda: self.action_requested.emit("helm-details", row), primary=True)
+            add("helm-uninstall", "Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row), dangerous=True)
+        if self.kind == "Namespace":
+            add("namespace-pods", "Show pods", lambda: self.action_requested.emit("open-namespace", row), primary=True)
+            add("diagnostics", "Export diagnostics…", lambda: self.action_requested.emit("diagnostics", row))
+        if self.kind in DELETABLE_KINDS or self.deletable:
+            add("delete", "Delete…", lambda: self.action_requested.emit("delete", row), dangerous=True, permission="delete")
+        return actions
+
     def _goto_menu(self, menu, row):
         """'Go to node ...' for a pod that has one, 'Go to namespace ...' for any namespaced object (a Namespace's own list
         has its Show pods entry instead). Navigation only: it never changes anything, so it is also offered read-only."""
@@ -700,89 +786,88 @@ class ResourceTable(QWidget):
                     menu.exec(self.view.viewport().mapToGlobal(pos))
                 return
             row = self.model.rows[self.proxy.mapToSource(idx).row()]
+            shared = {action.key: action for action in self.row_actions(row)}
+
+            def add_shared(key, target=menu):
+                action = shared.get(key)
+                if action is not None:
+                    target.addAction(action.title, action.callback)
+
             def section():
                 if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
                     menu.addSeparator()
             if self.editable:
-                menu.addAction(self._hint("Edit…", "edit", row), lambda: self.edit_requested.emit(self.kind, row))
+                add_shared("edit")
             if self.kind in COPYABLE and self.editable:
-                menu.addAction(self._hint("Copy as new…", "create", row), lambda: self.duplicate_requested.emit(self.kind, row))
+                add_shared("copy")
             if self.kind == "ServiceAccount" or self.kind in METRIC_KINDS or self.kind in LOG_SOURCES:
                 section()
             if self.kind == "ServiceAccount":
-                menu.addAction("Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
+                add_shared("permissions")
             if self.kind in METRIC_KINDS:
-                menu.addAction("Usage history…", lambda: self.metrics_requested.emit(self.kind, row))
+                add_shared("usage-history")
             if self.kind in LOG_SOURCES:
-                menu.addAction("Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row))
+                add_shared("multi-logs")
             if self.kind in SCALABLE or self.kind in RESTARTABLE or self.kind == "CronJob":
                 section()
             if self.kind in SCALABLE:
-                menu.addAction(self._hint("Scale…", "scale", row), lambda: self.scale_requested.emit(self.kind, row))
+                add_shared("scale")
             if self.kind in RESTARTABLE:
-                menu.addAction(self._hint("Restart…", "restart", row), lambda: self.restart_requested.emit(self.kind, row))
+                add_shared("restart")
             if self.kind == "CronJob":
-                menu.addAction("Run now…", lambda: self.action_requested.emit("cronjob-run", row))
-                suspended = str(getattr(row, "suspend", "")) == "True"
-                menu.addAction(self._hint("Resume…" if suspended else "Suspend…", "cronjob-suspend", row),
-                               lambda: self.action_requested.emit("cronjob-resume" if suspended else "cronjob-suspend", row))
+                add_shared("cronjob-run")
+                add_shared("cronjob-suspend")
             if self.kind == "Deployment":
-                menu.addAction("Rollout history / Undo…", lambda: self.history_requested.emit(self.kind, row))
+                add_shared("history")
             if self.kind in DELETABLE_KINDS or self.deletable:
-                destructive.addAction(self._hint("Delete…", "delete", row), lambda: self.action_requested.emit("delete", row))
+                add_shared("delete", destructive)
             if self.kind in ("Pod", "Service"):
                 section()
-                menu.addAction("Port forward…", lambda: self.port_forward_requested.emit(self.kind, row))
+                add_shared("port-forward")
             if self.kind == "Pod":
-                menu.addAction("Browse files…", lambda: self.action_requested.emit("browse-files", row))
-                menu.addAction("Copy files…", lambda: self.copy_files_requested.emit(row))
+                add_shared("browse-pod-files")
+                add_shared("copy-files")
             if self.kind == "PersistentVolumeClaim":
                 section()
-                menu.addAction("Browse files…", lambda: self.action_requested.emit("browse-files", row))
+                add_shared("browse-claim-files")
             if self.kind == "Node":
                 section()
-                menu.addAction("List pods on this node", lambda: self.action_requested.emit("node-pods", row))
-                cordoned = (row.raw.get("spec") or {}).get("unschedulable", False)
-                action = "uncordon" if cordoned else "cordon"
-                menu.addAction(self._hint("Uncordon…" if cordoned else "Cordon…", "cordon", row),
-                               lambda: self.action_requested.emit(action, row))
-                menu.addAction(self._hint("Drain…", "cordon", row), lambda: self.action_requested.emit("drain", row))
-                menu.addAction("Shell (nsenter)…", lambda: self.action_requested.emit("node-shell", row))
-                destructive.addAction(self._hint("Delete node…", "delete-node", row), lambda: self.action_requested.emit("delete-node", row))
-                destructive.addAction(self._hint("Force delete node…", "delete-node", row),
-                               lambda: self.action_requested.emit("force-delete-node", row))
+                add_shared("node-pods")
+                add_shared("cordon")
+                add_shared("drain")
+                add_shared("node-shell")
+                add_shared("delete-node", destructive)
+                add_shared("force-delete-node", destructive)
             if self.kind == "Container":
                 section()
-                menu.addAction("Logs", lambda: self.action_requested.emit("logs", row))
-                menu.addAction("Connect (shell)…", lambda: self.action_requested.emit("shell", row))
-                menu.addAction("Attach…", lambda: self.action_requested.emit("attach", row))
+                add_shared("container-logs")
+                add_shared("container-shell")
+                add_shared("container-attach")
             if self.kind == "Pod":
                 section()
-                menu.addAction(self._hint("Logs", "logs", row), lambda: self.action_requested.emit("logs", row))
-                menu.addAction(self._hint("Connect (shell)…", "shell", row), lambda: self.action_requested.emit("shell", row))
-                menu.addAction(self._hint("Attach…", "attach", row), lambda: self.action_requested.emit("attach", row))
-                menu.addAction(self._hint("Debug (ephemeral container)…", "debug", row), lambda: self.action_requested.emit("debug", row))
+                add_shared("logs")
+                add_shared("shell")
+                add_shared("attach")
+                add_shared("debug")
                 if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
-                    menu.addAction(self._hint("Remove debug containers (recreate pod)…", "terminate", row),
-                                   lambda: self.action_requested.emit("remove-debug", row))
-                destructive.addAction(self._hint("Terminate…", "terminate", row), lambda: self.action_requested.emit("terminate", row))
-                destructive.addAction(self._hint("Force terminate…", "terminate", row),
-                               lambda: self.action_requested.emit("force-terminate", row))
+                    add_shared("remove-debug")
+                add_shared("terminate", destructive)
+                add_shared("force-terminate", destructive)
         if idx.isValid():
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
-            menu.addAction("Browse instances", lambda: self.action_requested.emit("open-crd", row))
+            add_shared("crd-instances")
         if self.context_actions is not None:
             return
         if self.kind == "HelmRelease" and idx.isValid():
-            menu.addAction("Details / history…", lambda: self.action_requested.emit("helm-details", row))
-            destructive.addAction("Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row))
+            add_shared("helm-details")
+            add_shared("helm-uninstall", destructive)
         if self.kind == "CRDGroup" and idx.isValid():
-            menu.addAction("Show CRDs of this group", lambda: self.action_requested.emit("open-crd-group", row))
+            add_shared("crd-group")
         if self.kind == "Namespace":
             if idx.isValid():
-                menu.addAction("Show pods", lambda: self.action_requested.emit("open-namespace", row))
-                menu.addAction("Export diagnostics…", lambda: self.action_requested.emit("diagnostics", row))
+                add_shared("namespace-pods")
+                add_shared("diagnostics")
             menu.addAction("New namespace…", self.new_requested.emit)
         if self.new_button is not None:
             menu.addAction(self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)

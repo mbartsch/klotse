@@ -263,12 +263,15 @@ class ClusterWorkspace(QMainWindow):
         for widget, _ in self.views.values():
             tables = widget.tables() if isinstance(widget, OverviewView) else [widget]
             for t in tables:
-                t.selected.connect(self.detail.show_row)
+                t.selected.connect(lambda row, table=t: self._show_detail_row(table, row))
             if isinstance(widget, OverviewView):  # pending/failed pods listed on an overview behave like the Pods tab
                 widget.pods_table.edit_requested.connect(self.edit_resource)
                 widget.pods_table.action_requested.connect(self.pod_action)
                 widget.pods_table.goto_requested.connect(self.go_to)
                 widget.pods_table.bulk_requested.connect(self.bulk_action)
+                widget.pods_table.port_forward_requested.connect(self.start_port_forward)
+                widget.pods_table.duplicate_requested.connect(self.copy_resource)
+                widget.pods_table.copy_files_requested.connect(self.copy_files)
             if isinstance(widget, ResourceTable):
                 if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS, *NETWORK_KINDS):  # these kinds can be created from their list
                     widget.enable_new()
@@ -572,6 +575,10 @@ class ClusterWorkspace(QMainWindow):
         table.plugin_actions = self.plugin_runner.offered  # right-click entries plugins add
         table.plugin_action_requested.connect(
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
+
+    def _show_detail_row(self, table, row):
+        self.detail.show_row(row)
+        self.detail.set_object_actions(table.row_actions(row))
 
     def _hooked_tables(self):
         return [t for t in self.resource_tables() if getattr(t, "_plugin_hooked", False)]
@@ -898,7 +905,7 @@ class ClusterWorkspace(QMainWindow):
         if key not in self.views:
             table = ResourceTable(SPEC_BY_KEY["crds"].columns, "CustomResourceDefinition", editable=False)
             table.view_key = key
-            table.selected.connect(self.detail.show_row)
+            table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
             table.action_requested.connect(self._crd_action)
             self.views[key] = (table, f"CRDs: {group or '(core)'}")
             self.loaders[key] = (lambda ns: [c for c in self.service.list_resource("crds", ns) if (c.group or "") == group],
@@ -927,7 +934,7 @@ class ClusterWorkspace(QMainWindow):
                 table.action_requested.connect(lambda action, row, k=kind: self.delete_resource(k, row) if action == "delete" else None)
                 table.enable_new()
                 table.new_requested.connect(lambda *_a, k=kind: self.create_resource(k))
-            table.selected.connect(self.detail.show_row)
+            table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
             table.goto_requested.connect(self.go_to)
             self.views[key] = (table, f"{kind}")
             if special:
@@ -977,7 +984,7 @@ class ClusterWorkspace(QMainWindow):
             row = self._node_row(name)
             self.open_node_pods(name, row)
             if row is not None:
-                self.detail.show_row(row)
+                self._show_detail_row(self.node_table, row)
             else:  # the Nodes list was never loaded: load it, and the tab's action bar fills in when it arrives
                 self.load_view("nodes")
         elif what == "namespace":
@@ -2499,7 +2506,7 @@ class ClusterWorkspace(QMainWindow):
             return
         if action == "node-pods":
             self.open_node_pods(row.name, row)
-            self.detail.show_row(row)
+            self._show_detail_row(self.node_table, row)
         elif action in ("cordon", "uncordon"):
             verb = "Cordon" if action == "cordon" else "Uncordon"
             effect = "Prevent new pods from scheduling here." if action == "cordon" else "Allow new pods to schedule here."
@@ -2619,8 +2626,9 @@ class ClusterWorkspace(QMainWindow):
             table.enable_saved_filters(SavedFilters(self.label_settings.store), self.context)
             table.view_key = key
             table.filter.setPlaceholderText(f"Filter pods on {node} (all namespaces)…")
-            table.selected.connect(self.detail.show_row)
+            table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
             table.edit_requested.connect(self.edit_resource)
+            table.duplicate_requested.connect(self.copy_resource)
             table.action_requested.connect(self.pod_action)
             table.permission_check = self.permission_for
             table.port_forward_requested.connect(self.start_port_forward)
@@ -2760,7 +2768,7 @@ class ClusterWorkspace(QMainWindow):
         table.view_key = key
         bar = PodActionBar()
         table.set_header_widget(bar)
-        table.selected.connect(self.detail.show_row)
+        table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
         self._pod_tabs[key] = {"row": row, "bar": bar, "table": table}
         table.action_requested.connect(
             lambda action, container, k=key: self._container_action(action, self._pod_tabs[k]["row"], container.name))
