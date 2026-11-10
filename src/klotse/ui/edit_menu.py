@@ -73,6 +73,7 @@ class EditActions(QObject):
                 continue
             action = QAction(text, menu)
             action.setShortcut(shortcut)
+            action.setToolTip(f"{text} ({QKeySequence(shortcut).toString(QKeySequence.NativeText)})")
             action.triggered.connect(lambda _=False, c=command: run(c, self.target()))
             menu.addAction(action)
             self.actions[command] = action

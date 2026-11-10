@@ -3,7 +3,7 @@ import sys
 
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QKeySequence
 from PySide6.QtWidgets import QDialog, QLineEdit, QMessageBox, QPlainTextEdit
 
 from klotse.k8s import client as client_module
@@ -45,6 +45,7 @@ def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path)
     texts = [a.text() for a in win.edit_menu.actions() if not a.isSeparator()]
     assert texts == ["Undo", "Redo", "Cut", "Copy", "Paste", "Select All", "Preferences…"]
     assert win.edit_actions.actions["copy"].shortcut().toString()
+    assert win.edit_actions.actions["copy"].shortcut().toString(QKeySequence.NativeText) in win.edit_actions.actions["copy"].toolTip()
     from PySide6.QtGui import QAction
     assert win.preferences_action.menuRole() == QAction.MenuRole.PreferencesRole
     if sys.platform == "darwin":

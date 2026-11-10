@@ -32,6 +32,12 @@ from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
 
 
+def _shortcut_tooltip(action, text):
+    """Keep a shortcut visible in help text as well as beside its menu item."""
+    shortcut = action.shortcut().toString(QKeySequence.NativeText)
+    action.setToolTip(f"{text} ({shortcut})" if shortcut else text)
+
+
 class _MultiSource:
     """What the Several clusters window asks the main window: the open clusters, the list kinds they share, and the loader of each."""
 
@@ -113,6 +119,7 @@ class MainWindow(QMainWindow):
         self._shutting_down = False
         self.exit_action = QAction("Exit", self)
         self.exit_action.setShortcut(QKeySequence.Quit)
+        _shortcut_tooltip(self.exit_action, "Exit Klotse")
         self.exit_action.setMenuRole(QAction.QuitRole)
         self.exit_action.triggered.connect(self.close)
         file_menu = self.menuBar().addMenu("File")
@@ -131,6 +138,7 @@ class MainWindow(QMainWindow):
         # on Windows and Linux it remains in Edit.
         self.preferences_action.setMenuRole(QAction.PreferencesRole)
         self.preferences_action.setShortcut(QKeySequence.Preferences)
+        _shortcut_tooltip(self.preferences_action, "Open preferences")
         self.preferences_action.triggered.connect(lambda: QTimer.singleShot(0, self.open_preferences))
         self.edit_menu.addAction(self.preferences_action)
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
@@ -150,7 +158,7 @@ class MainWindow(QMainWindow):
         insights_menu.addAction(self.permissions_action)
         self.search_action = QAction("Search objects…", self)
         self.search_action.setShortcut(QKeySequence("Ctrl+Shift+F"))
-        self.search_action.setToolTip("Find objects by name, label, kind or namespace across the cluster in front")
+        _shortcut_tooltip(self.search_action, "Find objects by name, label, kind or namespace across the cluster in front")
         self.search_action.triggered.connect(self.show_search)
         navigate_menu.addAction(self.search_action)
         self.audit_action = QAction("Change log…", self)
@@ -179,7 +187,7 @@ class MainWindow(QMainWindow):
         insights_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.clusters.currentWidget() is not None))
         self.palette_action = QAction("Command palette…", self)
         self.palette_action.setShortcut(QKeySequence("Ctrl+K"))
-        self.palette_action.setToolTip("Jump to a view, namespace or cluster, or run an action, from one search box")
+        _shortcut_tooltip(self.palette_action, "Jump to a view, namespace or cluster, or run an action, from one search box")
         self.palette_action.triggered.connect(self.show_palette)
         navigate_menu.addAction(self.palette_action)
         self.review_action = QAction("Review changes before saving", self, checkable=True)
@@ -189,7 +197,7 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.review_action)
         self.multi_action = QAction("Multi Cluster…", self)
         self.multi_action.setShortcut(QKeySequence("Ctrl+Shift+M"))
-        self.multi_action.setToolTip("One list of a kind (Pods, Deployments, Nodes, ...) from several open clusters, with a Cluster column")
+        _shortcut_tooltip(self.multi_action, "One list of a kind (Pods, Deployments, Nodes, ...) from several open clusters, with a Cluster column")
         self.multi_action.triggered.connect(self.show_multi)
         navigate_menu.addAction(self.multi_action)
         navigate_menu.aboutToShow.connect(lambda: self.multi_action.setEnabled(bool(self.workspaces)))
