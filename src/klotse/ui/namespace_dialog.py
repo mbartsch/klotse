@@ -2,6 +2,7 @@ import re
 
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox,
                                QPlainTextEdit)
+from .dialog_sizing import resize_dialog
 
 # RFC 1123 label, as required for namespace names
 NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -38,7 +39,7 @@ class NamespaceDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New namespace")
-        self.resize(480, 420)
+        resize_dialog(self, 480, 420)
         self.result_body = None
         self.name = QLineEdit(placeholderText="my-namespace")
         self.labels = QPlainTextEdit(placeholderText="one key=value per line, e.g.\nteam=platform")

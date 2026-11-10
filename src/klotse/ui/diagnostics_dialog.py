@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog
 from ..k8s import diagnostics
 from . import theme
 from .dialog_actions import action_box
+from .dialog_sizing import resize_dialog
 
 
 class DiagnosticsJob(QThread):
@@ -42,7 +43,7 @@ class DiagnosticsDialog(QDialog):
         self.service, self.context, self.namespace, self.version = service, context, namespace, version
         self.job = None
         self.setWindowTitle("Export diagnostics")
-        self.resize(560, 360)
+        resize_dialog(self, 560, 360)
         header = QLabel(f"<b>{_plain(context)}</b> · namespace <b>{_plain(namespace)}</b>")
         header.setTextFormat(Qt.RichText)
         self.logs = QCheckBox("Include pod logs")

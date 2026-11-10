@@ -31,6 +31,7 @@ from .workload_model import (COMPLETION_MODES, CONCURRENCY, CREATABLE_KINDS, EDI
                              job_spec_of, number_or_text, quantity_value, skeleton, template_changed, template_of,
                              valid_count, valid_quantity, validate, workload_warnings)
 from .workload_widgets import ContainerForm, PodForm, TriCombo, page, scrolled
+from .dialog_sizing import resize_dialog
 
 STRATEGY_TIPS = {
     "RollingUpdate": "Pods are replaced a few at a time.",
@@ -64,7 +65,7 @@ class WorkloadEditDialog(QDialog):
         meta, spec = raw.get("metadata") or {}, raw.get("spec") or {}
         self.warnings = [] if create else workload_warnings(kind, raw)
         self.setWindowTitle(f"New {kind}" if create else f"Edit {kind} {meta.get('name', '')}")
-        self.resize(900, 780)
+        resize_dialog(self, 900, 780)
         if create:
             intro = f"New {escape(kind)}. " + escape(NEW_NOTE)
         else:

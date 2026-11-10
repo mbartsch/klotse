@@ -17,6 +17,7 @@ from . import theme
 from .edit_dialog import leave_for_yaml
 from .role_editor import (AUTOUPDATE, DEFAULTS_LABEL, RESULT_LIMIT, RULE_KINDS, Picker, confirm_risky, role_warnings)
 from .service_account_editor import service_account_warnings
+from .dialog_sizing import resize_dialog
 
 BINDING_KINDS = ("RoleBinding", "ClusterRoleBinding")
 RBAC_API_GROUP = "rbac.authorization.k8s.io"
@@ -163,7 +164,7 @@ class BindingEditDialog(QDialog):
         self._loading = False
         self.warnings = binding_warnings({**raw, "kind": kind})
         self.setWindowTitle(f"Edit {kind} {meta.get('name', '')}")
-        self.resize(820, 640)
+        resize_dialog(self, 820, 640)
 
         ref = raw.get("roleRef") or {}
         where = f" in namespace <b>{escape(self.namespace)}</b>" if self.namespace else ""

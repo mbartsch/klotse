@@ -22,6 +22,7 @@ from .network_model import (AFFINITY, NETWORK_KINDS, PATH_TYPES, POLICY_TYPES, P
 from .service_account_editor import ANNOTATION_SUGGESTIONS, LAST_APPLIED, KeyValueEditor, validate_pairs
 from .workload_model import validate_new
 from .workload_widgets import LinesEdit, RowsEditor, TriCombo, page, scrolled
+from .dialog_sizing import resize_dialog
 
 SKELETONS = {"Service": service_skeleton, "Ingress": ingress_skeleton, "NetworkPolicy": policy_skeleton}
 INGRESS_ANNOTATIONS = ("nginx.ingress.kubernetes.io/rewrite-target", "nginx.ingress.kubernetes.io/ssl-redirect",
@@ -59,7 +60,7 @@ class ObjectDialog(QDialog):
         self.result_body, self.wants_yaml, self.pending = None, False, None
         meta = raw.get("metadata") or {}
         self.setWindowTitle(f"New {kind}" if create else f"Edit {kind} {meta.get('name', '')}")
-        self.resize(900, 720)
+        resize_dialog(self, 900, 720)
         if create:
             intro = f"New {escape(kind)}. Fields not in this form can be added with Edit as YAML… (the changes made here come along)."
         else:

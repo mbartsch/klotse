@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QTableW
 
 from ..k8s.util import format_age
 from . import theme
+from .dialog_sizing import resize_dialog
 
 HEADERS = ["Revision", "State", "Created", "Images", "Replicas", "Change cause"]
 
@@ -25,7 +26,7 @@ class RolloutDialog(QDialog):
     def __init__(self, context, name, revisions, can_change=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Rollout history: {name}")
-        self.resize(820, 420)
+        resize_dialog(self, 820, 420)
         self.can_change = can_change
         self.header = QLabel(f"<b>{_plain(name)}</b> on <b>{_plain(context)}</b>")
         self.header.setTextFormat(Qt.RichText)

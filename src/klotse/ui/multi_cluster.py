@@ -12,6 +12,7 @@ from . import theme
 from .compare_dialog import CompareDialog
 from .customizations import DEFAULT_HIDDEN
 from .resource_table import LOG_SOURCES, RESTARTABLE, ResourceTable
+from .dialog_sizing import resize_dialog
 
 CLUSTER_COLUMN = ("Cluster", "cluster")
 
@@ -24,7 +25,7 @@ class MultiClusterDialog(QDialog):
         super().__init__(parent)
         self.source = source
         self.setWindowTitle("Multi Cluster")
-        self.resize(1100, 600)
+        resize_dialog(self, 1100, 600)
         self._serial = 0
         self._workers = set()
         self._pending, self._failed, self._rows = set(), {}, []

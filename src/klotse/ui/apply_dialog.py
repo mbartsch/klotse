@@ -9,6 +9,7 @@ from . import theme
 from .apply_model import MAX_TEXT, ApplyProblem, label, parse_documents
 from .detail_panel import YamlHighlighter
 from .dialog_actions import action_box
+from .dialog_sizing import resize_dialog
 
 
 def outcome_line(result):
@@ -25,7 +26,7 @@ class ApplyDialog(QDialog):
         super().__init__(parent)
         self.context, self.namespace = context, namespace
         self.setWindowTitle("Apply YAML")
-        self.resize(760, 640)
+        resize_dialog(self, 760, 640)
         self.editor = QPlainTextEdit()
         self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.editor.setLineWrapMode(QPlainTextEdit.NoWrap)

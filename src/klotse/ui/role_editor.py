@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QSplitter, QToolButton, QToolTip, QVBoxLayout, QWidget)
 from . import theme
 from .edit_dialog import leave_for_yaml
+from .dialog_sizing import resize_dialog
 
 RESULT_LIMIT = 200
 SEARCH_DELAY_MS = 150
@@ -309,7 +310,7 @@ class RoleEditDialog(QDialog):
         self._loading = False
         name = (raw.get("metadata") or {}).get("name", "")
         self.setWindowTitle(f"Edit {kind} {name}")
-        self.resize(980, 680)
+        resize_dialog(self, 980, 680)
 
         self.rule_list = QListWidget()
         self.add_rule_button = QPushButton("Add rule")

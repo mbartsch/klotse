@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLa
                                QTableWidgetItem, QVBoxLayout)
 
 from . import theme
+from .dialog_sizing import resize_dialog
 
 VERBS = ("get", "list", "watch", "create", "update", "patch", "delete", "deletecollection")
 
@@ -34,7 +35,7 @@ class PermissionsDialog(QDialog):
     def __init__(self, context, namespace, perms, parent=None):
         super().__init__(parent)
         self.setWindowTitle("My permissions")
-        self.resize(760, 520)
+        resize_dialog(self, 760, 520)
         self.header = QLabel(f"<b>{_plain(context)}</b> · namespace <b>{_plain(namespace)}</b>")
         self.header.setTextFormat(Qt.RichText)
         self.note = QLabel()

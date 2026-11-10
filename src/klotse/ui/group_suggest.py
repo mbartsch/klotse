@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDia
 
 from .cluster_groups import SEPARATOR, clean_path, lineage
 from . import theme
+from .dialog_sizing import resize_dialog
 
 DEFAULT_SEPARATORS = "./:_@"  # a "-" is usually inside a word (group-of-cluster), so it is opt-in
 SEPARATOR_CHOICES = "./:_@-"
@@ -102,7 +103,7 @@ class SuggestGroupsDialog(QDialog):
         super().__init__(parent)
         self.contexts, self.groups = list(contexts), groups
         self.setWindowTitle("Suggest groups")
-        self.resize(660, 880)
+        resize_dialog(self, 660, 880)
         info = QLabel("Clusters can share a group when their names start the same way, or when a regular "
                       "expression picks the group out of the name. Tick the suggestions to create.")
         info.setWordWrap(True)

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDialogButtonBox,
                                QPushButton, QVBoxLayout)
 
 from .settings_store import default_store
+from .dialog_sizing import resize_dialog
 
 
 DEFAULT_LABELS = {"Node": ["karpenter.sh/nodepool"], "Pod": []}
@@ -343,7 +344,7 @@ class LabelColumnsDialog(QDialog):
         super().__init__(parent)
         self.kind, self.settings = kind, settings
         self.setWindowTitle(f"Customizations — {kind} columns")
-        self.resize(650, 700 if kind in ANNOTATION_KINDS else 560)
+        resize_dialog(self, 650, 700 if kind in ANNOTATION_KINDS else 560)
         layout = QVBoxLayout(self)
         self.builtin = QListWidget()
         self.builtin.setMaximumHeight(170)

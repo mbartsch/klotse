@@ -10,6 +10,7 @@ from ..k8s import helm
 from . import theme
 from .manifest import dump_manifest
 from .rollout_dialog import created_text
+from .dialog_sizing import resize_dialog
 
 HISTORY_HEADERS = ["Revision", "Status", "Updated", "Chart", "App version", "Description"]
 HIDDEN_NOTE = "Values are hidden until you press Show values. They can contain passwords and tokens, so they are never logged."
@@ -23,7 +24,7 @@ class HelmReleaseDialog(QDialog):
         self.data = data
         summary = data["summary"]
         self.setWindowTitle(f"Helm release: {summary['name']}")
-        self.resize(820, 560)
+        resize_dialog(self, 820, 560)
         self.header = QLabel(f"<b>{_plain(summary['name'])}</b> in <b>{_plain(summary['namespace'])}</b> on <b>{_plain(context)}</b>")
         self.header.setTextFormat(Qt.RichText)
         self.tabs = QTabWidget()

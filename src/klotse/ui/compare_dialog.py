@@ -9,6 +9,7 @@ from ..k8s import compare
 from . import theme
 from .dialog_actions import action_box
 from .manifest import dump_manifest
+from .dialog_sizing import resize_dialog
 
 
 def label(row):
@@ -40,7 +41,7 @@ class CompareDialog(QDialog):
         super().__init__(parent)
         self.left, self.right = left, right
         self.setWindowTitle(f"Compare {kind}s")
-        self.resize(900, 620)
+        resize_dialog(self, 900, 620)
         self.header = QLabel(f"<b>{escape(context)}</b> · {escape(label(left))} (−) against {escape(label(right))} (+)")
         self.header.setTextFormat(Qt.RichText)
         self.noise = QCheckBox("Leave out fields the cluster fills in (uid, resourceVersion, managedFields, timestamps…)")

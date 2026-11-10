@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout
 from . import theme
 from .edit_dialog import leave_for_yaml
 from .service_account_editor import ANNOTATION_SUGGESTIONS, LAST_APPLIED, KeyValueEditor, validate_pairs
+from .dialog_sizing import resize_dialog
 
 DATA_KINDS = ("ConfigMap", "Secret")
 KEY_RULE = re.compile(r"[-._a-zA-Z0-9]+")
@@ -353,7 +354,7 @@ class DataEditDialog(QDialog):
         meta = raw.get("metadata") or {}
         immutable = bool(raw.get("immutable")) and not create
         self.setWindowTitle(f"New {kind}" if create else f"Edit {kind} {meta.get('name', '')}")
-        self.resize(860, 640)
+        resize_dialog(self, 860, 640)
         if self.secret:
             stored = dict(secret_data or {})
             binary = None

@@ -17,6 +17,7 @@ from ..k8s import prometheus
 from ..workers import Worker
 from . import theme
 from .line_chart import LineChart
+from .dialog_sizing import resize_dialog
 
 NOTE_SAMPLED = ("metrics-server keeps no history, so this chart starts when the window opens and is kept in memory only. "
                 "Prometheus or VictoriaMetrics would show earlier data: use Source… to point Klotse at one.")
@@ -36,7 +37,7 @@ class MetricsDialog(QDialog):
         together) hides Source…: Prometheus is asked about one object at a time."""
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(920, 600)
+        resize_dialog(self, 920, 600)
         self.sample_fn, self.refs, self.available, self.interval_s = sample, refs or {"cpu": {}, "mem": {}}, available, interval_s
         self.history, self.started = mh.History(), time.time()
         self._busy, self._closed, self._errors = False, False, 0

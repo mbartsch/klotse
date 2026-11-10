@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout
 from ..k8s import health
 from . import theme
 from .dialog_actions import action_box
+from .dialog_sizing import resize_dialog
 
 HEADERS = ["Severity", "Kind", "Namespace", "Name", "Problem", "Hint"]
 
@@ -17,7 +18,7 @@ class HealthDialog(QDialog):
     def __init__(self, context, scope, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Health check")
-        self.resize(1000, 560)
+        resize_dialog(self, 1000, 560)
         self.findings = []
         self.header = QLabel(f"<b>{_plain(context)}</b> · {_plain(scope)}")
         self.header.setTextFormat(Qt.RichText)

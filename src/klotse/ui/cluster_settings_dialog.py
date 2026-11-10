@@ -2,6 +2,8 @@ import re
 
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QMessageBox, QVBoxLayout)
 
+from .dialog_sizing import resize_dialog
+
 
 class ClusterSettingsDialog(QDialog):
     """A plugin's settings for one cluster (Plugins menu -> the plugin): a text box per `Plugin.cluster_settings` entry.
@@ -13,7 +15,6 @@ class ClusterSettingsDialog(QDialog):
         super().__init__(parent)
         self.manager, self.plugin, self.context = manager, plugin, context
         self.setWindowTitle(f"{plugin.name or plugin.id} — {context}")
-        self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
         intro = QLabel(f"Settings of {plugin.name or plugin.id} for the cluster <b>{context}</b> only. "
                        f"Leave a box empty to use the plugin's general settings.")
@@ -37,6 +38,7 @@ class ClusterSettingsDialog(QDialog):
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        resize_dialog(self, max(480, self.sizeHint().width()), self.sizeHint().height())
 
     def values(self):
         return {key: edit.text().strip() for key, edit in self.fields.items()}
