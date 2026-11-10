@@ -1,11 +1,12 @@
 """View > Health check…: problems and risks found in the manifests of the namespace in front (or all namespaces), like k9s's Popeye.
 Looking only. Double-click a finding to go to the object."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout)
 
 from ..k8s import health
 from . import theme
+from .dialog_actions import action_box
 
 HEADERS = ["Severity", "Kind", "Namespace", "Name", "Problem", "Hint"]
 
@@ -49,17 +50,15 @@ class HealthDialog(QDialog):
         for w in (self.show_errors, self.show_warnings, self.show_notes):
             options.addWidget(w)
         options.addWidget(self.filter, 1)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.reload_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addLayout(options)
         lay.addWidget(self.table, 1)
         lay.addWidget(note)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
 
     def show_findings(self, findings, problems=()):
         self.findings = list(findings)

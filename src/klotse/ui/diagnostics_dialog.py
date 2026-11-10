@@ -5,11 +5,12 @@ import threading
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                                QSpinBox, QVBoxLayout)
 
 from ..k8s import diagnostics
 from . import theme
+from .dialog_actions import action_box
 
 
 class DiagnosticsJob(QThread):
@@ -78,17 +79,15 @@ class DiagnosticsDialog(QDialog):
         path_row.addWidget(self.path, 1)
         path_row.addWidget(self.choose)
         form.addRow("Save to", path_row)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.start_button)
-        buttons.addWidget(self.cancel_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.start_button, QDialogButtonBox.AcceptRole),
+                             (self.cancel_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(header)
         lay.addLayout(form)
         lay.addWidget(warning)
         lay.addWidget(self.status, 1)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
         self.logs.toggled.connect(self.tail.setEnabled)
 
     def _choose(self):

@@ -2,12 +2,13 @@
 only reads and confirms; the workspace sends the documents to the cluster on a worker and hands the outcome back."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
                                QVBoxLayout)
 
 from . import theme
 from .apply_model import MAX_TEXT, ApplyProblem, label, parse_documents
 from .detail_panel import YamlHighlighter
+from .dialog_actions import action_box
 
 
 def outcome_line(result):
@@ -35,6 +36,7 @@ class ApplyDialog(QDialog):
         self.result.setPlaceholderText("The outcome of Check and Apply shows here.")
         self.open_button = QPushButton("Open file…")
         self.check_button = QPushButton("Check (dry run)")
+        self.check_button.setDefault(True)
         self.check_button.setToolTip("Ask the server to validate the manifests without storing anything")
         self.apply_button = QPushButton("Apply…")
         self.close_button = QPushButton("Close")
@@ -48,15 +50,14 @@ class ApplyDialog(QDialog):
         note.setWordWrap(True)
         note.setTextFormat(Qt.RichText)
         theme.muted(note)
-        buttons = QHBoxLayout()
-        for button in (self.open_button, self.check_button, self.apply_button):
-            buttons.addWidget(button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.close_button)
+        buttons = action_box(self, (self.open_button, QDialogButtonBox.ActionRole),
+                             (self.check_button, QDialogButtonBox.AcceptRole),
+                             (self.apply_button, QDialogButtonBox.DestructiveRole),
+                             (self.close_button, QDialogButtonBox.RejectRole))
         layout = QVBoxLayout(self)
         layout.addWidget(note)
         layout.addWidget(self.editor, 1)
-        layout.addLayout(buttons)
+        layout.addWidget(buttons)
         layout.addWidget(self.result)
         self._busy = False
         self._read_only = False
