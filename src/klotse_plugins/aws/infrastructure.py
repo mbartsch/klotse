@@ -5,7 +5,8 @@ import time
 import urllib.parse
 from datetime import datetime, timezone
 
-from .awscreds import CredentialSource
+from .awscreds import AwsCredentials, CredentialSource
+from .ec2 import Ec2Unavailable, boto3_session
 from .native import AwsHttpError, _strip_namespaces, _text, post
 from .safe import parse_xml, valid_region
 from .sigv4 import sign
@@ -65,13 +66,25 @@ def console_url(region, kind, identifier):
 
 
 class InfrastructureApi:
-    def __init__(self, profile, http=post, now=time.time):
+    def __init__(self, profile, http=post, now=time.time, session_factory=boto3_session):
         self.source, self.http, self.now = CredentialSource(profile), http, now
+        try:
+            self.session = session_factory(profile)
+        except Ec2Unavailable:  # boto3 is optional; use the same AWS CLI/environment fallback as the node lookups
+            self.session = None
+
+    def _credentials(self):
+        if self.session is not None:
+            provider = self.session.get_credentials()
+            if provider is not None:
+                frozen = provider.get_frozen_credentials()
+                return AwsCredentials(frozen.access_key, frozen.secret_key, frozen.token or "")
+        return self.source.get()
 
     def call(self, service, region, version, action, params):
         if not valid_region(region):
             raise ValueError("Invalid AWS region")
-        creds = self.source.get()
+        creds = self._credentials()
         url = f"https://{service}.{region}.amazonaws.com{'.cn' if region.startswith('cn-') else ''}/"
         body = urllib.parse.urlencode(sorted({"Action": action, "Version": version, **params}.items())).encode()
         stamp = datetime.fromtimestamp(self.now(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")

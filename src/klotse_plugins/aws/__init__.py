@@ -18,6 +18,7 @@ from .federation import FederationError, console_credentials, fetch_json, login_
 from .instances import InstanceCache
 from .nodeinfo import parse_node
 from .pricing import HOURS_PER_MONTH, Price, PriceError, currency_for_region, on_demand_prices
+from .awscreds import CredentialsError
 from .infrastructure import (KINDS as INFRA_KINDS, InfrastructureCache, default_region,
                              load_balancer_refs, volume_ref, report, console_url as infrastructure_console_url)
 
@@ -332,7 +333,9 @@ class AwsPlugin(Plugin):
                 # Report a bounded error class/code, never credentials or full response text.
                 code = getattr(error, "response", {}).get("Error", {}).get("Code", "")
                 status = getattr(error, "status", "")
-                request.warn(f"AWS infrastructure lookup for {resource.key} failed ({type(error).__name__}{': ' + str(code or status) if code or status else ''})")
+                detail = str(error)[:200] if isinstance(error, CredentialsError) else str(code or status)
+                request.warn(f"AWS infrastructure lookup for {resource.key} failed ({type(error).__name__}"
+                             f"{': ' + detail if detail else ''})")
         return result
 
     def overview(self, request):

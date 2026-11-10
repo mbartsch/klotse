@@ -758,6 +758,25 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert clicks == [("a", "workloads")]  # selecting a cluster never starts a connection
 
 
+def test_plugin_errors_are_persistent_and_open_the_failing_plugin(qtbot):
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    win.show()
+    button = win.plugin_errors_button
+    assert not button.isVisible()
+
+    win.plugins.record_error("aws", "AWS credentials could not be loaded")
+    assert button.isVisible() and button.text() == "Plugin error"
+    assert "AWS credentials could not be loaded" in button.toolTip()
+    opened = []
+    win.open_preferences = opened.append
+    button.click()
+    assert opened == ["aws"]
+
+    win.plugins.clear_error("aws")
+    assert not button.isVisible()
+
+
 def test_cluster_search_is_accessible_and_filters_the_navigator(qtbot):
     win = MainWindow(MultiService)
     qtbot.addWidget(win)

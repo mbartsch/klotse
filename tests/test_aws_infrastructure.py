@@ -5,7 +5,9 @@ import pytest
 
 from klotse.plugins import EnrichRequest, ResourceInfo
 from klotse_plugins.aws import AwsPlugin
+from klotse_plugins.aws.awscreds import AwsCredentials, CredentialsError
 from klotse_plugins.aws.infrastructure import InfrastructureApi, console_url, lb_name, load_balancer_refs, volume_ref
+from klotse_plugins.aws.ec2 import Ec2Unavailable
 
 
 def test_volume_identifiers_and_region_are_read_from_pv_topology():
@@ -44,6 +46,20 @@ def test_elbv2_dualstack_response_matches_normalized_dns_name():
         </member></LoadBalancers></DescribeLoadBalancersResponse>""")
     answer = api.load_balancer("eu-west-1", "api-123.eu-west-1.elb.amazonaws.com")
     assert answer["type"] == "application" and answer["state"] == "active"
+
+
+def test_infrastructure_uses_the_same_optional_boto3_credentials_as_node_lookups():
+    class Provider:
+        def get_frozen_credentials(self):
+            return SimpleNamespace(access_key="AKIA_TEST", secret_key="secret", token="session")
+
+    session = SimpleNamespace(get_credentials=lambda: Provider())
+    api = InfrastructureApi("work", session_factory=lambda profile: session)
+    assert api._credentials() == AwsCredentials("AKIA_TEST", "secret", "session")
+
+    api = InfrastructureApi("work", session_factory=lambda _profile: (_ for _ in ()).throw(Ec2Unavailable()))
+    api.source = SimpleNamespace(get=lambda: AwsCredentials("AKIA_CLI", "secret"))
+    assert api._credentials() == AwsCredentials("AKIA_CLI", "secret")
 
 
 def test_pvc_uses_exact_bound_pv_and_checks_claim_uid(monkeypatch):
@@ -85,3 +101,15 @@ def test_enrichment_returns_load_balancer_metadata_without_wide_scans(monkeypatc
     assert result["prod/api"]["aws_state"] == "active"
     assert result["prod/api"]["aws_region"] == "eu-west-1"
     assert "internet-facing" in result["prod/api"]["aws_details"]
+
+
+def test_credential_failures_keep_actionable_reason_for_plugin_status(qapp):
+    plugin = AwsPlugin()
+    plugin._infrastructure = SimpleNamespace(lookup=lambda *_args: (_ for _ in ()).throw(
+        CredentialsError("AWS CLI profile 'work' needs aws sso login")))
+    resource = ResourceInfo("api", "prod", {"status": {"loadBalancer": {"ingress": [
+        {"hostname": "api-123.eu-west-1.elb.amazonaws.com"}]}}})
+    request = EnrichRequest("aws", "Ingress", "cluster", [resource], {})
+    assert plugin.enrich(request) == {}
+    assert len(request.warnings) == 1
+    assert "CredentialsError: AWS CLI profile 'work' needs aws sso login" in request.warnings[0]
