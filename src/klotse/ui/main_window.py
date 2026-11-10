@@ -140,6 +140,10 @@ class MainWindow(QMainWindow):
         insights_menu = view_menu.addMenu("Insights")
         operations_menu = view_menu.addMenu("Operations")
         settings_menu = view_menu.addMenu("Settings")
+        # Prevent macOS's text heuristic from promoting View > Settings into
+        # the application Preferences menu; that slot belongs to the explicit
+        # PreferencesRole action in Edit.
+        settings_menu.menuAction().setMenuRole(QAction.NoRole)
         self.permissions_action = QAction("My permissions…", self)
         self.permissions_action.setToolTip("What you may do in the namespace of the cluster in front, and a Can I? check")
         self.permissions_action.triggered.connect(self.show_permissions)

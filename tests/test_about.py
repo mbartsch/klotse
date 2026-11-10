@@ -123,5 +123,6 @@ def test_view_menu_groups_actions_by_task_and_preserves_action_objects(qtbot):
     assert win.audit_action in groups["Operations"].actions()
     assert win.read_only_action in groups["Settings"].actions()
     assert win.managed_fields_action in view.actions()
+    assert groups["Settings"].menuAction().menuRole() == groups["Settings"].menuAction().NoRole
     assert win.search_action.shortcut().toString() == "Ctrl+Shift+F"
     assert win.palette_action.shortcut().toString() == "Ctrl+K"
