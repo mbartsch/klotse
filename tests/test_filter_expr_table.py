@@ -85,3 +85,93 @@ def test_blank_usage_matches_nothing(table, qtbot):
     ROWS_WITH[0].cpu_used = 0.9
     table.set_rows(ROWS_WITH + ROWS)
     assert shown(table, qtbot, "CPU > 500m") == ["hot"]
+
+
+@pytest.fixture
+def manifest_table(table):
+    rows = [pod("large"), pod("small"), pod("missing")]
+    rows[0].raw.update(spec={"replicas": 12, "suspend": True, "score": -2.5,
+                            "template": {"spec": {"containers": [{"image": "nginx:1.27"}]}},
+                            "cpu": "500m", "memory": "512Mi", "age": "5m"},
+                       status={"phase": "Running", "readyReplicas": 10})
+    rows[1].raw.update(spec={"replicas": 2, "suspend": False, "score": 0},
+                       status={"phase": "Pending", "readyReplicas": 2})
+    rows[2].raw.update(spec={}, status={})
+    table.set_rows(rows)
+    return table
+
+
+@pytest.mark.parametrize("expression, expected", [
+    ("spec.replicas >= 3", ["large"]),
+    ("spec.replicas >= 2", ["large", "small"]),
+    ("spec.replicas > status.readyReplicas", ["large"]),
+    ("spec.replicas = status.readyReplicas", ["small"]),
+    ("spec.replicas / 2 > status.readyReplicas / 2", ["large"]),
+    ("status.phase = running", ["large"]),
+    ("status.phase ~ '^pend'", ["small"]),
+    ("spec.suspend = true", ["large"]),
+    ("spec.suspend = 'FALSE'", ["small"]),
+    ("spec.suspend != true", ["small"]),
+    ("spec.suspend = 1", []),
+    ("spec.score < 0", ["large"]),
+    ("spec.score = 0", ["small"]),
+    ("spec.template.spec.containers.0.image = 'nginx:*'", ["large"]),
+    ("spec.cpu = '500m' and spec.memory = '512Mi' and spec.age = '5m'", ["large"]),
+    ("status.Phase = Running", []),
+    ("status.phase = Running and Name = large", ["large"]),
+    ("status.phase = status.absent", []),
+])
+def test_manifest_scalar_expressions(manifest_table, qtbot, expression, expected):
+    assert shown(manifest_table, qtbot, expression) == expected
+    assert not manifest_table.filter_note.isVisibleTo(manifest_table)
+
+
+@pytest.mark.parametrize("path", [
+    "spec.absent", "spec.null", "spec.empty", "spec.object", "spec.items",
+    "spec.items.0", "spec.items.-1", "spec.items.999999", "spec.items." + "9" * 5000,
+    "spec.items.nope", "spec..replicas", "spec.replicas.child",
+    "spec.template.spec.containers[0].image", "spec.template.spec.containers.*.image",
+])
+def test_missing_or_non_scalar_paths_never_match(manifest_table, path):
+    from klotse.ui.filter_expr import parse
+
+    row = manifest_table.model.rows[0]
+    row.raw["spec"].update(null=None, empty="", object={"key": "value"}, items=[])
+    for operator in ("=", "!=", ">", "~", "!~"):
+        expression = parse(f"{path} {operator} 'anything'")
+        assert not expression.matches(lambda name: manifest_table._resolve(row, name))
+    # An absent path on the right is a known missing value, never literal text.
+    row.raw["status"]["phase"] = path
+    assert not parse(f"status.phase = {path}").matches(lambda name: manifest_table._resolve(row, name))
+
+
+def test_manifest_paths_take_precedence_and_have_no_column_units(manifest_table, qtbot):
+    manifest_table.model.columns = [("Name", "name"), ("spec.cpu", "cpu_req"), ("status.phase", "status")]
+    row = manifest_table.model.rows[0]
+    row.raw["metadata"]["labels"]["spec.cpu"] = "label value"
+    assert manifest_table._unit_of("spec.cpu") == ""
+    assert manifest_table._resolve(row, "spec.cpu") == ("500m", None)
+    assert shown(manifest_table, qtbot, "spec.cpu = '500m'") == ["large"]
+    assert shown(manifest_table, qtbot, "label.spec.cpu = 'label value'") == ["large"]
+    shown(manifest_table, qtbot, "spec.cpu > 500m")
+    assert "plain number" in manifest_table.filter_note.text()
+
+
+def test_manifest_filter_applies_after_append_and_refresh(manifest_table, qtbot):
+    assert shown(manifest_table, qtbot, "spec.replicas >= 3") == ["large"]
+    late = pod("late")
+    late.raw["spec"]["replicas"] = 4
+    manifest_table.append_rows([late])
+    assert sorted(manifest_table.proxy.index(i, 0).data() for i in range(manifest_table.proxy.rowCount())) == ["large", "late"]
+    replacement = pod("large")
+    replacement.raw["spec"]["replicas"] = 1
+    manifest_table.set_rows([replacement, late])
+    assert manifest_table.proxy.rowCount() == 1
+    assert manifest_table.proxy.index(0, 0).data() == "late"
+
+
+@pytest.mark.parametrize("raw", [None, {}, [], "invalid", {"spec": None}])
+def test_manifest_paths_tolerate_absent_or_malformed_raw(table, raw):
+    row = pod("empty")
+    row.raw = raw
+    assert table._resolve(row, "spec.replicas") == (None, None)
