@@ -95,3 +95,36 @@ def test_cluster_states_are_textual_aliases_keep_context_and_failure_detail(qtbo
     nav.set_state("prod/eu", "idle")
     assert "Disconnected" in item.text(0)
     assert "Unauthorized" not in item.toolTip(0)
+
+
+def test_context_menu_connects_all_selected_disconnected_clusters(qtbot):
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["prod/eu", "prod/us", "dev"])
+    nav.set_state("dev", "connected")
+    eu, us, dev = (nav.cluster_item(name) for name in ("prod/eu", "prod/us", "dev"))
+    eu.setSelected(True)
+    us.setSelected(True)
+    dev.setSelected(True)
+    nav._select_context_item(eu)
+    assert eu.isSelected() and us.isSelected() and dev.isSelected()
+
+    menu = nav.menu_for(eu)
+    action = next(action for action in menu.actions() if action.text() == "Connect selected clusters (2)")
+    connected = []
+    nav.connect_requested.connect(connected.append)
+    action.trigger()
+
+    assert set(connected) == {"prod/eu", "prod/us"}
+
+
+def test_context_clicking_an_unselected_cluster_drops_the_previous_selection(qtbot):
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["one", "two"])
+    one, two = nav.cluster_item("one"), nav.cluster_item("two")
+    one.setSelected(True)
+    nav._select_context_item(two)
+
+    assert two.isSelected() and not one.isSelected()
+    assert [item.data(0, nav.ROLE_KEY) for item in nav._selected_disconnected_clusters()] == ["two"]

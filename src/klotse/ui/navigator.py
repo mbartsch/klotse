@@ -76,6 +76,7 @@ class Navigator(QTreeWidget):
         self.setMouseTracking(True)
         self._hover = QModelIndex()
         self.setHeaderHidden(True)
+        self.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.setIndentation(14)
         self.setUniformRowHeights(False)
         self._clusters = {}
@@ -466,9 +467,15 @@ class Navigator(QTreeWidget):
             if cluster is None:
                 return None
             name = cluster.data(0, self.ROLE_KEY)
+            selected_disconnected = self._selected_disconnected_clusters() if item is cluster else []
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
-            for label, signal in self.actions_for(name):
-                menu.addAction(label, lambda sig=signal: sig.emit(name))
+            if len(selected_disconnected) > 1 and self._states.get(name) not in ACTIVE_STATES:
+                names = tuple(c.data(0, self.ROLE_KEY) for c in selected_disconnected)
+                menu.addAction(f"Connect selected clusters ({len(names)})",
+                               lambda contexts=names: self._connect_selected(contexts))
+            else:
+                for label, signal in self.actions_for(name):
+                    menu.addAction(label, lambda sig=signal: sig.emit(name))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if entries:
                 menu.addSeparator()
@@ -486,8 +493,29 @@ class Navigator(QTreeWidget):
                     move.addAction("No group", lambda: self.move_cluster(name, ""))
         return menu
 
+    def _selected_disconnected_clusters(self):
+        return [item for item in self.selectedItems()
+                if item.data(0, self.ROLE_KIND) == "cluster"
+                and self._states.get(item.data(0, self.ROLE_KEY)) not in ACTIVE_STATES]
+
+    def _connect_selected(self, contexts):
+        for context in contexts:
+            self.connect_requested.emit(context)
+
+    def _select_context_item(self, item):
+        if item is None or item.data(0, self.ROLE_KIND) != "cluster":
+            return
+        # Preserve multi-selection when opening its context menu; right-clicking an unselected
+        # cluster makes it the sole target instead.
+        if not item.isSelected():
+            self.clearSelection()
+            item.setSelected(True)
+        self.setCurrentItem(item)
+
     def _show_menu(self, pos):
-        menu = self.menu_for(self.itemAt(pos))
+        item = self.itemAt(pos)
+        self._select_context_item(item)
+        menu = self.menu_for(item)
         if menu is not None:
             menu.exec(self.viewport().mapToGlobal(pos))
 
