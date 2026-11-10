@@ -1539,7 +1539,7 @@ class ClusterWorkspace(QMainWindow):
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
         def go_to_line(name):
-            if name in ("total", row.name) or kind in ("Pod", "Node"):
+            if name == row.name or kind in ("Pod", "Node"):
                 target_kind, target_namespace, target_name = kind, namespace, row.name
             elif kind in ("Deployment", "StatefulSet", "DaemonSet"):
                 target_kind, target_namespace, target_name = "Pod", namespace, name

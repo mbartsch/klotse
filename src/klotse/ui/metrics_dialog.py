@@ -116,7 +116,8 @@ class MetricsDialog(QDialog):
 
     def _activate_line(self, name):
         self._set_hovered_line(name)
-        self.go_to_requested.emit(name)
+        if name != "total":
+            self.go_to_requested.emit(name)
 
     def _refresh_object_menu(self):
         self.go_to_menu.clear()
