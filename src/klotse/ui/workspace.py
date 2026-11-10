@@ -652,6 +652,7 @@ class ClusterWorkspace(QMainWindow):
             return
         table.refresh_mode = lambda k=key: self.is_manual(k)
         table.refresh_requested.connect(lambda k=key: self.load_view(k))
+        table.permissions_requested.connect(self.show_permissions)
         table.refresh_mode_requested.connect(lambda auto, k=key, t=table: self.set_manual_refresh(k, not auto, t))
 
     def set_manual_refresh(self, key, manual, table=None):

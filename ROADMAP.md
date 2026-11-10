@@ -111,3 +111,8 @@ Recommended first picks from this group: 13, 14, 18 and 15.
 Done so far is marked in the tables; none of it has been tried against a live cluster. Issues #51 (undo and history left) and #54 (greying out left) stay open.
 
 Keep this file and the issues in step: when an item is merged, mark it done here and close its issue.
+
+
+### UX follow-ups
+
+- **Actionable resource-list states (#234, implemented locally; pending review):** ResourceTable distinguishes loading, empty results, filtered-empty results, refused lists and other failed loads. Retry and Copy error appear for initial failures, View permissions appears for refused lists, successful empty results can Refresh, and filtered-empty results can Clear filter. Refresh failures preserve rows already on screen. Focused offscreen tests; missing-metrics guidance is outside this subtask. Not merged.

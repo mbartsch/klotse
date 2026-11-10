@@ -64,6 +64,7 @@ class ResourceTable(QWidget):
     restart_requested = Signal(str, object)
     history_requested = Signal(str, object)  # a Deployment's rollout history / undo
     refresh_requested = Signal()  # right-click > Refresh
+    permissions_requested = Signal()  # actionable permission refusal state
     refresh_mode_requested = Signal(bool)  # right-click > Refresh automatically (checked = True)
     port_forward_requested = Signal(str, object)  # a Pod or Service: forward one of its ports to this computer
     copy_files_requested = Signal(object)  # a Pod: copy files between this computer and a container
@@ -89,6 +90,8 @@ class ResourceTable(QWidget):
         self.deletable = False  # set by the workspace for editable custom resources (the Gateway API kinds)
         self.refresh_mode = None  # () -> True when this list reloads only on request; set by the workspace (None = no such menu)
         self._loaded_at = ""
+        self._last_error = ""
+        self._has_loaded = False
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
             customizable = kind not in NOT_CUSTOMIZABLE
@@ -120,6 +123,7 @@ class ResourceTable(QWidget):
         self.filter_note.setWordWrap(True)
         self.filter_note.setVisible(False)
         self.filter.textChanged.connect(lambda _: self._filter_timer.start())
+        self.filter.textChanged.connect(lambda _: QTimer.singleShot(0, self._update_empty_state))
         self.status = QLabel("Not loaded")
         self.status.setWordWrap(True)
         self.selection_count = QLabel()
@@ -205,10 +209,14 @@ class ResourceTable(QWidget):
 
     def set_error(self, message):
         self._load_timer.stop()
+        self._last_error = str(message)
         first = (str(message).splitlines() or [""])[0]
         self.status.setText(f"Load failed: {first}")
         if not self.model.rowCount():  # nothing else on screen: say it where the list would be
-            self.loading_page.show_failed(f"Load failed: {message}")
+            actions = [("Retry", self.refresh_requested.emit)]
+            if "My permissions" in str(message):
+                actions.append(("View permissions", self.permissions_requested.emit))
+            self.loading_page.show_failed(f"Load failed: {message}", actions, str(message))
             self.stack.setCurrentWidget(self.loading_page)
 
     # ---- filter expressions (see filter_expr) ------------------------------------------------------------------
@@ -297,14 +305,29 @@ class ResourceTable(QWidget):
                 self.filter_note.setVisible(True)
                 self.proxy.set_expression(None)
                 self.proxy.setFilterFixedString("")
+                self._update_empty_state()
                 return
             self.filter_note.setVisible(False)
             self.proxy.setFilterFixedString("")
             self.proxy.set_expression(expression)
+            self._update_empty_state()
             return
         self.filter_note.setVisible(False)
         self.proxy.set_expression(None)
         self.proxy.setFilterFixedString(text)
+        self._update_empty_state()
+
+    def _update_empty_state(self):
+        if not self._has_loaded or self._last_error:
+            return
+        if not self.model.rowCount():
+            self.loading_page.show_empty("No resources found.", [("Refresh", self.refresh_requested.emit)])
+            self.stack.setCurrentWidget(self.loading_page)
+        elif self.proxy.rowCount() == 0:
+            self.loading_page.show_empty("No resources match this filter.", [("Clear filter", self.filter.clear)])
+            self.stack.setCurrentWidget(self.loading_page)
+        elif self.stack.currentWidget() is self.loading_page:
+            self.stack.setCurrentWidget(self.view)
 
     def enable_saved_filters(self, saved, context):
         """Add a ★ Filters button next to the filter box: keep the current filter text under a name, apply or forget one. Kept
@@ -360,6 +383,8 @@ class ResourceTable(QWidget):
 
     def set_rows(self, rows):
         self._load_timer.stop()
+        self._has_loaded = True
+        self._last_error = ""
         self.stack.setCurrentWidget(self.view)
         self.rows_incoming.emit(rows)  # before the columns are measured: a refresh must not blank or shrink plugin columns
         kept = self._selection_to_keep()
@@ -373,6 +398,7 @@ class ResourceTable(QWidget):
         self.show_status()
         self.rows_set.emit(self.model.rows)
         self._apply_goto(final=True)
+        self._update_empty_state()
 
     # ---- "Go to ..." from another list: select a named row, now or as soon as the list has loaded -----------
     def select_when_loaded(self, name, namespace=""):
