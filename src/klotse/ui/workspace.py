@@ -356,6 +356,7 @@ class ClusterWorkspace(QMainWindow):
         self.auto_action = QAction("Auto-refresh", self, checkable=True, checked=True)
         self.auto_action.toggled.connect(self.set_auto_refresh)
         self._auto_ms = AUTO_REFRESH_MS  # the interval to come back to when it is switched on again
+        self._global_auto_paused = False
         self.auto_interval = QComboBox()
         self.auto_interval.addItem("Off", 0)
         for label, ms in AUTO_REFRESH_CHOICES:
@@ -363,6 +364,7 @@ class ClusterWorkspace(QMainWindow):
         self.auto_interval.setCurrentIndex(self.auto_interval.findData(AUTO_REFRESH_MS))
         self.auto_interval.setToolTip("How often the lists that update themselves reload (workloads and nodes by default; right-click "
                                       "any list to change that for it). Off stops every automatic reload: use Refresh.")
+        self.auto_interval.setAccessibleName(f"Auto-refresh interval for {context}")
         self.auto_interval.currentIndexChanged.connect(self._auto_choice_changed)
         self.auto_action.toggled.connect(self._sync_auto_combo)
         bar.addWidget(QLabel(" Auto-refresh: "))
@@ -795,6 +797,12 @@ class ClusterWorkspace(QMainWindow):
 
     def set_auto_refresh(self, enabled):
         """Toolbar toggle: switches the periodic reload (and the change watches) on or off."""
+        if enabled and self._global_auto_paused:
+            blocker = QSignalBlocker(self.auto_action)
+            self.auto_action.setChecked(False)
+            del blocker
+            self._sync_auto_combo(False)
+            enabled = False
         if enabled and self._ready and not self._closed:
             self._auto_timer.start()
             self._node_pods_timer.start()
@@ -803,6 +811,32 @@ class ClusterWorkspace(QMainWindow):
             self._auto_timer.stop()
             self._node_pods_timer.stop()
         self._sync_watch()
+
+    def set_global_auto_paused(self, paused):
+        """Freeze this workspace's auto-refresh while the shell has paused all clusters."""
+        self._global_auto_paused = bool(paused)
+        self.auto_interval.setEnabled(not paused)
+        if paused:
+            self.auto_interval.setToolTip("Auto-refresh is paused globally. Use View > Settings > Auto-refresh across clusters to resume.")
+            blocker = QSignalBlocker(self.auto_action)
+            self.auto_action.setChecked(False)
+            del blocker
+            self._sync_auto_combo(False)
+            self.set_auto_refresh(False)
+        else:
+            self.auto_interval.setToolTip("How often the lists that update themselves reload (workloads and nodes by default; right-click "
+                                          "any list to change that for it). Off stops every automatic reload: use Refresh.")
+
+    def apply_auto_refresh_state(self, enabled, interval_ms):
+        """Restore this cluster's saved global-pause state without losing its chosen interval."""
+        self._auto_ms = max(5_000, int(interval_ms))
+        self._auto_timer.setInterval(self._auto_ms)
+        self.set_global_auto_paused(False)
+        blocker = QSignalBlocker(self.auto_action)
+        self.auto_action.setChecked(bool(enabled))
+        del blocker
+        self._sync_auto_combo(bool(enabled))
+        self.set_auto_refresh(bool(enabled))
 
     # ---- pods per node ----------------------------------------------------------
     # Every node is counted once when the list first loads (one pass over all pods). After that, rows are recounted

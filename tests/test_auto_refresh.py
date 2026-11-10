@@ -1,6 +1,10 @@
 """The foreground list refreshes on a timer and when it comes to the front; background lists do not."""
 from types import SimpleNamespace
 
+from PySide6.QtCore import QSettings
+
+from klotse.ui.customizations import LabelSettings
+from klotse.ui.main_window import MainWindow
 from klotse.ui.workspace import ClusterWorkspace
 
 
@@ -14,6 +18,19 @@ def make_ws(qtbot):
     ws.open_view("nodes")
     loads.clear()
     return ws, loads
+
+
+def make_window(qtbot, tmp_path):
+    settings = LabelSettings(QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat))
+    window = MainWindow(lambda: SimpleNamespace(load_contexts=lambda: ([], None)), label_settings=settings)
+    qtbot.addWidget(window)
+    return window
+
+
+def add_workspace(window, workspace, context):
+    workspace.context = context
+    window.workspaces[context] = workspace
+    window.clusters.addTab(workspace, context)
 
 
 def test_nothing_loads_before_connected_or_after_shutdown(qtbot):
@@ -144,6 +161,69 @@ def test_off_then_on_by_the_combo_returns_to_the_chosen_interval_not_a_default(q
     ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(0))
     ws.auto_interval.setCurrentIndex(ws.auto_interval.findData(10_000))
     assert ws._auto_timer.interval() == 10_000 and ws.auto_action.isChecked()
+
+
+def test_global_pause_restores_each_clusters_enabled_state_and_interval(qtbot, tmp_path):
+    window = make_window(qtbot, tmp_path)
+    enabled, _ = make_ws(qtbot)
+    disabled, _ = make_ws(qtbot)
+    enabled.auto_interval.setCurrentIndex(enabled.auto_interval.findData(30_000))
+    disabled.auto_interval.setCurrentIndex(disabled.auto_interval.findData(5_000))
+    disabled.auto_interval.setCurrentIndex(disabled.auto_interval.findData(0))
+    enabled._ready = disabled._ready = True
+    enabled._auto_timer.start()
+    add_workspace(window, enabled, "enabled")
+    add_workspace(window, disabled, "disabled")
+
+    window.pause_auto_refresh_all_action.trigger()
+    assert window._global_auto_paused
+    assert not enabled.auto_action.isChecked() and not enabled._auto_timer.isActive()
+    assert not disabled.auto_action.isChecked()
+    assert not enabled.auto_interval.isEnabled() and not disabled.auto_interval.isEnabled()
+    assert window.pause_auto_refresh_all_action.isChecked()
+    enabled.auto_action.setChecked(True)  # a code path cannot bypass a global pause
+    assert not enabled.auto_action.isChecked() and not enabled._auto_timer.isActive()
+
+    window._sync_global_auto_actions()
+    assert window.restore_auto_refresh_action.isEnabled()
+    window.restore_auto_refresh_action.trigger()
+    assert not window._global_auto_paused
+    assert enabled.auto_action.isChecked() and enabled._auto_timer.interval() == 30_000
+    assert not disabled.auto_action.isChecked() and disabled._auto_ms == 5_000
+    assert enabled.auto_interval.isEnabled() and disabled.auto_interval.isEnabled()
+
+
+def test_enable_all_restores_intervals_and_enables_previously_off_clusters(qtbot, tmp_path):
+    window = make_window(qtbot, tmp_path)
+    first, _ = make_ws(qtbot)
+    second, _ = make_ws(qtbot)
+    first.auto_interval.setCurrentIndex(first.auto_interval.findData(60_000))
+    second.auto_interval.setCurrentIndex(second.auto_interval.findData(5_000))
+    second.auto_interval.setCurrentIndex(second.auto_interval.findData(0))
+    first._ready = second._ready = True
+    add_workspace(window, first, "first")
+    add_workspace(window, second, "second")
+
+    window.pause_auto_refresh_all_action.trigger()
+    window._enable_auto_refresh_all()
+    assert not window._global_auto_paused and window._global_auto_snapshot is None
+    assert first.auto_action.isChecked() and first._auto_timer.interval() == 60_000
+    assert second.auto_action.isChecked() and second._auto_timer.interval() == 5_000
+
+
+def test_cluster_opened_during_global_pause_is_paused_and_added_to_restore_snapshot(qtbot, tmp_path):
+    window = make_window(qtbot, tmp_path)
+    window._global_auto_paused = True
+    window._global_auto_snapshot = {}
+    workspace, _ = make_ws(qtbot)
+    workspace._ready = True
+    add_workspace(window, workspace, "new")
+
+    window._apply_global_auto_pause(workspace)
+    assert not workspace.auto_action.isChecked() and not workspace._auto_timer.isActive()
+    assert window._global_auto_snapshot == {"new": (True, workspace._auto_ms)}
+    window._restore_global_auto_refresh()
+    assert workspace.auto_action.isChecked() and workspace._auto_timer.isActive()
 
 
 def test_right_clicking_the_toolbar_cannot_remove_it_but_the_panes_can_still_be_brought_back(qtbot):

@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
                                QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
         self.factory = service_factory
         self.workspaces = {}  # context name -> ClusterWorkspace
         self._detached = {}  # context name -> top-level window containing its workspace
+        self._global_auto_paused = False
+        self._global_auto_snapshot = None  # context -> (was enabled, interval ms), captured once per global pause
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
@@ -248,6 +250,20 @@ class MainWindow(QMainWindow):
                                    "pages, parallel reads, slower automatic reloads). Found automatically; this is your own choice.")
         self.big_action.triggered.connect(self.set_big_mode)
         settings_menu.addAction(self.big_action)
+        self.auto_refresh_menu = settings_menu.addMenu("Auto-refresh across clusters")
+        self.pause_auto_refresh_all_action = QAction("Pause on all clusters", self, checkable=True)
+        self.pause_auto_refresh_all_action.setToolTip("Pause every open cluster and remember its current on/off state and interval")
+        self.pause_auto_refresh_all_action.toggled.connect(self._set_global_auto_paused)
+        self.auto_refresh_menu.addAction(self.pause_auto_refresh_all_action)
+        self.restore_auto_refresh_action = QAction("Restore previous settings", self)
+        self.restore_auto_refresh_action.setToolTip("Restore each cluster's saved on/off state and refresh interval")
+        self.restore_auto_refresh_action.triggered.connect(self._restore_global_auto_refresh)
+        self.auto_refresh_menu.addAction(self.restore_auto_refresh_action)
+        self.enable_auto_refresh_all_action = QAction("Enable on all clusters", self)
+        self.enable_auto_refresh_all_action.setToolTip("Turn on auto-refresh for every open cluster, keeping its chosen interval")
+        self.enable_auto_refresh_all_action.triggered.connect(self._enable_auto_refresh_all)
+        self.auto_refresh_menu.addAction(self.enable_auto_refresh_all_action)
+        self.auto_refresh_menu.aboutToShow.connect(self._sync_global_auto_actions)
         view_menu.addSeparator()
         view_menu.addAction(self.managed_fields_action)
         settings_menu.aboutToShow.connect(self._sync_big_action)
@@ -464,6 +480,7 @@ class MainWindow(QMainWindow):
         ws = ClusterWorkspace(self.new_service(), ctx, label_settings=self.label_settings,
                               terminal_settings=self.terminal_settings, plugins=self.plugins, audit_log=self.audit_log)
         self.workspaces[ctx] = ws
+        self._apply_global_auto_pause(ws)
         ws.detail.set_show_managed_fields(self.managed_fields_action.isChecked())
         self.managed_fields_action.toggled.connect(ws.detail.set_show_managed_fields)
         ws.message.connect(self.status.showMessage)
@@ -544,6 +561,62 @@ class MainWindow(QMainWindow):
         ws = self.clusters.currentWidget()
         self.big_action.setEnabled(ws is not None)
         self.big_action.setChecked(bool(ws is not None and ws.big))
+
+    def _set_global_auto_paused(self, paused):
+        if paused:
+            if self._global_auto_paused:
+                return
+            self._global_auto_snapshot = {
+                context: (workspace.auto_action.isChecked(), workspace._auto_ms)
+                for context, workspace in self.workspaces.items()
+            }
+            self._global_auto_paused = True
+            for workspace in self.workspaces.values():
+                workspace.set_global_auto_paused(True)
+        elif self._global_auto_paused:
+            self._restore_global_auto_refresh()
+
+    def _apply_global_auto_pause(self, workspace):
+        """Keep clusters opened during a global pause stopped and include them in the resume snapshot."""
+        if not self._global_auto_paused:
+            return
+        if self._global_auto_snapshot is None:
+            self._global_auto_snapshot = {}
+        self._global_auto_snapshot.setdefault(workspace.context, (workspace.auto_action.isChecked(), workspace._auto_ms))
+        workspace.set_global_auto_paused(True)
+
+    def _restore_global_auto_refresh(self):
+        if not self._global_auto_paused and self._global_auto_snapshot is None:
+            return
+        snapshot = self._global_auto_snapshot or {}
+        self._global_auto_paused = False
+        self._global_auto_snapshot = None
+        for context, workspace in self.workspaces.items():
+            enabled, interval = snapshot.get(context, (True, workspace._auto_ms))
+            workspace.apply_auto_refresh_state(enabled, interval)
+        blocker = QSignalBlocker(self.pause_auto_refresh_all_action)
+        self.pause_auto_refresh_all_action.setChecked(False)
+        del blocker
+
+    def _enable_auto_refresh_all(self):
+        snapshot = self._global_auto_snapshot or {}
+        self._global_auto_paused = False
+        self._global_auto_snapshot = None
+        for context, workspace in self.workspaces.items():
+            _was_enabled, interval = snapshot.get(context, (True, workspace._auto_ms))
+            workspace.apply_auto_refresh_state(True, interval)
+        blocker = QSignalBlocker(self.pause_auto_refresh_all_action)
+        self.pause_auto_refresh_all_action.setChecked(False)
+        del blocker
+
+    def _sync_global_auto_actions(self):
+        available = bool(self.workspaces) or self._global_auto_snapshot is not None
+        self.pause_auto_refresh_all_action.setEnabled(available)
+        blocker = QSignalBlocker(self.pause_auto_refresh_all_action)
+        self.pause_auto_refresh_all_action.setChecked(self._global_auto_paused)
+        del blocker
+        self.restore_auto_refresh_action.setEnabled(self._global_auto_snapshot is not None)
+        self.enable_auto_refresh_all_action.setEnabled(bool(self.workspaces))
 
     # ---- Plugins menu ---------------------------------------------------
     def _update_plugins_menu(self):
