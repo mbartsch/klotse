@@ -99,7 +99,7 @@ class TrivyDialog(QDialog):
             page.table.cellDoubleClicked.connect(lambda r, _c, p=page: self._open(p, r))
             self.tabs.addTab(page, title)
         self.tabs.currentChanged.connect(self._tab_changed)
-        self.reload_button = QPushButton("Read again")
+        self.reload_button = QPushButton("Refresh")
         self.reload_button.clicked.connect(lambda: self.load_current(force=True))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)

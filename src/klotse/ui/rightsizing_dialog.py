@@ -46,7 +46,7 @@ class RightSizingDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.cellDoubleClicked.connect(self._open_row)
-        self.reload_button = QPushButton("Reload")
+        self.reload_button = QPushButton("Refresh")
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel("Advice keeps 25% headroom above the largest usage among a workload's pods right now (CPU rounded up to 10m, "
