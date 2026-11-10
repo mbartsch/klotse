@@ -10,6 +10,7 @@ from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from ..k8s.timing import timings
 from . import filter_expr
+from .action_icons import action_icon
 from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
 from .table_model import TableModel, age_sort_value
@@ -624,15 +625,15 @@ class ResourceTable(QWidget):
             menu.addAction(f"Drain {n} nodes…", bulk("drain"))
         if self.kind == "Pod":
             separate(destructive)
-            destructive.addAction(f"Terminate {n} pods…", bulk("terminate"))
-            destructive.addAction(f"Force terminate {n} pods…", bulk("force-terminate"))
+            destructive.addAction(action_icon("delete"), f"Terminate {n} pods…", bulk("terminate"))
+            destructive.addAction(action_icon("delete"), f"Force terminate {n} pods…", bulk("force-terminate"))
         if self.kind in DELETABLE_KINDS:
             separate(destructive)
-            destructive.addAction(f"Delete {n} {self.kind}s…", bulk("delete"))
+            destructive.addAction(action_icon("delete"), f"Delete {n} {self.kind}s…", bulk("delete"))
         if self.kind == "Node":
             separate(destructive)
-            destructive.addAction(f"Delete {n} nodes…", bulk("delete-node"))
-            destructive.addAction(f"Force delete {n} nodes…", bulk("force-delete-node"))
+            destructive.addAction(action_icon("delete"), f"Delete {n} nodes…", bulk("delete-node"))
+            destructive.addAction(action_icon("delete"), f"Force delete {n} nodes…", bulk("force-delete-node"))
         if not destructive.isEmpty():
             separate(menu)
             for action in destructive.actions():
@@ -761,7 +762,7 @@ class ResourceTable(QWidget):
         attr = self.model.columns[source.column()][1]
         value = index.data(Qt.EditRole if attr.startswith("annotation:") else Qt.DisplayRole)
         text = "" if value is None else str(value)
-        copy = menu.addAction("Copy cell value", lambda: QApplication.clipboard().setText(text))
+        copy = menu.addAction(action_icon("copy"), "Copy cell value", lambda: QApplication.clipboard().setText(text))
         copy.setEnabled(bool(text))
         name = filter_expr.normalize(attr)
         found = self._resolve(self.model.rows[source.row()], name)
@@ -776,7 +777,7 @@ class ResourceTable(QWidget):
                 # and values that cannot fit in a quoted filter string without escaping.
                 pattern = re.escape(value_text).replace("'", r"\x27").replace('"', r"\x22")
                 expression = f"{name} ~ '\\A{pattern}\\Z'"
-        use = menu.addAction("Filter by this value", lambda: self.filter.setText(expression))
+        use = menu.addAction(action_icon("search"), "Filter by this value", lambda: self.filter.setText(expression))
         use.setEnabled(expression is not None)
         menu.addSeparator()
 
@@ -806,7 +807,12 @@ class ResourceTable(QWidget):
             def add_shared(key, target=menu):
                 action = shared.get(key)
                 if action is not None:
-                    target.addAction(action.title, action.callback)
+                    item = target.addAction(action.title, action.callback)
+                    icon_name = ("edit" if key == "edit" else "copy" if key == "copy" else
+                                 "delete" if key in {"delete", "delete-node", "force-delete-node", "terminate",
+                                                     "force-terminate", "helm-uninstall", "remove-debug"} else None)
+                    if icon_name:
+                        item.setIcon(action_icon(icon_name))
 
             def section():
                 if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
@@ -883,13 +889,13 @@ class ResourceTable(QWidget):
             if idx.isValid():
                 add_shared("namespace-pods")
                 add_shared("diagnostics")
-            menu.addAction("New namespace…", self.new_requested.emit)
+            menu.addAction(action_icon("create"), "New namespace…", self.new_requested.emit)
         if self.new_button is not None:
-            menu.addAction(self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)
+            menu.addAction(action_icon("create"), self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)
         if self.refresh_mode is not None:
             if not menu.isEmpty():
                 menu.addSeparator()
-            menu.addAction("Refresh", self.refresh_requested.emit)
+            menu.addAction(action_icon("refresh"), "Refresh", self.refresh_requested.emit)
             auto = menu.addAction("Refresh automatically")
             auto.setCheckable(True)
             auto.setChecked(not self.refresh_mode())

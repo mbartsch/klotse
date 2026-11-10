@@ -26,6 +26,7 @@ from .big_clusters import NOTICE_TEXT, BigClusters
 from .multi_cluster import MultiClusterDialog
 from .palette import Entry
 from .palette_dialog import PaletteDialog
+from .action_icons import action_icon
 from .read_only import ReadOnlyClusters
 from . import embedded_terminal, theme
 from .theme import ThemeSettings
@@ -158,6 +159,7 @@ class MainWindow(QMainWindow):
         self.permissions_action.triggered.connect(self.show_permissions)
         insights_menu.addAction(self.permissions_action)
         self.search_action = QAction("Search objects…", self)
+        self.search_action.setIcon(action_icon("search"))
         self.search_action.setShortcut(QKeySequence("Ctrl+Shift+F"))
         _shortcut_tooltip(self.search_action, "Find objects by name, label, kind or namespace across the cluster in front")
         self.search_action.triggered.connect(self.show_search)

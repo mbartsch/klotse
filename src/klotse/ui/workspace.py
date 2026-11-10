@@ -27,6 +27,7 @@ from ..k8s.clone import clone_manifest
 from ..k8s import gateway as gateway_api
 from ..k8s.timing import name_of, timings
 from . import big_clusters
+from .action_icons import action_icon
 from ..k8s.client import HUGE_PODS
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
@@ -339,6 +340,7 @@ class ClusterWorkspace(QMainWindow):
         self.panes_button.setMenu(self.panes_menu)
         bar.addWidget(self.panes_button)
         refresh = QAction("Refresh", self)
+        refresh.setIcon(action_icon("refresh"))
         refresh.setShortcut(QKeySequence.Refresh)
         refresh.setToolTip(f"Reload the current lists ({refresh.shortcut().toString(QKeySequence.NativeText)})")
         refresh.triggered.connect(self.refresh)
