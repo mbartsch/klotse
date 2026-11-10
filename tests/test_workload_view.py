@@ -162,8 +162,8 @@ def test_the_yaml_highlighter_colours_keys_and_comments(qtbot):
     assert any(f.start >= 8 for f in block.layout().formats())  # the comment is coloured
 
 
-def test_labels_and_annotations_come_right_after_the_header_before_the_summary():
+def test_inspector_prioritizes_summary_and_containers_before_metadata():
     page = wv.render("Deployment", DEPLOY)
     created, labels, annotations, summary, containers = (page.index(x) for x in ("2026-01-02", ">Labels<", ">Annotations<", ">Summary<",
                                                                                  ">Containers"))
-    assert created < labels < annotations < summary < containers
+    assert created < summary < containers < labels < annotations

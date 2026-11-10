@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtCore import QRegularExpression, Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
@@ -47,7 +47,10 @@ class DetailPanel(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("detailPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.editor = QPlainTextEdit(readOnly=True)
+        self.editor.setObjectName("detailYamlEditor")
         self.editor.setAccessibleName("Selected resource YAML")
         self.highlighter = YamlHighlighter(self.editor.document())
         self.editor.setPlaceholderText("Select a resource to see its details.")
@@ -93,10 +96,12 @@ class DetailPanel(QWidget):
         self._decoded_keys = set()
         self.show_managed_fields = False  # metadata.managedFields is long and rarely useful; opt in from View
         self.identity_header = QWidget()
+        self.identity_header.setObjectName("detailIdentity")
         identity_layout = QVBoxLayout(self.identity_header)
         identity_layout.setContentsMargins(8, 6, 8, 6)
         identity_top = QHBoxLayout()
         self.identity_title = QLabel()
+        self.identity_title.setWordWrap(True)
         self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
         self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.identity_status = QLabel()
@@ -104,14 +109,13 @@ class DetailPanel(QWidget):
         self.copy_identity_button = QToolButton(text="Copy name")
         self.copy_identity_button.setAccessibleName("Copy object name")
         self.copy_identity_button.setIcon(action_icon("copy"))
-        self.copy_identity_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.copy_identity_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.copy_identity_button.setToolTip("Copy the object's namespace/name (or name for a cluster-scoped object)")
         self.copy_identity_button.clicked.connect(self._copy_identity)
         identity_top.addWidget(self.identity_title, 1)
-        identity_top.addWidget(self.identity_status)
         identity_top.addWidget(self.copy_identity_button)
         identity_layout.addLayout(identity_top)
-        identity_ids = QHBoxLayout()
+        identity_ids = QGridLayout()
         self.identity_scope = QLabel()
         self.identity_uid = QLabel()
         self.identity_uid.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -127,11 +131,19 @@ class DetailPanel(QWidget):
         self.copy_provider_button.setIcon(action_icon("copy"))
         self.copy_provider_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.copy_provider_button.clicked.connect(lambda: self._copy_text(self._identity_provider))
-        for widget in (self.identity_scope, self.identity_uid, self.copy_uid_button,
-                       self.identity_provider, self.copy_provider_button):
-            identity_ids.addWidget(widget)
-        identity_ids.addStretch(1)
+        identity_ids.addWidget(self.identity_scope, 0, 0, 1, 2)
+        identity_ids.addWidget(self.identity_uid, 1, 0)
+        identity_ids.addWidget(self.copy_uid_button, 1, 1)
+        identity_ids.addWidget(self.identity_provider, 2, 0)
+        identity_ids.addWidget(self.copy_provider_button, 2, 1)
+        identity_ids.setColumnStretch(0, 1)
+        for label in (self.identity_scope, self.identity_uid, self.identity_provider):
+            label.setWordWrap(True)
+            theme.muted(label)
+        for button in (self.copy_uid_button, self.copy_provider_button):
+            button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         identity_layout.addLayout(identity_ids)
+        identity_layout.addWidget(self.identity_status)
         self.action_bar = QWidget()
         self.action_layout = QHBoxLayout(self.action_bar)
         self.action_layout.setContentsMargins(0, 0, 0, 0)
@@ -142,6 +154,7 @@ class DetailPanel(QWidget):
         self._identity_text = self._identity_uid = self._identity_provider = ""
         # Readable view for kinds that have one (RBAC); the YAML stays one click away. Text from the cluster is escaped.
         self.formatted = QTextBrowser()
+        self.formatted.setObjectName("detailFormatted")
         self.formatted.setOpenLinks(False)
         self.formatted.setOpenExternalLinks(False)
         self.formatted_button = QPushButton("Summary", checkable=True)
@@ -156,12 +169,15 @@ class DetailPanel(QWidget):
         self.related_button.setAccessibleName("Show related resources")
         self.related_button.setToolTip("Owners, what it owns, and the objects it uses or is used by; click one to go there")
         self.view_bar = QWidget()
+        self.view_bar.setObjectName("detailViewBar")
         bar = QHBoxLayout(self.view_bar)
         bar.setContentsMargins(0, 0, 0, 0)
         bar.addWidget(self.formatted_button)
         bar.addWidget(self.yaml_button)
         bar.addWidget(self.events_button)
         bar.addWidget(self.related_button)
+        for button in (self.formatted_button, self.yaml_button, self.events_button, self.related_button):
+            button.setObjectName("detailViewButton")
         bar.addStretch(1)
         modes = QButtonGroup(self)
         modes.setExclusive(True)
@@ -174,6 +190,7 @@ class DetailPanel(QWidget):
         self.events_button.toggled.connect(self._show_mode)
         self.related_button.toggled.connect(self._show_mode)
         self.related = QTextBrowser()
+        self.related.setObjectName("detailRelated")
         self.related.setAccessibleName("Resources related to the selection")
         self.related.setOpenLinks(False)
         self.related.setOpenExternalLinks(False)
@@ -182,6 +199,7 @@ class DetailPanel(QWidget):
         self._related_ok = False  # the current row is of a kind that has a Related view
         self._related_row = None  # the row the Related view is waiting for or showing
         self.events = QTextBrowser()
+        self.events.setObjectName("detailEvents")
         self.events.setAccessibleName("Events for the selected resource")
         self.events.setOpenLinks(False)
         self.events.setOpenExternalLinks(False)
@@ -214,7 +232,8 @@ class DetailPanel(QWidget):
         self.formatted.hide()
         self._formatted_ok = False  # the current row has a formatted view
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
         layout.addWidget(self.identity_header)
         layout.addWidget(self.view_bar)
         layout.addWidget(self.yaml_tools)
@@ -224,6 +243,10 @@ class DetailPanel(QWidget):
         layout.addWidget(self.events)
         layout.addWidget(self.related)
         layout.addWidget(self.editor)
+        # Scroll-area viewports otherwise paint an opaque palette Base over the
+        # inspector surface, even when the surrounding widget is transparent.
+        for content in (self.editor, self.formatted, self.events, self.related):
+            content.viewport().setAutoFillBackground(False)
 
     def toPlainText(self):
         return self.editor.toPlainText()

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCompleter, QHBo
 from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from ..k8s.timing import timings
-from . import filter_expr
+from . import filter_expr, theme
 from .action_icons import action_icon
 from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
@@ -165,6 +165,7 @@ class ResourceTable(QWidget):
         self._load_timer = QTimer(self, interval=1000)
         self._load_timer.timeout.connect(self._loading_tick)
         self.view = QTableView()
+        self.view.setObjectName("resourceGrid")
         self.view.setAccessibleName(f"{kind} list")
         self.view.setModel(self.proxy)
         self.view.setSortingEnabled(True)
@@ -208,6 +209,38 @@ class ResourceTable(QWidget):
             self.customize_button.clicked.connect(lambda: self.customize_requested.emit(kind))
             top.addWidget(self.customize_button)
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 16)
+        lay.setSpacing(10)
+        self.page_heading = QWidget()
+        heading = QHBoxLayout(self.page_heading)
+        heading.setContentsMargins(0, 0, 0, 8)
+        heading.setSpacing(12)
+        titles = QVBoxLayout()
+        titles.setSpacing(3)
+        eyebrow = QLabel("CLUSTER RESOURCES")
+        eyebrow.setObjectName("pageEyebrow")
+        theme.muted(eyebrow)
+        titles.addWidget(eyebrow)
+        self.page_title = QLabel()
+        self.page_title.setObjectName("resourcePageTitle")
+        titles.addWidget(self.page_title)
+        self.page_subtitle = QLabel()
+        theme.muted(self.page_subtitle)
+        titles.addWidget(self.page_subtitle)
+        heading.addLayout(titles, 1)
+        self.page_actions = QHBoxLayout()
+        refresh_button = QPushButton("Refresh")
+        refresh_button.clicked.connect(self.refresh_requested.emit)
+        self.page_actions.addWidget(refresh_button)
+        self.create_button = QPushButton("Create…")
+        self.create_button.setObjectName("primaryAction")
+        self.create_button.setToolTip(f"Create a new {kind} resource")
+        self.create_button.clicked.connect(self.new_requested.emit)
+        self.create_button.hide()
+        self.page_actions.addWidget(self.create_button)
+        heading.addLayout(self.page_actions)
+        self.page_heading.hide()
+        lay.addWidget(self.page_heading)
         lay.addLayout(top)
         lay.addWidget(self.filter_note)
         status_row = QHBoxLayout()
@@ -221,6 +254,16 @@ class ResourceTable(QWidget):
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.loading_page)
         lay.addWidget(self.stack, 1)
+
+    def set_page_title(self, title):
+        """Workspace lists have a heading; embedded overview lists stay compact."""
+        self.page_title.setText(title)
+        self.page_subtitle.setText(f"Browse and inspect {title.lower()} in this cluster.")
+        if self.customize_button is not None:
+            self._top.removeWidget(self.customize_button)
+            self.page_actions.insertWidget(1, self.customize_button)
+        self.create_button.setVisible(self.new_button is not None)
+        self.page_heading.show()
 
     def _update_selection_count(self, *_, emit_empty=True):
         count = len(self.view.selectionModel().selectedRows())
@@ -473,6 +516,7 @@ class ResourceTable(QWidget):
         creatable), kept under its old name because the callers and tests ask `new_button is not None`."""
         if self.new_button is None:
             self.new_button = True
+        self.create_button.setVisible(not self.page_heading.isHidden())
 
     def set_rows(self, rows):
         self._load_timer.stop()

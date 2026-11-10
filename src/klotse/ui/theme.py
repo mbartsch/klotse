@@ -75,8 +75,8 @@ CLASSIC = Theme("Classic", bg="#1e2127", base="#16181d", border="#2b2f38", text=
                 accent="#3474d7", accent_hi="#3d7eff", selected_row="#2b5099", hover="#394050", input_border=_mix("#2b2f38", "#9aa3b2"))
 # Neutrals tinted toward the logo's deep teal-navy, one teal accent from the uniform. Amber (#f5a524) is deliberately
 # not an accent: the app uses it for warnings (banners, hints, states).
-HARBOUR = Theme("Harbour", bg="#16232b", base="#101b22", border="#25383f", text="#dde5e3", muted="#8da4a8",
-                accent="#197f7d", accent_hi="#35b5b0", selected_row="#176666", hover="#33505a", input_border=_mix("#25383f", "#8da4a8"))
+HARBOUR = Theme("Harbour", bg="#16232b", base="#101b22", border="#293b43", text="#e3eceb", muted="#91a5a8",
+                accent="#197f7d", accent_hi="#35b5b0", selected_row="#145450", hover="#263b42", input_border="#5b7279")
 # The light theme: paper-white lists on a cool grey window, the same teal accent (white text on it stays readable) and
 # a dark amber for warnings (the dark theme's bright amber would be unreadable on white).
 DAYLIGHT = Theme("Daylight", bg="#eef2f3", base="#ffffff", border="#d3dadd", text="#1d2a30", muted="#4f636b",
@@ -175,45 +175,91 @@ def stylesheet(t):
 
 
 def _sheet(t):
+    rail = _mix(t.bg, t.base, 0.45)
     return f"""
-QMainWindow, QDialog {{ background: {t.bg}; }}
-QToolBar {{ background: {t.bg}; border: 0; border-bottom: 1px solid {t.border}; spacing: 6px; padding: 4px; }}
-QToolBar QToolButton {{ padding: 4px 10px; border: 1px solid transparent; border-radius: 4px; }}
+QMainWindow {{ background: {t.base}; }}
+QDialog {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {t.bg},stop:1 {t.base}); }}
+QLabel#resourcePageTitle {{ font-size: 23px; font-weight: 600; padding: 0; }}
+QLabel#pageEyebrow {{ font-size: 10px; }}
+QTableView#resourceGrid {{ background: transparent; border: 0; }}
+QTableView#resourceGrid::item {{ background: {t.bg}; }}
+QTableView#resourceGrid::item:selected {{ background: {t.selected_row}; }}
+QTableView#resourceGrid::item:hover:!selected {{ background: {t.hover}; }}
+QPushButton#primaryAction {{ background: {t.accent}; color: white; }}
+QToolButton {{ background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 4px; }}
+QToolButton:hover {{ background: {t.hover}; }}
+QToolButton:focus {{ border-color: {t.accent_hi}; }}
+QToolButton:pressed {{ background: {t.selected_row}; }}
+QMenuBar {{ background: {t.bg}; color: {t.muted}; border-bottom: 1px solid {t.border}; padding: 2px 6px; }}
+QMenuBar::item {{ padding: 5px 9px; border-radius: 4px; }}
+QMenuBar::item:selected {{ background: {t.hover}; color: {t.text}; }}
+QToolBar {{ background: {t.bg}; border: 0; border-bottom: 1px solid {t.border}; spacing: 7px; padding: 5px 8px; }}
+QToolBar QToolButton {{ padding: 5px 10px; border: 1px solid transparent; border-radius: 6px; }}
 QToolBar QToolButton:focus {{ border-color: {t.accent_hi}; }}
-QToolBar QToolButton:hover {{ background: {t.border}; }}
+QToolBar QToolButton:hover {{ background: {t.hover}; }}
 QStatusBar {{ background: {t.bg}; color: {t.muted}; border-top: 1px solid {t.border}; }}
+QStatusBar::item {{ border: 0; }}
+QDockWidget {{ titlebar-close-icon: none; border: 0; }}
+QDockWidget::title {{ background: {t.bg}; color: {t.muted}; padding: 8px 10px; border-bottom: 1px solid {t.border}; }}
+QDockWidget#clustersDock {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {t.bg},stop:1 {t.base}); border-right: 1px solid {t.border}; }}
+QDockWidget#detailsDock {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {t.bg},stop:1 {t.base}); border-left: 1px solid {t.border}; }}
+QWidget#navigatorPanel, QWidget#navigatorBrand {{ background: {rail}; }}
+QWidget#detailPanel {{ background: {rail}; }}
+QDockWidget#detailsDock::title {{ background: {rail}; }}
+QWidget#detailIdentity {{ background: transparent; border-bottom: 1px solid {t.border}; }}
+QWidget#detailViewBar {{ background: {t.base}; border: 1px solid {t.border}; border-radius: 7px; padding: 2px; }}
+QPlainTextEdit#detailYamlEditor, QTextBrowser#detailFormatted, QTextBrowser#detailEvents, QTextBrowser#detailRelated {{ background: transparent; border: 0; }}
+QPlainTextEdit#detailYamlEditor:focus, QTextBrowser#detailFormatted:focus, QTextBrowser#detailEvents:focus, QTextBrowser#detailRelated:focus {{ border: 1px solid {t.accent_hi}; }}
+QPushButton#detailViewButton {{ background: transparent; border: 0; border-radius: 5px; padding: 5px 9px; color: {t.muted}; }}
+QPushButton#detailViewButton:hover {{ background: {t.hover}; color: {t.text}; border: 0; }}
+QPushButton#detailViewButton:checked {{ background: {t.selected_row}; color: {t.text}; border: 0; }}
+QPushButton#detailViewButton:focus {{ border: 1px solid {t.accent_hi}; }}
 QTreeView {{ background: {t.base}; border: 0; }}
-QTreeView::item {{ padding: 4px 2px; }}
+QTreeView::item {{ padding: 4px 3px; }}
 QTreeView:focus::item:selected, QTableView:focus::item:selected {{ border: 2px solid {t.accent_hi}; }}
-QTreeView::item:hover:!selected {{ background: {t.border}; }}
+QTreeView::item:hover:!selected {{ background: {t.hover}; }}
 QTreeView::item:selected {{ background: {t.accent}; color: white; }}
 QTreeView#navigator::item:selected, QTreeView#navigator::item:hover, QTreeView#navigator::item {{ background: transparent; }}
-QTreeView#navigator {{ selection-background-color: transparent; }}
+QTreeView#navigator::item:selected {{ border: 0; }}
+QTreeView#navigator {{ background: transparent; selection-background-color: transparent; }}
+QTreeView#navigator:focus {{ border: 0; }}
 QTabWidget::pane {{ border: 0; border-top: 1px solid {t.border}; }}
-QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 7px 14px; border: 0; border-bottom: 2px solid transparent; }}
+QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: {t.text}; border-bottom: 2px solid {t.accent_hi}; }}
 QTabBar::tab:hover {{ color: {t.text}; }}
+QTabWidget#workspaceTabs QTabBar::tab {{ padding: 4px 10px; font-size: 11px; }}
+QLabel#scopeBreadcrumb {{ padding: 5px 10px; color: {t.muted}; }}
+QSplitter::handle {{ background: {t.border}; }}
+QSplitter::handle:hover {{ background: {t.accent_hi}; }}
 QHeaderView::section {{ background: {t.bg}; color: {t.muted}; border: 0; border-bottom: 1px solid {t.border};
-                        padding: 6px 8px; font-weight: 600; }}
-QTableView {{ background: {t.base}; gridline-color: transparent; border: 0; selection-background-color: {t.selected_row}; selection-color: {t.text}; }}
-QTableView::item {{ padding: 3px 6px; }}
-QTableView::item:hover:!selected {{ background: {t.border}; }}
-QMenuBar QToolBar {{ border: 0; padding: 0; }}
-QDockWidget {{ titlebar-close-icon: none; }}
-QDockWidget::title {{ background: {t.bg}; padding: 6px 8px; border-bottom: 1px solid {t.border}; }}
-QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {{ background: {t.base}; border: 1px solid {t.input_border}; border-radius: 4px; padding: 3px 6px; }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus {{ border-color: {t.accent_hi}; }}
+                        padding: 7px 9px; font-weight: 600; }}
+QTableView {{ background: {t.base}; alternate-background-color: {t.bg}; gridline-color: transparent; border: 0; selection-background-color: {t.selected_row}; selection-color: {t.text}; }}
+QTableView::item {{ padding: 4px 7px; border-bottom: 1px solid {t.border}; }}
+QTableView::item:hover:!selected {{ background: {t.hover}; }}
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit, QDateTimeEdit, QPlainTextEdit {{ background: {t.base}; border: 1px solid {t.input_border}; border-radius: 6px; padding: 5px 8px; selection-background-color: {t.accent}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTimeEdit:focus, QDateTimeEdit:focus, QPlainTextEdit:focus {{ border-color: {t.accent_hi}; }}
+QComboBox::drop-down {{ border: 0; width: 22px; }}
+QComboBox QAbstractItemView {{ background: {t.base}; border: 1px solid {t.border}; selection-background-color: {t.selected_row}; padding: 4px; }}
 QPlainTextEdit {{ border-radius: 0; }}
 QPlainTextEdit[readOnly="true"], QTextBrowser {{ border: 0; }}
 QPlainTextEdit[readOnly="true"]:focus, QTextBrowser:focus {{ border: 1px solid {t.accent_hi}; }}
-QPushButton {{ background: {t.border}; border: 1px solid transparent; border-radius: 4px; padding: 4px 12px; }}
+QPushButton {{ background: {t.border}; border: 1px solid transparent; border-radius: 6px; padding: 6px 12px; }}
 QPushButton:focus {{ border-color: {t.accent_hi}; }}
-QPushButton:hover {{ background: {t.hover}; }}
+QPushButton:hover {{ background: {t.hover}; border-color: {t.input_border}; }}
+QPushButton:pressed {{ background: {t.accent}; color: white; }}
+QPushButton:disabled {{ color: {t.muted}; background: {t.bg}; border-color: {t.border}; }}
 QPushButton:checked {{ background: {t.accent}; color: white; }}
-QMenu {{ background: {t.bg}; border: 1px solid {t.border}; padding: 4px; }}
-QMenu::item {{ padding: 5px 22px; border-radius: 3px; }}
+QPushButton:default {{ background: {t.accent}; color: white; }}
+QPushButton:default:disabled {{ background: {t.bg}; color: {t.muted}; }}
+QCheckBox, QRadioButton {{ spacing: 7px; }}
+QGroupBox {{ border: 1px solid {t.border}; border-radius: 8px; margin-top: 10px; padding: 10px; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 5px; color: {t.muted}; }}
+QToolTip {{ background: {t.bg}; color: {t.text}; border: 1px solid {t.input_border}; padding: 5px 7px; }}
+QMenu {{ background: {t.bg}; border: 1px solid {t.border}; padding: 5px; }}
+QMenu::item {{ padding: 6px 24px; border-radius: 4px; }}
 QMenu::item:selected {{ background: {t.accent}; color: white; }}
-QMenu::separator {{ height: 1px; background: {t.border}; margin: 4px 6px; }}
+QMenu::item:disabled {{ color: {t.muted}; }}
+QMenu::separator {{ height: 1px; background: {t.border}; margin: 5px 7px; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0; }}
 QScrollBar::handle {{ background: {t.border}; border-radius: 4px; min-height: 28px; min-width: 28px; }}

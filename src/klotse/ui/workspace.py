@@ -9,7 +9,7 @@ from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
-                               QTabWidget, QToolBar)
+                               QTabWidget, QToolBar, QSizePolicy, QWidget)
 
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
@@ -237,6 +237,7 @@ class ClusterWorkspace(QMainWindow):
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("workspaceTabs")
         self.tabs.setAccessibleName(f"Resource views for {context}")
         self.tabs.setTabBar(ScrollableTabBar())
         self.tabs.setTabsClosable(True)
@@ -251,6 +252,7 @@ class ClusterWorkspace(QMainWindow):
         self.detail.related_requested.connect(self._load_related)
         self.detail.goto_object.connect(self.go_to_object)
         self.detail_dock = QDockWidget("Details", self)
+        self.detail_dock.setObjectName("detailsDock")
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
         self.detail_dock.dockLocationChanged.connect(self._limit_dock)
@@ -314,6 +316,12 @@ class ClusterWorkspace(QMainWindow):
         bar = QToolBar()
         bar.setMovable(False)
         self.addToolBar(bar)
+        self.scope_breadcrumb = QLabel(self.context)
+        self.scope_breadcrumb.setObjectName("scopeBreadcrumb")
+        bar.addWidget(self.scope_breadcrumb)
+        scope_space = QWidget()
+        scope_space.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        bar.addWidget(scope_space)
         self.ns_combo = QComboBox()
         self.ns_combo.setAccessibleName("Filter resource lists by namespace")
         self.ns_combo.addItems([ALL_NS, DEFAULT_NS])
@@ -472,8 +480,10 @@ class ClusterWorkspace(QMainWindow):
         groups = T(CRD_GROUP_COLUMNS, "CRDGroup", editable=False)
         self.views["crd-groups"] = (groups, "CRD groups")
         self.loaders["crd-groups"] = (lambda ns: crd_groups(svc().list_resource("crds", ns)), False, groups.set_rows)
-        for key, (widget, _) in self.views.items():
+        for key, (widget, title) in self.views.items():
             widget.view_key = key
+            if isinstance(widget, ResourceTable):
+                widget.set_page_title(title)
 
     def resource_tables(self):
         for widget, _ in self.views.values():
@@ -702,6 +712,8 @@ class ClusterWorkspace(QMainWindow):
     def _on_tab_changed(self, index):
         if index >= 0:
             widget = self.tabs.widget(index)
+            if hasattr(self, "scope_breadcrumb"):
+                self.scope_breadcrumb.setText(f"{self.context}  /  {self.tabs.tabText(index)}")
             self.view_opened.emit(widget.view_key)
             self._sync_ns_selector()
             self._sync_details_to_tab(widget)
@@ -1017,6 +1029,7 @@ class ClusterWorkspace(QMainWindow):
         key = f"crd-group:{group}"
         if key not in self.views:
             table = ResourceTable(SPEC_BY_KEY["crds"].columns, "CustomResourceDefinition", editable=False)
+            table.set_page_title(f"CRDs: {group or '(core)'}")
             table.view_key = key
             table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
             table.action_requested.connect(self._crd_action)
@@ -1039,6 +1052,7 @@ class ClusterWorkspace(QMainWindow):
             columns = special or ([("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")])
             editable = gateway_api.is_gateway_group(group)
             table = ResourceTable(columns, kind if editable else "CustomResource", editable=editable, customizable=False)
+            table.set_page_title(kind)
             table.view_key = key
             if editable:  # the Gateway API kinds: Edit… as YAML, New…, Delete…
                 self._custom_kinds[kind] = (group, version, plural, namespaced)
@@ -2729,6 +2743,7 @@ class ClusterWorkspace(QMainWindow):
             bar.set_row(self._node_row(node) or row, gone=False)
         else:
             table = ResourceTable(POD_COLUMNS, "Pod", customizable=True)
+            table.set_page_title(f"Pods on {node}")
             table.customize_requested.connect(self.customize_requested)
             bar = NodeActionBar(node)
             bar.set_row(self._node_row(node) or row, gone=False)
@@ -2880,6 +2895,7 @@ class ClusterWorkspace(QMainWindow):
             self.open_view(key)
             return
         table = ResourceTable(CONTAINER_COLUMNS, "Container", editable=False)
+        table.set_page_title(f"Containers in {row.name}")
         table.view_key = key
         bar = PodActionBar()
         table.set_header_widget(bar)
