@@ -1534,9 +1534,19 @@ class ClusterWorkspace(QMainWindow):
         available = getattr(self.service, "metrics_available", lambda: True)()
         what = f"{kind} {namespace + '/' if namespace else ''}{row.name}"
         dialog = MetricsDialog(f"Usage history: {what} ({self.context})", lambda: sample(kind, namespace, row.name, selector),
-                               metrics_history.reference_lines(kind, row), available, parent=self)
+                               metrics_history.reference_lines(kind, row), available, parent=self,
+                               object_options={row.name: what, "total": what})
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
+        def go_to_line(name):
+            if name == row.name or kind in ("Pod", "Node"):
+                target_kind, target_namespace, target_name = kind, namespace, row.name
+            elif kind in ("Deployment", "StatefulSet", "DaemonSet"):
+                target_kind, target_namespace, target_name = "Pod", namespace, name
+            else:
+                return
+            self.go_to_object(target_kind, target_namespace, target_name)
+        dialog.go_to_requested.connect(go_to_line)
         dialog.source_requested.connect(lambda: self._configure_prometheus(dialog, kind, row, selector))
         dialog.show()
         self._metrics_dialogs.append(dialog)
@@ -1580,9 +1590,19 @@ class ClusterWorkspace(QMainWindow):
 
         available = getattr(self.service, "metrics_available", lambda: True)()
         title = f"Usage history: {len(targets)} {kind}s ({self.context})"
-        dialog = MetricsDialog(title, read, None, available, parent=self, allow_source=False)
+        object_options = {label: f"{kind} {label}" for label in labels}
+        dialog = MetricsDialog(title, read, None, available, parent=self, allow_source=False,
+                               object_options=object_options)
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
+        def go_to_line(name):
+            if name == "total":
+                return
+            for label, (namespace, object_name, _selector) in zip(labels, targets):
+                if name == label:
+                    self.go_to_object(kind, namespace, object_name)
+                    return
+        dialog.go_to_requested.connect(go_to_line)
         dialog.show()
         self._metrics_dialogs.append(dialog)
         return dialog

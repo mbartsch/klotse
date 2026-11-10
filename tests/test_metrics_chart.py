@@ -116,6 +116,9 @@ def test_the_chart_scales_labels_and_names_the_nearest_values(qtbot):
     assert (t0, t1) == (t, t + 30) and top > 0.5  # the reference line is inside the scale
     text = chart.tooltip_at(chart.plot_rect().right() - 1)
     assert "total: 300m" in text and "app: 200m" in text
+    x = chart.plot_rect().right() - 1
+    assert chart.line_at(x, chart._to_point(t + 30, 0.3, chart.plot_rect(), chart.ranges()).y()) == "total"
+    assert chart.line_at(1, 1) == ""
     assert chart.tooltip_at(1) == ""  # left of the plot
     pixmap = QPixmap(chart.size())
     chart.render(pixmap)  # painting must not fail
@@ -140,6 +143,7 @@ def test_the_window_samples_on_a_timer_and_charts_the_history(qtbot):
     wait_for(qtbot, dialog, 3)
     assert "samples since" in dialog.status.text() and dialog.cpu_chart.refs == {"limit": 0.5}
     assert len(dialog.cpu_chart.series["total"]) >= 3 and dialog.mem_chart.series["total"][-1][1] == 64.0
+    assert all(action.text() != "total" for action in dialog.go_to_menu.actions())
     dialog.pause_button.setChecked(True)
     qtbot.wait(150)
     frozen = dialog.history.count()
