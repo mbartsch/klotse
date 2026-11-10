@@ -3,7 +3,7 @@ user presses Show values, and values that look secret (passwords, tokens, keys, 
 box is ticked. The dialog only shows and asks; the workspace confirms and runs the uninstall."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QTabWidget,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QTabWidget,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..k8s import helm
@@ -11,6 +11,7 @@ from . import theme
 from .manifest import dump_manifest
 from .rollout_dialog import created_text
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 HISTORY_HEADERS = ["Revision", "Status", "Updated", "Chart", "App version", "Description"]
 HIDDEN_NOTE = "Values are hidden until you press Show values. They can contain passwords and tokens, so they are never logged."
@@ -40,10 +41,10 @@ class HelmReleaseDialog(QDialog):
         self.status.setWordWrap(True)
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.uninstall_button)
-        buttons.addWidget(self.status, 1)
-        buttons.addWidget(close)
+        footer = QHBoxLayout()
+        footer.addWidget(self.status, 1)
+        footer.addWidget(action_box(self, (self.uninstall_button, QDialogButtonBox.DestructiveRole),
+                                    (close, QDialogButtonBox.RejectRole)))
         layout = QVBoxLayout(self)
         layout.addWidget(self.header)
         if data.get("skipped"):
@@ -51,7 +52,7 @@ class HelmReleaseDialog(QDialog):
             note.setStyleSheet(theme.warning_style())
             layout.addWidget(note)
         layout.addWidget(self.tabs, 1)
-        layout.addLayout(buttons)
+        layout.addLayout(footer)
 
     # ---- tabs ----------------------------------------------------------------------------------------------------
     def _summary_tab(self, s):

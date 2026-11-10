@@ -1,12 +1,13 @@
 """View > RBAC lookup…: "who can do X?" and "what can this user, group or service account do?", worked out from the cluster's Roles,
 ClusterRoles and bindings (see k8s/rbac_lookup.py). Looking only."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from ..k8s.rbac_lookup import Rbac, rule_rows
 from . import theme
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 VERBS = ("get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "*")
 SUBJECT_KINDS = ("ServiceAccount", "User", "Group")
@@ -104,16 +105,14 @@ class RbacDialog(QDialog):
         caveat = QLabel(CAVEAT)
         caveat.setWordWrap(True)
         theme.muted(caveat)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.reload_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         outer = QVBoxLayout(self)
         outer.addWidget(self.header)
         outer.addWidget(self.status)
         outer.addWidget(self.tabs, 1)
         outer.addWidget(caveat)
-        outer.addLayout(buttons)
+        outer.addWidget(buttons)
         self._set_ready(False)
 
     def _set_ready(self, ready):

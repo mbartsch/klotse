@@ -3,13 +3,14 @@ Looking only: nothing is deleted from here. Double-click goes to the object."""
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout)
 
 from ..k8s import unused
 from ..k8s.util import format_age
 from . import theme
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 HEADERS = ["Kind", "Namespace", "Name", "Age", "Note"]
 LABELS = (("ConfigMap", "ConfigMaps"), ("Secret", "Secrets"), ("PersistentVolumeClaim", "Claims"))
@@ -61,17 +62,15 @@ class UnusedDialog(QDialog):
         note = QLabel(CAVEAT)
         note.setWordWrap(True)
         theme.muted(note)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.reload_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addLayout(options)
         lay.addWidget(self.table, 1)
         lay.addWidget(note)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
 
     def show_result(self, rows, judged, problems=()):
         self.rows = list(rows)

@@ -1,12 +1,13 @@
 """View > Trivy reports…: the Trivy Operator's reports (see k8s/trivy.py) in four tabs: vulnerabilities, config audit, exposed secrets and RBAC.
 Looking only. A tab loads the first time it is shown; double-click opens the full report of that workload. Matched secret text is never shown."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget,
+from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..k8s import trivy
 from . import theme
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 BASE = ["Namespace", "Workload", "Container"]
 COUNTS = ["Critical", "High", "Medium", "Low", "Unknown"]
@@ -108,15 +109,13 @@ class TrivyDialog(QDialog):
                       "whole report. Exposed secret reports never show the matched text.")
         note.setWordWrap(True)
         theme.muted(note)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.reload_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.tabs, 1)
         lay.addWidget(note)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
 
     def current_page(self):
         return self.tabs.currentWidget()
@@ -175,15 +174,13 @@ class ReportDialog(QDialog):
         copy.clicked.connect(self.copy)
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
-        buttons = QHBoxLayout()
-        buttons.addWidget(copy)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (copy, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.summary)
         lay.addWidget(self.filter)
         lay.addWidget(self.table, 1)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
 
     def _apply(self):
         words = self.filter.text().lower().split()

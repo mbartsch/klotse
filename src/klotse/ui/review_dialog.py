@@ -2,12 +2,13 @@
 object. Opened by the edit flow after Save in a form or the YAML editor; the user answers Save, Back to editing, or Cancel."""
 import html
 
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
 from ..k8s import compare
 from . import theme
 from .manifest import dump_manifest
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 SAVE, EDIT, CANCEL = "save", "edit", "cancel"
 
@@ -43,15 +44,14 @@ class ReviewDialog(QDialog):
         self.save_button.clicked.connect(lambda: self._finish(SAVE))
         self.back_button.clicked.connect(lambda: self._finish(EDIT))
         cancel.clicked.connect(lambda: self._finish(CANCEL))
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        for button in (self.save_button, self.back_button, cancel):
-            buttons.addWidget(button)
+        buttons = action_box(self, (self.save_button, QDialogButtonBox.AcceptRole),
+                             (self.back_button, QDialogButtonBox.ActionRole),
+                             (cancel, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.status)
         lay.addWidget(self.summary)
         lay.addWidget(self.view, 1)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
         self.save_button.setDefault(False)
         self.back_button.setDefault(True)
 

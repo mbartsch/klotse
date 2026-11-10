@@ -3,11 +3,13 @@ the workspace confirms the rollback and talks to the cluster."""
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout)
 
 from ..k8s.util import format_age
 from . import theme
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 HEADERS = ["Revision", "State", "Created", "Images", "Replicas", "Change cause"]
 
@@ -48,9 +50,9 @@ class RolloutDialog(QDialog):
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         buttons = QHBoxLayout()
-        buttons.addWidget(self.rollback_button)
         buttons.addWidget(self.status, 1)
-        buttons.addWidget(close)
+        buttons.addWidget(action_box(self, (self.rollback_button, QDialogButtonBox.AcceptRole),
+                                     (close, QDialogButtonBox.RejectRole)))
         layout = QVBoxLayout(self)
         layout.addWidget(self.header)
         layout.addWidget(self.note)

@@ -1,12 +1,14 @@
 """View > Right-sizing…: requests and limits against current usage, per workload, with advice (see k8s/rightsizing.py). Looking only.
 Usage is one sample taken now, which the dialog says; double-click goes to the workload."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QTableWidget, QVBoxLayout)
 
 from ..k8s import rightsizing as rs
 from . import theme
 from .capacity_dialog import _Item
 from .dialog_sizing import resize_dialog
+from .dialog_actions import action_box
 
 HEADERS = ["Workload", "Namespace", "Pods", "CPU request", "CPU used (max)", "CPU advice", "CPU verdict", "Mem request",
            "Mem used (max)", "Mem advice", "Mem verdict"]
@@ -57,17 +59,15 @@ class RightSizingDialog(QDialog):
         options = QHBoxLayout()
         options.addWidget(self.only_attention)
         options.addWidget(self.filter, 1)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.reload_button)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addLayout(options)
         lay.addWidget(self.table, 1)
         lay.addWidget(note)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
 
     def show_pods(self, pods):
         self.rows = rs.analyze(pods)
