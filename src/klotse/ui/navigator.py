@@ -49,7 +49,7 @@ def dot_icon(color):
 
 
 class Navigator(QTreeWidget):
-    """Lens-style sidebar. Clusters are split into Connected / Disconnected sections, each with a status dot;
+    """Lens-style sidebar. Cluster rows name their connection state and retain a status icon;
     a connected cluster expands into its resource views. Right-click a cluster to connect or disconnect it.
 
     The Disconnected section can be organised in groups (nested folders, see cluster_groups.ClusterGroups): right-click
@@ -80,6 +80,8 @@ class Navigator(QTreeWidget):
         self._clusters = {}
         self._order = {}  # name -> position in the kubeconfig, so each section keeps a stable order
         self._states = {}
+        self._failures = {}
+        self._aliases = {}
         self.groups = None  # a ClusterGroups, or None for a plain list
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
@@ -138,15 +140,16 @@ class Navigator(QTreeWidget):
     def set_contexts(self, names, groups=None, aliases=None):
         self.clear()
         self._clusters, self._states, self._group_items = {}, {}, {}
+        self._failures = {}
+        self._aliases = dict(aliases or {})
         self.groups = groups
         self._order = {n: i for i, n in enumerate(names)}
         self._connected_hdr = self._header("Connected")
         self._idle_hdr = self._header("Disconnected")
         for n in names:
-            it = QTreeWidgetItem([(aliases or {}).get(n, n)])
+            it = QTreeWidgetItem()
             it.setData(0, self.ROLE_KIND, "cluster")
             it.setData(0, self.ROLE_KEY, n)
-            it.setToolTip(0, n)
             it.setIcon(0, dot_icon(STATE_COLORS["idle"]))
             self._clusters[n] = it
             self._states[n] = "idle"
@@ -155,8 +158,20 @@ class Navigator(QTreeWidget):
     def set_alias(self, name, alias):
         item = self._clusters.get(name)
         if item is not None:
-            item.setText(0, alias or name)
+            self._aliases[name] = alias or name
+            self._refresh_cluster_text(name)
             self._update_headers()
+
+    def _refresh_cluster_text(self, name):
+        item = self._clusters.get(name)
+        if item is None:
+            return
+        state = self._states.get(name, "idle")
+        label = {"idle": "Disconnected", "connecting": "Connecting",
+                 "connected": "Connected", "failed": "Failed"}.get(state, state.title())
+        alias = self._aliases.get(name) or name
+        identity = alias if alias == name else f"{alias}  [{name}]"
+        item.setText(0, f"{label}  ·  {identity}")
 
     def _group_of(self, name):
         return self.groups.group_of(name) if self.groups is not None else ""
@@ -214,13 +229,18 @@ class Navigator(QTreeWidget):
         for path, folder in self._group_items.items():
             folder.setText(0, f"{leaf_name(path)} ({sum(1 for name in idle if inside(self._group_of(name), path))})")
         for name, item in self._clusters.items():
+            self._refresh_cluster_text(name)
             group = self._group_of(name)
             details = []
-            if item.text(0) != name:
+            details.append(f"Status: {self._states.get(name, 'idle').replace('idle', 'disconnected').title()}")
+            if (self._aliases.get(name) or name) != name:
+                details.append(f"Alias: {self._aliases[name]}")
                 details.append(f"Context: {name}")
             if group:
                 details.append(f"Group: {group}")
-            item.setToolTip(0, "\n".join(details) or name)
+            if self._failures.get(name):
+                details.extend(("Connection error:", self._failures[name]))
+            item.setToolTip(0, "\n".join(details))
 
     def cluster_item(self, name):
         return self._clusters.get(name)
@@ -228,11 +248,13 @@ class Navigator(QTreeWidget):
     def state(self, name):
         return self._states.get(name)
 
-    def set_state(self, name, state):
+    def set_state(self, name, state, error=None):
         item = self._clusters.get(name)
         if item is None:
             return
         self._states[name] = state
+        self._failures[name] = str(error).strip() if state == "failed" and error else ""
+        self._refresh_cluster_text(name)
         item.setIcon(0, dot_icon(STATE_COLORS[state]))
         want = self._connected_hdr if state in ACTIVE_STATES else self._idle_parent(name)
         if item.parent() is want:

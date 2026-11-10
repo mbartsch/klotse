@@ -45,7 +45,7 @@ def test_group_folders_keep_expansion_and_long_context_names_remain_available(qt
     nav._layout_idle()
     assert not nav._group_items["production"].isExpanded()
     assert nav._group_items["production/europe"].childCount() == len(contexts)
-    assert nav.cluster_item(contexts[-1]).toolTip(0) == "Group: production/europe"
+    assert "Group: production/europe" in nav.cluster_item(contexts[-1]).toolTip(0)
 
     nav.set_alias(contexts[-1], "EU production")
     assert "Context: " + contexts[-1] in nav.cluster_item(contexts[-1]).toolTip(0)
@@ -66,3 +66,32 @@ def test_many_connected_clusters_keep_independent_expanded_resource_trees(qtbot)
     assert all(nav.cluster_item(context).isExpanded() for context in contexts)
     assert all(nav.cluster_item(context).childCount() == nav.cluster_item(contexts[0]).childCount()
                for context in contexts)
+
+
+def test_cluster_states_are_textual_aliases_keep_context_and_failure_detail(qtbot):
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["prod/eu"], aliases={"prod/eu": "EU production"})
+    item = nav.cluster_item("prod/eu")
+
+    assert "Disconnected" in item.text(0)
+    assert "EU production" in item.text(0) and "[prod/eu]" in item.text(0)
+    assert "Status: Disconnected" in item.toolTip(0)
+
+    nav.set_state("prod/eu", "connecting")
+    assert "Connecting" in item.text(0)
+    assert item.parent() is nav._connected_hdr
+    nav.set_state("prod/eu", "connected")
+    assert "Connected" in item.text(0)
+
+    nav.set_state("prod/eu", "failed", "Unauthorized: token expired")
+    assert "Failed" in item.text(0)
+    assert item.parent() is nav._idle_hdr
+    assert "Connection error:" in item.toolTip(0)
+    assert "Unauthorized: token expired" in item.toolTip(0)
+    assert "Alias: EU production" in item.toolTip(0)
+    assert "Context: prod/eu" in item.toolTip(0)
+
+    nav.set_state("prod/eu", "idle")
+    assert "Disconnected" in item.text(0)
+    assert "Unauthorized" not in item.toolTip(0)

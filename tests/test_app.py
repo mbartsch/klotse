@@ -678,13 +678,13 @@ def test_navigator_sections_and_state_moves(qtbot):
     nav.set_contexts(["a", "b", "c"])
 
     def sections():
-        return {nav.topLevelItem(i).text(0).split(" (")[0]: [nav.topLevelItem(i).child(j).text(0)
+        return {nav.topLevelItem(i).text(0).split(" (")[0]: [nav.topLevelItem(i).child(j).data(0, nav.ROLE_KEY)
                                                              for j in range(nav.topLevelItem(i).childCount())]
                 for i in range(nav.topLevelItemCount())}
 
     assert sections() == {"CONNECTED": [], "DISCONNECTED": ["a", "b", "c"]}
     assert nav.topLevelItem(0).text(0) == "CONNECTED (0)" and nav.topLevelItem(1).text(0) == "DISCONNECTED (3)"
-    nav.set_state("c", "connecting")  # connecting counts as connected so it jumps to the top at once
+    nav.set_state("c", "connecting")  # connecting counts as active so it jumps to the top at once
     nav.set_state("a", "connected")
     assert sections() == {"CONNECTED": ["a", "c"], "DISCONNECTED": ["b"]}  # kubeconfig order kept inside a section
     assert nav.topLevelItem(0).text(0) == "CONNECTED (2)" and nav.topLevelItem(1).text(0) == "DISCONNECTED (1)"

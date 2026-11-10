@@ -117,6 +117,8 @@ Keep this file and the issues in step: when an item is merged, mark it done here
 
 ### UX follow-ups
 
+- **Cluster connection status (#237, implemented locally; pending review):** navigator rows label Disconnected, Connecting, Connected and Failed in text alongside the existing icon. Alias and kubeconfig context are both visible; failed connection detail is available in the tooltip. Group placement and connection actions remain unchanged. Focused offscreen coverage in `tests/test_navigator_hierarchy.py` and `tests/test_app.py`; no manual display review.
+
 - **Navigator hierarchy (#236, implemented locally; pending review):** connected/disconnected section headers, disconnected cluster folders, resource categories and leaf views have distinct theme-aware typography and modest row spacing while leaf rows remain compact. Group expansion, context grouping, view click routing and cluster ordering are preserved; full context names remain available in tooltips for long names and narrow sidebars. Focused offscreen coverage is in `tests/test_navigator_hierarchy.py`; no manual display review. Not merged.
 
 - **Actionable resource-list states (#234, implemented locally; pending review):** ResourceTable distinguishes loading, empty results, filtered-empty results, refused lists and other failed loads. Retry and Copy error appear for initial failures, View permissions appears for refused lists, successful empty results can Refresh, and filtered-empty results can Clear filter. Refresh failures preserve rows already on screen. Metrics-capable lists with no readings identify metrics-server unavailability in the status line. Focused offscreen tests. Not merged.
