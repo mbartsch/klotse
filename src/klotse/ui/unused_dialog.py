@@ -54,7 +54,7 @@ class UnusedDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.cellDoubleClicked.connect(self._open_row)
-        self.reload_button = QPushButton("Look again")
+        self.reload_button = QPushButton("Refresh")
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel(CAVEAT)

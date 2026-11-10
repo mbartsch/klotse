@@ -38,7 +38,7 @@ class HealthDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.cellDoubleClicked.connect(self._open_row)
-        self.reload_button = QPushButton("Check again")
+        self.reload_button = QPushButton("Refresh")
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel("A finding is advice, not a verdict: a job may rightly have no probe and one replica may be on purpose. "

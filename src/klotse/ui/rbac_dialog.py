@@ -97,7 +97,7 @@ class RbacDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.addTab(who, "Who can…?")
         self.tabs.addTab(what, "What can a subject do?")
-        self.reload_button = QPushButton("Reload")
+        self.reload_button = QPushButton("Refresh")
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         caveat = QLabel(CAVEAT)

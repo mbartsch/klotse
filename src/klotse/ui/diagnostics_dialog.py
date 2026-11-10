@@ -62,7 +62,7 @@ class DiagnosticsDialog(QDialog):
         self.status = QLabel("")
         self.status.setWordWrap(True)
         theme.muted(self.status)
-        self.start_button = QPushButton("Export")
+        self.start_button = QPushButton("Export diagnostics")
         self.start_button.setDefault(True)
         self.start_button.clicked.connect(self.start)
         self.cancel_button = QPushButton("Cancel export")

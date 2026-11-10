@@ -89,7 +89,7 @@ class CapacityDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.addTab(self.nodes, "Nodes")
         self.tabs.addTab(self.spaces, "Namespaces")
-        self.reload_button = QPushButton("Reload")
+        self.reload_button = QPushButton("Refresh")
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         buttons = QHBoxLayout()

@@ -50,7 +50,7 @@ class SearchDialog(QDialog):
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.itemDoubleClicked.connect(lambda item: self._go(item.row()))
         self.table.keyPressEvent = self._table_key
-        self.go_button = QPushButton("Go to")
+        self.go_button = QPushButton("Go to object")
         self.go_button.clicked.connect(lambda: self._go(self.table.currentRow()))
         close = QPushButton("Close")
         close.clicked.connect(self.close)
