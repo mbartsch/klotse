@@ -36,6 +36,7 @@ class RolloutDialog(QDialog):
         self.note.setWordWrap(True)
         theme.muted(self.note)
         self.table = QTableWidget(0, len(HEADERS))
+        self.table.setAccessibleName("Deployment revisions")
         self.table.setHorizontalHeaderLabels(HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().hide()

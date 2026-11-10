@@ -34,6 +34,7 @@ class SearchDialog(QDialog):
         self._cancel = None
         self.hits = []
         self.box = QLineEdit(placeholderText="name words, key=value, kind:pod, ns:shop  (Enter searches)")
+        self.box.setAccessibleName("Search cluster objects")
         self.box.setClearButtonEnabled(True)
         self.only_ns = QCheckBox(f"Only namespace {namespace}")
         self.only_ns.setVisible(bool(namespace))
@@ -44,6 +45,7 @@ class SearchDialog(QDialog):
         self.status = QLabel("Type a query. Only names and labels are read from the cluster; no Secret data.")
         self.status.setWordWrap(True)
         self.table = QTableWidget(0, len(HEADERS))
+        self.table.setAccessibleName("Object search results")
         self.table.setHorizontalHeaderLabels(HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().hide()

@@ -156,6 +156,8 @@ def test_cluster_wide_kinds_use_the_unnamespaced_list():
 def test_the_dialog_asks_ignores_stale_answers_and_shows_hits(qtbot):
     d = SearchDialog("ctx", "shop")
     qtbot.addWidget(d)
+    assert d.box.accessibleName() == "Search cluster objects"
+    assert d.table.accessibleName() == "Object search results"
     asked = []
     d.search_requested.connect(lambda text, ns, cancel: asked.append((text, ns, cancel)))
     d.box.setText("web")

@@ -186,6 +186,7 @@ class BindingEditDialog(QDialog):
         self.banner.setVisible(bool(self.warnings))
 
         self.table = QTableWidget(0, 3)
+        self.table.setAccessibleName("Binding subjects")
         self.table.setHorizontalHeaderLabels(["Kind", "Name", "Namespace"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)

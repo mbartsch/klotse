@@ -60,6 +60,7 @@ class ScaleMonitor(QWidget):
         self.bar = QProgressBar()
         self.status = QLabel()
         self.pods = QTableWidget(0, 5)
+        self.pods.setAccessibleName("Pods affected by scaling")
         self.pods.setHorizontalHeaderLabels(["Pod", "Status", "Ready", "Restarts", "Issue"])
         self.pods.verticalHeader().hide()
         self.pods.setEditTriggers(QTableWidget.NoEditTriggers)

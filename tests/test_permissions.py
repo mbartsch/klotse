@@ -79,6 +79,8 @@ def dialog(qtbot, perms=PERMS):
 def test_the_dialog_lists_the_rules_and_filters_them(qtbot):
     d = dialog(qtbot)
     d.show()
+    assert d.filter.accessibleName() == "Filter effective permissions"
+    assert d.table.accessibleName() == "Effective permissions table"
     assert d.table.rowCount() == 3 and not d.note.isVisible()
     d.filter.setText("healthz")
     assert [d.table.isRowHidden(r) for r in range(3)] == [True, True, False]

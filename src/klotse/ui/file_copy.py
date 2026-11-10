@@ -199,6 +199,7 @@ class FileCopyPanel(QWidget):
         super().__init__(parent)
         self.manager = manager
         self.table = QTableWidget(0, len(self.HEADERS))
+        self.table.setAccessibleName("File copy operations")
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().hide()
