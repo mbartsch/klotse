@@ -244,4 +244,5 @@ def test_preferences_action_applies_the_dialog_choice(qtbot, tmp_path, monkeypat
     monkeypatch.setattr(main_module, "PreferencesDialog", FakeDialog)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
     win.preferences_action.trigger()
+    qtbot.waitUntil(lambda: win.kubeconfig_settings.path == path)
     assert win.kubeconfig_settings.path == path and not win.workspaces
