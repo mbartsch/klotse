@@ -28,6 +28,7 @@ from ..k8s import gateway as gateway_api
 from ..k8s.timing import name_of, timings
 from . import big_clusters
 from .action_icons import action_icon
+from .tab_scroll import ScrollableTabBar
 from ..k8s.client import HUGE_PODS
 from .compare_dialog import CompareDialog
 from .diagnostics_dialog import DiagnosticsDialog
@@ -234,6 +235,7 @@ class ClusterWorkspace(QMainWindow):
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
         self.tabs = QTabWidget()
+        self.tabs.setTabBar(ScrollableTabBar())
         self.tabs.setTabsClosable(True)
         self.tabs.setDocumentMode(True)
         self.tabs.tabCloseRequested.connect(self.tabs.removeTab)
