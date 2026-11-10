@@ -21,17 +21,62 @@ class LineChart(QWidget):
         super().__init__(parent)
         self.title, self.formatter = title, formatter
         self.series, self.refs, self.placeholder = {}, {}, "No samples yet"
+        self.selected_line = ""
         self.setMinimumHeight(170)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName(f"{title} usage chart" if title else "Usage chart")
         self.setMouseTracking(True)
+        self._update_accessible_description()
 
     def set_data(self, series, refs=None, placeholder=None):
         """`series`: {name: [(epoch seconds, value)]}; `refs`: {label: value} drawn as dashed horizontal lines."""
         self.series = {name: list(points) for name, points in series.items() if points}
         self.refs = dict(refs or {})
+        if self.selected_line not in self.series:
+            self.selected_line = next(iter(self.series), "")
         if placeholder is not None:
             self.placeholder = placeholder
+        self._update_accessible_description()
         self.update()
+
+    def _update_accessible_description(self):
+        if not self.series:
+            description = self.placeholder
+        else:
+            names = ", ".join(self.series)
+            points = self.series.get(self.selected_line, ())
+            latest = self.formatter(points[-1][1]) if points else "no reading yet"
+            activation = ("Enter does not navigate for the total series." if self.selected_line == "total"
+                          else "Press Enter to open the selected object's view.")
+            description = (f"Selected {self.selected_line}, latest value {latest}. Series: {names}. "
+                           f"Use Left and Right to select a series. {activation}")
+        self.setAccessibleDescription(description)
+
+    def _select_line(self, index):
+        names = list(self.series)
+        if not names:
+            return
+        self.selected_line = names[index % len(names)]
+        self._update_accessible_description()
+        self.update()
+
+    def keyPressEvent(self, event):
+        names = list(self.series)
+        if event.key() == Qt.Key_Left and names:
+            index = names.index(self.selected_line) if self.selected_line in self.series else 0
+            self._select_line(index - 1)
+        elif event.key() == Qt.Key_Right and names:
+            index = names.index(self.selected_line) if self.selected_line in self.series else -1
+            self._select_line(index + 1)
+        elif event.key() == Qt.Key_Home and names:
+            self._select_line(0)
+        elif event.key() == Qt.Key_End and names:
+            self._select_line(-1)
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space) and self.selected_line:
+            self.line_activated.emit(self.selected_line)
+        else:
+            super().keyPressEvent(event)
 
     # ---- geometry -------------------------------------------------------------------------------------------------
     def plot_rect(self):
@@ -67,6 +112,7 @@ class LineChart(QWidget):
         if not self.series:
             painter.setPen(muted)
             painter.drawText(rect, Qt.AlignCenter | Qt.TextWordWrap, self.placeholder)
+            self._paint_focus(painter)
             return
         bounds = self.ranges()
         t0, t1, top = bounds
@@ -90,13 +136,23 @@ class LineChart(QWidget):
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
             painter.drawText(QPointF(rect.right() - metrics.horizontalAdvance(f"{label} {self.formatter(value)}") - 2, y - 3), f"{label} {self.formatter(value)}")
         for index, (name, points) in enumerate(self.series.items()):
-            painter.setPen(QPen(self.colour(index), 2.6 if name == "total" else 1.6))
+            width = 3.4 if name == self.selected_line else 2.6 if name == "total" else 1.6
+            painter.setPen(QPen(self.colour(index), width))
             if len(points) == 1:  # one sample so far: a dot
                 painter.setBrush(self.colour(index))
                 painter.drawEllipse(self._to_point(points[0][0], points[0][1], rect, bounds), 3, 3)
             else:
                 painter.drawPolyline(QPolygonF([self._to_point(t, v, rect, bounds) for t, v in points]))
         self._paint_legend(painter, metrics)
+        self._paint_focus(painter)
+
+    def _paint_focus(self, painter):
+        if self.hasFocus():
+            painter.save()
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(theme.ACCENT_HI), 2))
+            painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 5, 5)
+            painter.restore()
 
     def _paint_legend(self, painter, metrics):
         x = self.width() - RIGHT

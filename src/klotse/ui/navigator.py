@@ -1,5 +1,5 @@
 from PySide6.QtCore import QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
 
 from .cluster_groups import clean_path, inside, leaf_name, parent_path
@@ -72,6 +72,7 @@ class Navigator(QTreeWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("navigator")
+        self.setAccessibleName("Cluster and resource navigator")
         self.setMouseTracking(True)
         self._hover = QModelIndex()
         self.setHeaderHidden(True)
@@ -136,6 +137,13 @@ class Navigator(QTreeWidget):
             painter.drawRoundedRect(QRect(6, option.rect.y() + 1, self.viewport().width() - 12, option.rect.height() - 2), 5, 5)
             painter.restore()
         super().drawRow(painter, option, index)
+        if selected and index == self.currentIndex() and self.hasFocus():
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(theme.TEXT), 2))
+            painter.drawRoundedRect(QRect(6, option.rect.y() + 1, self.viewport().width() - 12, option.rect.height() - 2), 5, 5)
+            painter.restore()
 
     def set_contexts(self, names, groups=None, aliases=None):
         self.clear()

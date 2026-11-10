@@ -125,6 +125,7 @@ class ResourceTable(QWidget):
         if kind == "Node":
             self.proxy.setFilterRole(TableModel.SearchRole)
         self.filter = QLineEdit(placeholderText="Filter…", clearButtonEnabled=True)
+        self.filter.setAccessibleName(f"Filter {kind} list")
         if kind == "Node":
             self.filter.setPlaceholderText("Filter nodes, labels and annotations…")
         self._filter_timer = QTimer(self, interval=200, singleShot=True)
@@ -137,13 +138,16 @@ class ResourceTable(QWidget):
         self.filter.textChanged.connect(lambda _: QTimer.singleShot(0, self._update_empty_state))
         self.status = QLabel("Not loaded")
         self.status.setWordWrap(True)
+        self.status.setAccessibleName(f"{kind} list status")
         self.selection_count = QLabel()
+        self.selection_count.setAccessibleName("Selected row count")
         self.selection_count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.selection_count.setText("0 selected")
         self._load_clock = QElapsedTimer()
         self._load_timer = QTimer(self, interval=1000)
         self._load_timer.timeout.connect(self._loading_tick)
         self.view = QTableView()
+        self.view.setAccessibleName(f"{kind} list")
         self.view.setModel(self.proxy)
         self.view.setSortingEnabled(True)
         # Preserve API order initially; sorting every row through Python/Qt on

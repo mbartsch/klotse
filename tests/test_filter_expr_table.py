@@ -27,6 +27,11 @@ def table(qtbot):
     return t
 
 
+def test_filter_and_resource_list_have_accessible_names(table):
+    assert table.filter.accessibleName() == "Filter Pod list"
+    assert table.view.accessibleName() == "Pod list"
+
+
 def shown(table, qtbot, text):
     table.filter.setText(text)
     qtbot.waitUntil(lambda: not table._filter_timer.isActive(), timeout=2000)

@@ -72,7 +72,7 @@ def _mix(a, b, weight=0.5):
 
 
 CLASSIC = Theme("Classic", bg="#1e2127", base="#16181d", border="#2b2f38", text="#d7dae0", muted="#9aa3b2",
-                accent="#3d7eff", accent_hi="#3d7eff", selected_row="#2b5099", hover="#394050", input_border=_mix("#2b2f38", "#9aa3b2"))
+                accent="#3474d7", accent_hi="#3d7eff", selected_row="#2b5099", hover="#394050", input_border=_mix("#2b2f38", "#9aa3b2"))
 # Neutrals tinted toward the logo's deep teal-navy, one teal accent from the uniform. Amber (#f5a524) is deliberately
 # not an accent: the app uses it for warnings (banners, hints, states).
 HARBOUR = Theme("Harbour", bg="#16232b", base="#101b22", border="#25383f", text="#dde5e3", muted="#8da4a8",
@@ -182,8 +182,9 @@ QToolBar QToolButton {{ padding: 4px 10px; border: 1px solid transparent; border
 QToolBar QToolButton:focus {{ border-color: {t.accent_hi}; }}
 QToolBar QToolButton:hover {{ background: {t.border}; }}
 QStatusBar {{ background: {t.bg}; color: {t.muted}; border-top: 1px solid {t.border}; }}
-QTreeView {{ background: {t.base}; border: 0; outline: 0; }}
+QTreeView {{ background: {t.base}; border: 0; }}
 QTreeView::item {{ padding: 4px 2px; }}
+QTreeView:focus::item:selected, QTableView:focus::item:selected {{ border: 2px solid {t.accent_hi}; }}
 QTreeView::item:hover:!selected {{ background: {t.border}; }}
 QTreeView::item:selected {{ background: {t.accent}; color: white; }}
 QTreeView#navigator::item:selected, QTreeView#navigator::item:hover, QTreeView#navigator::item {{ background: transparent; }}
