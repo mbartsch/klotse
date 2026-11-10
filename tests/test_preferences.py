@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pytest
 from PySide6.QtCore import QSettings
@@ -43,7 +44,11 @@ def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path)
     assert [a.text() for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]
     texts = [a.text() for a in win.edit_menu.actions() if not a.isSeparator()]
     assert texts == ["Undo", "Redo", "Cut", "Copy", "Paste", "Select All", "Preferences…"]
-    assert win.edit_actions.actions["copy"].shortcut().toString() and win.preferences_action.menuRole() is not None
+    assert win.edit_actions.actions["copy"].shortcut().toString()
+    from PySide6.QtGui import QAction
+    assert win.preferences_action.menuRole() == QAction.MenuRole.PreferencesRole
+    if sys.platform == "darwin":
+        assert win.menuBar().isNativeMenuBar()
 
 
 def test_text_box_commands_cut_copy_paste_undo(qtbot):
@@ -239,4 +244,5 @@ def test_preferences_action_applies_the_dialog_choice(qtbot, tmp_path, monkeypat
     monkeypatch.setattr(main_module, "PreferencesDialog", FakeDialog)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
     win.preferences_action.trigger()
+    qtbot.waitUntil(lambda: win.kubeconfig_settings.path == path)
     assert win.kubeconfig_settings.path == path and not win.workspaces
