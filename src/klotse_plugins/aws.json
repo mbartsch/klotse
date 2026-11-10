@@ -24,15 +24,15 @@
     },
     {
       "key": "price_od",
-      "title": "On-demand $/h"
+      "title": "On-demand price/h"
     },
     {
       "key": "price_now",
-      "title": "Price $/h"
+      "title": "Price/h"
     },
     {
       "key": "price_month",
-      "title": "Price $/month"
+      "title": "Price/month"
     },
     {
       "key": "launched",

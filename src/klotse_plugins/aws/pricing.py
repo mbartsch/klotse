@@ -17,6 +17,9 @@ from pathlib import Path
 from .safe import require_https
 
 BASE_URL = "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/ec2-ondemand-without-sec-sel"
+# AWS's China calculator routes through its aws-cn partition-specific calculator maps.
+CHINA_BASE_URL = ("https://b0.p.awsstatic.cn/pricing/2.0/meteredUnitMaps/aws-cn/ec2/CNY/current/"
+                  "ec2-ondemand-without-sec-sel")
 CACHE_MAX_AGE_S = 7 * 86400
 MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024  # the real files are about 1 MB uncompressed; refuse anything absurd
 HOURS_PER_MONTH = 730  # what AWS uses for monthly estimates
@@ -36,6 +39,7 @@ REGION_NAMES = {
     "eu-south-2": "EU (Spain)", "il-central-1": "Israel (Tel Aviv)", "me-south-1": "Middle East (Bahrain)",
     "me-central-1": "Middle East (UAE)", "mx-central-1": "Mexico (Central)", "sa-east-1": "South America (Sao Paulo)",
     "us-gov-east-1": "AWS GovCloud (US-East)", "us-gov-west-1": "AWS GovCloud (US)",
+    "cn-north-1": "China (Beijing)", "cn-northwest-1": "China (Ningxia)",
 }
 
 
@@ -45,14 +49,30 @@ class PriceError(Exception):
 
 @dataclass
 class PriceTable:
-    prices: dict  # instance type -> USD per hour
+    prices: dict  # instance type -> per-hour price in currency
     note: str = ""  # set when the table is older than it should be, and why
+    currency: str = "USD"
+
+
+class Price(float):
+    """A sortable numeric price whose currency stays available to the table formatter."""
+
+    def __new__(cls, value, currency="USD"):
+        result = super().__new__(cls, value)
+        result.currency = currency
+        return result
+
+
+def currency_for_region(region):
+    return "CNY" if str(region).startswith("cn-") else "USD"
 
 
 def price_url(region, os_name):
     name = REGION_NAMES.get(region)
     if name is None:
         raise PriceError(f"no price list is known for the region {region or '(unknown)'}")
+    if region.startswith("cn-"):
+        return f"{CHINA_BASE_URL}/{urllib.parse.quote(name)}/{os_name}/index.json"
     return f"{BASE_URL}/{urllib.parse.quote(name)}/{os_name}/index.json"
 
 
@@ -96,15 +116,16 @@ def on_demand_prices(region, os_name, cache_dir, fetch=download, now=time.time):
         except (OSError, ValueError, AttributeError):
             cached = None
     age = now() - cached["fetched"] if cached else None
+    currency = currency_for_region(region)
     if cached and 0 <= age < CACHE_MAX_AGE_S:
-        return PriceTable(cached["prices"])
+        return PriceTable(cached["prices"], currency=currency)
     try:
         prices = parse_price_file(fetch(url))
         if not prices:
             raise PriceError("the price file had no prices in it")
     except (OSError, ValueError, PriceError) as error:  # urllib errors are OSErrors; bad JSON is a ValueError
         if cached:
-            return PriceTable(cached["prices"], f"using prices from {int(age // 86400)} days ago: {error}")
+            return PriceTable(cached["prices"], f"using prices from {int(age // 86400)} days ago: {error}", currency)
         raise PriceError(f"could not download the prices for {region}: {error}") from error
     if path is not None:
         try:
@@ -112,4 +133,4 @@ def on_demand_prices(region, os_name, cache_dir, fetch=download, now=time.time):
             path.write_text(json.dumps({"fetched": now(), "prices": prices}), encoding="utf-8")
         except OSError:
             pass  # a cache that cannot be written only costs a download next time
-    return PriceTable(prices)
+    return PriceTable(prices, currency=currency)
