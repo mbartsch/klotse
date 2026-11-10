@@ -130,11 +130,31 @@ def rule_notes(rule):
     return notes
 
 
-def confirm_risky(parent, kind, name, warnings, action="Save"):
-    """Ask before changing or deleting a role that needs care (default answer No). True when there is nothing to ask."""
+def confirmation_target(parent, kind, name, namespace=None, context=None):
+    """Describe the cluster and object a high-impact confirmation applies to."""
+    raw = getattr(parent, "_raw", None) or {}
+    meta = raw.get("metadata") or {}
+    if namespace is None:
+        namespace = meta.get("namespace") or ""
+    if context is None:
+        widget = parent
+        while widget is not None:
+            context = getattr(widget, "context", None)
+            if context:
+                break
+            parent_getter = getattr(widget, "parent", None)
+            widget = parent_getter() if callable(parent_getter) else None
+    target_name = f"{namespace}/{name}" if namespace else str(name or "(unnamed)")
+    prefix = f"Cluster: {context}\n" if context else ""
+    return f"{prefix}Target: {kind} {target_name}"
+
+
+def confirm_risky(parent, kind, name, warnings, action="Save", namespace=None, context=None):
+    """Ask before changing or deleting a risky object (default No); True when there is nothing to ask."""
     if not warnings:
         return True
-    text = f"{kind} {name}\n\n" + "\n\n".join(warnings) + f"\n\n{action} anyway?"
+    target = confirmation_target(parent, kind, name, namespace, context)
+    text = target + "\n\n" + "\n\n".join(warnings) + f"\n\n{action} anyway?"
     return QMessageBox.question(parent, f"{action} {kind}?", text, QMessageBox.Yes | QMessageBox.No,
                                 QMessageBox.No) == QMessageBox.Yes
 
@@ -628,9 +648,11 @@ class RoleEditDialog(QDialog):
         if problems:
             QMessageBox.warning(self, "Cannot save", "\n".join(problems))
             return
+        meta = self._raw.get("metadata") or {}
         if grants_everything(self.rules) and QMessageBox.question(
-                self, "Grant everything?", "A rule gives every verb on every resource in every API group "
-                "(cluster-admin). Save anyway?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                self, "Grant everything?", confirmation_target(self, self.kind, meta.get("name", "")) +
+                "\n\nA rule gives every verb on every resource in every API group (cluster-admin). Save anyway?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         if not confirm_risky(self, self.kind, self._raw.get("metadata", {}).get("name", ""), self.warnings):
             return

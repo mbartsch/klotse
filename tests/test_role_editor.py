@@ -455,6 +455,15 @@ def test_confirm_risky_defaults_to_no_and_skips_when_nothing_to_say(qtbot, monke
     assert confirm_risky(None, "Role", "r", ["careful"]) is True
 
 
+def test_risky_confirmation_names_cluster_and_namespaced_object(monkeypatch):
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(a[2]) or QMessageBox.No)
+    parent = SimpleNamespace(context="production", _raw={"metadata": {"namespace": "payments"}})
+
+    assert confirm_risky(parent, "RoleBinding", "deployers", ["grants admin"]) is False
+    assert asked == ["Cluster: production\nTarget: RoleBinding payments/deployers\n\ngrants admin\n\nSave anyway?"]
+
+
 def test_dialog_shows_a_banner_and_asks_before_saving_a_flagged_role(qtbot, monkeypatch):
     plain = dialog(qtbot)
     assert plain.banner.isHidden()

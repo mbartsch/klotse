@@ -74,7 +74,8 @@ class PluginActionRunner(QObject):
             return
         resources = [resource_info(row) for row in rows]
         if action.dangerous or action.confirm:
-            text = action.confirm or (f"{label}: {action.title}\n\nThis plugin action can change things. "
+            text = f"Cluster: {self.ws.context}\nObjects: {describe(resources)}\n\n"
+            text += action.confirm or (f"{label}: {action.title}\n\nThis plugin action can change things. "
                                       f"Run it on {describe(resources)}?")
             if QMessageBox.question(self.ws, action.title, text, QMessageBox.Yes | QMessageBox.No,
                                     QMessageBox.No) != QMessageBox.Yes:
