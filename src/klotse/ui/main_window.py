@@ -125,7 +125,8 @@ class MainWindow(QMainWindow):
         self.edit_actions = EditActions(self.edit_menu, self)  # Undo / Redo / Cut / Copy / Paste / Select All
         self.edit_menu.addSeparator()
         self.preferences_action = QAction("Preferences…", self)
-        self.preferences_action.setMenuRole(QAction.PreferencesRole)
+        # Keep Preferences visible in Edit on macOS too; PreferencesRole lets Qt
+        # relocate it to the application menu, where it is easy to miss.
         self.preferences_action.setShortcut(QKeySequence.Preferences)
         self.preferences_action.triggered.connect(self.open_preferences)
         self.edit_menu.addAction(self.preferences_action)
