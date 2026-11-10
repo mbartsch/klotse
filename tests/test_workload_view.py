@@ -123,17 +123,46 @@ def test_the_panel_opens_workloads_formatted_with_a_yaml_switch(qtbot):
     assert panel.editor.isVisible() and panel.yaml_tools.isVisible() and "replicas: 3" in panel.toPlainText()
 
 
-def test_a_kind_without_a_formatted_page_keeps_summary_and_yaml_navigation(qtbot):
+def test_a_kind_without_a_formatted_page_opens_yaml_and_disables_summary(qtbot):
     panel = DetailPanel()
     qtbot.addWidget(panel)
     panel.show()
     panel.show_row(row({"metadata": {"name": "cm"}, "data": {"a": "1"}}))
     assert panel.view_bar.isVisible() and panel.formatted_button.text() == "Summary"
-    assert panel.formatted.isVisible() and not panel.editor.isVisible()
+    assert not panel.formatted_button.isEnabled()
+    assert not panel.formatted.isVisible() and panel.editor.isVisible()
+    assert panel.yaml_button.isChecked()
     assert panel.events_button.isVisible() and not panel.events_button.isEnabled()
     assert panel.related_button.isVisible() and not panel.related_button.isEnabled()
-    panel.yaml_button.click()
     assert panel.editor.isVisible() and panel.yaml_tools.isVisible()
+
+
+def test_automatic_yaml_fallback_restores_summary_but_manual_yaml_is_preserved(qtbot):
+    panel = DetailPanel()
+    qtbot.addWidget(panel)
+    panel.show_row(row({"metadata": {"name": "cm"}, "data": {"a": "1"}}))
+    panel.show_row(row(DEPLOY))
+    assert panel.formatted_button.isChecked() and panel.formatted_button.isEnabled()
+    panel.yaml_button.click()
+    panel.show_row(row(POD))
+    assert panel.yaml_button.isChecked()
+
+
+@pytest.mark.parametrize("kind", ["Node", "Deployment"])
+def test_formatter_failure_falls_back_to_yaml_after_a_supported_selection(qtbot, monkeypatch, kind):
+    from klotse.ui import detail_panel
+    panel = DetailPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.show_row(row(DEPLOY))
+    view = detail_panel.node_view if kind == "Node" else detail_panel.workload_view
+    def broken(*_args, **_kwargs):
+        raise ValueError("unexpected manifest")
+    monkeypatch.setattr(view, "render", broken)
+    selected = row({"kind": "Node", "metadata": {"name": "node"}}, table_kind="Node") if kind == "Node" else row(DEPLOY)
+    panel.show_row(selected)
+    assert not panel._formatted_ok and not panel.formatted_button.isEnabled()
+    assert panel.yaml_button.isChecked() and panel.editor.isVisible()
 
 
 def test_find_copy_and_wrap_in_the_yaml_view(qtbot):

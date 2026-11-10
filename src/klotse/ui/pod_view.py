@@ -1,5 +1,5 @@
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 from ..k8s.resources import Row
 from . import theme
@@ -37,8 +37,7 @@ def container_rows(raw):
 
 
 class PodActionBar(QWidget):
-    """Header of a pod's tab: the pod's name and state (cut with … when the tab is narrow, never covered) and one Actions menu
-    with the pod's own actions (container actions are on the rows below)."""
+    """Pod identity, a direct Logs action, and secondary actions in More…."""
 
     action_requested = Signal(str)  # logs | edit | copy-files | terminate | force-terminate
 
@@ -48,19 +47,25 @@ class PodActionBar(QWidget):
         self.title.setStyleSheet("font-weight: 600;")
         self.state = ElidedLabel()
         theme.muted(self.state)
+        self.logs_button = QToolButton(text="Logs")
+        self.logs_button.setAccessibleName("Show pod logs")
+        self.logs_button.setToolTip("Show logs for this pod")
+        self.logs_button.clicked.connect(lambda: self.action_requested.emit("logs"))
         self.menu_button, self.items = actions_button(
-            [("Logs", "logs"), ("Edit…", "edit"), ("Copy files…", "copy-files"), None, ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
-            self.action_requested.emit)
+            [("Edit…", "edit"), ("Copy files…", "copy-files"), None, ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
+            self.action_requested.emit, text="More…")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.title, 2)
         lay.addWidget(self.state, 3)
+        lay.addWidget(self.logs_button)
         lay.addWidget(self.menu_button)
 
     def set_row(self, row):
         self.title.setText(f"Pod {row.namespace}/{row.name}")
         self.state.setText(f"— {row.status}" + (f" on {row.node}" if row.node else ""))
         self.menu_button.setEnabled(True)
+        self.logs_button.setEnabled(True)
         for action in self.items:
             action.setEnabled(True)
 
@@ -68,5 +73,6 @@ class PodActionBar(QWidget):
         self.title.setText(f"Pod {name}")
         self.state.setText("— no longer in the cluster")
         self.menu_button.setEnabled(False)
+        self.logs_button.setEnabled(False)
         for action in self.items:
             action.setEnabled(False)

@@ -373,6 +373,15 @@ class MainWindow(QMainWindow):
         self.nav.alias_requested.connect(self.rename_cluster_alias)
 
         self.status = self.statusBar()
+        self.plugin_errors_button = QToolButton(self)
+        self.plugin_errors_button.setObjectName("pluginErrorsStatus")
+        self.plugin_errors_button.setText("Plugin error")
+        self.plugin_errors_button.setToolTip("Open the Plugins settings to review plugin errors")
+        self.plugin_errors_button.clicked.connect(self._open_plugin_errors)
+        self.status.addPermanentWidget(self.plugin_errors_button)
+        self.plugins.errors_changed.connect(self._sync_plugin_error_status)
+        self.plugins.changed.connect(self._sync_plugin_error_status)
+        self._sync_plugin_error_status()
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
         self.contexts, _ = self.new_service().load_contexts()
@@ -668,6 +677,31 @@ class MainWindow(QMainWindow):
     # ---- Plugins menu ---------------------------------------------------
     def _update_plugins_menu(self):
         self.plugins_menu.menuAction().setVisible(bool(self.plugins.cluster_plugins()))
+
+    def _plugin_errors(self):
+        found = {item.id: item for item in self.plugins.loaded}
+        errors = dict(self.plugins.errors)
+        for plugin_id, item in found.items():
+            if item.error:
+                errors.setdefault(plugin_id, item.error)
+        return [(plugin_id, (found[plugin_id].plugin or found[plugin_id].manifest).name
+                 if plugin_id in found and (found[plugin_id].plugin or found[plugin_id].manifest) else plugin_id, error)
+                for plugin_id, error in sorted(errors.items())]
+
+    def _sync_plugin_error_status(self, *_):
+        errors = self._plugin_errors()
+        count = len(errors)
+        self.plugin_errors_button.setVisible(bool(count))
+        self.plugin_errors_button.setText("Plugin error" if count == 1 else f"Plugin errors ({count})")
+        self.plugin_errors_button.setToolTip("\n".join(f"{name}: {error}" for _plugin_id, name, error in errors)
+                                              or "No plugin errors")
+        color = theme.BAD
+        self.plugin_errors_button.setStyleSheet(f"QToolButton#pluginErrorsStatus {{ color: {color}; font-weight: 600; }}")
+
+    def _open_plugin_errors(self):
+        errors = self._plugin_errors()
+        if errors:
+            self.open_preferences(errors[0][0])
 
     def _fill_plugins_menu(self):
         """One entry per enabled plugin with cluster settings, for the cluster in front (disabled without one)."""
@@ -1023,11 +1057,18 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
-    def open_preferences(self):
+    def open_preferences(self, plugin_id=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings)
+        if plugin_id and dialog.plugins_panel is not None:
+            dialog.tabs.setCurrentWidget(dialog.plugins_panel)
+            for index in range(dialog.plugins_panel.list.count()):
+                item = dialog.plugins_panel.list.item(index)
+                if item.data(Qt.UserRole).id == plugin_id:
+                    dialog.plugins_panel.list.setCurrentRow(index)
+                    break
         accepted = dialog.exec() == PreferencesDialog.Accepted
         self.apply_timing_log()
         chosen = dialog.chosen_kubeconfig()

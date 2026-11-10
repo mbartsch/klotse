@@ -512,7 +512,8 @@ def test_value_formats_and_the_console_link():
 def test_actions_are_only_offered_for_ec2_nodes():
     plugin = AwsPlugin()
     assert plugin.applies(plugin.actions[0], node("n1")) and not plugin.applies(plugin.actions[0], node("n", provider=False))
-    assert [(a.key, a.multi) for a in plugin.actions] == [("copy-id", True), ("console", False), ("cost", True)]
+    assert [(a.key, a.multi) for a in plugin.actions] == [
+        ("resource-details", False), ("resource-console", False), ("copy-id", True), ("console", False), ("cost", True)]
 
 
 def request_for(action, resources, **kwargs):

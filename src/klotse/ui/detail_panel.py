@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout
                                QWidgetAction)
 
 from ..k8s.related import KINDS as RELATED_KINDS
-from . import events_view, node_view, rbac_view, related_view, theme, workload_view
+from . import events_view, karpenter_view, network_view, node_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
 from .action_icons import action_icon
 
@@ -157,6 +157,7 @@ class DetailPanel(QWidget):
         self.formatted.setObjectName("detailFormatted")
         self.formatted.setOpenLinks(False)
         self.formatted.setOpenExternalLinks(False)
+        self.formatted.anchorClicked.connect(self._related_clicked)
         self.formatted_button = QPushButton("Summary", checkable=True)
         self.formatted_button.setAccessibleName("Show resource summary")
         self.formatted_button.setToolTip("A readable summary of the selected resource")
@@ -178,6 +179,7 @@ class DetailPanel(QWidget):
         bar.addWidget(self.related_button)
         for button in (self.formatted_button, self.yaml_button, self.events_button, self.related_button):
             button.setObjectName("detailViewButton")
+            button.clicked.connect(lambda _checked=False: setattr(self, "_summary_fallback", False))
         bar.addStretch(1)
         modes = QButtonGroup(self)
         modes.setExclusive(True)
@@ -231,6 +233,7 @@ class DetailPanel(QWidget):
         self.yaml_tools.hide()
         self.formatted.hide()
         self._formatted_ok = False  # the current row has a formatted view
+        self._summary_fallback = False  # distinguish automatic YAML from a user's choice
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(8)
@@ -290,6 +293,7 @@ class DetailPanel(QWidget):
         self.decode_button.hide()
         self.hide_values_button.hide()
         self._events_ok = self._related_ok = self._formatted_ok = False
+        self._summary_fallback = False
         self._events_row = self._related_row = None
         self.events.clear()
         self.related.clear()
@@ -334,6 +338,7 @@ class DetailPanel(QWidget):
             self.events.setHtml(events_view.render(events or [], getattr(row, "name", "")))
 
     def _render_formatted(self, row):
+        self._formatted_ok = False
         if getattr(row, "table_kind", None) == "Node" or hasattr(row, "is_ready"):
             try:
                 self.formatted.setHtml(node_view.render(row.raw, include_header=False))
@@ -346,8 +351,14 @@ class DetailPanel(QWidget):
             return
         kind, view = getattr(row, "rbac_kind", None), rbac_view
         if kind not in rbac_view.RBAC_KINDS:
-            kind, view = workload_view.kind_of(row.raw), workload_view
-        self._formatted_ok = False
+            kind = karpenter_view.kind_of(row.raw, getattr(row, "custom_kind", None),
+                                          getattr(row, "custom_group", None))
+            view = karpenter_view
+            if kind is None:
+                kind = network_view.kind_of(row.raw, getattr(row, "table_kind", None))
+                view = network_view
+                if kind is None:
+                    kind, view = workload_view.kind_of(row.raw), workload_view
         if kind is not None:
             try:
                 self.formatted.setHtml(view.render(kind, row.raw, include_header=False))
@@ -360,13 +371,16 @@ class DetailPanel(QWidget):
         self._show_mode()
 
     def set_object_actions(self, actions):
-        """Show the row's two most useful actions directly and keep the rest in an overflow menu."""
+        """Keep short action lists visible and always expose Logs beside longer lists."""
         while self.action_layout.count():
             item = self.action_layout.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
         actions = list(actions or [])
-        primary = [action for action in actions if action.primary][:2]
+        primary = actions if len(actions) <= 3 else [action for action in actions if action.primary][:2]
+        logs = next((action for action in actions if action.key in ("logs", "container-logs", "multi-logs")), None)
+        if len(actions) > 3 and logs is not None and logs not in primary:
+            primary = primary[:1] + [logs]
         overflow = [action for action in actions if action not in primary]
         for action in primary:
             button = QToolButton(text=action.title)
@@ -396,7 +410,12 @@ class DetailPanel(QWidget):
         """Keep the four detail destinations in one stable place and disable only unavailable views."""
         self.view_bar.setVisible(self._secret_row is not None)
         self.formatted_button.setVisible(True)
-        self.formatted_button.setEnabled(True)
+        self.formatted_button.setEnabled(self._formatted_ok)
+        self.formatted_button.setToolTip("A readable summary of the selected resource" if self._formatted_ok else
+                                        "No formatted summary is available; inspect this resource in YAML")
+        if self._formatted_ok and self._summary_fallback and self.yaml_button.isChecked():
+            self._summary_fallback = False
+            self.formatted_button.setChecked(True)
         self.yaml_button.setVisible(True)
         self.yaml_button.setEnabled(True)
         self.events_button.setVisible(True)
@@ -430,12 +449,14 @@ class DetailPanel(QWidget):
         self.identity_status.setText(status)
         folded = status.casefold()
         color = theme.BAD if any(word in folded for word in ("failed", "not ready", "error", "crash")) else (
-            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend")) else theme.OK)
+            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend", "warning")) else theme.OK)
         self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
         self.identity_header.show()
 
     @staticmethod
     def _identity_status_text(row, kind, raw):
+        if kind == "Event":
+            return str(raw.get("type") or getattr(row, "type", None) or "Unknown")
         if kind in workload_view.WORKLOAD_KINDS:
             return workload_view.status_line(kind, raw)[0]
         if kind == "Node":
@@ -461,11 +482,15 @@ class DetailPanel(QWidget):
             QGuiApplication.clipboard().setText(value)
 
     def _show_mode(self, *_):
+        if self._secret_row is not None and self.formatted_button.isChecked() and not self._formatted_ok:
+            self._summary_fallback = True
+            self.yaml_button.setChecked(True)
+            return
         if self.related_button.isChecked() and not self._related_ok:
-            self.formatted_button.setChecked(True)
+            (self.formatted_button if self._formatted_ok else self.yaml_button).setChecked(True)
             return
         if self.events_button.isChecked() and not self._events_ok:
-            self.formatted_button.setChecked(True)
+            (self.formatted_button if self._formatted_ok else self.yaml_button).setChecked(True)
             return
         related = self._related_ok and self.related_button.isChecked()
         events = not related and self._events_ok and self.events_button.isChecked()

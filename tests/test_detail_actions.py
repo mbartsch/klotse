@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import pytest
 
 from PySide6.QtWidgets import QToolButton
 
@@ -6,9 +7,24 @@ from klotse.ui.detail_panel import DetailPanel
 from klotse.ui.resource_table import ResourceTable
 from klotse.k8s.models import PodRow
 from klotse.ui.workspace import ClusterWorkspace
+from klotse.ui.resource_table import RowAction
 
 
-def test_deployment_details_promote_scale_actions_and_keep_other_actions_in_overflow(qtbot):
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_short_action_lists_show_every_action_without_more(qtbot, count):
+    panel = DetailPanel()
+    qtbot.addWidget(panel)
+    calls = []
+    actions = [RowAction(str(i), f"Action {i}", lambda i=i: calls.append(i)) for i in range(count)]
+    panel.set_object_actions(actions)
+    buttons = panel.action_bar.findChildren(QToolButton)
+    assert [button.text() for button in buttons] == [action.title for action in actions]
+    for button in buttons:
+        button.click()
+    assert calls == list(range(count))
+
+
+def test_deployment_details_keep_logs_visible_and_other_actions_in_overflow(qtbot):
     table = ResourceTable([("Name", "name")], "Deployment")
     row = SimpleNamespace(name="api", namespace="shop", raw={"metadata": {"name": "api", "namespace": "shop"}})
     calls = []
@@ -20,13 +36,13 @@ def test_deployment_details_promote_scale_actions_and_keep_other_actions_in_over
     qtbot.addWidget(panel)
     panel.set_object_actions(specs)
     direct = [button for button in panel.action_bar.findChildren(QToolButton) if button.text() != "More…"]
-    assert [button.text() for button in direct] == ["Edit…", "Scale…"]
-    next(button for button in direct if button.text() == "Scale…").click()
-    assert calls == [("scale", "Deployment", row)]
+    assert [button.text() for button in direct] == ["Edit…", "Logs of all pods…"]
 
     more = next(button for button in panel.action_bar.findChildren(QToolButton) if button.text() == "More…")
     menu_actions = {action.text(): action for action in more.menu().actions() if not action.isSeparator()}
-    assert {"Restart…", "Copy as new…", "Logs of all pods…", "Rollout history / Undo…"} <= set(menu_actions)
+    assert {"Scale…", "Restart…", "Copy as new…", "Rollout history / Undo…"} <= set(menu_actions)
+    menu_actions["Scale…"].trigger()
+    assert calls == [("scale", "Deployment", row)]
     menu_actions["Restart…"].trigger()
     assert calls[-1] == ("restart", "Deployment", row)
 

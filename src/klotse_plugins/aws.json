@@ -3,56 +3,172 @@
   "id": "aws",
   "name": "AWS Plugin",
   "version": "0.1",
-  "requires_api": 7,
+  "requires_api": 9,
   "description": "Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. China region prices use the AWS Price List API and need AWS credentials with pricing:GetProducts permission.",
   "columns": [
     {
+      "key": "aws_id",
+      "title": "AWS resource",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ]
+    },
+    {
+      "key": "aws_type",
+      "title": "AWS type",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ]
+    },
+    {
+      "key": "aws_state",
+      "title": "AWS state",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ]
+    },
+    {
+      "key": "aws_region",
+      "title": "AWS region",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ]
+    },
+    {
+      "key": "aws_details",
+      "title": "AWS details",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ]
+    },
+    {
       "key": "instance_id",
-      "title": "Instance ID"
+      "title": "Instance ID",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "instance_type",
-      "title": "Instance type"
+      "title": "Instance type",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "capacity",
-      "title": "Capacity"
+      "title": "Capacity",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "ami",
-      "title": "AMI"
+      "title": "AMI",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "price_od",
-      "title": "On-demand price/h"
+      "title": "On-demand price/h",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "price_now",
-      "title": "Price/h"
+      "title": "Price/h",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "price_month",
-      "title": "Price/month"
+      "title": "Price/month",
+      "kinds": [
+        "Node"
+      ]
     },
     {
       "key": "launched",
-      "title": "Launched"
+      "title": "Launched",
+      "kinds": [
+        "Node"
+      ]
     }
   ],
   "actions": [
     {
+      "key": "resource-details",
+      "title": "AWS infrastructure details…",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    },
+    {
+      "key": "resource-console",
+      "title": "Open AWS infrastructure console",
+      "kinds": [
+        "PersistentVolume",
+        "PersistentVolumeClaim",
+        "Service",
+        "Ingress"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    },
+    {
       "key": "copy-id",
       "title": "Copy instance ID",
-      "multi": true
+      "kinds": [
+        "Node"
+      ],
+      "multi": true,
+      "confirm": null,
+      "dangerous": false
     },
     {
       "key": "console",
-      "title": "Open in the EC2 console"
+      "title": "Open in the EC2 console",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
     },
     {
       "key": "cost",
       "title": "Estimate the cost of the selected nodes",
-      "multi": true
+      "kinds": [
+        "Node"
+      ],
+      "multi": true,
+      "confirm": null,
+      "dangerous": false
     }
   ],
   "overview_cards": [
@@ -75,93 +191,122 @@
       "label": "Use the AWS API when credentials are available",
       "default": true,
       "kind": "bool",
-      "help": "Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. China region prices also use the AWS Price List API and need pricing:GetProducts permission. It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick to skip EC2 metadata and Spot lookups; list-price lookup continues."
+      "help": "Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. China region prices also use the AWS Price List API and need pricing:GetProducts permission. It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick to skip EC2 metadata and Spot lookups; list-price lookup continues.",
+      "pattern": ""
     },
     {
       "key": "aws_profile",
       "label": "AWS profile (default for all clusters)",
       "default": "",
-      "help": "A profile from your AWS config. Empty uses the default credentials."
+      "kind": "text",
+      "help": "A profile from your AWS config. Empty uses the default credentials.",
+      "pattern": ""
     },
     {
       "key": "profile_map",
       "label": "AWS profile for each cluster",
       "default": "",
       "kind": "multiline",
-      "help": "Clusters in other accounts need their own profile. One per line, as context = profile; the context is the cluster's name in your kubeconfig. A cluster that is not listed uses the default profile above."
+      "help": "Clusters in other accounts need their own profile. One per line, as context = profile; the context is the cluster's name in your kubeconfig. A cluster that is not listed uses the default profile above.",
+      "pattern": ""
     },
     {
       "key": "keys_warning",
       "label": "<b style=\"font-size:16px\">Warning: a typed access key is stored unprotected</b><br>The key is saved as <b>plain text</b> in Klotse's settings file on this computer. Anyone who can read that file, this computer, or a backup or synced copy of it can use the key. <b>The Klotse authors accept no responsibility for any loss, cost or damage that results from using it</b>: this is your choice and your risk.<br>Prefer an AWS profile or IAM Identity Center (the AWS CLI keeps those safer). If you do use a key, make it a dedicated read-only one (EC2 describe and STS only), never a root or administrator key, and prefer temporary keys with a session token.",
-      "kind": "note"
+      "default": "",
+      "kind": "note",
+      "help": "",
+      "pattern": ""
     },
     {
       "key": "access_key_id",
       "label": "AWS access key ID (optional)",
       "default": "",
-      "help": "Instead of a profile. Needs the secret access key too. When both are filled in they are used for every cluster and replace all profiles. Read the warning above first."
+      "kind": "text",
+      "help": "Instead of a profile. Needs the secret access key too. When both are filled in they are used for every cluster and replace all profiles. Read the warning above first.",
+      "pattern": ""
     },
     {
       "key": "secret_access_key",
       "label": "AWS secret access key",
       "default": "",
       "kind": "password",
-      "help": "Saved as plain text in the settings file. Read the warning above first."
+      "help": "Saved as plain text in the settings file. Read the warning above first.",
+      "pattern": ""
     },
     {
       "key": "session_token",
       "label": "AWS session token (optional)",
       "default": "",
       "kind": "password",
-      "help": "Only for temporary keys (access key IDs starting with ASIA). Leave empty for long-lived keys. Temporary keys expire: paste new ones here when they do."
+      "help": "Only for temporary keys (access key IDs starting with ASIA). Leave empty for long-lived keys. Temporary keys expire: paste new ones here when they do.",
+      "pattern": ""
     },
     {
       "key": "multi_account",
       "label": "I use several AWS accounts in the console",
       "default": false,
       "kind": "bool",
-      "help": "Then \"Open in the EC2 console\" has to say which account to open. Fill in the three settings below."
+      "help": "Then \"Open in the EC2 console\" has to say which account to open. Fill in the three settings below.",
+      "pattern": ""
     },
     {
       "key": "sso_start_url",
       "label": "IAM Identity Center start URL",
       "default": "",
-      "help": "For example https://d-1234567890.awsapps.com/start . The link then signs in to the cluster's account and opens the instance page."
+      "kind": "text",
+      "help": "For example https://d-1234567890.awsapps.com/start . The link then signs in to the cluster's account and opens the instance page.",
+      "pattern": ""
     },
     {
       "key": "role_name",
       "label": "Role name",
       "default": "",
-      "help": "With IAM Identity Center: the permission set to sign in with. Without it: a role to switch to (the instance link is put on the clipboard to paste after switching)."
+      "kind": "text",
+      "help": "With IAM Identity Center: the permission set to sign in with. Without it: a role to switch to (the instance link is put on the clipboard to paste after switching).",
+      "pattern": ""
     },
     {
       "key": "auto_login",
       "label": "Sign in to the console automatically (needs boto3 and credentials)",
       "default": false,
       "kind": "bool",
-      "help": "Uses your AWS credentials (the profile above) to ask AWS for a one-time sign-in link and opens it in your browser, so there is no login page. The link is never shown, logged or kept. With several accounts it assumes the role named above in the cluster's account. Not used with IAM Identity Center, whose portal signs you in."
+      "help": "Uses your AWS credentials (the profile above) to ask AWS for a one-time sign-in link and opens it in your browser, so there is no login page. The link is never shown, logged or kept. With several accounts it assumes the role named above in the cluster's account. Not used with IAM Identity Center, whose portal signs you in.",
+      "pattern": ""
     },
     {
       "key": "account_map",
       "label": "Account for each cluster",
       "default": "",
       "kind": "multiline",
-      "help": "Which account a cluster is in, one per line as context = 123456789012. Only needed when the context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."
+      "help": "Which account a cluster is in, one per line as context = 123456789012. Only needed when the context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id).",
+      "pattern": ""
     }
   ],
   "cluster_settings": [
     {
+      "key": "cluster_region",
+      "label": "AWS region",
+      "default": "",
+      "kind": "text",
+      "help": "For AWS volumes without a region in their topology labels. Empty uses an EKS ARN context's region. Load-balancer hostnames supply their own region.",
+      "pattern": "[a-z]{2}(?:-gov)?-[a-z]+-\\d+"
+    },
+    {
       "key": "cluster_profile",
       "label": "AWS profile",
       "default": "",
-      "help": "The profile from your AWS config used for this cluster's EC2 lookups, cost estimate and console sign-in. Empty uses the entry in the plugin's settings, or the default profile."
+      "kind": "text",
+      "help": "The profile from your AWS config used for this cluster's EC2 lookups, cost estimate and console sign-in. Empty uses the entry in the plugin's settings, or the default profile.",
+      "pattern": ""
     },
     {
       "key": "cluster_account",
       "label": "AWS account ID",
       "default": "",
-      "pattern": "\\d{12}",
-      "help": "Usually leave empty: the account is taken from the plugin's per-cluster list, the EKS ARN in the context name, or else asked from AWS (sts get-caller-identity) for the profile above. Fill it in only to override that."
+      "kind": "text",
+      "help": "Usually leave empty: the account is taken from the plugin's per-cluster list, the EKS ARN in the context name, or else asked from AWS (sts get-caller-identity) for the profile above. Fill it in only to override that.",
+      "pattern": "\\d{12}"
     }
   ]
 }
