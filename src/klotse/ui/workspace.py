@@ -328,6 +328,7 @@ class ClusterWorkspace(QMainWindow):
         self._sync_pin_button()
         refresh = QAction("Refresh", self)
         refresh.setShortcut(QKeySequence.Refresh)
+        refresh.setToolTip(f"Reload the current lists ({refresh.shortcut().toString(QKeySequence.NativeText)})")
         refresh.triggered.connect(self.refresh)
         bar.addAction(refresh)
         bar.addSeparator()

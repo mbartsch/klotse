@@ -31,6 +31,8 @@ Resource table context menus (#233, implemented locally; pending review): row an
 
 Main menu organization (#232, implemented locally; pending review): View actions are grouped under Navigate, Insights, Operations, and Settings, with managedFields remaining directly accessible. Existing actions, shortcuts, and per-cluster enablement are preserved. Offscreen menu and related behavior checks: 121 passed; no manual display review.
 
+Keyboard shortcut discoverability (#235, implemented locally, pending review): audited assigned shortcuts and retained the existing non-conflicting bindings; menu items expose shortcuts through Qt and shortcut tooltips now repeat their platform-native key spelling, including Refresh and Edit commands. Focused assertions cover the main window actions; no new global bindings were added because they could steal editor input.
+
 Manifest filter paths (#215, implemented locally, pending independent review; not merged): filter scalar `spec` and `status` fields, for example `spec.replicas >= 2` or `status.phase = Running`. Nested keys are case-sensitive; lists use zero-based dot indices (`spec.containers.0.image`). Numbers remain numeric, booleans compare as `true`/`false`, and missing or non-scalar values match nothing. Raw quantity strings require quotes and have no column unit conversion. Offscreen regression coverage is in `tests/test_filter_expr_table.py`; no live-cluster or manual display check. Complete #215 before taking #231 subtasks in order.
 
 Also not implemented and **no issue filed yet**; effort and value are estimates. Ideas come from k9s, Lens, Headlamp and Aptakube (public pages; some from memory). Numbering continues the table above.
