@@ -425,7 +425,29 @@ class LabelColumnsDialog(QDialog):
         picker.addWidget(add)
         layout.addLayout(picker)
         layout.addWidget(editor)
+        moves = QHBoxLayout()
+        moves.addWidget(QLabel(f"{noun.title()} column order:"))
+        for text, delta in (("Move up", -1), ("Move down", 1)):
+            button = QPushButton(text)
+            button.clicked.connect(lambda _=False, e=editor, d=delta: self._move_custom(e, d))
+            moves.addWidget(button)
+        moves.addStretch(1)
+        layout.addLayout(moves)
         return combo, heading, editor
+
+    @staticmethod
+    def _move_custom(editor, delta):
+        """Move the current custom column without changing its key or heading."""
+        lines = editor.toPlainText().splitlines()
+        row = editor.textCursor().blockNumber()
+        target = row + delta
+        if not 0 <= row < len(lines) or not 0 <= target < len(lines):
+            return
+        lines[row], lines[target] = lines[target], lines[row]
+        editor.setPlainText("\n".join(lines))
+        cursor = editor.textCursor()
+        cursor.setPosition(editor.document().findBlockByNumber(target).position())
+        editor.setTextCursor(cursor)
 
     def _restore(self):
         self.editor.setPlainText("\n".join(DEFAULT_LABELS.get(self.kind, [])))
