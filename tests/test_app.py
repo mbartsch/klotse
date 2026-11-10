@@ -737,6 +737,7 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert clicks == [] and not (nav.topLevelItem(0).flags() & Qt.ItemIsSelectable)
     assert [label for label, _ in nav.actions_for("a")] == ["Connect"]
     menu = nav.menu_for(nav.cluster_item("a"))
+    assert [action.text() for action in menu.actions()[:2]] == ["Connect", "Rename alias…"]
     next(action for action in menu.actions() if action.text() == "Connect").trigger()
     assert clicks == [("connect", "a")]
     clicks.clear()
@@ -746,6 +747,8 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert [label for label, _ in nav.actions_for("a")] == ["Reconnect", "Disconnect"]  # can cancel while connecting
     nav.set_state("a", "connected")
     nav.show_views("a")
+    connected_menu = nav.menu_for(nav.cluster_item("a"))
+    assert [action.text() for action in connected_menu.actions()[:3]] == ["Reconnect", "Disconnect", "Rename alias…"]
     seen = []
     nav.disconnect_requested.connect(seen.append)
     dict(nav.actions_for("a"))["Disconnect"].emit("a")
@@ -756,6 +759,25 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert clicks == [("a", "workloads")]
     nav._on_click(nav.cluster_item("a"), 0)
     assert clicks == [("a", "workloads")]  # selecting a cluster never starts a connection
+
+
+def test_double_click_connects_disconnected_cluster_only(qtbot):
+    from klotse.ui.navigator import Navigator
+
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["a"])
+    connected = []
+    nav.connect_requested.connect(connected.append)
+    item = nav.cluster_item("a")
+
+    nav.itemDoubleClicked.emit(item, 0)
+    assert connected == ["a"]
+    nav.set_state("a", "connecting")
+    nav.itemDoubleClicked.emit(item, 0)
+    nav.set_state("a", "connected")
+    nav.itemDoubleClicked.emit(item, 0)
+    assert connected == ["a"]
 
 
 def test_plugin_errors_are_persistent_and_open_the_failing_plugin(qtbot):
