@@ -17,7 +17,7 @@ from .table_model import TableModel, age_sort_value
 
 
 METRIC_KINDS = {"Pod", "Node", "Deployment", "StatefulSet", "DaemonSet"}  # have a usage history chart
-LOG_SOURCES = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "Service"}  # have a selector: their pods' logs together
+LOG_SOURCES = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "Service", "CronJob"}  # selector or CronJob ownership
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
 NOT_CUSTOMIZABLE = {"Container", "CustomResource", "CRDGroup", "HelmRelease"}  # per-pod container rows and dynamic CR columns keep fixed columns
@@ -795,7 +795,7 @@ class ResourceTable(QWidget):
             add("restart", "Restart…", lambda: self.restart_requested.emit(self.kind, row), primary=True, permission="restart")
         if self.kind in LOG_SOURCES:
             add("multi-logs", "Logs of all pods…", lambda: self.multi_logs_requested.emit(self.kind, row),
-                primary=self.kind in ("Deployment", "StatefulSet", "DaemonSet"))
+                primary=self.kind in ("Deployment", "StatefulSet", "DaemonSet", "CronJob"))
         if self.kind == "ServiceAccount":
             add("permissions", "Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
         if self.kind in METRIC_KINDS:

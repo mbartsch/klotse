@@ -20,6 +20,7 @@ from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
+from .selectors import cronjob_job_uids, cronjob_pod_info
 
 
 # pod states that mean a pod will not become ready without intervention
@@ -673,6 +674,15 @@ class KubeService:
             names = [c.name for c in (pod.spec.containers or [])]
             found.append((pod.metadata.name, names, (pod.status.phase if pod.status else "") or ""))
         return sorted(found)
+
+    def cronjob_pods(self, namespace, name, uid):
+        """Find pods through CronJob -> Job -> Pod owner UIDs in one namespace, including old runs."""
+        jobs = (_raw(job) for job in self._resource_items("jobs", namespace))
+        owned = cronjob_job_uids(namespace, name, uid, jobs)
+        if not owned:
+            return []
+        pods = (_raw(pod) for pod in self._iter_list(self._core.list_namespaced_pod, namespace))
+        return cronjob_pod_info(namespace, owned, pods)
 
     def open_log_stream(self, namespace, pod, container=None, tail=500, timestamps=False, previous=False, since_seconds=None,
                         follow=True):

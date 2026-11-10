@@ -18,6 +18,8 @@ from .federation import FederationError, console_credentials, fetch_json, login_
 from .instances import InstanceCache
 from .nodeinfo import parse_node
 from .pricing import HOURS_PER_MONTH, Price, PriceError, currency_for_region, on_demand_prices
+from .infrastructure import (KINDS as INFRA_KINDS, InfrastructureCache, default_region,
+                             load_balancer_refs, volume_ref, report, console_url as infrastructure_console_url)
 
 
 def per_hour(value):
@@ -64,12 +66,17 @@ class AwsPlugin(Plugin):
     id = "aws"
     name = "AWS Plugin"
     version = "0.1"
-    requires_api = 7  # password and note settings
+    requires_api = 9
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
                    "China region prices use the AWS Price List API and need AWS credentials with "
                    "pricing:GetProducts permission.")
     columns = (
+        Column("aws_id", "AWS resource", kinds=INFRA_KINDS),
+        Column("aws_type", "AWS type", kinds=INFRA_KINDS),
+        Column("aws_state", "AWS state", kinds=INFRA_KINDS),
+        Column("aws_region", "AWS region", kinds=INFRA_KINDS),
+        Column("aws_details", "AWS details", kinds=INFRA_KINDS),
         Column("instance_id", "Instance ID"),
         Column("instance_type", "Instance type"),
         Column("capacity", "Capacity"),
@@ -80,6 +87,8 @@ class AwsPlugin(Plugin):
         Column("launched", "Launched", format=when),
     )
     actions = (
+        Action("resource-details", "AWS infrastructure details…", kinds=INFRA_KINDS),
+        Action("resource-console", "Open AWS infrastructure console", kinds=INFRA_KINDS),
         Action("copy-id", "Copy instance ID", multi=True),
         Action("console", "Open in the EC2 console"),
         Action("cost", "Estimate the cost of the selected nodes", multi=True),
@@ -127,6 +136,8 @@ class AwsPlugin(Plugin):
                      "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
     )
     cluster_settings = (  # Plugins menu -> AWS Plugin -> settings for the cluster in front
+        Setting("cluster_region", "AWS region", "", pattern=r"[a-z]{2}(?:-gov)?-[a-z]+-\d+",
+                help="For AWS volumes without a region in their topology labels. Empty uses an EKS ARN context's region. Load-balancer hostnames supply their own region."),
         Setting("cluster_profile", "AWS profile", "",
                 help="The profile from your AWS config used for this cluster's EC2 lookups, cost estimate and console "
                      "sign-in. Empty uses the entry in the plugin's settings, or the default profile."),
@@ -145,6 +156,8 @@ class AwsPlugin(Plugin):
         self._ec2 = {}  # profile -> Ec2
         self._accounts = {}  # profile -> account id it signs in to (STS GetCallerIdentity)
         self._lock = threading.Lock()
+        self._infrastructure = InfrastructureCache()
+        self._pv_manifests = {}
 
     # ---- the AWS API (optional) --------------------------------------------------------------
     def _api(self, profile):
@@ -254,7 +267,73 @@ class AwsPlugin(Plugin):
 
     # ---- the plugin interface -------------------------------------------------------------------
     def enrich(self, request):
+        if request.kind in INFRA_KINDS:
+            return self.collect_infrastructure(request)
         return self.collect(request.resources, request.settings, request.cache_dir, request.warn, request.context)
+
+    def _infrastructure_refs(self, request, resource):
+        if request.kind in ("Ingress", "Service"):
+            return [(region, host, "load-balancer") for region, host in load_balancer_refs(resource.raw)]
+        raw = resource.raw
+        if request.kind == "PersistentVolumeClaim":
+            name = (raw.get("spec") or {}).get("volumeName")
+            factory = getattr(request, "api_client", None)
+            if not name or factory is None:
+                return []
+            from time import monotonic
+            key = (request.context, resource.key, resource.uid, name)
+            with self._lock:
+                cached = self._pv_manifests.get(key)
+            if cached and monotonic() < cached[0]:
+                raw = cached[1]
+            else:
+                from kubernetes.client import CoreV1Api
+                client = factory()
+                raw = client.sanitize_for_serialization(CoreV1Api(client).read_persistent_volume(name))
+                claim = (raw.get("spec") or {}).get("claimRef") or {}
+                if claim and (claim.get("name") != resource.name or claim.get("namespace") != resource.namespace or
+                              (claim.get("uid") and resource.uid and claim["uid"] != resource.uid)):
+                    return []
+                with self._lock:
+                    if len(self._pv_manifests) >= 2000:
+                        self._pv_manifests.clear()
+                    self._pv_manifests[key] = (monotonic() + 300, raw)
+        ref = volume_ref(raw, default_region(request.context, request.settings))
+        if ref:
+            return [(*ref, "volume")]
+        spec = raw.get("spec") or {}
+        if (spec.get("csi") or {}).get("driver") == "ebs.csi.aws.com" or spec.get("awsElasticBlockStore"):
+            raise ValueError("Cannot determine the EBS volume or AWS region; set the cluster's AWS region if topology labels are absent")
+        return []
+
+    def collect_infrastructure(self, request):
+        result = {}
+        if not request.settings.get("use_aws_api", True):
+            return result
+        profile = profile_for(request.context, request.settings)
+        if len(request.resources) > 100:
+            request.warn("AWS infrastructure: inspecting the first 100 resources in this batch")
+        for resource in request.resources[:100]:
+            try:
+                refs = self._infrastructure_refs(request, resource)
+                values = []
+                for region, identifier, kind in refs[:5]:
+                    data = self._infrastructure.lookup(profile, region, identifier, kind)
+                    if data:
+                        values.append({**data, "region": region})
+                if values:
+                    result[resource.key] = {"aws_id": "; ".join(v["id"] for v in values),
+                        "aws_type": "; ".join(v.get("type", "") for v in values),
+                        "aws_state": "; ".join(v.get("state", "") for v in values),
+                        "aws_region": "; ".join(dict.fromkeys(v["region"] for v in values)),
+                        "aws_details": "\n\n".join(report(v) for v in values)}
+            except Exception as error:
+                # Kubernetes/API exceptions may include a request or authentication output.
+                # Report a bounded error class/code, never credentials or full response text.
+                code = getattr(error, "response", {}).get("Error", {}).get("Code", "")
+                status = getattr(error, "status", "")
+                request.warn(f"AWS infrastructure lookup for {resource.key} failed ({type(error).__name__}{': ' + str(code or status) if code or status else ''})")
+        return result
 
     def overview(self, request):
         """The cluster's total cost, like eks-node-viewer's header: the current price of every node that has one."""
@@ -267,9 +346,33 @@ class AwsPlugin(Plugin):
                 "priced": f"{len(priced)} of {len(values)}"}
 
     def applies(self, action, resource):
+        if action in ("resource-details", "resource-console"):
+            raw = resource.raw or {}
+            return bool(load_balancer_refs(raw) or volume_ref(raw, "us-east-1") or (raw.get("spec") or {}).get("volumeName"))
         return parse_node(resource) is not None
 
     def run(self, request):
+        if request.action in ("resource-details", "resource-console"):
+            if not request.settings.get("use_aws_api", True):
+                return Message("AWS API lookups are disabled in the plugin settings.")
+            results = []
+            profile = profile_for(request.context, request.settings)
+            try:
+                for resource in request.resources[:1]:
+                    refs = self._infrastructure_refs(request, resource)
+                    for region, identifier, kind in refs[:5]:
+                        data = self._infrastructure.lookup(profile, region, identifier, kind, detailed=request.action == "resource-details")
+                        if not data:
+                            continue
+                        if request.action == "resource-console":
+                            results.extend(console_results(infrastructure_console_url(region, kind, data["id"]), request.context,
+                                                           self.with_account(request, region), gov=region.startswith("us-gov-")))
+                        else:
+                            results.append(ShowText(f"AWS infrastructure: {resource.key}", report({"region": region, **data})))
+            except Exception as error:
+                code = getattr(error, "response", {}).get("Error", {}).get("Code", "")
+                return Message(f"Could not read AWS infrastructure ({type(error).__name__}{': ' + code if code else ''}). Check AWS credentials, region, and read permissions.", "warning")
+            return results or Message("No matching AWS infrastructure was found for this resource. It may no longer exist, or its AWS identifier/region is unavailable.")
         infos = [(r, parse_node(r)) for r in request.resources]
         infos = [(r, info) for r, info in infos if info is not None]
         if request.action == "copy-id":

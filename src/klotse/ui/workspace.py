@@ -216,7 +216,8 @@ class ClusterWorkspace(QMainWindow):
 
         # Plugins (see klotse.plugins): extra columns on the tables, filled in off the GUI thread. None = no plugins.
         self.plugins = plugins
-        self.plugin_host = PluginHost(plugins, context, self._run, parent=self) if plugins is not None else None
+        self.plugin_host = PluginHost(plugins, context, self._run, parent=self,
+                                      api_client=lambda: self.service.api_client()) if plugins is not None else None
         self.plugin_runner = PluginActionRunner(self) if plugins is not None else None
         self._build_views()
         self.apply_label_columns()
@@ -1211,6 +1212,29 @@ class ClusterWorkspace(QMainWindow):
     def multi_logs(self, kind, what):
         """Right-click > Logs of all pods… (a workload or Service: its selector; or several selected Pods): one tab with the
         lines of every pod, prefixed with [pod/container]. Looking only, so read-only mode allows it."""
+        if kind == "CronJob":
+            namespace, name = what.namespace, what.name
+            uid = ((what.raw or {}).get("metadata") or {}).get("uid", "")
+            title = f"CronJob {name}"
+            lookup = lambda: self.service.cronjob_pods(namespace, name, uid)
+
+            def found(pods):
+                if not pods:
+                    QMessageBox.information(self, "CronJob logs", f"No pods remain for CronJob {namespace}/{name}. "
+                                            "Its Jobs may not have run yet, or their Jobs/pods may have been cleaned up.")
+                    return
+                initial = [pods]
+
+                def resolve(_text):
+                    current = initial.pop() if initial else lookup()
+                    return [(n, c) for n, c, _phase in current]
+
+                self.open_multi_logs(title, namespace, resolver=resolve, resource_uid=uid)
+
+            self._run(lookup, found, on_error=lambda message: QMessageBox.information(
+                self, "CronJob logs", f"Could not find pods for CronJob {namespace}/{name}. "
+                f"Check permission to list Jobs and Pods in this namespace.\n\n{message}"))
+            return None
         if kind == "Pod":
             rows = list(what)
             spaces = {r.namespace for r in rows}
@@ -1240,18 +1264,20 @@ class ClusterWorkspace(QMainWindow):
             return None
         return self.open_multi_logs(text.strip(), namespace, selector=text.strip())
 
-    def open_multi_logs(self, title, namespace, selector="", fixed=None):
-        key = ("multi", namespace, title)
+    def open_multi_logs(self, title, namespace, selector="", fixed=None, resolver=None, resource_uid=""):
+        key = ("multi", namespace, title, resource_uid) if resource_uid else ("multi", namespace, title)
         for i in range(self.log_tabs.count()):
             if getattr(self.log_tabs.widget(i), "key", None) == key:
                 self.log_tabs.setCurrentIndex(i)
                 self._show_log_dock()
                 return self.log_tabs.widget(i)
-        if fixed is not None:
-            resolver = lambda _text, pods=fixed: pods
-        else:
-            resolver = lambda text, ns=namespace: [(n, c) for n, c, _phase in self.service.pods_by_selector(ns, text)]
-        view = MultiLogView(self.service, namespace, resolver, self._run, selector=selector, fixed=fixed is not None)
+        owned = resolver is not None
+        if resolver is None:
+            if fixed is not None:
+                resolver = lambda _text, pods=fixed: pods
+            else:
+                resolver = lambda text, ns=namespace: [(n, c) for n, c, _phase in self.service.pods_by_selector(ns, text)]
+        view = MultiLogView(self.service, namespace, resolver, self._run, selector=selector, fixed=fixed is not None or owned)
         view.key = key
         self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, f"Logs: {title}"))
         self._show_log_dock()
@@ -2067,6 +2093,10 @@ class ClusterWorkspace(QMainWindow):
             self.go_to("namespace", name)
             return
         key = self.LIST_VIEWS.get(kind) or (SPEC_BY_KIND[kind].key if kind in SPEC_BY_KIND else None)
+        if key is None:
+            custom_keys = {"NodePool": "cr:nodepools.karpenter.sh", "NodeClaim": "cr:nodeclaims.karpenter.sh",
+                           "EC2NodeClass": "cr:ec2nodeclasses.karpenter.k8s.aws"}
+            key = custom_keys.get(kind)
         if key is None or key not in self.views:
             self.message.emit(f"{self.context}: there is no list for {kind} to go to")
             return

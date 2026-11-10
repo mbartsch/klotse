@@ -24,9 +24,10 @@ class PluginHost(QObject):
     updated = Signal(str)  # the cache gained values for this kind: tables should repaint their plugin columns
     overview_updated = Signal()  # the Overview cards (or their values) changed
 
-    def __init__(self, manager, context, run, clock=monotonic, parent=None):
+    def __init__(self, manager, context, run, clock=monotonic, parent=None, api_client=None):
         super().__init__(parent)
         self.manager, self.context, self._run, self._clock = manager, context, run, clock
+        self.api_client = api_client
         self._cache = {}  # (plugin id, kind, resource key) -> (uid, {attribute: value}, asked again at or None)
         self._busy = set()  # (plugin id, kind) with a request in flight
         self._retry_at = {}  # (plugin id, kind) -> not before this time
@@ -70,7 +71,7 @@ class PluginHost(QObject):
         slot = (plugin.id, kind)
         self._busy.add(slot)
         request = EnrichRequest(plugin.id, kind, self.context, due, self.manager.settings_for(plugin.id, self.context),
-                                cache_dir=self.manager.cache_dir(plugin.id))
+                                cache_dir=self.manager.cache_dir(plugin.id), api_client=self.api_client)
 
         def done(result):
             self._busy.discard(slot)

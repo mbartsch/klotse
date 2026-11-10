@@ -9,12 +9,13 @@ from klotse.ui.pod_view import PodActionBar
 from klotse.ui.workspace import ClusterWorkspace
 
 
-def test_the_pod_bar_has_one_actions_button_with_a_menu(qtbot):
+def test_the_pod_bar_keeps_logs_visible_and_secondary_actions_in_more(qtbot):
     bar = PodActionBar()
     qtbot.addWidget(bar)
-    assert bar.menu_button.text() == "Actions"
+    assert bar.menu_button.text() == "More…"
+    assert bar.logs_button.text() == "Logs"
     labels = [a.text() for a in bar.menu_button.menu().actions() if not a.isSeparator()]
-    assert labels == ["Logs", "Edit…", "Copy files…", "Terminate…", "Force terminate…"]
+    assert labels == ["Edit…", "Copy files…", "Terminate…", "Force terminate…"]
     assert sum(1 for a in bar.menu_button.menu().actions() if a.isSeparator()) == 1  # the destructive ones are set apart
 
 
@@ -39,6 +40,23 @@ def test_a_gone_pod_disables_the_menu(qtbot):
     qtbot.addWidget(bar)
     bar.set_gone("web")
     assert not bar.menu_button.isEnabled() and "no longer" in bar.state.text()
+    assert not bar.logs_button.isEnabled()
+
+
+def test_pod_logs_button_emits_and_is_restored_when_the_pod_returns(qtbot):
+    bar = PodActionBar()
+    qtbot.addWidget(bar)
+    calls = []
+    bar.action_requested.connect(calls.append)
+    bar.logs_button.click()
+    assert calls == ["logs"]
+    bar.set_gone("web")
+    bar.logs_button.click()
+    assert calls == ["logs"]
+    bar.set_row(SimpleNamespace(namespace="shop", name="web", status="Running", node="node-1"))
+    assert bar.logs_button.isEnabled() and bar.menu_button.isEnabled()
+    bar.logs_button.click()
+    assert calls == ["logs", "logs"]
 
 
 def test_a_long_label_is_cut_not_covered_and_keeps_its_text(qtbot):

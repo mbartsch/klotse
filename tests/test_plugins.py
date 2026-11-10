@@ -160,12 +160,12 @@ def test_failing_to_save_changes_nothing(tmp_path):
 
 
 # ---- the host: asking plugins, caching ----------------------------------------------
-def host_for(tmp_path, plugin=None):
+def host_for(tmp_path, plugin=None, api_client=None):
     plugin = plugin or Zone()
     manager = manager_with(tmp_path, plugin)
     run = Runner()
     clock = [100.0]
-    host = PluginHost(manager, "ctx", run, clock=lambda: clock[0])
+    host = PluginHost(manager, "ctx", run, clock=lambda: clock[0], api_client=api_client)
     return host, plugin, run, manager, clock
 
 
@@ -184,6 +184,14 @@ def test_rows_are_enriched_off_the_gui_thread_and_cached(qtbot, tmp_path):
     assert updated == ["Node"]
     host.apply("Node", rows)
     assert rows[0].extra == {"plugin:zone:zone": "a", "plugin:zone:size": 4} and rows[1].extra["plugin:zone:zone"] == "b"
+
+
+def test_enrichment_receives_optional_cluster_api_factory(qtbot, tmp_path):
+    api_client = lambda: object()
+    host, plugin, run, _, _ = host_for(tmp_path, api_client=api_client)
+    host.rows_loaded("Node", [node("n1")])
+    run.finish()
+    assert plugin.requests[0].api_client is api_client
 
 
 def test_known_resources_are_not_asked_again_but_new_ones_and_new_uids_are(qtbot, tmp_path):
