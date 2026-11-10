@@ -202,9 +202,10 @@ QMenuBar QToolBar {{ border: 0; padding: 0; }}
 QDockWidget {{ titlebar-close-icon: none; }}
 QDockWidget::title {{ background: {t.bg}; padding: 6px 8px; border-bottom: 1px solid {t.border}; }}
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {{ background: {t.base}; border: 1px solid {t.input_border}; border-radius: 4px; padding: 3px 6px; }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {t.accent_hi}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus {{ border-color: {t.accent_hi}; }}
 QPlainTextEdit {{ border-radius: 0; }}
 QPlainTextEdit[readOnly="true"], QTextBrowser {{ border: 0; }}
+QPlainTextEdit[readOnly="true"]:focus, QTextBrowser:focus {{ border: 1px solid {t.accent_hi}; }}
 QPushButton {{ background: {t.border}; border: 1px solid transparent; border-radius: 4px; padding: 4px 12px; }}
 QPushButton:focus {{ border-color: {t.accent_hi}; }}
 QPushButton:hover {{ background: {t.hover}; }}
