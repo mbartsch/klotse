@@ -235,6 +235,7 @@ class ClusterWorkspace(QMainWindow):
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
         self.tabs = QTabWidget()
+        self.tabs.setAccessibleName(f"Resource views for {context}")
         self.tabs.setTabBar(ScrollableTabBar())
         self.tabs.setTabsClosable(True)
         self.tabs.setDocumentMode(True)
@@ -255,6 +256,7 @@ class ClusterWorkspace(QMainWindow):
 
         # bottom: log tabs, hidden until the first logs are opened
         self.log_tabs = QTabWidget()
+        self.log_tabs.setAccessibleName(f"Logs and activity for {context}")
         self.log_tabs.setTabsClosable(True)
         self.log_tabs.setDocumentMode(True)
         self.log_tabs.tabCloseRequested.connect(self._close_log_tab)
@@ -311,6 +313,7 @@ class ClusterWorkspace(QMainWindow):
         bar.setMovable(False)
         self.addToolBar(bar)
         self.ns_combo = QComboBox()
+        self.ns_combo.setAccessibleName("Filter resource lists by namespace")
         self.ns_combo.addItems([ALL_NS, DEFAULT_NS])
         self.ns_combo.setCurrentIndex(1)  # start in the "default" namespace; _set_namespaces falls back if it does not exist
         # Searchable like the label picker: type any part of a name to filter the list. Only the chosen item counts

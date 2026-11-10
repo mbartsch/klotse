@@ -261,6 +261,7 @@ class MainWindow(QMainWindow):
         self.menuBar().addMenu("Help").addAction(self.about_action)
 
         self.clusters = QTabWidget()
+        self.clusters.setAccessibleName("Open cluster workspaces")
         self.clusters.setTabBar(ScrollableTabBar())
         self.clusters.setTabsClosable(True)
         self.clusters.tabCloseRequested.connect(self._close_cluster_tab)
@@ -277,6 +278,7 @@ class MainWindow(QMainWindow):
         title_layout.setContentsMargins(6, 0, 4, 0)
         title_layout.addWidget(QLabel("Clusters"))
         self.cluster_picker = QComboBox()
+        self.cluster_picker.setAccessibleName("Switch connected cluster")
         self.cluster_picker.setMinimumWidth(150)
         self.cluster_picker.setToolTip("Switch between connected clusters")
         self.cluster_picker.activated.connect(self._pick_cluster)

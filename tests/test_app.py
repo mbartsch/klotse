@@ -481,6 +481,13 @@ def test_multiple_clusters_open_in_separate_tabs(qtbot, monkeypatch):
     assert win.clusters.count() == 2
 
 
+def test_cluster_navigation_controls_have_accessible_names(qtbot):
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    assert win.clusters.accessibleName() == "Open cluster workspaces"
+    assert win.cluster_picker.accessibleName() == "Switch connected cluster"
+
+
 def test_failed_cluster_connection_closes_its_tab(qtbot, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
 
