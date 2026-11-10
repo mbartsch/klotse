@@ -53,3 +53,17 @@ def test_node_identity_header_copies_provider_id_and_handles_missing_identity(qt
     assert panel.identity_status.text() == "Unknown"
     assert not panel.copy_uid_button.isVisible()
     assert not panel.copy_provider_button.isVisible()
+
+
+def test_detail_controls_have_accessible_names(qtbot):
+    panel = DetailPanel()
+    qtbot.addWidget(panel)
+    assert panel.editor.accessibleName() == "Selected resource YAML"
+    assert panel.find_edit.accessibleName() == "Find text in resource YAML"
+    assert panel.copy_button.accessibleName() == "Copy resource YAML"
+    assert panel.formatted_button.accessibleName() == "Show resource summary"
+    assert panel.yaml_button.accessibleName() == "Show resource YAML"
+    assert panel.events_button.accessibleName() == "Show resource events"
+    assert panel.related_button.accessibleName() == "Show related resources"
+    assert panel.decode_filter.accessibleName() == "Filter secret keys to decode"
+    assert panel.decode_list.accessibleName() == "Secret keys to decode"
