@@ -143,6 +143,7 @@ def test_the_window_samples_on_a_timer_and_charts_the_history(qtbot):
     wait_for(qtbot, dialog, 3)
     assert "samples since" in dialog.status.text() and dialog.cpu_chart.refs == {"limit": 0.5}
     assert len(dialog.cpu_chart.series["total"]) >= 3 and dialog.mem_chart.series["total"][-1][1] == 64.0
+    assert all(action.text() != "total" for action in dialog.go_to_menu.actions())
     dialog.pause_button.setChecked(True)
     qtbot.wait(150)
     frozen = dialog.history.count()

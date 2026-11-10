@@ -123,8 +123,12 @@ class MetricsDialog(QDialog):
         names = dict(self.object_options)
         for chart in (self.cpu_chart, self.mem_chart):
             for name in chart.series:
+                if name == "total":
+                    continue
                 names.setdefault(name, name)
         for name, label in names.items():
+            if name == "total":
+                continue
             action = self.go_to_menu.addAction(label)
             action.triggered.connect(lambda _checked=False, value=name: self.go_to_requested.emit(value))
 
