@@ -132,6 +132,11 @@ def test_the_panel_lists_copies_and_cancels(qtbot, copies, tmp_path):
 def test_the_dialog_validates_and_reports_values(qtbot):
     d = FileCopyDialog("web-1", "shop", ["app", "side"])
     qtbot.addWidget(d)
+    assert d.download.accessibleName() == "Download files from the container to this computer"
+    assert d.upload.accessibleName() == "Upload files from this computer to the container"
+    assert d.container.accessibleName() == "Container for copying files from pod web-1"
+    assert d.remote.accessibleName() == "Path inside the container"
+    assert d.local.accessibleName() == "File or folder on this computer"
     d._accept()
     assert d.result() != QDialog.Accepted and not d.note.isHidden()
     d.remote.setText("/data/")

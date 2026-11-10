@@ -109,6 +109,10 @@ def test_navigation_up_and_errors(qtbot):
     calls = []
     dialog = FileBrowserDialog("t", ["app", "side"], "/", lister(calls))
     qtbot.addWidget(dialog)
+    assert dialog.up.accessibleName() == "Go to parent container folder"
+    assert dialog.go.accessibleName() == "Open container directory path"
+    assert dialog.refresh.accessibleName() == "Refresh container directory"
+    assert dialog.table.accessibleName() == "Container files and folders"
     assert dialog.table.item(0, 0).text() == "etc/" and dialog.table.item(1, 0).text() == "hello.txt"
     dialog._enter(0)
     assert dialog.path == "/etc" and dialog.address.text() == "/etc"
@@ -138,6 +142,7 @@ def test_a_late_answer_to_an_older_request_is_ignored(qtbot):
 def test_choose_mode_returns_the_selected_entry_or_the_folder(qtbot):
     dialog = FileBrowserDialog("t", ["app"], "/etc", lister(), choose=True)
     qtbot.addWidget(dialog)
+    assert dialog.select_button.accessibleName() == "Use selected container path"
     dialog.table.selectRow(0)
     assert dialog.selected_path() == "/etc/hosts"
     dialog.table.clearSelection()
@@ -150,6 +155,8 @@ def test_choose_mode_returns_the_selected_entry_or_the_folder(qtbot):
 def test_browse_mode_has_copy_path_and_download(qtbot):
     dialog = FileBrowserDialog("t", ["app"], "/etc", lister())
     qtbot.addWidget(dialog)
+    assert dialog.copy_button.accessibleName() == "Copy selected container path"
+    assert dialog.download_button.accessibleName() == "Download selected container file"
     got = []
     dialog.download_requested.connect(lambda c, p: got.append((c, p)))
     dialog.table.selectRow(0)
