@@ -1,4 +1,4 @@
-from PySide6.QtCore import QModelIndex, QRect, Qt, Signal
+from PySide6.QtCore import QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
 
@@ -67,6 +67,7 @@ class Navigator(QTreeWidget):
 
     ROLE_KIND = Qt.UserRole
     ROLE_KEY = Qt.UserRole + 1
+    RESOURCE_GROUP = "resource_group"
 
     def __init__(self):
         super().__init__()
@@ -75,6 +76,7 @@ class Navigator(QTreeWidget):
         self._hover = QModelIndex()
         self.setHeaderHidden(True)
         self.setIndentation(14)
+        self.setUniformRowHeights(False)
         self._clusters = {}
         self._order = {}  # name -> position in the kubeconfig, so each section keeps a stable order
         self._states = {}
@@ -85,6 +87,28 @@ class Navigator(QTreeWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
+
+    def _style_item(self, item, kind):
+        """Give each navigation level a theme-aware cue while keeping leaf rows compact."""
+        item.setData(0, self.ROLE_KIND, kind)
+        font = item.font(0)
+        if kind == "header":
+            font.setBold(True)
+            font.setPointSizeF(max(font.pointSizeF(), 9.0))
+            item.setForeground(0, QBrush(QColor(theme.MUTED)))
+            item.setSizeHint(0, QSize(0, 30))
+        elif kind in (self.RESOURCE_GROUP, "gateway", "karpenter"):
+            font.setBold(True)
+            font.setPointSizeF(max(font.pointSizeF(), 9.0))
+            item.setForeground(0, QBrush(QColor(theme.ACCENT_HI)))
+            item.setSizeHint(0, QSize(0, 25))
+        elif kind == "group":
+            font.setBold(True)
+            item.setForeground(0, QBrush(QColor(theme.MUTED)))
+            item.setSizeHint(0, QSize(0, 24))
+        elif kind == "view":
+            item.setSizeHint(0, QSize(0, 22))
+        item.setFont(0, font)
 
     def mouseMoveEvent(self, event):
         hover = self.indexAt(event.position().toPoint())
@@ -122,6 +146,7 @@ class Navigator(QTreeWidget):
             it = QTreeWidgetItem([(aliases or {}).get(n, n)])
             it.setData(0, self.ROLE_KIND, "cluster")
             it.setData(0, self.ROLE_KEY, n)
+            it.setToolTip(0, n)
             it.setIcon(0, dot_icon(STATE_COLORS["idle"]))
             self._clusters[n] = it
             self._states[n] = "idle"
@@ -131,6 +156,7 @@ class Navigator(QTreeWidget):
         item = self._clusters.get(name)
         if item is not None:
             item.setText(0, alias or name)
+            self._update_headers()
 
     def _group_of(self, name):
         return self.groups.group_of(name) if self.groups is not None else ""
@@ -164,7 +190,7 @@ class Navigator(QTreeWidget):
         self._group_items = {}
         for path in self.groups.groups() if self.groups is not None else []:
             folder = QTreeWidgetItem([leaf_name(path)])
-            folder.setData(0, self.ROLE_KIND, "group")
+            self._style_item(folder, "group")
             folder.setData(0, self.ROLE_KEY, path)
             self._group_items.get(parent_path(path), self._idle_hdr).addChild(folder)
             folder.setExpanded(expanded.get(path, True))
@@ -175,12 +201,8 @@ class Navigator(QTreeWidget):
 
     def _header(self, label):
         h = QTreeWidgetItem([label])
-        h.setData(0, self.ROLE_KIND, "header")
+        self._style_item(h, "header")
         h.setFlags(Qt.ItemIsEnabled)  # not selectable
-        f = h.font(0)
-        f.setBold(True)
-        h.setFont(0, f)
-        h.setForeground(0, QBrush(QColor(theme.MUTED)))
         self.addTopLevelItem(h)
         h.setExpanded(True)
         return h
@@ -193,7 +215,12 @@ class Navigator(QTreeWidget):
             folder.setText(0, f"{leaf_name(path)} ({sum(1 for name in idle if inside(self._group_of(name), path))})")
         for name, item in self._clusters.items():
             group = self._group_of(name)
-            item.setToolTip(0, f"Group: {group}" if group else "")
+            details = []
+            if item.text(0) != name:
+                details.append(f"Context: {name}")
+            if group:
+                details.append(f"Group: {group}")
+            item.setToolTip(0, "\n".join(details) or name)
 
     def cluster_item(self, name):
         return self._clusters.get(name)
@@ -228,6 +255,7 @@ class Navigator(QTreeWidget):
             if len(entry) == 3:
                 label, leaves, expanded = entry
                 group = QTreeWidgetItem([label])
+                self._style_item(group, self.RESOURCE_GROUP)
                 item.addChild(group)
                 for k, lab in leaves:
                     self._leaf(group, k, lab)
@@ -247,6 +275,7 @@ class Navigator(QTreeWidget):
                 item.takeChild(i)
                 break
         group = QTreeWidgetItem(["Gateway API"])
+        self._style_item(group, self.RESOURCE_GROUP)
         group.setData(0, self.ROLE_KIND, "gateway")
         for key, label in entries:
             self._leaf(group, key, label)
@@ -266,6 +295,7 @@ class Navigator(QTreeWidget):
                 item.takeChild(i)
                 break
         group = QTreeWidgetItem(["Karpenter"])
+        self._style_item(group, self.RESOURCE_GROUP)
         group.setData(0, self.ROLE_KIND, "karpenter")
         for key, label in entries:
             self._leaf(group, key, label)
@@ -297,7 +327,7 @@ class Navigator(QTreeWidget):
 
     def _leaf(self, parent, key, label):
         it = QTreeWidgetItem([label])
-        it.setData(0, self.ROLE_KIND, "view")
+        self._style_item(it, "view")
         it.setData(0, self.ROLE_KEY, key)
         parent.addChild(it)
         return it
