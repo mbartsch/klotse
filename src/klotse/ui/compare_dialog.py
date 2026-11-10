@@ -3,10 +3,11 @@ from html import escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
 from ..k8s import compare
 from . import theme
+from .dialog_actions import action_box
 from .manifest import dump_manifest
 
 
@@ -64,7 +65,7 @@ class CompareDialog(QDialog):
         lay.addLayout(options)
         lay.addWidget(self.summary)
         lay.addWidget(self.view, 1)
-        lay.addWidget(close)
+        lay.addWidget(action_box(self, (close, QDialogButtonBox.RejectRole)))
         self.update_view()
 
     def lines(self):

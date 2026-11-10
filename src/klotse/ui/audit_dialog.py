@@ -2,10 +2,11 @@
 import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout)
 
 from . import theme
+from .dialog_actions import action_box
 from .preferences import open_folder
 
 HEADERS = ["Time (UTC)", "Cluster", "Action", "Target", "Result", "Detail"]
@@ -38,16 +39,15 @@ class AuditDialog(QDialog):
         folder.clicked.connect(lambda: open_folder(os.path.dirname(log.path)))
         self.clear_button.clicked.connect(self._clear)
         close.clicked.connect(self.accept)
-        buttons = QHBoxLayout()
-        for b in (refresh, folder, self.clear_button):
-            buttons.addWidget(b)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
+        buttons = action_box(self, (refresh, QDialogButtonBox.ActionRole),
+                             (folder, QDialogButtonBox.ActionRole),
+                             (self.clear_button, QDialogButtonBox.DestructiveRole),
+                             (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.note)
         lay.addWidget(self.filter)
         lay.addWidget(self.table, 1)
-        lay.addLayout(buttons)
+        lay.addWidget(buttons)
         self.load()
 
     def load(self):
