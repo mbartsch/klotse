@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdi
 
 from ..k8s import remote_files as rf
 from . import theme
+from .dialog_sizing import resize_dialog
 
 KIND_TEXT = {rf.DIR: "📁 folder", rf.LINK: "↪ link", rf.FILE: "file"}
 
@@ -21,7 +22,7 @@ class FileBrowserDialog(QDialog):
     def __init__(self, title, containers, start_path, lister, choose=False, container=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(640, 520)
+        resize_dialog(self, 640, 520)
         self.lister, self.choose, self.chosen = lister, choose, None
         self.path, self._serial = "/", 0
         self._open = True

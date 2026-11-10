@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QTextEd
 from ..k8s import compare
 from . import theme
 from .manifest import dump_manifest
+from .dialog_sizing import resize_dialog
 
 SAVE, EDIT, CANCEL = "save", "edit", "cancel"
 
@@ -27,7 +28,7 @@ class ReviewDialog(QDialog):
     def __init__(self, title, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(820, 560)
+        resize_dialog(self, 820, 560)
         self.verdict = CANCEL
         self.status = QLabel("Asking the server (nothing is stored)…")
         self.status.setWordWrap(True)

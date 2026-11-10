@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdi
 from ..k8s import rightsizing as rs
 from . import theme
 from .capacity_dialog import _Item
+from .dialog_sizing import resize_dialog
 
 HEADERS = ["Workload", "Namespace", "Pods", "CPU request", "CPU used (max)", "CPU advice", "CPU verdict", "Mem request",
            "Mem used (max)", "Mem advice", "Mem verdict"]
@@ -27,7 +28,7 @@ class RightSizingDialog(QDialog):
     def __init__(self, context, scope, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Right-sizing")
-        self.resize(1100, 560)
+        resize_dialog(self, 1100, 560)
         self.rows = []
         self.header = QLabel(f"<b>{_plain(context)}</b> · {_plain(scope)}")
         self.header.setTextFormat(Qt.RichText)

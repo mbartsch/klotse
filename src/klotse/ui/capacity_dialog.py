@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPushButton, QTabWi
 
 from ..k8s import capacity
 from . import theme
+from .dialog_sizing import resize_dialog
 
 NODE_COLUMNS = ["Node", "Pods", "CPU alloc", "CPU req", "CPU req %", "CPU lim", "CPU used", "Mem alloc GiB", "Mem req GiB",
                 "Mem req %", "Mem lim GiB", "Mem used GiB"]
@@ -78,7 +79,7 @@ class CapacityDialog(QDialog):
     def __init__(self, context, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Capacity")
-        self.resize(980, 560)
+        resize_dialog(self, 980, 560)
         self.header = QLabel(f"<b>{_plain(context)}</b>")
         self.header.setTextFormat(Qt.RichText)
         self.summary = QLabel("Loading nodes and pods…")

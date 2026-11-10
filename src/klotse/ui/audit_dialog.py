@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, Q
 from . import theme
 from .dialog_actions import action_box
 from .preferences import open_folder
+from .dialog_sizing import resize_dialog
 
 HEADERS = ["Time (UTC)", "Cluster", "Action", "Target", "Result", "Detail"]
 KEYS = ("time", "cluster", "action", "target", "result", "detail")
@@ -18,7 +19,7 @@ class AuditDialog(QDialog):
         super().__init__(parent)
         self.log = log
         self.setWindowTitle("Change log")
-        self.resize(900, 520)
+        resize_dialog(self, 900, 520)
         self.note = QLabel(f"Changes made from Klotse on this computer, newest first. Stored in {log.path}. Object contents and "
                            "Secret data are never written. Changes made with kubectl in a terminal, or by someone else, are not here.")
         self.note.setWordWrap(True)

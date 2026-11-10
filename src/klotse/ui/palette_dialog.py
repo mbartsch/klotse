@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
 
 from . import palette, theme
+from .dialog_sizing import resize_dialog
 
 
 class PaletteDialog(QDialog):
@@ -12,7 +13,7 @@ class PaletteDialog(QDialog):
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.setWindowTitle("Command palette")
         self.setModal(True)
-        self.resize(640, 420)
+        resize_dialog(self, 640, 420)
         self.entries, self.free_text, self.shown = list(entries), free_text, []
         self.box = QLineEdit(placeholderText="Type to jump to a view, namespace, cluster or action…", clearButtonEnabled=True)
         self.list = QListWidget()

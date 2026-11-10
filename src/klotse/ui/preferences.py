@@ -9,6 +9,7 @@ from .plugins_panel import PluginsPanel
 from .settings_store import default_store
 from .terminal_settings import TerminalPanel
 from .theme import ThemeError, template_text
+from .dialog_sizing import resize_dialog
 
 
 class KubeconfigSettings(QObject):
@@ -71,7 +72,6 @@ class PreferencesDialog(QDialog):
         self.kubeconfig, self.config_folder = kubeconfig, Path(config_folder)
         self.theme_settings = themes
         self.setWindowTitle("Preferences")
-        self.resize(780, 560) if plugins is not None else self.resize(640, 0)
         general = QWidget()
         form = QFormLayout(general)
 
@@ -128,6 +128,7 @@ class PreferencesDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(buttons)
+        resize_dialog(self, 780, 560) if plugins is not None else resize_dialog(self, 640, 0)
 
     def _theme_rows(self, form):
         self.theme_box = QComboBox()

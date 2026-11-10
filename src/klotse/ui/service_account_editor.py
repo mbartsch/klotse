@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter, QDialog
 from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
 from . import theme
 from .edit_dialog import leave_for_yaml
+from .dialog_sizing import resize_dialog
 
 LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 ANNOTATION_SUGGESTIONS = (
@@ -283,7 +284,7 @@ class TextValueDialog(QDialog):
     def __init__(self, key, text, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Value of {key}" if key else "Value")
-        self.resize(640, 420)
+        resize_dialog(self, 640, 420)
         self.edit = QPlainTextEdit(text)
         self.edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         font = self.edit.font()
@@ -314,7 +315,7 @@ class ServiceAccountEditDialog(QDialog):
         meta = raw.get("metadata") or {}
         self.warnings = service_account_warnings(raw)
         self.setWindowTitle(f"Edit {kind} {meta.get('name', '')}")
-        self.resize(780, 720)
+        resize_dialog(self, 780, 720)
 
         self.head = head = QLabel(f"{escape(kind)} <b>{escape(str(meta.get('name', '')))}</b> in namespace "
                       f"<b>{escape(str(meta.get('namespace', '')))}</b>. Only the fields below change; "

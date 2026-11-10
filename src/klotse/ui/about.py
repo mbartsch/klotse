@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, Q
 
 from .. import __display_version__ as __version__  # what the app reports; plain X.Y.Z for a tagged release
 from . import branding
+from .dialog_sizing import resize_dialog
 
 NAME = "Klotse"
 TAGLINE = "A native Kubernetes desktop manager"
@@ -97,4 +98,4 @@ class AboutDialog(QDialog):
         buttons.addButton(self.copy_button, QDialogButtonBox.ActionRole)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.setMinimumWidth(480)
+        resize_dialog(self, max(480, self.sizeHint().width()), self.sizeHint().height())

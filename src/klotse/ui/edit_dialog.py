@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QMessageBox, Q
 from . import theme
 from .manifest import dump_manifest
 from .schema_help import SchemaHelper
+from .dialog_sizing import resize_dialog
 
 
 def leave_for_yaml(form):
@@ -29,7 +30,7 @@ class EditDialog(QDialog):
     def __init__(self, title, raw, parent=None, note="", can_form=False):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(800, 600)
+        resize_dialog(self, 800, 600)
         self.result_body = None
         self.wants_form, self.pending_body = False, None
         self.editor = QPlainTextEdit(dump_manifest(raw))

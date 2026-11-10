@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLine
 
 from ..k8s import trivy
 from . import theme
+from .dialog_sizing import resize_dialog
 
 BASE = ["Namespace", "Workload", "Container"]
 COUNTS = ["Critical", "High", "Medium", "Low", "Unknown"]
@@ -89,7 +90,7 @@ class TrivyDialog(QDialog):
     def __init__(self, context, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Trivy reports")
-        self.resize(1000, 560)
+        resize_dialog(self, 1000, 560)
         self.header = QLabel(f"<b>{context}</b> · Trivy Operator reports")
         self.header.setTextFormat(Qt.RichText)
         self.tabs = QTabWidget()
@@ -154,7 +155,7 @@ class ReportDialog(QDialog):
     def __init__(self, title, headings, rows, scanned="", parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(980, 520)
+        resize_dialog(self, 980, 520)
         self.rows = rows
         self.summary = QLabel(f"{len(rows)} findings" + (f" · scanned {scanned}" if scanned else ""))
         theme.muted(self.summary)

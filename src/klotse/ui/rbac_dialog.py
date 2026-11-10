@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLa
 
 from ..k8s.rbac_lookup import Rbac, rule_rows
 from . import theme
+from .dialog_sizing import resize_dialog
 
 VERBS = ("get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "*")
 SUBJECT_KINDS = ("ServiceAccount", "User", "Group")
@@ -37,7 +38,7 @@ class RbacDialog(QDialog):
     def __init__(self, context, parent=None):
         super().__init__(parent)
         self.setWindowTitle("RBAC lookup")
-        self.resize(1000, 600)
+        resize_dialog(self, 1000, 600)
         self.rbac = None
         self.header = QLabel(f"<b>{_plain(context)}</b>")
         self.header.setTextFormat(Qt.RichText)

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdi
 from . import theme
 from ..k8s.resources import parse_timestamp
 from ..k8s.util import format_age
+from .dialog_sizing import resize_dialog
 
 HELP = ("Words must all appear in the name. Also: key=value (a label), kind:pod (or deploy, svc, pvc, node, ...), ns:shop. "
         "Example:  api kind:deploy ns:shop   or   app.kubernetes.io/name=web")
@@ -26,7 +27,7 @@ class SearchDialog(QDialog):
     def __init__(self, context, namespace="", parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Search objects: {context}")
-        self.resize(820, 480)
+        resize_dialog(self, 820, 480)
         self.namespace = namespace  # the namespace in front ("" = all namespaces)
         self._serial = 0
         self._cancel = None

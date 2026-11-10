@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdi
 from ..k8s import unused
 from ..k8s.util import format_age
 from . import theme
+from .dialog_sizing import resize_dialog
 
 HEADERS = ["Kind", "Namespace", "Name", "Age", "Note"]
 LABELS = (("ConfigMap", "ConfigMaps"), ("Secret", "Secrets"), ("PersistentVolumeClaim", "Claims"))
@@ -30,7 +31,7 @@ class UnusedDialog(QDialog):
     def __init__(self, context, scope, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Unused objects")
-        self.resize(900, 520)
+        resize_dialog(self, 900, 520)
         self.rows = []
         self.header = QLabel(f"<b>{_plain(context)}</b> · {_plain(scope)}")
         self.header.setTextFormat(Qt.RichText)
