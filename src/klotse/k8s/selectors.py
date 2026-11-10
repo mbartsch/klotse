@@ -5,6 +5,36 @@ _KEY = re.compile(r"^([A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?/)?[A-Za-z0-9]([-A
 _VALUE = re.compile(r"^([A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?)?$")
 
 
+def cronjob_job_uids(namespace, name, uid, jobs):
+    """UIDs of Jobs owned by this exact CronJob, never a same-name predecessor."""
+    if not namespace or not name or not uid:
+        raise ValueError("The CronJob needs a namespace, name and UID; refresh the CronJobs list first.")
+    found = set()
+    for job in jobs:
+        meta = job.get("metadata") or {}
+        if meta.get("namespace") != namespace or not meta.get("uid"):
+            continue
+        if any(owner.get("kind") == "CronJob" and owner.get("name") == name and owner.get("uid") == uid
+               and owner.get("controller") is not False for owner in meta.get("ownerReferences") or []):
+            found.add(meta["uid"])
+    return found
+
+
+def cronjob_pod_info(namespace, job_uids, pods):
+    """Regular-container log targets for Job-owned pods; completed/failed pods are retained."""
+    found = []
+    for pod in pods:
+        meta = pod.get("metadata") or {}
+        if meta.get("namespace") != namespace or not meta.get("name"):
+            continue
+        if not any(owner.get("kind") == "Job" and owner.get("uid") in job_uids and owner.get("controller") is not False
+                   for owner in meta.get("ownerReferences") or []):
+            continue
+        names = [c["name"] for c in (pod.get("spec") or {}).get("containers") or [] if c.get("name")]
+        found.append((meta["name"], names, (pod.get("status") or {}).get("phase") or ""))
+    return sorted(found)
+
+
 def selector_text(selector):
     """`matchLabels` and `matchExpressions` of a workload (or a Service's plain label map) as `a=b,c in (x,y),!d`; '' for no
     selector (such an object has no pods this way, and an empty selector would match every pod, so callers must check)."""

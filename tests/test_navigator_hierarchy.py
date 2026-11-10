@@ -21,7 +21,7 @@ def test_sections_categories_and_leaf_views_have_distinct_compact_hierarchy(qtbo
     assert workload.data(0, nav.ROLE_KIND) == nav.RESOURCE_GROUP
     assert leaf.data(0, nav.ROLE_KIND) == "view"
     assert connected.sizeHint(0).height() > workload.sizeHint(0).height() > leaf.sizeHint(0).height()
-    assert workload.isExpanded() and not next(
+    assert not workload.isExpanded() and not next(
         cluster.child(i) for i in range(cluster.childCount()) if cluster.child(i).text(0) == "Config"
     ).isExpanded()
 
@@ -68,24 +68,28 @@ def test_many_connected_clusters_keep_independent_expanded_resource_trees(qtbot)
                for context in contexts)
 
 
-def test_cluster_states_are_textual_aliases_keep_context_and_failure_detail(qtbot):
+def test_cluster_labels_stay_compact_and_states_remain_accessible(qtbot):
     nav = Navigator()
     qtbot.addWidget(nav)
     nav.set_contexts(["prod/eu"], aliases={"prod/eu": "EU production"})
     item = nav.cluster_item("prod/eu")
 
-    assert "Disconnected" in item.text(0)
+    identity = "EU production  [prod/eu]"
+    assert item.text(0) == identity
     assert "EU production" in item.text(0) and "[prod/eu]" in item.text(0)
     assert "Status: Disconnected" in item.toolTip(0)
 
     nav.set_state("prod/eu", "connecting")
-    assert "Connecting" in item.text(0)
+    assert item.text(0) == identity
+    assert "Status: Connecting" in item.toolTip(0)
     assert item.parent() is nav._connected_hdr
     nav.set_state("prod/eu", "connected")
-    assert "Connected" in item.text(0)
+    assert item.text(0) == identity
+    assert "Status: Connected" in item.toolTip(0)
 
     nav.set_state("prod/eu", "failed", "Unauthorized: token expired")
-    assert "Failed" in item.text(0)
+    assert item.text(0) == identity
+    assert "Status: Failed" in item.toolTip(0)
     assert item.parent() is nav._idle_hdr
     assert "Connection error:" in item.toolTip(0)
     assert "Unauthorized: token expired" in item.toolTip(0)
@@ -93,7 +97,8 @@ def test_cluster_states_are_textual_aliases_keep_context_and_failure_detail(qtbo
     assert "Context: prod/eu" in item.toolTip(0)
 
     nav.set_state("prod/eu", "idle")
-    assert "Disconnected" in item.text(0)
+    assert item.text(0) == identity
+    assert "Status: Disconnected" in item.toolTip(0)
     assert "Unauthorized" not in item.toolTip(0)
 
 

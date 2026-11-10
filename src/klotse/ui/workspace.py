@@ -9,7 +9,7 @@ from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
-                               QTabWidget, QToolBar)
+                               QTabWidget, QToolBar, QSizePolicy, QWidget)
 
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
@@ -216,7 +216,8 @@ class ClusterWorkspace(QMainWindow):
 
         # Plugins (see klotse.plugins): extra columns on the tables, filled in off the GUI thread. None = no plugins.
         self.plugins = plugins
-        self.plugin_host = PluginHost(plugins, context, self._run, parent=self) if plugins is not None else None
+        self.plugin_host = PluginHost(plugins, context, self._run, parent=self,
+                                      api_client=lambda: self.service.api_client()) if plugins is not None else None
         self.plugin_runner = PluginActionRunner(self) if plugins is not None else None
         self._build_views()
         self.apply_label_columns()
@@ -237,6 +238,7 @@ class ClusterWorkspace(QMainWindow):
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("workspaceTabs")
         self.tabs.setAccessibleName(f"Resource views for {context}")
         self.tabs.setTabBar(ScrollableTabBar())
         self.tabs.setTabsClosable(True)
@@ -251,6 +253,7 @@ class ClusterWorkspace(QMainWindow):
         self.detail.related_requested.connect(self._load_related)
         self.detail.goto_object.connect(self.go_to_object)
         self.detail_dock = QDockWidget("Details", self)
+        self.detail_dock.setObjectName("detailsDock")
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
         self.detail_dock.dockLocationChanged.connect(self._limit_dock)
@@ -314,6 +317,12 @@ class ClusterWorkspace(QMainWindow):
         bar = QToolBar()
         bar.setMovable(False)
         self.addToolBar(bar)
+        self.scope_breadcrumb = QLabel(self.context)
+        self.scope_breadcrumb.setObjectName("scopeBreadcrumb")
+        bar.addWidget(self.scope_breadcrumb)
+        scope_space = QWidget()
+        scope_space.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        bar.addWidget(scope_space)
         self.ns_combo = QComboBox()
         self.ns_combo.setAccessibleName("Filter resource lists by namespace")
         self.ns_combo.addItems([ALL_NS, DEFAULT_NS])
@@ -472,8 +481,10 @@ class ClusterWorkspace(QMainWindow):
         groups = T(CRD_GROUP_COLUMNS, "CRDGroup", editable=False)
         self.views["crd-groups"] = (groups, "CRD groups")
         self.loaders["crd-groups"] = (lambda ns: crd_groups(svc().list_resource("crds", ns)), False, groups.set_rows)
-        for key, (widget, _) in self.views.items():
+        for key, (widget, title) in self.views.items():
             widget.view_key = key
+            if isinstance(widget, ResourceTable):
+                widget.set_page_title(title)
 
     def resource_tables(self):
         for widget, _ in self.views.values():
@@ -702,6 +713,8 @@ class ClusterWorkspace(QMainWindow):
     def _on_tab_changed(self, index):
         if index >= 0:
             widget = self.tabs.widget(index)
+            if hasattr(self, "scope_breadcrumb"):
+                self.scope_breadcrumb.setText(f"{self.context}  /  {self.tabs.tabText(index)}")
             self.view_opened.emit(widget.view_key)
             self._sync_ns_selector()
             self._sync_details_to_tab(widget)
@@ -1017,6 +1030,7 @@ class ClusterWorkspace(QMainWindow):
         key = f"crd-group:{group}"
         if key not in self.views:
             table = ResourceTable(SPEC_BY_KEY["crds"].columns, "CustomResourceDefinition", editable=False)
+            table.set_page_title(f"CRDs: {group or '(core)'}")
             table.view_key = key
             table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
             table.action_requested.connect(self._crd_action)
@@ -1039,6 +1053,7 @@ class ClusterWorkspace(QMainWindow):
             columns = special or ([("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")])
             editable = gateway_api.is_gateway_group(group)
             table = ResourceTable(columns, kind if editable else "CustomResource", editable=editable, customizable=False)
+            table.set_page_title(kind)
             table.view_key = key
             if editable:  # the Gateway API kinds: Edit… as YAML, New…, Delete…
                 self._custom_kinds[kind] = (group, version, plural, namespaced)
@@ -1197,6 +1212,29 @@ class ClusterWorkspace(QMainWindow):
     def multi_logs(self, kind, what):
         """Right-click > Logs of all pods… (a workload or Service: its selector; or several selected Pods): one tab with the
         lines of every pod, prefixed with [pod/container]. Looking only, so read-only mode allows it."""
+        if kind == "CronJob":
+            namespace, name = what.namespace, what.name
+            uid = ((what.raw or {}).get("metadata") or {}).get("uid", "")
+            title = f"CronJob {name}"
+            lookup = lambda: self.service.cronjob_pods(namespace, name, uid)
+
+            def found(pods):
+                if not pods:
+                    QMessageBox.information(self, "CronJob logs", f"No pods remain for CronJob {namespace}/{name}. "
+                                            "Its Jobs may not have run yet, or their Jobs/pods may have been cleaned up.")
+                    return
+                initial = [pods]
+
+                def resolve(_text):
+                    current = initial.pop() if initial else lookup()
+                    return [(n, c) for n, c, _phase in current]
+
+                self.open_multi_logs(title, namespace, resolver=resolve, resource_uid=uid)
+
+            self._run(lookup, found, on_error=lambda message: QMessageBox.information(
+                self, "CronJob logs", f"Could not find pods for CronJob {namespace}/{name}. "
+                f"Check permission to list Jobs and Pods in this namespace.\n\n{message}"))
+            return None
         if kind == "Pod":
             rows = list(what)
             spaces = {r.namespace for r in rows}
@@ -1226,18 +1264,20 @@ class ClusterWorkspace(QMainWindow):
             return None
         return self.open_multi_logs(text.strip(), namespace, selector=text.strip())
 
-    def open_multi_logs(self, title, namespace, selector="", fixed=None):
-        key = ("multi", namespace, title)
+    def open_multi_logs(self, title, namespace, selector="", fixed=None, resolver=None, resource_uid=""):
+        key = ("multi", namespace, title, resource_uid) if resource_uid else ("multi", namespace, title)
         for i in range(self.log_tabs.count()):
             if getattr(self.log_tabs.widget(i), "key", None) == key:
                 self.log_tabs.setCurrentIndex(i)
                 self._show_log_dock()
                 return self.log_tabs.widget(i)
-        if fixed is not None:
-            resolver = lambda _text, pods=fixed: pods
-        else:
-            resolver = lambda text, ns=namespace: [(n, c) for n, c, _phase in self.service.pods_by_selector(ns, text)]
-        view = MultiLogView(self.service, namespace, resolver, self._run, selector=selector, fixed=fixed is not None)
+        owned = resolver is not None
+        if resolver is None:
+            if fixed is not None:
+                resolver = lambda _text, pods=fixed: pods
+            else:
+                resolver = lambda text, ns=namespace: [(n, c) for n, c, _phase in self.service.pods_by_selector(ns, text)]
+        view = MultiLogView(self.service, namespace, resolver, self._run, selector=selector, fixed=fixed is not None or owned)
         view.key = key
         self.log_tabs.setCurrentIndex(self.log_tabs.addTab(view, f"Logs: {title}"))
         self._show_log_dock()
@@ -2053,6 +2093,10 @@ class ClusterWorkspace(QMainWindow):
             self.go_to("namespace", name)
             return
         key = self.LIST_VIEWS.get(kind) or (SPEC_BY_KIND[kind].key if kind in SPEC_BY_KIND else None)
+        if key is None:
+            custom_keys = {"NodePool": "cr:nodepools.karpenter.sh", "NodeClaim": "cr:nodeclaims.karpenter.sh",
+                           "EC2NodeClass": "cr:ec2nodeclasses.karpenter.k8s.aws"}
+            key = custom_keys.get(kind)
         if key is None or key not in self.views:
             self.message.emit(f"{self.context}: there is no list for {kind} to go to")
             return
@@ -2729,6 +2773,7 @@ class ClusterWorkspace(QMainWindow):
             bar.set_row(self._node_row(node) or row, gone=False)
         else:
             table = ResourceTable(POD_COLUMNS, "Pod", customizable=True)
+            table.set_page_title(f"Pods on {node}")
             table.customize_requested.connect(self.customize_requested)
             bar = NodeActionBar(node)
             bar.set_row(self._node_row(node) or row, gone=False)
@@ -2880,6 +2925,7 @@ class ClusterWorkspace(QMainWindow):
             self.open_view(key)
             return
         table = ResourceTable(CONTAINER_COLUMNS, "Container", editable=False)
+        table.set_page_title(f"Containers in {row.name}")
         table.view_key = key
         bar = PodActionBar()
         table.set_header_widget(bar)

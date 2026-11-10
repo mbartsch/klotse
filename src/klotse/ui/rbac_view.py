@@ -33,7 +33,7 @@ def _table(headers, rows):
 
 
 def _section(title, inner):
-    return (f"<h3 style='color:{theme.ACCENT_HI}; margin:14px 0 4px 0'>{_e(title)}</h3>{inner}")
+    return (f"<h3 style='color:{theme.MUTED}; font-size:10px; font-weight:600; margin:18px 0 8px 0'>{_e(title)}</h3>{inner}")
 
 
 def _pairs(mapping):

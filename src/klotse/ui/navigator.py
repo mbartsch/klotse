@@ -1,6 +1,6 @@
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QDialog, QFrame, QInputDialog, QMenu, QMessageBox, QSizePolicy, QTreeWidget, QTreeWidgetItem
 
 from .cluster_groups import clean_path, inside, leaf_name, parent_path
 from .group_suggest import SuggestGroupsDialog
@@ -17,7 +17,7 @@ VIEWS = [
     ("Workloads", [("workloads", "Overview"), ("pods", "Pods"), ("deployments", "Deployments"),
                    ("daemonsets", "DaemonSets"), ("statefulsets", "StatefulSets"),
                    ("replicasets", "ReplicaSets"), ("jobs", "Jobs"), ("cronjobs", "CronJobs"),
-                   ("horizontalpodautoscalers", "Horizontal Pod Autoscalers")], True),
+                   ("horizontalpodautoscalers", "Horizontal Pod Autoscalers")], False),
     ("Config", [("configmaps", "ConfigMaps"), ("secrets", "Secrets"), ("resourcequotas", "Resource Quotas"),
                 ("limitranges", "Limit Ranges"), ("poddisruptionbudgets", "Pod Disruption Budgets"),
                 ("priorityclasses", "Priority Classes"), ("validatingwebhookconfigurations", "Validating Webhooks"),
@@ -72,6 +72,14 @@ class Navigator(QTreeWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("navigator")
+        self.setFrameShape(QFrame.NoFrame)
+        self.setLineWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        # Focus belongs to the current row, painted below, rather than a frame
+        # around the entire rail. Keep this local so application tree styles
+        # cannot turn the rail into an outlined box.
+        self.setStyleSheet("QTreeWidget#navigator, QTreeWidget#navigator:focus { border: 0; } "
+                           "QTreeWidget#navigator::item { border: 0; }")
         self.setAccessibleName("Cluster and resource navigator")
         self.setToolTip("Ctrl-click to select multiple clusters; right-click a selected disconnected cluster to connect them together.")
         self.setAccessibleDescription("Ctrl-click multiple disconnected clusters, then right-click one of them and choose Connect selected clusters.")
@@ -79,7 +87,7 @@ class Navigator(QTreeWidget):
         self._hover = QModelIndex()
         self.setHeaderHidden(True)
         self.setSelectionMode(QTreeWidget.ExtendedSelection)
-        self.setIndentation(14)
+        self.setIndentation(12)
         self.setUniformRowHeights(False)
         self._clusters = {}
         self._order = {}  # name -> position in the kubeconfig, so each section keeps a stable order
@@ -107,14 +115,14 @@ class Navigator(QTreeWidget):
         elif kind in (self.RESOURCE_GROUP, "gateway", "karpenter"):
             font.setBold(True)
             font.setPointSizeF(max(font.pointSizeF(), 9.0))
-            item.setForeground(0, QBrush(QColor(theme.ACCENT_HI)))
-            item.setSizeHint(0, QSize(0, 25))
+            item.setForeground(0, QBrush(QColor(theme.MUTED)))
+            item.setSizeHint(0, QSize(0, 28))
         elif kind == "group":
             font.setBold(True)
             item.setForeground(0, QBrush(QColor(theme.MUTED)))
             item.setSizeHint(0, QSize(0, 24))
         elif kind == "view":
-            item.setSizeHint(0, QSize(0, 22))
+            item.setSizeHint(0, QSize(0, 24))
         item.setFont(0, font)
 
     def mouseMoveEvent(self, event):
@@ -137,15 +145,18 @@ class Navigator(QTreeWidget):
             painter.save()
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(theme.ACCENT if selected else theme.BORDER))
-            painter.drawRoundedRect(QRect(6, option.rect.y() + 1, self.viewport().width() - 12, option.rect.height() - 2), 5, 5)
+            painter.setBrush(QColor(theme.SELECTED_ROW if selected else theme.HOVER))
+            painter.drawRoundedRect(QRect(6, option.rect.y() + 1, self.viewport().width() - 12, option.rect.height() - 2), 6, 6)
+            if selected:
+                painter.setBrush(QColor(theme.ACCENT_HI))
+                painter.drawRoundedRect(QRect(6, option.rect.y() + 5, 2, max(4, option.rect.height() - 10)), 1, 1)
             painter.restore()
         super().drawRow(painter, option, index)
         if selected and index == self.currentIndex() and self.hasFocus():
             painter.save()
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(theme.TEXT), 2))
+            painter.setPen(QPen(QColor(theme.ACCENT_HI), 1))
             painter.drawRoundedRect(QRect(6, option.rect.y() + 1, self.viewport().width() - 12, option.rect.height() - 2), 5, 5)
             painter.restore()
 
@@ -214,7 +225,8 @@ class Navigator(QTreeWidget):
                  "connected": "Connected", "failed": "Failed"}.get(state, state.title())
         alias = self._aliases.get(name) or name
         identity = alias if alias == name else f"{alias}  [{name}]"
-        item.setText(0, f"{label}  ·  {identity}")
+        item.setText(0, identity)
+        item.setData(0, Qt.AccessibleDescriptionRole, label)
 
     def _group_of(self, name):
         return self.groups.group_of(name) if self.groups is not None else ""
@@ -349,7 +361,7 @@ class Navigator(QTreeWidget):
             self._leaf(group, key, label)
         position = next((i for i in range(item.childCount()) if item.child(i).text(0) == "Custom Resources"), item.childCount())
         item.insertChild(position, group)
-        group.setExpanded(True)
+        group.setExpanded(False)
 
     def show_karpenter(self, name, entries):
         """Add (or replace) the Karpenter group of a connected cluster, just above Custom Resources. `entries` is
@@ -369,7 +381,7 @@ class Navigator(QTreeWidget):
             self._leaf(group, key, label)
         position = next((i for i in range(item.childCount()) if item.child(i).text(0) == "Custom Resources"), item.childCount())
         item.insertChild(position, group)
-        group.setExpanded(True)
+        group.setExpanded(False)
 
     def show_crd_groups(self, name, entries):
         """Put the API groups of the cluster's CRDs under Custom Resources > Groups as sub items. `entries` is

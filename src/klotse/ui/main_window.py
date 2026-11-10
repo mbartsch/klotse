@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
-                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
@@ -29,7 +29,7 @@ from .palette_dialog import PaletteDialog
 from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from .read_only import ReadOnlyClusters
-from . import embedded_terminal, theme
+from . import branding, embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
@@ -279,8 +279,10 @@ class MainWindow(QMainWindow):
         self.menuBar().addMenu("Help").addAction(self.about_action)
 
         self.clusters = QTabWidget()
+        self.clusters.setDocumentMode(True)
         self.clusters.setAccessibleName("Open cluster workspaces")
         self.clusters.setTabBar(ScrollableTabBar())
+        self.clusters.setTabBarAutoHide(True)
         self.clusters.setTabsClosable(True)
         self.clusters.tabCloseRequested.connect(self._close_cluster_tab)
         self.clusters.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -291,32 +293,75 @@ class MainWindow(QMainWindow):
 
         self.nav = Navigator()
         nav_dock = QDockWidget(self)
+        nav_dock.setObjectName("clustersDock")
         title = QWidget()
+        title.setObjectName("navigatorBrand")
         title_layout = QHBoxLayout(title)
-        title_layout.setContentsMargins(6, 0, 4, 0)
-        title_layout.addWidget(QLabel("Clusters"))
+        title_layout.setContentsMargins(16, 14, 12, 14)
+        title_layout.setSpacing(10)
+        logo = QLabel()
+        logo.setPixmap(branding.square_logo(28))
+        logo.setFixedSize(28, 28)
+        title_layout.addWidget(logo)
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(1)
+        brand_name = QLabel("Klotse")
+        brand_font = brand_name.font()
+        brand_font.setPointSizeF(11)
+        brand_font.setBold(True)
+        brand_name.setFont(brand_font)
+        brand_text.addWidget(brand_name)
+        title_layout.addLayout(brand_text, 1)
         self.cluster_picker = QComboBox()
         self.cluster_picker.setAccessibleName("Switch connected cluster")
         self.cluster_picker.setMinimumWidth(150)
         self.cluster_picker.setToolTip("Switch between connected clusters")
         self.cluster_picker.activated.connect(self._pick_cluster)
-        title_layout.addWidget(self.cluster_picker, 1)
         nav_dock.setTitleBarWidget(title)
         nav_dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         nav_panel = QWidget()
+        nav_panel.setObjectName("navigatorPanel")
         nav_layout = QVBoxLayout(nav_panel)
-        nav_layout.setContentsMargins(6, 4, 6, 6)
+        nav_layout.setContentsMargins(10, 12, 10, 10)
+        nav_layout.setSpacing(8)
+        cluster_heading = QLabel("CLUSTERS")
+        heading_font = cluster_heading.font()
+        heading_font.setPointSizeF(8.5)
+        heading_font.setBold(True)
+        cluster_heading.setFont(heading_font)
+        theme.muted(cluster_heading)
+        nav_layout.addWidget(cluster_heading)
+        cluster_row = QHBoxLayout()
+        cluster_row.setSpacing(5)
+        cluster_row.addWidget(self.cluster_picker, 1)
+        search_clusters = QToolButton()
+        search_clusters.setIcon(action_icon("search"))
+        search_clusters.setAccessibleName("Search clusters")
+        search_clusters.setToolTip("Show or hide cluster search")
+        search_clusters.setCheckable(True)
+        cluster_row.addWidget(search_clusters)
+        nav_layout.addLayout(cluster_row)
         self.cluster_search = QLineEdit()
         self.cluster_search.setObjectName("clusterSearch")
         self.cluster_search.setAccessibleName("Search clusters")
         self.cluster_search.setPlaceholderText("Search clusters…")
         self.cluster_search.setClearButtonEnabled(True)
         self.cluster_search.textChanged.connect(self.nav.set_filter)
+        self.cluster_search.hide()
+        def toggle_cluster_search(visible):
+            self.cluster_search.setVisible(visible)
+            if visible:
+                self.cluster_search.setFocus()
+            else:
+                self.cluster_search.clear()
+        search_clusters.toggled.connect(toggle_cluster_search)
         nav_layout.addWidget(self.cluster_search)
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
-        nav_dock.setMinimumWidth(220)
+        nav_dock.setMinimumWidth(218)
+        nav_dock.setMaximumWidth(360)
         self.addDockWidget(Qt.LeftDockWidgetArea, nav_dock)
+        self.resizeDocks([nav_dock], [234], Qt.Horizontal)
         self.nav.context_clicked.connect(self.open_cluster)
         self.nav.connect_requested.connect(self.open_cluster)
         self.nav.disconnect_requested.connect(self._discard)
@@ -328,6 +373,15 @@ class MainWindow(QMainWindow):
         self.nav.alias_requested.connect(self.rename_cluster_alias)
 
         self.status = self.statusBar()
+        self.plugin_errors_button = QToolButton(self)
+        self.plugin_errors_button.setObjectName("pluginErrorsStatus")
+        self.plugin_errors_button.setText("Plugin error")
+        self.plugin_errors_button.setToolTip("Open the Plugins settings to review plugin errors")
+        self.plugin_errors_button.clicked.connect(self._open_plugin_errors)
+        self.status.addPermanentWidget(self.plugin_errors_button)
+        self.plugins.errors_changed.connect(self._sync_plugin_error_status)
+        self.plugins.changed.connect(self._sync_plugin_error_status)
+        self._sync_plugin_error_status()
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
         self.contexts, _ = self.new_service().load_contexts()
@@ -623,6 +677,31 @@ class MainWindow(QMainWindow):
     # ---- Plugins menu ---------------------------------------------------
     def _update_plugins_menu(self):
         self.plugins_menu.menuAction().setVisible(bool(self.plugins.cluster_plugins()))
+
+    def _plugin_errors(self):
+        found = {item.id: item for item in self.plugins.loaded}
+        errors = dict(self.plugins.errors)
+        for plugin_id, item in found.items():
+            if item.error:
+                errors.setdefault(plugin_id, item.error)
+        return [(plugin_id, (found[plugin_id].plugin or found[plugin_id].manifest).name
+                 if plugin_id in found and (found[plugin_id].plugin or found[plugin_id].manifest) else plugin_id, error)
+                for plugin_id, error in sorted(errors.items())]
+
+    def _sync_plugin_error_status(self, *_):
+        errors = self._plugin_errors()
+        count = len(errors)
+        self.plugin_errors_button.setVisible(bool(count))
+        self.plugin_errors_button.setText("Plugin error" if count == 1 else f"Plugin errors ({count})")
+        self.plugin_errors_button.setToolTip("\n".join(f"{name}: {error}" for _plugin_id, name, error in errors)
+                                              or "No plugin errors")
+        color = theme.BAD
+        self.plugin_errors_button.setStyleSheet(f"QToolButton#pluginErrorsStatus {{ color: {color}; font-weight: 600; }}")
+
+    def _open_plugin_errors(self):
+        errors = self._plugin_errors()
+        if errors:
+            self.open_preferences(errors[0][0])
 
     def _fill_plugins_menu(self):
         """One entry per enabled plugin with cluster settings, for the cluster in front (disabled without one)."""
@@ -978,11 +1057,18 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
-    def open_preferences(self):
+    def open_preferences(self, plugin_id=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings)
+        if plugin_id and dialog.plugins_panel is not None:
+            dialog.tabs.setCurrentWidget(dialog.plugins_panel)
+            for index in range(dialog.plugins_panel.list.count()):
+                item = dialog.plugins_panel.list.item(index)
+                if item.data(Qt.UserRole).id == plugin_id:
+                    dialog.plugins_panel.list.setCurrentRow(index)
+                    break
         accepted = dialog.exec() == PreferencesDialog.Accepted
         self.apply_timing_log()
         chosen = dialog.chosen_kubeconfig()

@@ -4,12 +4,12 @@ from copy import deepcopy
 
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtCore import QRegularExpression, Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
 from ..k8s.related import KINDS as RELATED_KINDS
-from . import events_view, node_view, rbac_view, related_view, theme, workload_view
+from . import events_view, karpenter_view, network_view, node_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
 from .action_icons import action_icon
 
@@ -47,7 +47,10 @@ class DetailPanel(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("detailPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.editor = QPlainTextEdit(readOnly=True)
+        self.editor.setObjectName("detailYamlEditor")
         self.editor.setAccessibleName("Selected resource YAML")
         self.highlighter = YamlHighlighter(self.editor.document())
         self.editor.setPlaceholderText("Select a resource to see its details.")
@@ -93,10 +96,12 @@ class DetailPanel(QWidget):
         self._decoded_keys = set()
         self.show_managed_fields = False  # metadata.managedFields is long and rarely useful; opt in from View
         self.identity_header = QWidget()
+        self.identity_header.setObjectName("detailIdentity")
         identity_layout = QVBoxLayout(self.identity_header)
         identity_layout.setContentsMargins(8, 6, 8, 6)
         identity_top = QHBoxLayout()
         self.identity_title = QLabel()
+        self.identity_title.setWordWrap(True)
         self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
         self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.identity_status = QLabel()
@@ -104,14 +109,13 @@ class DetailPanel(QWidget):
         self.copy_identity_button = QToolButton(text="Copy name")
         self.copy_identity_button.setAccessibleName("Copy object name")
         self.copy_identity_button.setIcon(action_icon("copy"))
-        self.copy_identity_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.copy_identity_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.copy_identity_button.setToolTip("Copy the object's namespace/name (or name for a cluster-scoped object)")
         self.copy_identity_button.clicked.connect(self._copy_identity)
         identity_top.addWidget(self.identity_title, 1)
-        identity_top.addWidget(self.identity_status)
         identity_top.addWidget(self.copy_identity_button)
         identity_layout.addLayout(identity_top)
-        identity_ids = QHBoxLayout()
+        identity_ids = QGridLayout()
         self.identity_scope = QLabel()
         self.identity_uid = QLabel()
         self.identity_uid.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -127,11 +131,19 @@ class DetailPanel(QWidget):
         self.copy_provider_button.setIcon(action_icon("copy"))
         self.copy_provider_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.copy_provider_button.clicked.connect(lambda: self._copy_text(self._identity_provider))
-        for widget in (self.identity_scope, self.identity_uid, self.copy_uid_button,
-                       self.identity_provider, self.copy_provider_button):
-            identity_ids.addWidget(widget)
-        identity_ids.addStretch(1)
+        identity_ids.addWidget(self.identity_scope, 0, 0, 1, 2)
+        identity_ids.addWidget(self.identity_uid, 1, 0)
+        identity_ids.addWidget(self.copy_uid_button, 1, 1)
+        identity_ids.addWidget(self.identity_provider, 2, 0)
+        identity_ids.addWidget(self.copy_provider_button, 2, 1)
+        identity_ids.setColumnStretch(0, 1)
+        for label in (self.identity_scope, self.identity_uid, self.identity_provider):
+            label.setWordWrap(True)
+            theme.muted(label)
+        for button in (self.copy_uid_button, self.copy_provider_button):
+            button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         identity_layout.addLayout(identity_ids)
+        identity_layout.addWidget(self.identity_status)
         self.action_bar = QWidget()
         self.action_layout = QHBoxLayout(self.action_bar)
         self.action_layout.setContentsMargins(0, 0, 0, 0)
@@ -142,8 +154,10 @@ class DetailPanel(QWidget):
         self._identity_text = self._identity_uid = self._identity_provider = ""
         # Readable view for kinds that have one (RBAC); the YAML stays one click away. Text from the cluster is escaped.
         self.formatted = QTextBrowser()
+        self.formatted.setObjectName("detailFormatted")
         self.formatted.setOpenLinks(False)
         self.formatted.setOpenExternalLinks(False)
+        self.formatted.anchorClicked.connect(self._related_clicked)
         self.formatted_button = QPushButton("Summary", checkable=True)
         self.formatted_button.setAccessibleName("Show resource summary")
         self.formatted_button.setToolTip("A readable summary of the selected resource")
@@ -156,12 +170,16 @@ class DetailPanel(QWidget):
         self.related_button.setAccessibleName("Show related resources")
         self.related_button.setToolTip("Owners, what it owns, and the objects it uses or is used by; click one to go there")
         self.view_bar = QWidget()
+        self.view_bar.setObjectName("detailViewBar")
         bar = QHBoxLayout(self.view_bar)
         bar.setContentsMargins(0, 0, 0, 0)
         bar.addWidget(self.formatted_button)
         bar.addWidget(self.yaml_button)
         bar.addWidget(self.events_button)
         bar.addWidget(self.related_button)
+        for button in (self.formatted_button, self.yaml_button, self.events_button, self.related_button):
+            button.setObjectName("detailViewButton")
+            button.clicked.connect(lambda _checked=False: setattr(self, "_summary_fallback", False))
         bar.addStretch(1)
         modes = QButtonGroup(self)
         modes.setExclusive(True)
@@ -174,6 +192,7 @@ class DetailPanel(QWidget):
         self.events_button.toggled.connect(self._show_mode)
         self.related_button.toggled.connect(self._show_mode)
         self.related = QTextBrowser()
+        self.related.setObjectName("detailRelated")
         self.related.setAccessibleName("Resources related to the selection")
         self.related.setOpenLinks(False)
         self.related.setOpenExternalLinks(False)
@@ -182,6 +201,7 @@ class DetailPanel(QWidget):
         self._related_ok = False  # the current row is of a kind that has a Related view
         self._related_row = None  # the row the Related view is waiting for or showing
         self.events = QTextBrowser()
+        self.events.setObjectName("detailEvents")
         self.events.setAccessibleName("Events for the selected resource")
         self.events.setOpenLinks(False)
         self.events.setOpenExternalLinks(False)
@@ -213,8 +233,10 @@ class DetailPanel(QWidget):
         self.yaml_tools.hide()
         self.formatted.hide()
         self._formatted_ok = False  # the current row has a formatted view
+        self._summary_fallback = False  # distinguish automatic YAML from a user's choice
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
         layout.addWidget(self.identity_header)
         layout.addWidget(self.view_bar)
         layout.addWidget(self.yaml_tools)
@@ -224,6 +246,10 @@ class DetailPanel(QWidget):
         layout.addWidget(self.events)
         layout.addWidget(self.related)
         layout.addWidget(self.editor)
+        # Scroll-area viewports otherwise paint an opaque palette Base over the
+        # inspector surface, even when the surrounding widget is transparent.
+        for content in (self.editor, self.formatted, self.events, self.related):
+            content.viewport().setAutoFillBackground(False)
 
     def toPlainText(self):
         return self.editor.toPlainText()
@@ -267,6 +293,7 @@ class DetailPanel(QWidget):
         self.decode_button.hide()
         self.hide_values_button.hide()
         self._events_ok = self._related_ok = self._formatted_ok = False
+        self._summary_fallback = False
         self._events_row = self._related_row = None
         self.events.clear()
         self.related.clear()
@@ -311,6 +338,7 @@ class DetailPanel(QWidget):
             self.events.setHtml(events_view.render(events or [], getattr(row, "name", "")))
 
     def _render_formatted(self, row):
+        self._formatted_ok = False
         if getattr(row, "table_kind", None) == "Node" or hasattr(row, "is_ready"):
             try:
                 self.formatted.setHtml(node_view.render(row.raw, include_header=False))
@@ -323,8 +351,14 @@ class DetailPanel(QWidget):
             return
         kind, view = getattr(row, "rbac_kind", None), rbac_view
         if kind not in rbac_view.RBAC_KINDS:
-            kind, view = workload_view.kind_of(row.raw), workload_view
-        self._formatted_ok = False
+            kind = karpenter_view.kind_of(row.raw, getattr(row, "custom_kind", None),
+                                          getattr(row, "custom_group", None))
+            view = karpenter_view
+            if kind is None:
+                kind = network_view.kind_of(row.raw, getattr(row, "table_kind", None))
+                view = network_view
+                if kind is None:
+                    kind, view = workload_view.kind_of(row.raw), workload_view
         if kind is not None:
             try:
                 self.formatted.setHtml(view.render(kind, row.raw, include_header=False))
@@ -337,13 +371,16 @@ class DetailPanel(QWidget):
         self._show_mode()
 
     def set_object_actions(self, actions):
-        """Show the row's two most useful actions directly and keep the rest in an overflow menu."""
+        """Keep short action lists visible and always expose Logs beside longer lists."""
         while self.action_layout.count():
             item = self.action_layout.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
         actions = list(actions or [])
-        primary = [action for action in actions if action.primary][:2]
+        primary = actions if len(actions) <= 3 else [action for action in actions if action.primary][:2]
+        logs = next((action for action in actions if action.key in ("logs", "container-logs", "multi-logs")), None)
+        if len(actions) > 3 and logs is not None and logs not in primary:
+            primary = primary[:1] + [logs]
         overflow = [action for action in actions if action not in primary]
         for action in primary:
             button = QToolButton(text=action.title)
@@ -373,7 +410,12 @@ class DetailPanel(QWidget):
         """Keep the four detail destinations in one stable place and disable only unavailable views."""
         self.view_bar.setVisible(self._secret_row is not None)
         self.formatted_button.setVisible(True)
-        self.formatted_button.setEnabled(True)
+        self.formatted_button.setEnabled(self._formatted_ok)
+        self.formatted_button.setToolTip("A readable summary of the selected resource" if self._formatted_ok else
+                                        "No formatted summary is available; inspect this resource in YAML")
+        if self._formatted_ok and self._summary_fallback and self.yaml_button.isChecked():
+            self._summary_fallback = False
+            self.formatted_button.setChecked(True)
         self.yaml_button.setVisible(True)
         self.yaml_button.setEnabled(True)
         self.events_button.setVisible(True)
@@ -407,12 +449,14 @@ class DetailPanel(QWidget):
         self.identity_status.setText(status)
         folded = status.casefold()
         color = theme.BAD if any(word in folded for word in ("failed", "not ready", "error", "crash")) else (
-            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend")) else theme.OK)
+            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend", "warning")) else theme.OK)
         self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
         self.identity_header.show()
 
     @staticmethod
     def _identity_status_text(row, kind, raw):
+        if kind == "Event":
+            return str(raw.get("type") or getattr(row, "type", None) or "Unknown")
         if kind in workload_view.WORKLOAD_KINDS:
             return workload_view.status_line(kind, raw)[0]
         if kind == "Node":
@@ -438,11 +482,15 @@ class DetailPanel(QWidget):
             QGuiApplication.clipboard().setText(value)
 
     def _show_mode(self, *_):
+        if self._secret_row is not None and self.formatted_button.isChecked() and not self._formatted_ok:
+            self._summary_fallback = True
+            self.yaml_button.setChecked(True)
+            return
         if self.related_button.isChecked() and not self._related_ok:
-            self.formatted_button.setChecked(True)
+            (self.formatted_button if self._formatted_ok else self.yaml_button).setChecked(True)
             return
         if self.events_button.isChecked() and not self._events_ok:
-            self.formatted_button.setChecked(True)
+            (self.formatted_button if self._formatted_ok else self.yaml_button).setChecked(True)
             return
         related = self._related_ok and self.related_button.isChecked()
         events = not related and self._events_ok and self.events_button.isChecked()

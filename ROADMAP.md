@@ -117,6 +117,18 @@ Keep this file and the issues in step: when an item is merged, mark it done here
 
 ### UX follow-ups
 
+- **Karpenter detail views ([#303](https://github.com/mbartsch/klotse/issues/303), implemented locally; pending review):** dedicated formatted summaries for NodePools, NodeClaims and node classes (initially EC2NodeClass), including conditions, configuration, resource allocation and links to related Karpenter/Node objects. Preserve YAML fallback and distinguish API-version-specific fields. Related: #302 (columns), #300 (AWS enrichment).
+
+- **EC2NodeClass columns ([#302](https://github.com/mbartsch/klotse/issues/302), implemented locally; pending review):** show AMI family, AMI selector summaries with full tooltips, and a reliable change timestamp where available. Label condition-transition timestamps accurately rather than presenting them as object update times; consider readiness and resolved AMIs.
+
+- **Event status ([#301](https://github.com/mbartsch/klotse/issues/301), implemented locally; pending review):** show the Event type (Normal/Warning) in Details instead of Unknown, preserving a readable text status and existing behavior for other kinds.
+
+- **AWS resource enrichment ([#300](https://github.com/mbartsch/klotse/issues/300), implemented locally; pending review):** resolve AWS-backed Kubernetes resources to infrastructure details, starting with EBS volumes behind PVCs/PVs and Classic ELB/ALB/NLB load balancers referenced by Ingresses/Services. Reuse cluster AWS settings and asynchronous cached lookups; tolerate unavailable credentials or permissions.
+
+- **Network resource summaries ([#299](https://github.com/mbartsch/klotse/issues/299), implemented locally; pending review):** add formatted Details summaries for Services, Ingresses, Endpoints, EndpointSlices, and NetworkPolicies, showing routing, addresses, ports, selectors and policy rules from loaded manifests. Keep YAML available and use automatic YAML fallback for unsupported kinds.
+
+- **CronJob pod logs ([#298](https://github.com/mbartsch/klotse/issues/298), implemented locally; pending review):** when reviewing a CronJob, offer Logs for pods belonging to its Jobs, including completed or failed runs whose pods remain. Follow owner references, reuse the pod/multi-pod log viewer, and explain missing pods or insufficient permissions. Opening logs must not start a Job.
+
 - **Cluster connection status (#237, implemented locally; pending review):** navigator rows label Disconnected, Connecting, Connected and Failed in text alongside the existing icon. Alias and kubeconfig context are both visible; failed connection detail is available in the tooltip. Group placement and connection actions remain unchanged. Focused offscreen coverage in `tests/test_navigator_hierarchy.py` and `tests/test_app.py`; no manual display review.
 
 - **Navigator hierarchy (#236, implemented locally; pending review):** connected/disconnected section headers, disconnected cluster folders, resource categories and leaf views have distinct theme-aware typography and modest row spacing while leaf rows remain compact. Group expansion, context grouping, view click routing and cluster ordering are preserved; full context names remain available in tooltips for long names and narrow sidebars. Focused offscreen coverage is in `tests/test_navigator_hierarchy.py`; no manual display review. Not merged.

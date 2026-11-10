@@ -118,7 +118,7 @@ def test_the_group_sits_just_above_custom_resources_and_clicking_a_leaf_opens_th
     labels = top_labels(nav)
     assert labels.index("Karpenter") == labels.index("Custom Resources") - 1 and labels[-1] == "Custom Resources"
     group = nav.cluster_item("a").child(labels.index("Karpenter"))
-    assert [group.child(i).text(0) for i in range(group.childCount())] == ["NodePools", "NodeClaims"] and group.isExpanded()
+    assert [group.child(i).text(0) for i in range(group.childCount())] == ["NodePools", "NodeClaims"] and not group.isExpanded()
     asked = []
     nav.view_requested.connect(lambda ctx, key: asked.append((ctx, key)))
     nav.itemClicked.emit(group.child(1), 0)

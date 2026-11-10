@@ -262,7 +262,7 @@ def map_custom_object(item, namespaced=True, group=None, kind=None):
             extra = found[1](item)
         except Exception:  # an odd object must never break the list; its cells stay empty
             extra = {}
-    return Row(meta.get("name", ""), meta.get("namespace") or "", item,
+    return Row(meta.get("name", ""), meta.get("namespace") or "", item, custom_group=group, custom_kind=kind,
                age=format_age(parse_timestamp(meta.get("creationTimestamp"))), **extra)
 
 
@@ -303,6 +303,47 @@ def _nodeclaim(item):
     return dict(node=_text(_get(item, "status", "nodeName")), instance_type=_text(labels.get("node.kubernetes.io/instance-type")),
                 capacity=_text(labels.get("karpenter.sh/capacity-type")), zone=_text(labels.get("topology.kubernetes.io/zone")),
                 nodepool=_text(labels.get("karpenter.sh/nodepool")), ready=_condition(item, "Ready", "Initialized"))
+
+
+def selector_terms_text(terms):
+    """Selectors AND fields within a term and OR terms; keep the complete value for tooltips."""
+    if not isinstance(terms, list):
+        return ""
+    rendered = []
+    for term in terms:
+        if not isinstance(term, dict):
+            continue
+        fields = []
+        for key, value in term.items():
+            if isinstance(value, dict):
+                fields.extend(f"{key}.{k}={v}" for k, v in sorted(value.items()))
+            elif value is not None:
+                fields.append(f"{key}={value}")
+        if fields:
+            rendered.append(" AND ".join(fields))
+    return " OR ".join(rendered)
+
+
+def _ec2nodeclass(item):
+    selector = selector_terms_text(_get(item, "spec", "amiSelectorTerms"))
+    amis = _get(item, "status", "amis")
+    resolved = ", ".join(str(a.get("id")) for a in amis if isinstance(a, dict) and a.get("id")) if isinstance(amis, list) else ""
+    conditions = _get(item, "status", "conditions")
+    transitions = []
+    for condition in conditions if isinstance(conditions, list) else []:
+        stamp = condition.get("lastTransitionTime") if isinstance(condition, dict) else None
+        try:
+            parsed = parse_timestamp(stamp) if isinstance(stamp, str) else None
+            if parsed is not None and parsed.tzinfo is not None:
+                transitions.append(parsed.astimezone(timezone.utc))
+        except (TypeError, ValueError):
+            pass
+    changed = max(transitions).strftime("%Y-%m-%d %H:%M:%S UTC") if transitions else ""
+    return dict(ami_family=_text(_get(item, "spec", "amiFamily")),
+                ami_selector=selector if len(selector) <= 100 else selector[:99] + "…", ami_selector_tooltip=selector,
+                amis=resolved if len(resolved) <= 100 else resolved[:99] + "…", amis_tooltip=resolved,
+                ready=_condition(item, "Ready"), condition_changed=changed,
+                condition_changed_tooltip="Latest reported condition transition, not an object modification time." + (f"\n{changed}" if changed else ""))
 
 
 def expiry_text(stamp, now=None):
@@ -360,6 +401,9 @@ def _route(item):
 
 # (API group, kind) -> (columns as (heading, attribute), function giving the attribute values of one object)
 CUSTOM_COLUMNS = {
+    ("karpenter.k8s.aws", "EC2NodeClass"): (
+        [("Name", "name"), ("AMI family", "ami_family"), ("AMI selector", "ami_selector"), ("Resolved AMIs", "amis"),
+         ("Ready", "ready"), ("Last condition change", "condition_changed"), ("Age", "age")], _ec2nodeclass),
     ("karpenter.sh", "NodePool"): (
         [("Name", "name"), ("NodeClass", "nodeclass"), ("Nodes", "nodes"), ("CPU", "cpu"), ("CPU limit", "cpu_limit"),
          ("Weight", "weight"), ("Consolidation", "consolidation"), ("Ready", "ready"), ("Age", "age")], _nodepool),
