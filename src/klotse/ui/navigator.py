@@ -50,7 +50,7 @@ def dot_icon(color):
 
 class Navigator(QTreeWidget):
     """Lens-style sidebar. Cluster rows name their connection state and retain a status icon;
-    a connected cluster expands into its resource views. Right-click a cluster to connect or disconnect it.
+    select clusters without changing connection state, then use the context menu to connect or disconnect.
 
     The Disconnected section can be organised in groups (nested folders, see cluster_groups.ClusterGroups): right-click
     it or a cluster to create groups, move clusters or get groups suggested from the context names. A connected cluster
@@ -518,8 +518,6 @@ class Navigator(QTreeWidget):
 
     def _on_click(self, item, _col):
         kind = item.data(0, self.ROLE_KIND)
-        if kind == "cluster":
-            self.context_clicked.emit(item.data(0, self.ROLE_KEY))
-        elif kind == "view":
+        if kind == "view":
             cluster = self._cluster_of(item)  # views live under groups under the cluster item
             self.view_requested.emit(cluster.data(0, self.ROLE_KEY), item.data(0, self.ROLE_KEY))
