@@ -876,7 +876,7 @@ class MainWindow(QMainWindow):
 
     def _on_failed(self, ctx, msg):
         self._discard(ctx)
-        self.nav.set_state(ctx, "failed")  # after _discard, which resets the dot to idle
+        self.nav.set_state(ctx, "failed", msg)  # after _discard, which resets the row to idle
         self.status.showMessage(f"{ctx}: {msg}")
         QMessageBox.warning(self, "Cannot connect", f"{ctx}\n\n{msg}")
 
