@@ -1,25 +1,26 @@
-"""On-demand EC2 prices without an AWS login.
+"""On-demand EC2 prices.
 
 AWS publishes the full price list as one ~480 MB file per region, far too much to download from a desktop app. The
 AWS pricing calculator reads a small per-region, per-operating-system file instead (about 60 KB compressed) and this
 module uses that: it is public, needs no credentials and has the same prices. It is not a documented API, so a change
 on AWS's side can break it; the plugin then says so and keeps using the last good copy, kept for a week in the
-plugin's cache folder.
+plugin's cache folder. AWS China uses the documented Price List Query API and AWS credentials.
 """
 import gzip
 import json
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from .awscreds import CredentialSource, CredentialsError
 from .safe import require_https
+from .sigv4 import sign
 
 BASE_URL = "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/ec2-ondemand-without-sec-sel"
-# AWS's China calculator routes through its aws-cn partition-specific calculator maps.
-CHINA_BASE_URL = ("https://b0.p.awsstatic.cn/pricing/2.0/meteredUnitMaps/aws-cn/ec2/CNY/current/"
-                  "ec2-ondemand-without-sec-sel")
+CHINA_PRICE_API_URL = "https://api.pricing.cn-northwest-1.amazonaws.com.cn/"
 CACHE_MAX_AGE_S = 7 * 86400
 MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024  # the real files are about 1 MB uncompressed; refuse anything absurd
 HOURS_PER_MONTH = 730  # what AWS uses for monthly estimates
@@ -72,7 +73,7 @@ def price_url(region, os_name):
     if name is None:
         raise PriceError(f"no price list is known for the region {region or '(unknown)'}")
     if region.startswith("cn-"):
-        return f"{CHINA_BASE_URL}/{urllib.parse.quote(name)}/{os_name}/index.json"
+        return CHINA_PRICE_API_URL
     return f"{BASE_URL}/{urllib.parse.quote(name)}/{os_name}/index.json"
 
 
@@ -92,6 +93,76 @@ def parse_price_file(raw):
     return prices
 
 
+def _query_china_prices(region, os_name, profile="", credentials=None, send=None, now=time.time):
+    """Query the authenticated China Price List API, paging its results instead of downloading the 161 MB offer file."""
+    if credentials is None:
+        try:
+            credentials = CredentialSource(profile).get()
+        except CredentialsError as error:
+            raise PriceError(f"China prices need AWS credentials with pricing:GetProducts permission: {error}") from None
+    if send is None:
+        send = _send_price_query
+    filters = [
+        {"Type": "TERM_MATCH", "Field": "regionCode", "Value": region},
+        {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_name},
+        {"Type": "TERM_MATCH", "Field": "tenancy", "Value": "Shared"},
+        {"Type": "TERM_MATCH", "Field": "preInstalledSw", "Value": "NA"},
+        {"Type": "TERM_MATCH", "Field": "licenseModel", "Value": "No License required"},
+        {"Type": "TERM_MATCH", "Field": "productFamily", "Value": "Compute Instance"},
+    ]
+    token, prices = None, {}
+    while True:
+        payload = {"ServiceCode": "AmazonEC2", "Filters": filters, "FormatVersion": "aws_v1", "MaxResults": 100}
+        if token:
+            payload["NextToken"] = token
+        response = send(payload, credentials, now())
+        try:
+            results = response.get("PriceList", [])
+            for item in results:
+                item = json.loads(item) if isinstance(item, str) else item
+                product = item.get("product") or {}
+                attrs = product.get("attributes") or {}
+                instance_type = attrs.get("instanceType")
+                if (product.get("productFamily") != "Compute Instance" or not instance_type
+                        or attrs.get("regionCode") != region or attrs.get("operatingSystem") != os_name
+                        or attrs.get("tenancy") != "Shared" or attrs.get("preInstalledSw", "NA") not in ("NA", "None")
+                        or attrs.get("licenseModel") not in ("No License required", "NA", None)):
+                    continue
+                for offer in ((item.get("terms") or {}).get("OnDemand") or {}).values():
+                    for dimension in (offer.get("priceDimensions") or {}).values():
+                        if dimension.get("unit") not in ("Hrs", "Hours") or dimension.get("startingRange", "0") != "0":
+                            continue
+                        amount = (dimension.get("pricePerUnit") or {}).get("CNY")
+                        if amount is not None:
+                            prices[instance_type] = float(amount)
+            token = response.get("NextToken")
+        except (AttributeError, TypeError, ValueError) as error:
+            raise PriceError(f"AWS returned an unreadable China price response: {type(error).__name__}") from None
+        if not token:
+            return prices
+
+
+def _send_price_query(payload, credentials, timestamp):
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    headers = {"Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSPriceListService.GetProducts"}
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(timestamp))
+    headers = sign("POST", CHINA_PRICE_API_URL, headers, body, credentials.access_key, credentials.secret_key,
+                   "cn-northwest-1", "pricing", stamp, credentials.token or None)
+    request = urllib.request.Request(require_https(CHINA_PRICE_API_URL), data=body, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 - fixed HTTPS AWS endpoint
+            return json.loads(response.read(5_000_000))
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.loads(error.read(64_000)).get("message", "")
+        except (ValueError, AttributeError):
+            detail = ""
+        reason = f"{error.code} {detail}".strip()
+        raise PriceError(f"China Price List API refused the request ({reason})") from None
+    except (OSError, ValueError) as error:
+        raise PriceError(f"China Price List API request failed: {type(error).__name__}") from None
+
+
 def download(url, timeout=30):
     request = urllib.request.Request(require_https(url), headers={"User-Agent": "Klotse-aws", "Accept-Encoding": "gzip"})
     with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - https only, checked above
@@ -101,13 +172,14 @@ def download(url, timeout=30):
     return data
 
 
-def on_demand_prices(region, os_name, cache_dir, fetch=download, now=time.time):
+def on_demand_prices(region, os_name, cache_dir, fetch=download, now=time.time, profile="", query_china=None):
     """The price table for a region and operating system: from the cache when it is under a week old, else downloaded.
 
     A failed download falls back to an older cached copy (the table's `note` says so); with no copy it raises PriceError.
     """
     url = price_url(region, os_name)
-    path = Path(cache_dir) / f"ondemand-{region}-{os_name}.json" if cache_dir else None
+    cache_key = f"ondemand-{region}-{os_name}-query" if region.startswith("cn-") else f"ondemand-{region}-{os_name}"
+    path = Path(cache_dir) / f"{cache_key}.json" if cache_dir else None
     cached = None
     if path is not None and path.is_file():
         try:
@@ -120,7 +192,10 @@ def on_demand_prices(region, os_name, cache_dir, fetch=download, now=time.time):
     if cached and 0 <= age < CACHE_MAX_AGE_S:
         return PriceTable(cached["prices"], currency=currency)
     try:
-        prices = parse_price_file(fetch(url))
+        if region.startswith("cn-"):
+            prices = (query_china or _query_china_prices)(region, os_name, profile=profile, now=now)
+        else:
+            prices = parse_price_file(fetch(url))
         if not prices:
             raise PriceError("the price file had no prices in it")
     except (OSError, ValueError, PriceError) as error:  # urllib errors are OSErrors; bad JSON is a ValueError

@@ -37,6 +37,17 @@ def price_file(prices, sql=None):
     return gzip.compress(json.dumps({"manifest": {}, "regions": {"EU (Ireland)": entries}}).encode())
 
 
+def china_query_item(instance="m5.large", price="1.25", os_name="Linux", tenancy="Shared", region="cn-north-1"):
+    sku = f"SKU-{instance}-{os_name}-{tenancy}"
+    return json.dumps({
+        "product": {"productFamily": "Compute Instance", "attributes": {"regionCode": region,
+            "instanceType": instance, "operatingSystem": os_name, "tenancy": tenancy,
+            "preInstalledSw": "NA", "licenseModel": "No License required"}},
+        "terms": {"OnDemand": {sku: {"priceDimensions": {
+            "rate": {"unit": "Hrs", "startingRange": "0", "pricePerUnit": {"CNY": price}}}}}},
+    })
+
+
 # ---- reading the node ---------------------------------------------------------------------
 def test_a_node_says_its_instance_zone_region_type_capacity_and_os():
     info = parse_node(node("n1", "i-0123456789abcdef0", "eu-west-1b", "c6g.xlarge", capacity="spot"))
@@ -78,8 +89,8 @@ def test_the_price_url_uses_the_regions_price_list_name_and_the_os():
         price_url("ap-nowhere-9", "Linux")
     assert REGION_NAMES["eu-central-2"] == "EU (Zurich)" and REGION_NAMES["sa-east-1"] == "South America (Sao Paulo)"
     china = price_url("cn-north-1", "Linux")
-    assert china.startswith("https://b0.p.awsstatic.cn/pricing/2.0/meteredUnitMaps/aws-cn/ec2/CNY/current/")
-    assert "/China%20%28Beijing%29/Linux/index.json" in china
+    assert china == "https://api.pricing.cn-northwest-1.amazonaws.com.cn/"
+    assert price_url("cn-northwest-1", "Windows") == china
     gov = price_url("us-gov-east-1", "Linux")
     assert gov.startswith("https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/")
     assert pricing.currency_for_region("cn-northwest-1") == "CNY"
@@ -113,12 +124,76 @@ def test_prices_are_downloaded_once_and_then_come_from_the_cache(tmp_path):
 
 
 def test_china_prices_keep_cny_when_loaded_from_cache(tmp_path):
+    calls = []
     first = on_demand_prices("cn-north-1", "Linux", tmp_path,
-                             fetch=lambda url: price_file({"m5.large": 1.25}), now=lambda: 1000)
+                             query_china=lambda *args, **kwargs: calls.append(kwargs["profile"]) or {"m5.large": 1.25},
+                             profile="china-profile", now=lambda: 1000)
     cached = on_demand_prices("cn-north-1", "Linux", tmp_path,
                               fetch=lambda url: pytest.fail("fresh CNY cache should be reused"), now=lambda: 1001)
     assert first.currency == cached.currency == "CNY"
     assert first.prices == cached.prices == {"m5.large": 1.25}
+    assert calls == ["china-profile"]
+
+
+def test_china_query_ignores_legacy_calculator_cache(tmp_path):
+    old = tmp_path / "ondemand-cn-north-1-Linux.json"
+    old.write_text(json.dumps({"fetched": 1000, "prices": {"old-type": 1.0}}))
+    calls = []
+    table = on_demand_prices("cn-north-1", "Linux", tmp_path,
+                             query_china=lambda *args, **kwargs: calls.append(True) or {"m5.large": 1.25},
+                             now=lambda: 1001)
+    assert calls == [True] and table.prices == {"m5.large": 1.25}
+
+
+def test_china_price_query_pages_and_filters_on_demand_prices():
+    calls = []
+
+    def send(payload, credentials, timestamp):
+        calls.append(payload)
+        if len(calls) == 1:
+            return {"PriceList": [china_query_item()], "NextToken": "page-2"}
+        return {"PriceList": [china_query_item("c6g.large", "0.82"), china_query_item("m5.large", "8.0", "Windows"),
+                               china_query_item("m5.large", "7.0", tenancy="Dedicated"),
+                               china_query_item("m5.large", "6.0", region="cn-northwest-1")]}
+
+    creds = SimpleNamespace(access_key="key", secret_key="secret", token="")
+    prices = pricing._query_china_prices("cn-north-1", "Linux", credentials=creds, send=send, now=lambda: 1000)
+    assert prices == {"m5.large": 1.25, "c6g.large": 0.82}
+    assert len(calls) == 2 and calls[1]["NextToken"] == "page-2"
+    assert calls[0]["FormatVersion"] == "aws_v1"
+    assert {f["Field"]: f["Value"] for f in calls[0]["Filters"]} == {
+        "regionCode": "cn-north-1", "operatingSystem": "Linux", "tenancy": "Shared",
+        "preInstalledSw": "NA", "licenseModel": "No License required", "productFamily": "Compute Instance"}
+
+
+def test_china_price_query_signs_the_request_to_the_china_endpoint(monkeypatch):
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return b'{"PriceList":[]}'
+
+    def fake_open(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = request.headers
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(pricing.urllib.request, "urlopen", fake_open)
+    creds = SimpleNamespace(access_key="AKID", secret_key="secret", token="session")
+    assert pricing._send_price_query({"ServiceCode": "AmazonEC2"}, creds, 1_700_000_000) == {"PriceList": []}
+    assert captured["url"] == pricing.CHINA_PRICE_API_URL
+    assert captured["headers"]["X-amz-target"] == "AWSPriceListService.GetProducts"
+    assert captured["headers"]["X-amz-security-token"] == "session"
+    assert captured["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKID/")
+    assert captured["body"] == {"ServiceCode": "AmazonEC2"} and captured["timeout"] == 30
 
 
 def test_a_failed_refresh_keeps_using_the_old_copy_and_says_so(tmp_path):

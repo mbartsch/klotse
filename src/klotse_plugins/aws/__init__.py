@@ -1,10 +1,9 @@
 """AWS Plugin: what the nodes of an EKS (or other AWS) cluster are and cost, as columns and right-click actions.
 
-Without any login it shows, from the Node objects, the instance ID, instance type, capacity (on-demand or spot) and, on
-managed node groups, the AMI; and, from AWS's public price list, the on-demand price per hour and per month. If boto3 is
-installed and AWS credentials work it also shows the real launch time and AMI of every node (Karpenter nodes carry no
-AMI label) and current spot prices. Prices are list prices for the instance only: no EBS, data transfer, EKS fee,
-savings plans or reserved instances.
+From Node objects it shows the instance ID, type and capacity; it reads on-demand prices from AWS price lists (China's
+Price List Query API requires AWS credentials with `pricing:GetProducts`). When AWS credentials work, it can also show
+the real launch time, AMI and current spot price. Prices are list prices for the instance only: no EBS, data transfer,
+EKS fee, savings plans or reserved instances.
 """
 import threading
 from collections import defaultdict
@@ -68,8 +67,8 @@ class AwsPlugin(Plugin):
     requires_api = 7  # password and note settings
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
-                   "Works without a login (the cluster's own data plus AWS's public price list); with boto3 and AWS "
-                   "credentials it also shows spot prices, the real launch time and the AMI of every node.")
+                   "China region prices use the AWS Price List API and need AWS credentials with "
+                   "pricing:GetProducts permission.")
     columns = (
         Column("instance_id", "Instance ID"),
         Column("instance_type", "Instance type"),
@@ -93,8 +92,9 @@ class AwsPlugin(Plugin):
     settings = (
         Setting("use_aws_api", "Use the AWS API when credentials are available", True, kind="bool",
                 help="Looks up, by instance ID, the AMI the node booted from and its launch time, and current spot prices. "
+                     "China region prices also use the AWS Price List API and need pricing:GetProducts permission. "
                      "It uses boto3 if installed, otherwise the credentials of the AWS CLI (or the AWS_* variables). Untick "
-                     "to use only the cluster and the public price list."),
+                     "to skip EC2 metadata and Spot lookups; list-price lookup continues."),
         Setting("aws_profile", "AWS profile (default for all clusters)", "",
                 help="A profile from your AWS config. Empty uses the default credentials."),
         Setting("profile_map", "AWS profile for each cluster", "", kind="multiline",
@@ -216,17 +216,18 @@ class AwsPlugin(Plugin):
                         "capacity": n.capacity, "ami": n.ami or None} for key, n in nodes.items()}
         if not nodes:
             return result
+        profile = profile_for(context, settings)
         tables = {}
         for region, os_name in sorted({(n.region, n.os) for n in nodes.values()}):
             try:
-                table = on_demand_prices(region, os_name, cache_dir)
+                table = on_demand_prices(region, os_name, cache_dir, profile=profile)
             except PriceError as error:
                 warn(str(error))
                 continue
             if table.note:
                 warn(f"{region}: {table.note}")
             tables[(region, os_name)] = table
-        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir, profile_for(context, settings))
+        details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir, profile)
         without_ami = [n for n in nodes.values() if not n.ami and not (details.get(n.instance_id) or {}).get("ami")]
         if no_boto3 and without_ami:  # these AMIs can only come from EC2, which needs boto3 and credentials
             warn(f"{len(without_ami)} node(s) have no node group image label, so their AMI can only be looked up in "
