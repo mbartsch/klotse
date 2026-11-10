@@ -131,6 +131,7 @@ class KeyValueEditor(QWidget):
         self._hidden = {}  # values of hidden keys, kept and written back unchanged
         self._loading = False
         self.table = QTableWidget(0, 2)
+        self.table.setAccessibleName(f"{title} key and value entries")
         self.table.setHorizontalHeaderLabels(["Key", "Value"])
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)

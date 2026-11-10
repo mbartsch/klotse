@@ -104,6 +104,8 @@ def test_dialog_lists_filters_and_clears(qtbot, tmp_path, monkeypatch):
     log.record("b", "delete_pod", "web-1 shop", "failed", "no")
     dialog = AuditDialog(log)
     qtbot.addWidget(dialog)
+    assert dialog.filter.accessibleName() == "Filter change log"
+    assert dialog.table.accessibleName() == "Change log entries"
     assert dialog.table.rowCount() == 2 and dialog.table.item(0, 4).text() == "✖ failed"
     dialog.filter.setText("scale")
     assert [dialog.table.isRowHidden(r) for r in range(2)] == [True, False]

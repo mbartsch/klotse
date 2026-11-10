@@ -166,6 +166,7 @@ class PortForwardPanel(QWidget):
         self.manager = manager
         self.saved, self.context, self._start = saved, context, start  # saved: SavedForwards; start(entry) begins one
         self.table = QTableWidget(0, len(self.HEADERS))
+        self.table.setAccessibleName("Active port forwards")
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().hide()

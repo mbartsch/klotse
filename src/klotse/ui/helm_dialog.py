@@ -99,6 +99,7 @@ class HelmReleaseDialog(QDialog):
 
     def _history_tab(self, history):
         self.history = QTableWidget(len(history), len(HISTORY_HEADERS))
+        self.history.setAccessibleName("Helm release revision history")
         self.history.setHorizontalHeaderLabels(HISTORY_HEADERS)
         self.history.horizontalHeader().setStretchLastSection(True)
         self.history.verticalHeader().hide()

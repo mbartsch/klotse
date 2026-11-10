@@ -93,6 +93,7 @@ class RowsEditor(QWidget):
         self.dump = dump or default_dump(columns)
         self.existing_readonly = existing_readonly
         self.table = QTableWidget(0, len(columns))
+        self.table.setAccessibleName(f"{title or 'Workload'} fields")
         self.table.setHorizontalHeaderLabels([c[1] for c in columns])
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -266,6 +267,7 @@ class EnvEditor(QWidget):
         super().__init__()
         self.ref_names = ref_names or {}  # {"Secret": directory, "ConfigMap": directory}: the names that exist (may load later)
         self.table = QTableWidget(0, 3)
+        self.table.setAccessibleName("Container environment variables")
         self.table.setHorizontalHeaderLabels(["Source", "Name", "Value / reference"])
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)

@@ -28,11 +28,13 @@ class FileBrowserDialog(QDialog):
         self._open = True
         self.finished.connect(self._closed)
         self.container = QComboBox()
+        self.container.setAccessibleName("Container")
         self.container.addItems(list(containers))
         if container:
             self.container.setCurrentText(container)
         self.container.setVisible(len(containers) > 1)
         self.address = QLineEdit(start_path or "/")
+        self.address.setAccessibleName("Container directory path")
         self.address.setPlaceholderText("absolute path, Enter to open")
         self.up = QPushButton("Up")
         self.go = QPushButton("Open")
@@ -41,6 +43,7 @@ class FileBrowserDialog(QDialog):
         self.status.setWordWrap(True)
         theme.muted(self.status)
         self.table = QTableWidget(0, 2)
+        self.table.setAccessibleName("Container files and folders")
         self.table.setHorizontalHeaderLabels(["Name", "Type"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().hide()
