@@ -44,7 +44,8 @@ def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path)
     texts = [a.text() for a in win.edit_menu.actions() if not a.isSeparator()]
     assert texts == ["Undo", "Redo", "Cut", "Copy", "Paste", "Select All", "Preferences…"]
     assert win.edit_actions.actions["copy"].shortcut().toString()
-    assert win.preferences_action.menuRole() == win.preferences_action.PreferencesRole
+    from PySide6.QtGui import QAction
+    assert win.preferences_action.menuRole() == QAction.MenuRole.PreferencesRole
 
 
 def test_text_box_commands_cut_copy_paste_undo(qtbot):
