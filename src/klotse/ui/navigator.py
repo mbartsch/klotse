@@ -87,6 +87,7 @@ class Navigator(QTreeWidget):
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
         self._connected_hdr = self._idle_hdr = None
+        self._filter_text = ""
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
@@ -163,12 +164,43 @@ class Navigator(QTreeWidget):
             self._states[n] = "idle"
         self._layout_idle()
 
+    def set_filter(self, text):
+        """Show clusters whose kubeconfig context or display alias contains `text`."""
+        text = str(text or "").strip().casefold()
+        if text == self._filter_text:
+            return
+        self._filter_text = text
+        self._apply_filter()
+
+    def _apply_filter(self):
+        """Hide nonmatching rows in place so filtering never changes saved groups or connection state."""
+        query = self._filter_text
+
+        def visit(item):
+            kind = item.data(0, self.ROLE_KIND)
+            if kind == "cluster":
+                name = item.data(0, self.ROLE_KEY) or ""
+                alias = self._aliases.get(name) or name
+                visible = not query or query in name.casefold() or query in alias.casefold()
+            else:
+                visible = False
+                for i in range(item.childCount()):
+                    visible = visit(item.child(i)) or visible
+                if kind == "header":
+                    visible = visible or not query
+            item.setHidden(not visible)
+            return visible
+
+        for i in range(self.topLevelItemCount()):
+            visit(self.topLevelItem(i))
+
     def set_alias(self, name, alias):
         item = self._clusters.get(name)
         if item is not None:
             self._aliases[name] = alias or name
             self._refresh_cluster_text(name)
             self._update_headers()
+            self._apply_filter()
 
     def _refresh_cluster_text(self, name):
         item = self._clusters.get(name)
@@ -221,6 +253,7 @@ class Navigator(QTreeWidget):
         for name in idle:
             self._insert_cluster(self._idle_parent(name), self._clusters[name])
         self._update_headers()
+        self._apply_filter()
 
     def _header(self, label):
         h = QTreeWidgetItem([label])
@@ -267,6 +300,7 @@ class Navigator(QTreeWidget):
         want = self._connected_hdr if state in ACTIVE_STATES else self._idle_parent(name)
         if item.parent() is want:
             self._update_headers()
+            self._apply_filter()
             return
         was_current = self.currentItem() is item
         if item.parent() is not None:
@@ -275,6 +309,7 @@ class Navigator(QTreeWidget):
         self._update_headers()
         if was_current:
             self.setCurrentItem(item)
+        self._apply_filter()
 
     def show_views(self, name):
         """Expand `name` into its resource views. Any number of clusters can be expanded at once."""

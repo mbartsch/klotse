@@ -213,6 +213,27 @@ def test_without_groups_the_list_is_the_plain_two_sections(qtbot):
     assert labels == ["Rename alias…", "Connect"] and nav.menu_for(nav.topLevelItem(1)) is None  # no groups: nothing to offer on the header
 
 
+def test_search_filters_both_sections_by_context_or_alias_without_changing_groups(qtbot):
+    nav, groups = make_nav(qtbot, assignments={"a": "prod/eu", "b": "prod/us"})
+    nav.set_alias("a", "Prod Europe")
+    nav.set_state("c", "connected")
+
+    nav.set_filter("prod eur")
+    assert not nav.cluster_item("a").isHidden()
+    assert not nav.cluster_item("a").parent().isHidden()
+    assert not nav.cluster_item("a").parent().parent().isHidden()
+    assert nav.cluster_item("b").isHidden() and nav.cluster_item("c").isHidden()
+    assert not nav.topLevelItem(1).isHidden() and nav.topLevelItem(0).isHidden()
+
+    nav.set_filter("c")  # the disconnected context is searchable alongside connected clusters
+    assert not nav.cluster_item("c").isHidden() and not nav.topLevelItem(0).isHidden()
+    assert nav.cluster_item("a").isHidden()
+
+    nav.set_filter("")
+    assert all(not nav.cluster_item(name).isHidden() for name in ("a", "b", "c", "d"))
+    assert groups.assignments == {"a": "prod/eu", "b": "prod/us"}
+
+
 # ---- the window saves them --------------------------------------------------------
 def test_the_window_saves_group_changes_and_restores_them(qtbot, tmp_path):
     win = MainWindow(MultiService, label_settings=LabelSettings(store(tmp_path)))
