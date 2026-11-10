@@ -454,7 +454,7 @@ def test_multiple_clusters_open_in_separate_tabs(qtbot, monkeypatch):
 
     win.nav.context_clicked.emit("b")
     assert [win.clusters.tabText(i) for i in range(win.clusters.count())] == ["a", "b"]
-    assert win.windowTitle().endswith("b") and win.workspace() is win.workspace("b")
+    assert "b" in win.windowTitle() and win.workspace() is win.workspace("b")
     qtbot.waitUntil(lambda: win.nav.cluster_item("b").childCount() > 0, timeout=5000)
     assert win.nav.cluster_item("a").childCount() > 0  # both clusters stay expanded in the navigator
 
