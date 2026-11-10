@@ -117,6 +117,12 @@ class DetailPanel(QWidget):
             identity_ids.addWidget(widget)
         identity_ids.addStretch(1)
         identity_layout.addLayout(identity_ids)
+        self.action_bar = QWidget()
+        self.action_layout = QHBoxLayout(self.action_bar)
+        self.action_layout.setContentsMargins(0, 0, 0, 0)
+        self.action_layout.addStretch(1)
+        identity_layout.addWidget(self.action_bar)
+        self.action_bar.hide()
         self.identity_header.hide()
         self._identity_text = self._identity_uid = self._identity_provider = ""
         # Readable view for kinds that have one (RBAC); the YAML stays one click away. Text from the cluster is escaped.
@@ -275,6 +281,39 @@ class DetailPanel(QWidget):
             self.formatted.setHtml(f"<p style='color:{theme.MUTED}'>No formatted summary is available for this resource kind. Use YAML to inspect its fields.</p>")
         self._sync_view_choices()
         self._show_mode()
+
+    def set_object_actions(self, actions):
+        """Show the row's two most useful actions directly and keep the rest in an overflow menu."""
+        while self.action_layout.count():
+            item = self.action_layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        actions = list(actions or [])
+        primary = [action for action in actions if action.primary][:2]
+        overflow = [action for action in actions if action not in primary]
+        for action in primary:
+            button = QToolButton(text=action.title)
+            button.setToolTip(action.title)
+            button.setAccessibleName(action.title.replace("…", ""))
+            button.clicked.connect(lambda _checked=False, callback=action.callback: callback())
+            self.action_layout.addWidget(button)
+        if overflow:
+            menu = QMenu(self.action_bar)
+            dangerous_started = False
+            for action in overflow:
+                if action.dangerous and not dangerous_started and not menu.isEmpty():
+                    menu.addSeparator()
+                    dangerous_started = True
+                item = menu.addAction(action.title)
+                item.setToolTip(action.title)
+                item.triggered.connect(action.callback)
+            button = QToolButton(text="More…")
+            button.setAccessibleName("More object actions")
+            button.setPopupMode(QToolButton.InstantPopup)
+            button.setMenu(menu)
+            self.action_layout.addWidget(button)
+        self.action_layout.addStretch(1)
+        self.action_bar.setVisible(bool(actions))
 
     def _sync_view_choices(self):
         """Keep the four detail destinations in one stable place and disable only unavailable views."""
