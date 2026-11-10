@@ -211,6 +211,7 @@ def test_confirmation_is_asked_for_dangerous_actions_and_a_no_runs_nothing(qtbot
     rows = [node("n1"), node("n2")]
     ws.plugin_runner.run("acts", "kill", rows, "Node")
     assert plugin.requests == [] and "n1, n2" in asked[0] and "Acting plugin" in asked[0]
+    assert "Cluster: ctx" in asked[0] and "Objects: n1, n2" in asked[0]
     answer(monkeypatch, QMessageBox.Yes)
     ws.plugin_runner.run("acts", "kill", rows, "Node")
     assert [r.name for r in plugin.requests[0].resources] == ["n1", "n2"]
@@ -226,7 +227,7 @@ def test_an_actions_own_confirmation_text_is_used(qtbot, tmp_path, monkeypatch):
     ws, _, _ = workspace(qtbot, tmp_path, Asks())
     asked = answer(monkeypatch, QMessageBox.No)
     ws.plugin_runner.run("asks", "go", [node("n1")], "Node")
-    assert asked == ["Really go?"]
+    assert asked == ["Cluster: ctx\nObjects: n1\n\nReally go?"]
 
 
 def test_many_resources_are_abbreviated_in_the_question_and_the_activity_line():

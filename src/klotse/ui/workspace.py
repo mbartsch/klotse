@@ -2164,7 +2164,9 @@ class ClusterWorkspace(QMainWindow):
             dlg = EditDialog(title, current, self, note=note, can_form=self._has_form(kind, current))
             self._attach_schema(dlg, kind, current)
             if dlg.exec() == EditDialog.Accepted:
-                if not confirm_risky(self, kind, name, warnings):
+                meta = (current or {}).get("metadata") or {}
+                if not confirm_risky(self, kind, name, warnings, namespace=meta.get("namespace") or namespace,
+                                     context=self.context):
                     return
                 verdict = self._review(kind, name, dlg.result_body, raw, creating)
                 if verdict == SAVE:
