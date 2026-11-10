@@ -152,6 +152,8 @@ class MainWindow(QMainWindow):
         navigate_menu = view_menu.addMenu("Navigate")
         insights_menu = view_menu.addMenu("Insights")
         operations_menu = view_menu.addMenu("Operations")
+        self.panels_menu = view_menu.addMenu("Panels")
+        self.panels_menu.aboutToShow.connect(self._fill_workspace_panels_menu)
         settings_menu = view_menu.addMenu("Settings")
         # Prevent macOS's text heuristic from promoting View > Settings into
         # the application Preferences menu; that slot belongs to the explicit
@@ -1089,6 +1091,17 @@ class MainWindow(QMainWindow):
     def _on_view_opened(self, ctx, key):
         if self.clusters.currentWidget() is self.workspaces.get(ctx):
             self.nav.select_view(ctx, key)
+
+    def _fill_workspace_panels_menu(self):
+        """Offer recovery actions in the app menu for the active workspace's closable docks."""
+        self.panels_menu.clear()
+        workspace = self.clusters.currentWidget()
+        if workspace is None:
+            action = self.panels_menu.addAction("Open a cluster to show its panels")
+            action.setEnabled(False)
+            return
+        self.panels_menu.addAction(workspace.detail_dock.toggleViewAction())
+        self.panels_menu.addAction(workspace.log_dock.toggleViewAction())
 
     def _on_cluster_changed(self, index):
         ws = self.clusters.widget(index)
