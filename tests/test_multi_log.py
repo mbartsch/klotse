@@ -93,6 +93,15 @@ def sync_run(fn, on_result, on_error=None):
 def make(qtbot, pods, lines, **kw):
     service = Service(lines)
     view = MultiLogView(service, "shop", lambda text: pods, sync_run, selector=kw.pop("selector", "app=web"), **kw)
+    assert view.selector.accessibleName() == "Select pods by label selector"
+    assert view.container.accessibleName() == "Filter multi-pod logs by container"
+    assert view.since.accessibleName() == "How far back to read pod logs"
+    assert view.tail.accessibleName() == "Log lines to read per container"
+    assert view.follow.accessibleName() == "Keep following matching pods for new logs"
+    assert view.match.accessibleName() == "Show log lines matching a regular expression"
+    assert view.drop.accessibleName() == "Hide log lines matching a regular expression"
+    assert view.text.accessibleName() == "Logs from selected pods"
+    assert view.save_button.accessibleName() == "Save visible multi-pod logs"
     qtbot.addWidget(view)
     return service, view
 
@@ -157,8 +166,9 @@ def test_options_are_passed_to_the_streams(qtbot):
     view.follow.setChecked(False)
     before = len(service.opened)
     view.start()
-    qtbot.waitUntil(lambda: len(service.opened) > before)
-    pod, container, tail, options = service.opened[-1]
+    expected = {"timestamps": True, "since_seconds": 3600, "follow": False}
+    qtbot.waitUntil(lambda: any(options == expected for *_row, options in service.opened[before:]))
+    pod, container, tail, options = next(row for row in service.opened[before:] if row[3] == expected)
     assert (pod, container, tail) == ("web-1", "app", 200) and options == {"timestamps": True, "since_seconds": 3600, "follow": False}
     teardown(view)
 

@@ -163,6 +163,12 @@ def wait_for(qtbot, dialog, count):
 def test_the_window_samples_on_a_timer_and_charts_the_history(qtbot):
     stamps = iter(range(1000, 1100))
     dialog = MetricsDialog("Usage history: web", lambda: {"total": (float(next(stamps)), 0.1, 64.0)}, {"cpu": {"limit": 0.5}, "mem": {}}, True, interval_s=0.05)
+    assert dialog.status.accessibleName() == "Usage history status"
+    assert dialog.source_box.accessibleName() == "Usage history data source"
+    assert dialog.range_box.accessibleName() == "Usage history time range"
+    assert dialog.pause_button.accessibleName() == "Pause or resume usage history sampling"
+    assert dialog.clear_button.accessibleName() == "Clear usage history samples"
+    assert dialog.go_to_button.accessibleName() == "Go to an object shown in usage history"
     qtbot.addWidget(dialog)
     wait_for(qtbot, dialog, 3)
     assert "samples since" in dialog.status.text() and dialog.cpu_chart.refs == {"limit": 0.5}
