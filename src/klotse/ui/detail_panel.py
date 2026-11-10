@@ -86,6 +86,39 @@ class DetailPanel(QWidget):
         self._secret_data = {}
         self._decoded_keys = set()
         self.show_managed_fields = False  # metadata.managedFields is long and rarely useful; opt in from View
+        self.identity_header = QWidget()
+        identity_layout = QVBoxLayout(self.identity_header)
+        identity_layout.setContentsMargins(8, 6, 8, 6)
+        identity_top = QHBoxLayout()
+        self.identity_title = QLabel()
+        self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
+        self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.identity_status = QLabel()
+        self.identity_status.setAccessibleName("Object status")
+        self.copy_identity_button = QToolButton(text="Copy name")
+        self.copy_identity_button.setToolTip("Copy the object's namespace/name (or name for a cluster-scoped object)")
+        self.copy_identity_button.clicked.connect(self._copy_identity)
+        identity_top.addWidget(self.identity_title, 1)
+        identity_top.addWidget(self.identity_status)
+        identity_top.addWidget(self.copy_identity_button)
+        identity_layout.addLayout(identity_top)
+        identity_ids = QHBoxLayout()
+        self.identity_scope = QLabel()
+        self.identity_uid = QLabel()
+        self.identity_uid.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.copy_uid_button = QToolButton(text="Copy UID")
+        self.copy_uid_button.clicked.connect(lambda: self._copy_text(self._identity_uid))
+        self.identity_provider = QLabel()
+        self.identity_provider.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.copy_provider_button = QToolButton(text="Copy provider ID")
+        self.copy_provider_button.clicked.connect(lambda: self._copy_text(self._identity_provider))
+        for widget in (self.identity_scope, self.identity_uid, self.copy_uid_button,
+                       self.identity_provider, self.copy_provider_button):
+            identity_ids.addWidget(widget)
+        identity_ids.addStretch(1)
+        identity_layout.addLayout(identity_ids)
+        self.identity_header.hide()
+        self._identity_text = self._identity_uid = self._identity_provider = ""
         # Readable view for kinds that have one (RBAC); the YAML stays one click away. Text from the cluster is escaped.
         self.formatted = QTextBrowser()
         self.formatted.setOpenLinks(False)
@@ -150,6 +183,7 @@ class DetailPanel(QWidget):
         self._formatted_ok = False  # the current row has a formatted view
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.identity_header)
         layout.addWidget(self.view_bar)
         layout.addWidget(self.yaml_tools)
         layout.addWidget(self.decode_button)
@@ -165,6 +199,7 @@ class DetailPanel(QWidget):
     def show_row(self, row):
         self._secret_row = row
         self._secret_data = getattr(row, "secret_data", {})
+        self._set_identity(row)
         self._decoded_keys.clear()
         self.hide_values_button.hide()
         self.decode_list.clear()
@@ -217,7 +252,7 @@ class DetailPanel(QWidget):
     def _render_formatted(self, row):
         if getattr(row, "table_kind", None) == "Node" or hasattr(row, "is_ready"):
             try:
-                self.formatted.setHtml(node_view.render(row.raw))
+                self.formatted.setHtml(node_view.render(row.raw, include_header=False))
                 self._formatted_ok = True
             except Exception as e:  # noqa: BLE001
                 self.formatted.setPlainText(f"Cannot format this Node: {type(e).__name__}: {e}")
@@ -233,7 +268,7 @@ class DetailPanel(QWidget):
         self._formatted_ok = False
         if kind is not None:
             try:
-                self.formatted.setHtml(view.render(kind, row.raw))
+                self.formatted.setHtml(view.render(kind, row.raw, include_header=False))
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
@@ -242,6 +277,60 @@ class DetailPanel(QWidget):
         self.events_button.setVisible(self._events_ok)
         self.related_button.setVisible(self._related_ok)
         self._show_mode()
+
+    def _set_identity(self, row):
+        raw = getattr(row, "raw", None)
+        raw = raw if isinstance(raw, dict) else {}
+        metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        kind = (getattr(row, "table_kind", None) or raw.get("kind") or getattr(row, "rbac_kind", None)
+                or ("Node" if hasattr(row, "is_ready") else "Resource"))
+        name = metadata.get("name") or getattr(row, "name", None) or "(unnamed)"
+        namespace = metadata.get("namespace") or getattr(row, "namespace", "") or ""
+        self._identity_text = f"{namespace}/{name}" if namespace else str(name)
+        self._identity_uid = str(metadata.get("uid") or "")
+        provider = (raw.get("spec") or {}).get("providerID") if isinstance(raw.get("spec"), dict) else ""
+        self._identity_provider = str(provider or "")
+        status = self._identity_status_text(row, kind, raw)
+        self.identity_title.setText(f"{kind} · {name}")
+        self.identity_scope.setText(f"Namespace: {namespace}" if namespace else "Cluster-scoped")
+        self.identity_uid.setText(f"UID: {self._identity_uid}" if self._identity_uid else "")
+        self.identity_provider.setText(f"Provider ID: {self._identity_provider}" if self._identity_provider else "")
+        self.copy_uid_button.setVisible(bool(self._identity_uid))
+        self.identity_uid.setVisible(bool(self._identity_uid))
+        self.copy_provider_button.setVisible(bool(self._identity_provider))
+        self.identity_provider.setVisible(bool(self._identity_provider))
+        self.identity_status.setText(status)
+        folded = status.casefold()
+        color = theme.BAD if any(word in folded for word in ("failed", "not ready", "error", "crash")) else (
+            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend")) else theme.OK)
+        self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
+        self.identity_header.show()
+
+    @staticmethod
+    def _identity_status_text(row, kind, raw):
+        if kind in workload_view.WORKLOAD_KINDS:
+            return workload_view.status_line(kind, raw)[0]
+        if kind == "Node":
+            ready = next((item.get("status") for item in (raw.get("status") or {}).get("conditions") or []
+                          if item.get("type") == "Ready"), "Unknown")
+            return "Ready" if ready == "True" else "Not Ready" if ready == "False" else "Unknown"
+        raw_status = raw.get("status") if isinstance(raw.get("status"), dict) else {}
+        value = getattr(row, "status", None) or raw_status.get("phase")
+        if value:
+            return str(value)
+        conditions = raw_status.get("conditions") or []
+        for condition in conditions:
+            if condition.get("type") in ("Ready", "Available", "Complete", "Failed"):
+                return f"{condition.get('type')}: {condition.get('status', 'Unknown')}"
+        return "Unknown"
+
+    def _copy_identity(self):
+        self._copy_text(self._identity_text)
+
+    @staticmethod
+    def _copy_text(value):
+        if value:
+            QGuiApplication.clipboard().setText(value)
 
     def _show_mode(self, *_):
         related = self._related_ok and self.related_button.isChecked()

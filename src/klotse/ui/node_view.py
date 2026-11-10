@@ -11,7 +11,7 @@ def _badge(text, tone=None):
     return f"<b style='color:{color}'>{symbols.get(tone, '●')} {_e(text)}</b>"
 
 
-def render(raw):
+def render(raw, include_header=True):
     raw = raw if isinstance(raw, dict) else {}
     meta, spec, status = raw.get("metadata") or {}, raw.get("spec") or {}, raw.get("status") or {}
     info = status.get("nodeInfo") or {}
@@ -25,8 +25,9 @@ def render(raw):
     ready = next((c.get("status") for c in conditions if c.get("type") == "Ready"), "Unknown")
     tone = "ok" if ready == "True" else "bad" if ready == "False" else "warn"
     name = meta.get("name", "")
-    html = [f"<h2 style='margin:0'>Node <span style='color:{theme.ACCENT_HI}'>{_e(name)}</span></h2>",
-            f"<p style='margin:6px 0 10px'>{_badge('Ready' if ready == 'True' else 'Not Ready' if ready == 'False' else 'Unknown', tone)}</p>"]
+    html = ([f"<h2 style='margin:0'>Node <span style='color:{theme.ACCENT_HI}'>{_e(name)}</span></h2>",
+             f"<p style='margin:6px 0 10px'>{_badge('Ready' if ready == 'True' else 'Not Ready' if ready == 'False' else 'Unknown', tone)}</p>"]
+            if include_header else [])
     html.append(_section("Identity", _table(("Field", "Value"), [
         ("Roles", ", ".join(sorted(k.split("/", 1)[1] for k in (meta.get("labels") or {}) if k.startswith("node-role.kubernetes.io/"))) or "<none>"),
         ("Kubelet", info.get("kubeletVersion", "")),

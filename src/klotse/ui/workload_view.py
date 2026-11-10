@@ -412,11 +412,11 @@ def _metadata(raw):
     return _section("Labels", _pairs(meta.get("labels"))) + _section("Annotations", _pairs(notes))
 
 
-def render(kind, raw):
+def render(kind, raw, include_header=True):
     """HTML for `kind` (one of WORKLOAD_KINDS) built from its manifest dict."""
     if kind not in WORKLOAD_KINDS or not isinstance(raw, dict):
         raise ValueError(f"No formatted view for {kind}")
-    body = (_header(kind, raw) + _metadata(raw) + _summary(kind, raw) + _conditions(raw) + _containers(kind, raw)
+    body = ((_header(kind, raw) if include_header else "") + _metadata(raw) + _summary(kind, raw) + _conditions(raw) + _containers(kind, raw)
             + _scheduling(kind, raw))  # labels and annotations come right after the title block, like the RBAC page
     return f"<div style='font-size:13px'>{body}</div>"  # no <hr>: Qt draws it white, whatever the theme
 

@@ -183,7 +183,7 @@ def test_detail_panel_toggles_between_formatted_and_yaml(qtbot):
     row = map_role(client.V1Role(metadata=meta("reader", "dev"), rules=[rule(["get"], ["pods"], [""])]))
     panel.show_row(row)
     assert panel.view_bar.isVisible() and panel.formatted.isVisible() and not panel.editor.isVisible()
-    assert "reader" in panel.formatted.toPlainText()
+    assert panel.identity_title.text() == "Role · reader"
     panel.yaml_button.click()
     assert panel.editor.isVisible() and not panel.formatted.isVisible()
     assert "kind" in panel.toPlainText() or "name: reader" in panel.toPlainText()
