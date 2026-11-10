@@ -2,7 +2,7 @@ from time import monotonic
 
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import theme
 
@@ -93,18 +93,60 @@ class LoadingPane(QWidget):
         self.label.setWordWrap(True)
         theme.muted(self.label)
         self.label.setStyleSheet("font-size: 22px; font-weight: 600;")
+        self.actions = QHBoxLayout()
+        self.buttons = {}
+        self.copy_button = self._button("Copy error", self._copy_error)
+        self.actions.addWidget(self.copy_button)
+        self.actions.addStretch(1)
         layout = QVBoxLayout(self)
         layout.addStretch(1)
         layout.addWidget(self.clock, 0, Qt.AlignHCenter)
         layout.addSpacing(8)
         layout.addWidget(self.label)
+        layout.addLayout(self.actions)
         layout.addStretch(2)
 
+    def _button(self, text, callback):
+        button = QPushButton(text)
+        button.clicked.connect(callback)
+        button.hide()
+        self.actions.addWidget(button)
+        self.buttons[text] = button
+        return button
+
+    def _copy_error(self):
+        QApplication.clipboard().setText(self._error)
+
+    def set_actions(self, actions, error=""):
+        self._error = error
+        self.copy_button.setVisible(bool(error))
+        for text, callback in actions:
+            button = self.buttons.get(text)
+            if button is None:
+                button = self._button(text, callback)
+            else:
+                try:
+                    button.clicked.disconnect()
+                except RuntimeError:
+                    pass
+                button.clicked.connect(callback)
+            button.show()
+        for text, button in self.buttons.items():
+            if text != "Copy error" and text not in {name for name, _ in actions}:
+                button.hide()
+
     def show_busy(self, text):
+        self.set_actions(())
         self.label.setText(text)
         if self.clock.isHidden():  # not on every tick: a needless show() could restart things
             self.clock.show()
 
-    def show_failed(self, text):
+    def show_failed(self, text, actions=(), error=""):
         self.label.setText(text)
+        self.set_actions(actions, error)
+        self.clock.hide()
+
+    def show_empty(self, text, actions=()):
+        self.label.setText(text)
+        self.set_actions(actions)
         self.clock.hide()

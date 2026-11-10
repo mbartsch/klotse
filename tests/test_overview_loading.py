@@ -82,7 +82,9 @@ def test_a_list_shows_a_large_message_until_its_first_rows_arrive(qtbot):
     table._loading_tick()
     assert table.loading_page.label.text() == "Loading… 0s" and table.status.text() == "Loading… 0s"
     table.set_rows([])
-    assert table.stack.currentWidget() is table.view and table.status.text() == "No resources found"
+    assert table.stack.currentWidget() is table.loading_page
+    assert table.loading_page.label.text() == "No resources found."
+    assert not table.loading_page.buttons["Refresh"].isHidden()
 
 
 def test_a_list_that_fails_to_load_says_so_in_the_big_message(qtbot):
@@ -106,6 +108,33 @@ def test_a_reload_with_rows_on_screen_keeps_the_table_visible(qtbot):
     assert table.stack.currentWidget() is table.view and table.status.text() == "Loading…"
     table.set_error("boom")
     assert table.stack.currentWidget() is table.view  # the rows stay; the status line carries the error
+
+
+def test_filtered_empty_state_can_clear_filter(qtbot):
+    from klotse.k8s.models import NamespaceRow
+    from klotse.ui.resource_table import ResourceTable
+    table = ResourceTable([("Name", "name"), ("Status", "status"), ("Age", "age"), ("Labels", "labels")],
+                          "Namespace", editable=False, customizable=False)
+    qtbot.addWidget(table)
+    table.set_rows([NamespaceRow("default", "Active", "1d", "", {})])
+    table.filter.setText("missing")
+    table._apply_filter()
+    assert table.stack.currentWidget() is table.loading_page
+    assert table.loading_page.label.text() == "No resources match this filter."
+    table.loading_page.buttons["Clear filter"].click()
+    assert table.filter.text() == ""
+
+
+def test_missing_metrics_are_identified_in_the_list_status(qtbot):
+    from klotse.k8s.models import PodRow
+    from klotse.ui.resource_table import ResourceTable
+    table = ResourceTable([("Name", "name"), ("Status", "status"), ("Age", "age"),
+                           ("CPU", "cpu_used"), ("Memory", "mem_used")], "Pod", editable=False, customizable=False)
+    qtbot.addWidget(table)
+    table.set_rows([PodRow("web", "default", "1/1", "Running", 0, "node", "1d")])
+    assert "Metrics unavailable (metrics-server)" in table.status.text()
+    table.set_rows([PodRow("web", "default", "1/1", "Running", 0, "node", "1d", cpu_used=0.1, mem_used=20)])
+    assert "Metrics unavailable" not in table.status.text()
 
 
 def test_the_clock_hands_turn_at_fixed_speeds():

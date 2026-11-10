@@ -37,3 +37,6 @@ def test_a_refused_list_shows_the_explanation_not_the_raw_exception(qtbot):
     assert "Refused: you may not list Pods" in ws.pod_table.status.text()
     assert "\n" not in ws.pod_table.status.text()
     assert "My permissions" in ws.pod_table.loading_page.label.text()
+    assert not ws.pod_table.loading_page.buttons["Retry"].isHidden()
+    assert not ws.pod_table.loading_page.buttons["View permissions"].isHidden()
+    assert not ws.pod_table.loading_page.copy_button.isHidden()
