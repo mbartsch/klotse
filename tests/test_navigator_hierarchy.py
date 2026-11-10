@@ -100,6 +100,7 @@ def test_cluster_states_are_textual_aliases_keep_context_and_failure_detail(qtbo
 def test_context_menu_connects_all_selected_disconnected_clusters(qtbot):
     nav = Navigator()
     qtbot.addWidget(nav)
+    assert "Ctrl-click" in nav.accessibleDescription()
     nav.set_contexts(["prod/eu", "prod/us", "dev"])
     nav.set_state("dev", "connected")
     eu, us, dev = (nav.cluster_item(name) for name in ("prod/eu", "prod/us", "dev"))

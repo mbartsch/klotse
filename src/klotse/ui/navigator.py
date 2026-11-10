@@ -1,4 +1,4 @@
-from PySide6.QtCore import QModelIndex, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QDialog, QInputDialog, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
 
@@ -73,6 +73,8 @@ class Navigator(QTreeWidget):
         super().__init__()
         self.setObjectName("navigator")
         self.setAccessibleName("Cluster and resource navigator")
+        self.setToolTip("Ctrl-click to select multiple clusters; right-click a selected disconnected cluster to connect them together.")
+        self.setAccessibleDescription("Ctrl-click multiple disconnected clusters, then right-click one of them and choose Connect selected clusters.")
         self.setMouseTracking(True)
         self._hover = QModelIndex()
         self.setHeaderHidden(True)
@@ -510,7 +512,7 @@ class Navigator(QTreeWidget):
         if not item.isSelected():
             self.clearSelection()
             item.setSelected(True)
-        self.setCurrentItem(item)
+        self.setCurrentItem(item, 0, QItemSelectionModel.NoUpdate)
 
     def _show_menu(self, pos):
         item = self.itemAt(pos)
