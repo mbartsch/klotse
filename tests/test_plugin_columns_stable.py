@@ -41,7 +41,7 @@ def test_a_refresh_keeps_the_values_and_the_column_width(qtbot, tmp_path):
     empty_width = table.view.columnWidth(column(ws))
     ws.plugin_host._run.finish()
     full_width = table.view.columnWidth(column(ws))
-    assert text(ws) and full_width > empty_width  # the values arrived and the column grew to them
+    assert text(ws) and full_width == empty_width  # arriving values do not move the table
     for _ in range(3):  # the 10 s refreshes: new row objects every time
         table.set_rows([node("n1"), node("n2")])
         assert text(ws) and text(ws, 1)  # the values are there at once, no blank flash
@@ -64,12 +64,14 @@ def test_the_values_are_on_the_rows_before_the_table_is_measured(qtbot, tmp_path
     assert seen[0][0]["plugin:long:launched"].startswith("2026-11-04")
 
 
-def test_values_arriving_later_widen_the_plugin_columns_once(qtbot, tmp_path):
+def test_values_arriving_later_preserve_width_until_explicit_fit(qtbot, tmp_path):
     ws = workspace(qtbot, tmp_path)
     table = ws.node_table
     table.set_rows([node("n1")])
     narrow = table.view.columnWidth(column(ws))
     table.view.setColumnWidth(0, 55)  # a width the user chose for another column
     ws.plugin_host._run.finish()
-    assert table.view.columnWidth(column(ws)) > narrow
+    assert table.view.columnWidth(column(ws)) == narrow
     assert table.view.columnWidth(0) == 55  # other columns are left alone
+    table.fit_columns()
+    assert narrow < table.view.columnWidth(column(ws)) <= 240
