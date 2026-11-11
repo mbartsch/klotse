@@ -72,6 +72,17 @@ class PluginsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(warning)
         layout.addWidget(self.error)  # status remains visible while settings scroll
+        error_actions = QHBoxLayout()
+        self.retry_error = QPushButton("Retry plugin")
+        self.retry_error.setToolTip("Retry loading the plugin or refresh its data in connected clusters")
+        self.retry_error.clicked.connect(self._retry_error)
+        self.dismiss_error = QPushButton("Dismiss error")
+        self.dismiss_error.setToolTip("Dismiss this message; this does not fix the underlying problem")
+        self.dismiss_error.clicked.connect(self._dismiss_error)
+        error_actions.addWidget(self.retry_error)
+        error_actions.addWidget(self.dismiss_error)
+        error_actions.addStretch(1)
+        layout.addLayout(error_actions)
         layout.addLayout(body, 1)
         layout.addWidget(self.empty)
         layout.addLayout(buttons)
@@ -179,6 +190,7 @@ class PluginsPanel(QWidget):
         if found is None:
             for label in (self.title, self.description, self.source, self.provides, self.error):
                 label.clear()
+            self._refresh_details()
             return
         plugin = found.manifest or found.plugin
         self.title.setText(plugin.name or plugin.id if plugin else found.id)
@@ -265,10 +277,24 @@ class PluginsPanel(QWidget):
 
     def _refresh_details(self):
         found = self._current()
-        if found is None:
-            return
-        problem = found.error or self.manager.errors.get(found.id, "")
-        self.error.setText("Loading plugin…" if found.loading else (f"Problem: {problem}" if problem else ""))
+        problem = (found.error or self.manager.errors.get(found.id, "")) if found else ""
+        self.error.setText(("Retrying plugin: " if found.loading else "Problem: ") + problem if problem else
+                           ("Loading plugin..." if found and found.loading else ""))
+        self.dismiss_error.setVisible(bool(problem))
+        can_retry = bool(found and (found.loader or (found.plugin and self.manager.is_enabled(found.id) and
+                         (found.plugin.columns or found.plugin.overview_cards))))
+        self.retry_error.setVisible(bool(problem) and can_retry)
+        self.retry_error.setEnabled(bool(found and not found.loading))
+
+    def _dismiss_error(self):
+        found = self._current()
+        if found:
+            self.manager.dismiss_error(found.id)
+
+    def _retry_error(self):
+        found = self._current()
+        if found and self.manager.retry_plugin(found.id) and found.plugin is not None:
+            self.error.setText(self.error.text() + "\nRetry requested in connected clusters. The error stays until a successful result or dismissal.")
 
     def _save_setting(self, plugin_id, key, value):
         try:

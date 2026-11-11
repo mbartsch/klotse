@@ -117,6 +117,7 @@ class PluginManager(QObject):
     changed = Signal()  # plugins were (de)activated, reloaded or their settings changed
     settings_changed = Signal(str)  # a plugin's setting changed (emitted just before `changed`): its cached values are stale
     errors_changed = Signal()  # a plugin reported a problem while running (or it was cleared)
+    retry_requested = Signal(str)  # connected workspaces retry this plugin
 
     def __init__(self, store=None, folder=None, bundled=BUNDLED_MODULES, entry_points=True, parent=None):
         super().__init__(parent)
@@ -203,8 +204,9 @@ class PluginManager(QObject):
         item = self.get(plugin_id)
         return bool(item and item.loading)
 
-    def _start_load(self, item):
-        item.error = ""
+    def _start_load(self, item, preserve_error=False):
+        if not preserve_error:
+            item.error = ""
         item.loading = True
         item.generation += 1
         worker = _LoadPlugin(item)
@@ -229,6 +231,7 @@ class PluginManager(QObject):
             # Preserve a saved startup preference; failed code is never active.
             item.error = error
         else:
+            item.error = ""
             item.plugin = plugin
         self.changed.emit()
         self.load_finished.emit(item.id, error)
@@ -413,3 +416,26 @@ class PluginManager(QObject):
     def clear_error(self, plugin_id):
         if self.errors.pop(plugin_id, None) is not None:
             self.errors_changed.emit()
+
+    def dismiss_error(self, plugin_id):
+        """Dismiss the stored message for one plugin; this does not repair the plugin."""
+        self.errors.pop(plugin_id, None)
+        item = next((entry for entry in self.loaded if entry.id == plugin_id), None)
+        if item is not None:
+            item.error = ""
+        self.errors_changed.emit()
+
+    def retry_plugin(self, plugin_id):
+        """Retry a failed import or ask connected workspaces to retry active plugin work."""
+        item = self.get(plugin_id)
+        if item is None or item.loading:
+            return False
+        if item.plugin is None:
+            if item.loader is None:
+                return False
+            self._start_load(item, preserve_error=True)
+        elif self.is_enabled(plugin_id):
+            self.retry_requested.emit(plugin_id)
+        else:
+            return False
+        return True

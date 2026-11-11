@@ -560,3 +560,74 @@ def test_plugins_page_explains_save_and_cancel(qtbot, tmp_path):
     dialog.plugins_panel.list.item(0).setCheckState(Qt.Checked)
     dialog.reject()
     assert manager.is_enabled("zone")
+
+
+def test_dismiss_one_plugin_error_preserves_others_and_new_failures(qtbot, tmp_path):
+    from klotse.plugins.manager import Loaded
+    manager = manager_with(tmp_path, Zone())
+    manager.loaded.append(Loaded("broken", "file", "broken", error="import failed"))
+    manager.record_error("zone", "credentials expired")
+    manager.record_error("broken", "previous runtime error")
+    dialog = dialog_for(qtbot, manager)
+    dialog.list.setCurrentRow(1)
+    assert "import failed" in dialog.error.text()
+    dialog.dismiss_error.click()
+    assert manager.loaded[1].error == "" and "broken" not in manager.errors
+    assert manager.errors["zone"] == "credentials expired"
+    manager.record_error("broken", "failed again")
+    assert "failed again" in dialog.error.text()
+    dialog.dismiss_error.click()
+    assert "broken" not in manager.errors and manager.errors["zone"] == "credentials expired"
+
+
+def test_retry_resets_backoff_and_cached_values_without_dismissing_error(qtbot, tmp_path):
+    host, plugin, run, manager, _ = host_for(tmp_path)
+    row = node("n1")
+    host.rows_loaded("Node", [row])
+    run.finish()
+    host._retry_at[(plugin.id, "Node")] = host._clock() + 100
+    host._overview_due[plugin.id] = host._clock() + 100
+    manager.record_error(plugin.id, "expired credentials")
+    manager.retry_requested.connect(host.retry)
+    dialog = dialog_for(qtbot, manager)
+    dialog.retry_error.click()
+    assert manager.errors[plugin.id] == "expired credentials"
+    assert (plugin.id, "Node") not in host._retry_at and plugin.id not in host._overview_due
+    host.rows_loaded("Node", [row])
+    assert len(run.calls) == 1
+    run.finish()
+    assert plugin.id not in manager.errors
+
+
+def test_failed_import_can_retry_without_losing_message(qtbot, tmp_path, monkeypatch):
+    from klotse.plugins.manager import Loaded
+    plugin = Zone()
+    manager = manager_with(tmp_path, plugin, enabled=False)
+    found = Loaded(plugin.id, "file", "path", error="import failed", manifest=plugin, loader=lambda: plugin)
+    manager.loaded = [found]
+    calls = []
+    monkeypatch.setattr(manager, "_start_load", lambda item, preserve_error=False: calls.append((item, preserve_error)))
+    dialog = dialog_for(qtbot, manager)
+    assert "import failed" in dialog.error.text()
+    dialog.retry_error.click()
+    assert calls == [(found, True)] and found.error == "import failed"
+    manager._loaded((found, found.generation, plugin, ""))
+    assert not found.error and manager.is_enabled(plugin.id)
+
+
+def test_dismiss_updates_status_and_later_failure_reappears(qtbot, tmp_path):
+    from klotse.ui.main_window import MainWindow
+    manager = manager_with(tmp_path, Zone())
+    from test_app import MultiService
+    win = MainWindow(MultiService, plugin_manager=manager)
+    qtbot.addWidget(win)
+    win.show()
+    manager.record_error("zone", "expired")
+    manager.record_error("other", "connection failed")
+    assert win.plugin_errors_button.text() == "Plugin errors (2)"
+    dialog = dialog_for(qtbot, manager)
+    dialog.dismiss_error.click()
+    assert win.plugin_errors_button.text() == "Plugin error"
+    assert "connection failed" in win.plugin_errors_button.toolTip()
+    manager.record_error("zone", "expired again")
+    assert win.plugin_errors_button.text() == "Plugin errors (2)"

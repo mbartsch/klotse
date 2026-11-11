@@ -195,3 +195,9 @@ class PluginHost(QObject):
         for store in (self._overview_values, self._overview_due):
             for key in [k for k in store if plugin_id is None or k == plugin_id]:
                 del store[key]
+
+    def retry(self, plugin_id):
+        """Forget retry backoff and stale values so the next request runs immediately."""
+        self.forget(plugin_id)
+        for slot in [slot for slot in self._retry_at if slot[0] == plugin_id]:
+            del self._retry_at[slot]

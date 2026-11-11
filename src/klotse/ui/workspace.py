@@ -234,6 +234,7 @@ class ClusterWorkspace(QMainWindow):
             plugins.settings_changed.connect(self.plugin_host.forget)  # new settings: what was fetched may be wrong now
             self.plugin_host.overview_updated.connect(self._apply_plugin_overview)
             plugins.changed.connect(self._plugins_changed)
+            plugins.retry_requested.connect(self._retry_plugin)
             self.plugin_host.updated.connect(self._plugins_updated)
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
@@ -682,6 +683,14 @@ class ClusterWorkspace(QMainWindow):
         self._apply_plugin_overview()  # cards of a plugin that was disabled go, those of one enabled come with the next load
         if self._ready:  # connected: compute the cards now if due (a settings change makes them due)
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
+
+    def _retry_plugin(self, plugin_id):
+        if self._closed or not self._ready:
+            return
+        self.plugin_host.retry(plugin_id)
+        for table in self._hooked_tables():
+            self.plugin_host.rows_loaded(table.kind, table.model.rows)
+        self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
 
     def _plugins_updated(self, kind):
         for table in self._hooked_tables():
