@@ -1,4 +1,4 @@
-from klotse.ui.overview import CLUSTER_CARDS, OverviewView
+from klotse.ui.overview import CLUSTER_CARDS, WORKLOAD_CARDS, OverviewView
 from klotse.ui.workspace import ClusterWorkspace
 
 DATA = {"counts": {"nodes": 3}, "events": [], "lists": {}}
@@ -50,6 +50,45 @@ def test_an_error_while_data_is_shown_leaves_the_page_alone(qtbot):
     view.set_data(DATA)
     view.set_error("boom")
     assert not on_loading_page(view)
+
+
+def test_node_health_prioritizes_not_ready_then_high_cpu_or_memory_use(qtbot):
+    from klotse.k8s.models import NodeRow
+
+    def node(name, status="Ready", cpu_used=-1, mem_used=-1):
+        return NodeRow(name, status, "worker", "v1.30", "", 4, 8, "1d", {}, cpu_used, mem_used)
+
+    view = OverviewView(CLUSTER_CARDS)
+    qtbot.addWidget(view)
+    view._set_nodes([
+        node("ready-low", cpu_used=0.4, mem_used=1),
+        node("not-ready-low", status="NotReady", cpu_used=0.2, mem_used=1),
+        node("ready-high-mem", cpu_used=0.5, mem_used=7),
+        node("ready-high-cpu", cpu_used=3.6, mem_used=1),
+        node("not-ready-high", status="NotReady", cpu_used=3.6, mem_used=7),
+        node("ready-unknown"),
+    ])
+
+    names = [view.nodes_table.item(row, 0).text() for row in range(view.nodes_table.rowCount())]
+    assert names == ["not-ready-high", "not-ready-low", "ready-high-cpu", "ready-high-mem", "ready-low", "ready-unknown"]
+
+
+def test_workload_health_drill_down_has_a_clear_way_back(qtbot):
+    from klotse.k8s.models import PodRow
+
+    view = OverviewView(WORKLOAD_CARDS)
+    qtbot.addWidget(view)
+    view.show()
+    view.set_data({"counts": {"pods": 2, "pending": 1}, "events": [],
+                   "lists": {"pending": [PodRow("waiting", "shop", "0/1", "Pending", 0, "", "1m")]}})
+    view._on_card("pending")
+
+    assert view.stack.currentWidget() is view.pods_table
+    assert view.back.isVisible()
+    assert view.back.text() == "Back to Workload health"
+    view.back.click()
+    assert view.focus is None and view.stack.currentWidget() is view.events_table
+    assert view.back.isHidden()
 
 
 def test_workspace_load_drives_the_overview_indicator(qtbot):

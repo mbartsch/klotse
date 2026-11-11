@@ -66,6 +66,15 @@ class TerminalPanel(QWidget):
             for widget in (self.mac_hint, self.terminal):
                 widget.hide()
             form.labelForField(self.terminal).hide()
+        else:
+            self.where.currentIndexChanged.connect(self._update_macos_terminal_visibility)
+            self._update_macos_terminal_visibility()
+
+    def _update_macos_terminal_visibility(self, *_):
+        visible = self.where.currentIndex() == 0
+        self.mac_hint.setVisible(visible)
+        self.terminal.setVisible(visible)
+        self.layout().labelForField(self.terminal).setVisible(visible)
 
     def save(self):
         self.settings.set_mac_terminal(self.terminal.currentText())
