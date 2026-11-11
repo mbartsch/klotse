@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="360" viewBox="0 0 880 360">
+<rect width="880" height="360" fill="#101820"/><rect width="880" height="66" fill="#17232e"/>
+<circle cx="32" cy="32" r="14" fill="#26a69a"/><circle cx="40" cy="39" r="4" fill="#f3b34c"/>
+<text x="58" y="38" font-family="Arial,sans-serif" font-size="17" font-weight="700" fill="#e6edf3">Klotse</text>
+<text x="34" y="110" font-family="Arial,sans-serif" font-size="13" fill="#95a8b5">Pods</text>
+<text x="34" y="151" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#e6edf3">Filter resources</text>
+<rect x="34" y="175" width="812" height="52" rx="8" fill="#17232e" stroke="#30404d"/>
+<text x="54" y="208" font-family="Arial,sans-serif" font-size="17" fill="#e6edf3">restarts</text>
+<line x1="34" y1="246" x2="846" y2="246" stroke="#2b3945"/>
+<text x="34" y="283" font-family="Arial,sans-serif" font-size="13" fill="#a7b7c2">After choosing the suggestion, the earlier expression disappears.</text>
+<rect x="34" y="306" width="105" height="28" rx="14" fill="#482b2b"/><text x="52" y="325" font-family="Arial,sans-serif" font-size="12" fill="#ffb5a8">Before · bug</text>
+</svg>

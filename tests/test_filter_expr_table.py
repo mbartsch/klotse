@@ -210,3 +210,17 @@ def test_status_shows_filtered_and_total_row_counts(table, qtbot):
 
     assert shown(table, qtbot, "") == ["db-1", "kube-dns", "web-1", "web-2"]
     assert table.status.text().startswith("4 rows")
+
+
+def test_completion_restores_expression_if_line_edit_replaces_text(table, qtbot):
+    expression = "Restarts > re"
+    table.filter.setText(expression)
+    table.filter.setCursorPosition(len(expression))
+    table._show_filter_completions(expression)
+
+    # Simulate QLineEdit replacing the whole edit before QCompleter's activated
+    # signal reaches the custom insertion handler.
+    table.filter.setText("restarts")
+    table._completer.activated.emit("restarts")
+
+    assert table.filter.text() == "Restarts > restarts"
