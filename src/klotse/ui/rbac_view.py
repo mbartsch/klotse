@@ -128,11 +128,11 @@ def _serviceaccount(raw):
             _section("Secrets", _list(secrets, "none")) + _section("Image pull secrets", _list(pulls, "none")))
 
 
-def render(kind, raw, include_header=True):
+def render(kind, raw, include_header=True, include_metadata=True):
     """HTML for `kind` (one of RBAC_KINDS) built from its manifest dict."""
     if kind not in RBAC_KINDS or not isinstance(raw, dict):
         raise ValueError(f"No formatted view for {kind}")
-    body = (_header(kind, raw) if include_header else "") + _metadata(raw)  # labels and annotations first, then what the object grants
+    body = (_header(kind, raw) if include_header else "") + (_metadata(raw) if include_metadata else "")
     if kind in ("Role", "ClusterRole"):
         body += _aggregation(raw) + _rules(raw)
     elif kind in ("RoleBinding", "ClusterRoleBinding"):

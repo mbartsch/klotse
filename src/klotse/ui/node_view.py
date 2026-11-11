@@ -11,7 +11,7 @@ def _badge(text, tone=None):
     return f"<b style='color:{color}'>{symbols.get(tone, '●')} {_e(text)}</b>"
 
 
-def render(raw, include_header=True):
+def render(raw, include_header=True, include_metadata=True):
     raw = raw if isinstance(raw, dict) else {}
     meta, spec, status = raw.get("metadata") or {}, raw.get("spec") or {}, raw.get("status") or {}
     info = status.get("nodeInfo") or {}
@@ -59,8 +59,8 @@ def render(raw, include_header=True):
             for t in taints
         ])))
     annotations = meta.get("annotations") or {}
-    if labels:
+    if labels and include_metadata:
         html.append(_section("Labels", _table(("Key", "Value"), [(k, v) for k, v in sorted(labels.items())])))
-    if annotations:
+    if annotations and include_metadata:
         html.append(_section("Annotations", _table(("Key", "Value"), [(k, v) for k, v in sorted(annotations.items())])))
     return "".join(html)

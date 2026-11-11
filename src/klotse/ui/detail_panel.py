@@ -209,6 +209,25 @@ class DetailPanel(QWidget):
         self._events_ok = False  # the current row can have events (it has a UID and is not an event itself)
         self._events_row = None  # the row the Events view is waiting for or showing
         self.view_bar.hide()
+        self.metadata_area = QWidget()
+        metadata_layout = QVBoxLayout(self.metadata_area)
+        metadata_layout.setContentsMargins(0, 0, 0, 0)
+        metadata_layout.setSpacing(2)
+        self.metadata_controls = {}
+        for name in ("Labels", "Annotations"):
+            button = QToolButton(text=name, checkable=True)
+            button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            button.setArrowType(Qt.RightArrow)
+            value = QPlainTextEdit(readOnly=True)
+            value.setAccessibleName(f"{name} values")
+            value.setMaximumHeight(120)
+            value.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+            value.hide()
+            button.toggled.connect(lambda checked, b=button, v=value: (b.setArrowType(Qt.DownArrow if checked else Qt.RightArrow), v.setVisible(checked)))
+            metadata_layout.addWidget(button)
+            metadata_layout.addWidget(value)
+            self.metadata_controls[name] = (button, value)
+        self.metadata_area.hide()
         # Tools for the YAML text: find (Enter = next, Shift+Enter = previous), copy and line wrap
         self.find_edit = QLineEdit(placeholderText="Find in YAML…", clearButtonEnabled=True)
         self.find_edit.setAccessibleName("Find text in resource YAML")
@@ -239,6 +258,7 @@ class DetailPanel(QWidget):
         layout.setSpacing(8)
         layout.addWidget(self.identity_header)
         layout.addWidget(self.view_bar)
+        layout.addWidget(self.metadata_area)
         layout.addWidget(self.yaml_tools)
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
@@ -261,6 +281,19 @@ class DetailPanel(QWidget):
         self._secret_row = row
         self._secret_data = getattr(row, "secret_data", {})
         self._set_identity(row)
+        meta = (row.raw.get("metadata") or {}) if isinstance(row.raw, dict) else {}
+        for name, (button, value) in self.metadata_controls.items():
+            pairs = meta.get(name.lower()) or {}
+            if not isinstance(pairs, dict):
+                pairs = {}
+            if name == "Annotations":
+                pairs = {k: v for k, v in pairs.items() if k != "kubectl.kubernetes.io/last-applied-configuration"}
+            button.setChecked(False)
+            button.setText(f"{name} ({len(pairs)})")
+            button.setAccessibleName(f"{name}, {len(pairs)} entries")
+            button.setVisible(bool(pairs))
+            value.setPlainText("\n".join(f"{k} = {v}" for k, v in sorted(pairs.items())))
+            value.hide()
         self._decoded_keys.clear()
         self.hide_values_button.hide()
         self.decode_list.clear()
@@ -301,6 +334,7 @@ class DetailPanel(QWidget):
         self.set_object_actions([])
         self.identity_header.hide()
         self.view_bar.hide()
+        self.metadata_area.hide()
         self.yaml_tools.hide()
         self.formatted.hide()
         self.events.hide()
@@ -341,7 +375,7 @@ class DetailPanel(QWidget):
         self._formatted_ok = False
         if getattr(row, "table_kind", None) == "Node" or hasattr(row, "is_ready"):
             try:
-                self.formatted.setHtml(node_view.render(row.raw, include_header=False))
+                self.formatted.setHtml(node_view.render(row.raw, include_header=False, include_metadata=False))
                 self._formatted_ok = True
             except Exception as e:  # noqa: BLE001
                 self.formatted.setPlainText(f"Cannot format this Node: {type(e).__name__}: {e}")
@@ -361,7 +395,7 @@ class DetailPanel(QWidget):
                     kind, view = workload_view.kind_of(row.raw), workload_view
         if kind is not None:
             try:
-                self.formatted.setHtml(view.render(kind, row.raw, include_header=False))
+                self.formatted.setHtml(view.render(kind, row.raw, include_header=False, **({"include_metadata": False} if view in (rbac_view, workload_view) else {})))
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
@@ -496,6 +530,7 @@ class DetailPanel(QWidget):
         events = not related and self._events_ok and self.events_button.isChecked()
         formatted = not events and not related and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
+        self.metadata_area.setVisible(formatted and self._formatted_ok and any(not b.isHidden() for b, _ in self.metadata_controls.values()))
         self.events.setVisible(events)
         self.related.setVisible(related)
         self.editor.setVisible(not formatted and not events and not related)
