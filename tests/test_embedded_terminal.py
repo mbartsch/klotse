@@ -375,19 +375,29 @@ def test_a_session_can_be_docked_into_the_cluster_window_and_popped_out_again(qt
 
 
 @needs_web
-def test_the_window_waits_for_the_page_and_a_slow_page_still_appears(qtbot, tmp_path):
+@pytest.mark.parametrize("trigger", ["page-ready", "timeout"])
+def test_the_window_waits_for_the_page_and_a_slow_page_still_appears(qtbot, tmp_path, monkeypatch, trigger):
     ws = make_ws(qtbot, tmp_path)
     factory = fake_factory()
     tab = et.TerminalTab("slow", ["kubectl"], session_factory=factory)
     host = et.TerminalHost("t", tab, ws)
-    qtbot.addWidget(host.window)
     assert not host.window.isVisible()  # nothing before show()
     tab._page_ready = False
-    host.show(wait_s=0.2)
-    assert not host.window.isVisible() or True
-    qtbot.waitUntil(lambda: host.window.isVisible(), timeout=20000)
-    host.close()
-    ws.shutdown()
+    timers = []
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(et.QTimer, "singleShot", lambda milliseconds, callback: timers.append((milliseconds, callback)))
+            host.show(wait_s=0.2)
+        assert not host.window.isVisible()
+        assert len(timers) == 1 and timers[0][0] == 200
+        if trigger == "page-ready":
+            tab.page_ready.emit()
+        else:
+            timers[0][1]()
+        assert host.window.isVisible()
+    finally:
+        host.close()  # the host owns and deletes its window; qtbot owns only the workspace
+        ws.shutdown()
 
 
 def test_warm_up_never_raises_and_is_idempotent(qtbot):

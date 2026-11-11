@@ -4,6 +4,8 @@ This file applies to the repository rooted here. It records the current implemen
 
 ## Project and local state
 
+- Review fixes under #218 (#357–#367): external POSIX terminal scripts run through `/bin/sh`; Windows external sessions pass argv in a private JSON file to `terminal_session` rather than through `cmd.exe`. The Windows helper also serves packaged GUI builds via `--terminal-session Windows FILE` and opens its console streams explicitly. Keep shell metacharacters as argument data. Overview panel reattachment schedules the empty dialog for deletion after moving its panel back. Regression coverage is in `tests/test_terminal_settings.py`, `tests/test_node_actions.py`, `tests/test_overview_panels.py`, and the repaired UI/review/AWS declaration tests. Real macOS/Linux terminals and a freshly packaged Windows build still need platform checks.
+
 - Klotse is a native Kubernetes desktop manager built with Python and PySide6/Qt Widgets, using the Kubernetes Python client and `kubectl`.
 - Package: `klotse`, Python `>=3.10`; the version is written in `src/klotse/_version.py` and changes only in a release PR (see Packaging), setuptools with a `src/` layout.
 - Runtime dependencies: `PySide6-Essentials>=6.6`, `PySide6-WebEngine>=6.6` (QtWebEngine, for the embedded terminal; in PySide6 6.12 it is not in `PySide6-Addons`; about 300 MB on disk, accepted by the owner), `kubernetes>=29`, `PyYAML>=6`, and `pywinpty>=2.0.1` on Windows. Development dependencies add `pytest` and `pytest-qt`.

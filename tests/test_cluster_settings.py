@@ -47,8 +47,15 @@ def test_aws_profile_and_account_follow_the_cluster_settings():
     assert console.account_for(ARN, {"cluster_account": "not-an-account"}) == "123456789012"  # bad value is ignored
 
 
-def test_the_aws_plugin_declares_a_profile_and_an_account_per_cluster():
-    assert [s.key for s in AwsPlugin.cluster_settings] == ["cluster_profile", "cluster_account"]
+def test_the_aws_plugin_declares_a_region_profile_and_account_per_cluster():
+    import re
+
+    assert [s.key for s in AwsPlugin.cluster_settings] == ["cluster_region", "cluster_profile", "cluster_account"]
+    region = AwsPlugin.cluster_settings[0]
+    assert region.default == ""
+    assert re.fullmatch(region.pattern, "eu-west-1")
+    assert re.fullmatch(region.pattern, "us-gov-west-1")
+    assert not re.fullmatch(region.pattern, "invalid-region")
 
 
 def test_the_dialog_saves_validates_and_cancels(qtbot, tmp_path, monkeypatch):

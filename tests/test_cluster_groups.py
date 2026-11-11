@@ -197,7 +197,7 @@ def test_context_menus_offer_the_group_actions(qtbot):
     assert labels(nav.menu_for(idle)) == ["New group…", "Suggest groups…"]
     assert labels(nav.menu_for(idle.child(0))) == ["Connect all", "New subgroup…", "Rename…", "Delete group"]
     cluster_menu = nav.menu_for(nav.cluster_item("a"))
-    assert labels(cluster_menu) == ["Rename alias…", "Connect", "Move to group"]
+    assert labels(cluster_menu) == ["Connect", "Rename alias…", "Move to group"]
     move = next(a for a in cluster_menu.actions() if a.text() == "Move to group").menu()
     assert labels(move) == ["prod", "New group…", "No group"]
     assert nav.menu_for(nav.topLevelItem(0)) is None  # the Connected header has nothing to offer
@@ -210,7 +210,7 @@ def test_without_groups_the_list_is_the_plain_two_sections(qtbot):
     assert [nav.topLevelItem(1).child(i).data(0, nav.ROLE_KEY)
             for i in range(nav.topLevelItem(1).childCount())] == ["a", "b"] and nav.groups is None
     labels = [a.text() for a in nav.menu_for(nav.cluster_item("a")).actions() if a.text()]
-    assert labels == ["Rename alias…", "Connect"] and nav.menu_for(nav.topLevelItem(1)) is None  # no groups: nothing to offer on the header
+    assert labels == ["Connect", "Rename alias…"] and nav.menu_for(nav.topLevelItem(1)) is None  # no groups: nothing to offer on the header
 
 
 def test_search_filters_both_sections_by_context_or_alias_without_changing_groups(qtbot):

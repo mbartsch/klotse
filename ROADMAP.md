@@ -117,6 +117,8 @@ Keep this file and the issues in step: when an item is merged, mark it done here
 
 ### UX follow-ups
 
+- **Repository review fixes (under #218, milestone 1.0.0; #357–#367):** POSIX external terminal launch, Windows argv preservation, Overview detached-dialog cleanup, and repairs to dry-run review, terminal lifecycle/visibility, menu, and AWS settings/API declaration tests. Implemented on the review-fixes branch; pending merge. Includes the earlier app title and selected-card assertion repairs. Focused automated checks cover the changed paths; actual macOS/Linux terminal windows and a new Windows package have not been exercised.
+
 - **Karpenter detail views ([#303](https://github.com/mbartsch/klotse/issues/303), done in PR #305):** dedicated formatted summaries for NodePools, NodeClaims and node classes (initially EC2NodeClass), including conditions, configuration, resource allocation and links to related Karpenter/Node objects. Preserve YAML fallback and distinguish API-version-specific fields. Related: #302 (columns), #300 (AWS enrichment).
 
 - **EC2NodeClass columns ([#302](https://github.com/mbartsch/klotse/issues/302), done in PR #305):** show AMI family, AMI selector summaries with full tooltips, and a reliable change timestamp where available. Label condition-transition timestamps accurately rather than presenting them as object update times; consider readiness and resolved AMIs.

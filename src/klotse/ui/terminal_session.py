@@ -1,5 +1,6 @@
-"""Standalone macOS session runner; runs without importing Qt or the package."""
+"""Standalone external-terminal session runner; runs without importing Qt or the package."""
 import json
+from pathlib import Path
 import subprocess
 import sys
 
@@ -74,8 +75,45 @@ def run_session(command, app, target):
     return status
 
 
+def _windows_console():
+    """A frozen GUI executable has no console; a source runner gets one from CREATE_NEW_CONSOLE."""
+    import ctypes
+
+    ctypes.windll.kernel32.AllocConsole()  # harmlessly fails if the source Python already has its new console
+    sys.stdin = open("CONIN$", "r", encoding="utf-8")
+    sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+    sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+
+
+def run_windows_session(path):
+    """Read argv from a private file, execute it without a shell, and retain the console until Enter."""
+    path = Path(path)
+    try:
+        command = json.loads(path.read_text(encoding="utf-8"))
+    finally:
+        path.unlink(missing_ok=True)
+    if not isinstance(command, list) or not command or not all(isinstance(arg, str) for arg in command):
+        raise ValueError("The terminal command must be a nonempty list of strings.")
+    try:
+        status = subprocess.call(command, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)
+    except OSError as error:
+        print(f"Could not start command: {error}", flush=True)
+        status = 127
+    except KeyboardInterrupt:
+        status = 130
+    print(f"\nSession ended (status {status}). Press Enter to close.", flush=True)
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        pass
+    return status
+
+
 def main(argv):
-    """argv: APP COMMAND_JSON [TARGET...]. Also reached through `klotse --terminal-session` in a packaged app."""
+    """argv: Windows COMMAND_FILE, or macOS APP COMMAND_JSON [TARGET...]; packaged apps use --terminal-session."""
+    if argv[0] == "Windows":
+        _windows_console()
+        return run_windows_session(argv[1])
     app, command_json, *target = argv
     return run_session(json.loads(command_json), app, target)
 

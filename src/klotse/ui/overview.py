@@ -554,6 +554,7 @@ class OverviewView(QWidget):
         state["button"].setToolTip(f"Detach {state['title']} panel")
         state["button"].setAccessibleName(f"Detach {state['title']} panel")
         dialog.close()
+        dialog.deleteLater()
 
     def _build_workload_overview(self):
         grid = QGridLayout()

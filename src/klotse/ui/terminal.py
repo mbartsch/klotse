@@ -103,17 +103,12 @@ def _external_session_script(argv):
         raise
 
 
-def _windows_session_script(argv):
-    """Create a unique self-cleaning batch file for a Windows terminal session."""
-    fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".cmd")
+def _windows_session_file(argv):
+    """Keep command arguments as data: cmd.exe must never interpret them."""
+    fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".json")
     try:
-        with open(fd, "w", encoding="utf-8", newline="\r\n") as script:
-            script.write("@echo off\r\n")
-            script.write(f"{subprocess.list2cmdline(argv)}\r\n")
-            script.write("set status=%ERRORLEVEL%\r\n")
-            script.write("echo.\r\nSession ended. Press Enter to close.\r\npause >nul\r\n")
-            script.write("del \"%~f0\" >nul 2>&1\r\n")
-            script.write("exit /b %status%\r\n")
+        with open(fd, "w", encoding="utf-8") as command:
+            json.dump(argv, command)
         return path
     except Exception:
         try:
@@ -148,11 +143,20 @@ def _mac_session_script(argv, mac_terminal):
 def open_terminal(argv, mac_terminal="Terminal"):
     """Open an interactive session; macOS sessions close after a successful command."""
     if sys.platform == "win32":
-        script = _windows_session_script(argv)
+        path = _windows_session_file(argv)
+        if getattr(sys, "frozen", False):
+            runner = [sys.executable, "--terminal-session", "Windows", path]
+        else:
+            executable = Path(sys.executable)
+            if executable.name.lower() == "pythonw.exe":
+                executable = executable.with_name("python.exe")
+            runner = [str(executable), str(Path(__file__).with_name("terminal_session.py").resolve()), "Windows", path]
         try:
-            subprocess.Popen(["cmd", "/k", script], creationflags=subprocess.CREATE_NEW_CONSOLE)
+            # A pythonw/frozen parent may have invalid standard handles. The runner opens its own new console streams.
+            subprocess.Popen(runner, creationflags=subprocess.CREATE_NEW_CONSOLE,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
-            Path(script).unlink(missing_ok=True)
+            Path(path).unlink(missing_ok=True)
             raise
     elif sys.platform == "darwin":
         # Pass the shell command as an AppleScript argument, never as script source.
@@ -177,7 +181,7 @@ def open_terminal(argv, mac_terminal="Terminal"):
         else:
             raise ValueError(f"Unsupported macOS terminal: {mac_terminal}")
         script_path = _mac_session_script(argv, mac_terminal)
-        command = "exec " + shlex.join([script_path])
+        command = "exec " + shlex.join(["/bin/sh", script_path])
         try:
             subprocess.run(["osascript", "-e", script, command], check=True,
                            capture_output=True, text=True, timeout=15)
@@ -191,7 +195,7 @@ def open_terminal(argv, mac_terminal="Terminal"):
             if executable:
                 script = _external_session_script(argv)
                 try:
-                    subprocess.Popen([executable, *args, script])
+                    subprocess.Popen([executable, *args, "/bin/sh", script])
                 except Exception:
                     try:
                         Path(script).unlink()
