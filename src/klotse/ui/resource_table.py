@@ -143,6 +143,7 @@ class ResourceTable(QWidget):
         self._completer.setCaseSensitivity(Qt.CaseInsensitive)
         self._completer.setCompletionMode(QCompleter.PopupCompletion)
         self._completer.popup().setFocusPolicy(Qt.NoFocus)
+        self._filter_completion_context = None
         self._completer.activated.connect(self._insert_filter_completion)
         self.filter.setCompleter(self._completer)
         self.filter.textEdited.connect(self._show_filter_completions)
@@ -338,18 +339,44 @@ class ResourceTable(QWidget):
         match = re.search(r"[A-Za-z0-9_.:-]*$", text[:cursor])
         prefix = match.group(0) if match else ""
         if len(prefix) < 2:
+            self._filter_completion_context = None
             self._completer.popup().hide()
             return
         self._completer.setCompletionPrefix(prefix)
-        if self._completer.completionCount():
-            self._completer.complete()
+        if not self._completer.completionCount():
+            self._filter_completion_context = None
+            self._completer.popup().hide()
+            return
+        start = match.start() if match else cursor
+        end = cursor
+        while end < len(text) and re.fullmatch(r"[A-Za-z0-9_.:-]", text[end]):
+            end += 1
+        # QLineEdit may replace the whole edit with its selected completion before
+        # our activated slot runs. Keep the original text and token bounds so the
+        # rest of a filter expression can be restored.
+        self._filter_completion_context = (text, start, end)
+        self._completer.complete()
 
     def _insert_filter_completion(self, completion):
+        text = self.filter.text()
+        context = self._filter_completion_context
+        self._filter_completion_context = None
+        if context is not None:
+            original, start, end = context
+            if 0 <= start <= end <= len(original):
+                text = f"{original[:start]}{completion}{original[end:]}"
+                self.filter.setText(text)
+                self.filter.setCursorPosition(start + len(str(completion)))
+                return
+
         cursor = self.filter.cursorPosition()
-        match = re.search(r"[A-Za-z0-9_.:-]*$", self.filter.text()[:cursor])
+        match = re.search(r"[A-Za-z0-9_.:-]*$", text[:cursor])
         start = match.start() if match else cursor
-        self.filter.setSelection(start, cursor - start)
-        self.filter.insert(str(completion))
+        end = cursor
+        while end < len(text) and re.fullmatch(r"[A-Za-z0-9_.:-]", text[end]):
+            end += 1
+        self.filter.setText(f"{text[:start]}{completion}{text[end:]}")
+        self.filter.setCursorPosition(start + len(str(completion)))
 
     @staticmethod
     def _manifest_paths(value, prefix, output, depth=0):
