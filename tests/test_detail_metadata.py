@@ -45,3 +45,30 @@ def test_narrow_inspector_scrolls_expanded_metadata_and_summary(qtbot):
     assert panel.formatted.minimumHeight() >= 160
     panel.yaml_button.click()
     assert panel.summary_scroll.isHidden()
+
+
+def test_summary_scroll_resets_for_new_object_but_survives_refresh(qtbot):
+    panel = DetailPanel()
+    qtbot.addWidget(panel)
+    panel.resize(300, 350)
+    def row(name):
+        return SimpleNamespace(raw={"kind": "Pod", "metadata": {"name": name, "uid": name,
+                               "labels": {"key": "value"}, "annotations": {"a": "b"}},
+                               "spec": {}, "status": {}}, name=name, table_kind="Pod")
+    panel.show_row(row("one"))
+    panel.show()
+    for button, _ in panel.metadata_controls.values():
+        button.click()
+    qtbot.wait(5)
+    bar = panel.summary_scroll.verticalScrollBar()
+    bar.setValue(bar.maximum())
+    saved = bar.value()
+    assert saved > 0
+    panel.show_row(row("one"))
+    qtbot.wait(5)
+    assert bar.value() == saved
+    assert all(button.isChecked() for button, _ in panel.metadata_controls.values())
+    panel.show_row(row("two"))
+    qtbot.wait(5)
+    assert bar.value() == 0
+    assert all(not button.isChecked() for button, _ in panel.metadata_controls.values())

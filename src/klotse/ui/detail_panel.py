@@ -3,7 +3,7 @@ import binascii
 from copy import deepcopy
 
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
-from PySide6.QtCore import QRegularExpression, Qt, Signal
+from PySide6.QtCore import QRegularExpression, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
@@ -293,20 +293,28 @@ class DetailPanel(QWidget):
         if row is None:
             self.clear_row()
             return
+        meta = (row.raw.get("metadata") or {}) if isinstance(row.raw, dict) else {}
+        key = (meta.get("uid"),) if meta.get("uid") else ((row.raw.get("kind", "") if isinstance(row.raw, dict) else ""), meta.get("namespace", ""),
+                                                            meta.get("name") or getattr(row, "name", ""))
+        same = key == getattr(self, "_detail_key", None)
+        outer_scroll = self.summary_scroll.verticalScrollBar().value() if same else 0
+        inner_scroll = self.formatted.verticalScrollBar().value() if same else 0
+        expanded = {name: button.isChecked() for name, (button, _) in self.metadata_controls.items()} if same else {}
+        self._detail_key = key
+        self.summary_scroll.verticalScrollBar().setValue(0)
         self._secret_row = row
         self._secret_data = getattr(row, "secret_data", {})
         self._set_identity(row)
-        meta = (row.raw.get("metadata") or {}) if isinstance(row.raw, dict) else {}
         for name, (button, value) in self.metadata_controls.items():
             pairs = meta.get(name.lower()) or {}
             if not isinstance(pairs, dict):
                 pairs = {}
-            button.setChecked(False)
+            button.setChecked(bool(pairs) and expanded.get(name, False))
             button.setText(f"{name} ({len(pairs)})")
             button.setAccessibleName(f"{name}, {len(pairs)} entries")
             button.setVisible(bool(pairs))
             value.setPlainText("\n".join(f"{k} = {v}" for k, v in sorted(pairs.items())))
-            value.hide()
+            value.setVisible(button.isChecked())
         self._decoded_keys.clear()
         self.hide_values_button.hide()
         self.decode_list.clear()
@@ -326,10 +334,16 @@ class DetailPanel(QWidget):
         self._related_ok = getattr(row, "table_kind", None) in RELATED_KINDS and isinstance(getattr(row, "raw", None), dict)
         self._related_row = None
         self._render_formatted(row)
+        def restore_scroll():
+            if self._detail_key == key:
+                self.summary_scroll.verticalScrollBar().setValue(outer_scroll)
+                self.formatted.verticalScrollBar().setValue(inner_scroll)
+        QTimer.singleShot(0, restore_scroll)
 
     def clear_row(self):
         """Return Details to its empty state and discard object-specific actions and secret values."""
         self._secret_row = None
+        self._detail_key = None
         self._secret_data = {}
         self._decoded_keys.clear()
         self.decode_list.clear()
