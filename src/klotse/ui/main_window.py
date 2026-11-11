@@ -401,6 +401,10 @@ class MainWindow(QMainWindow):
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
 
+    def createPopupMenu(self):  # noqa: N802
+        """Suppress the default dock and toolbar menu; Klotse exposes those controls elsewhere."""
+        return None
+
     def _save_groups(self):
         try:
             self.groups.save()
