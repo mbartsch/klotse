@@ -509,7 +509,9 @@ class ClusterWorkspace(QMainWindow):
         for spec in SPECS:
             table = T(spec.columns, spec.kind, editable=spec.editable)
             self.views[spec.key] = (table, spec.title)
-            self.loaders[spec.key] = (lambda ns, k=spec.key, **options: svc().list_resource(k, ns, **options), spec.namespaced, table.set_rows)
+            self.loaders[spec.key] = (
+                lambda ns, k=spec.key, **options: svc().list_resource(k, ns, **options),
+                spec.namespaced, table.set_rows)
         # Helm releases, from the labels of their storage Secrets (no release data is read for the list)
         helm = T(HELM_COLUMNS, "HelmRelease", editable=False)
         self.views["helm-releases"] = (helm, "Helm releases")
@@ -536,8 +538,8 @@ class ClusterWorkspace(QMainWindow):
         table.api_filter_changed.connect(lambda _labels, _fields, k=key: self._server_filter_changed(k))
 
     def _server_filter_changed(self, key):
-        # The selector change is debounced with the filter itself; replacing the load serial
-        # makes any previous, broader response stale instead of letting it overwrite this result.
+        # The selector change is debounced with the filter itself. If a list load is in flight,
+        # load_view coalesces this into a pending reload using the newest selectors.
         if getattr(self, "_ready", False) and not self._closed and key in self.loaders:
             self.load_view(key)
 
