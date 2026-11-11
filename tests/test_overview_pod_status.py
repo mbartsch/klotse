@@ -81,3 +81,41 @@ def test_overview_pod_actions_open_scoped_pods_list_with_visible_filters(qtbot):
     failed_rows = [table.model.rows[table.proxy.mapToSource(table.proxy.index(i, 0)).row()]
                    for i in range(table.proxy.rowCount())]
     assert [row.status for row in failed_rows] == ["CrashLoopBackOff", "Unknown"]
+
+
+def test_big_cluster_status_actions_filter_by_raw_phase(qtbot):
+    workspace = ClusterWorkspace(None, "test")
+    qtbot.addWidget(workspace)
+    workspace.namespace = lambda: "team-a"
+    workspace.open_view = lambda _key: None
+    workspace.overview._data = {"counts": {"by_phase": True}}
+
+    rows = [
+        PodRow("failed-waiting", "team-a", "0/1", "ContainerCreating", 0, "node-a", "1m",
+               {"status": {"phase": "Failed"}}),
+        PodRow("pending-crashloop", "team-a", "0/1", "CrashLoopBackOff", 0, "node-a", "1m",
+               {"status": {"phase": "Pending"}}),
+        PodRow("healthy", "team-a", "1/1", "Running", 0, "node-a", "1m",
+               {"status": {"phase": "Running"}}),
+    ]
+    table = ResourceTable([("Name", "name"), ("Status", "status")], "Pod", editable=False, customizable=False)
+    qtbot.addWidget(table)
+    table.set_rows(rows)
+
+    workspace._overview_action("pod-status:failed")
+    failed_filter = workspace.pod_table.filter.text()
+    assert failed_filter == "status.phase = Failed"
+    table.filter.setText(failed_filter)
+    table._apply_filter()
+    failed_rows = [table.model.rows[table.proxy.mapToSource(table.proxy.index(i, 0)).row()]
+                   for i in range(table.proxy.rowCount())]
+    assert [row.name for row in failed_rows] == ["failed-waiting"]
+
+    workspace._overview_action("pod-status:pending")
+    pending_filter = workspace.pod_table.filter.text()
+    assert pending_filter == "status.phase = Pending"
+    table.filter.setText(pending_filter)
+    table._apply_filter()
+    pending_rows = [table.model.rows[table.proxy.mapToSource(table.proxy.index(i, 0)).row()]
+                    for i in range(table.proxy.rowCount())]
+    assert [row.name for row in pending_rows] == ["pending-crashloop"]

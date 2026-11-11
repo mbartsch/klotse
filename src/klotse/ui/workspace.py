@@ -629,10 +629,14 @@ class ClusterWorkspace(QMainWindow):
 
     def _open_overview_pod_status(self, bucket):
         """Open the ordinary Pods list in the current namespace scope with the overview bucket visible as a filter."""
-        filters = {
-            "pending": "Status ~ '^(Pending|ContainerCreating|PodInitializing|Terminating|Init:.*)$'",
-            "failed": "Status !~ '^(Running|Succeeded|Completed|Pending|ContainerCreating|PodInitializing|Terminating|Init:.*)$'",
-        }
+        counts = (self.overview._data or {}).get("counts", {})
+        if counts.get("by_phase"):
+            filters = {"pending": "status.phase = Pending", "failed": "status.phase = Failed"}
+        else:
+            filters = {
+                "pending": "Status ~ '^(Pending|ContainerCreating|PodInitializing|Terminating|Init:.*)$'",
+                "failed": "Status !~ '^(Running|Succeeded|Completed|Pending|ContainerCreating|PodInitializing|Terminating|Init:.*)$'",
+            }
         expression = filters.get(bucket)
         if expression is None:
             return
