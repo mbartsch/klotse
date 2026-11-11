@@ -363,7 +363,10 @@ def test_plugin_columns_join_the_saved_layout_and_the_columns_dialog(qtbot, tmp_
     ws = ClusterWorkspace(None, "ctx", label_settings=settings, plugins=manager)
     qtbot.addWidget(ws)
     attrs = [c[1] for c in ws.node_table.model.columns]
-    assert "plugin:zone:zone" in attrs and "plugin:zone:size" not in attrs  # the hidden one stays hidden
+    assert "plugin:zone:zone" in attrs and "plugin:zone:size" in attrs
+    ws.node_table.presets.setCurrentText("Custom")
+    assert ws.node_table.view.isColumnHidden(attrs.index("plugin:zone:size"))
+    assert not ws.node_table.view.isColumnHidden(attrs.index("plugin:zone:zone"))
     assert attrs.index("plugin:zone:zone") < attrs.index("status") or attrs.index("plugin:zone:zone") < len(attrs) - 1
     assert "plugin:zone:size" in [c[1] for c in ws.node_table.base_columns]  # still offered in the Columns dialog
 

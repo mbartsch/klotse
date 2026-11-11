@@ -752,7 +752,7 @@ class ResourceTable(QWidget):
         order = layout.get("order", [])
         rank = {attr: i for i, attr in enumerate(order)}
         rest = sorted(rest, key=lambda col: rank.get(col[1], len(order)))  # stable: unknown ones keep their place
-        columns = first + [col for col in rest if col[1] not in layout.get("hidden", []) or (self.kind == "Node" and col[1] == "status")]
+        columns = first + [col for col in rest if self.kind == "Node" or col[1] not in layout.get("hidden", [])]
         anchor = "roles" if self.kind == "Node" else "name"
         insert_at = next((i + 1 for i, col in enumerate(columns) if col[1] == anchor), 1)
         headings = headings or {}

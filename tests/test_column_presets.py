@@ -60,3 +60,20 @@ def test_custom_layout_can_show_non_core_and_core_always_shows_status(qtbot):
     table.set_label_columns([], {}, {"hidden": []})
     assert table.presets.currentText() == "Custom"
     assert not table.view.isColumnHidden(version)
+
+
+def test_all_and_provider_presets_override_custom_hidden_columns(qtbot):
+    table = ResourceTable([("Name", "name"), ("Status", "status"), ("Version", "version")], "Node")
+    qtbot.addWidget(table)
+    table.set_extra_columns([("AWS ID", "plugin:aws:id")])
+    table.set_plugin_presets({"AWS": ["plugin:aws:id"]})
+    table.set_label_columns([], {}, {"hidden": ["version", "plugin:aws:id"]})
+    def hidden(attr):
+        index = next(i for i, column in enumerate(table.model.columns) if column[1] == attr)
+        return table.view.isColumnHidden(index)
+    table.presets.setCurrentText("Custom")
+    assert hidden("version") and hidden("plugin:aws:id")
+    table.presets.setCurrentText("All")
+    assert not hidden("version") and not hidden("plugin:aws:id")
+    table.presets.setCurrentText("AWS")
+    assert not hidden("plugin:aws:id")
