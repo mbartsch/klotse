@@ -45,3 +45,18 @@ def test_preset_switch_keeps_selection_and_column_width(qtbot):
     table.presets.setCurrentText("All")
     assert table.view.columnWidth(version) == 173
     assert table.selected_rows()[0].name == "n1"
+
+def test_custom_layout_can_show_non_core_and_core_always_shows_status(qtbot):
+    table = ResourceTable([("Name", "name"), ("Status", "status"), ("Version", "version")], "Node")
+    qtbot.addWidget(table)
+    table.set_label_columns([], {}, {"hidden": ["status"]})
+    status = next(i for i, c in enumerate(table.model.columns) if c[1] == "status")
+    version = next(i for i, c in enumerate(table.model.columns) if c[1] == "version")
+    assert not table.view.isColumnHidden(status)
+    table.presets.setCurrentText("Custom")
+    assert table.view.isColumnHidden(status) and not table.view.isColumnHidden(version)
+    table.presets.setCurrentText("Core")
+    assert not table.view.isColumnHidden(status) and table.view.isColumnHidden(version)
+    table.set_label_columns([], {}, {"hidden": []})
+    assert table.presets.currentText() == "Custom"
+    assert not table.view.isColumnHidden(version)

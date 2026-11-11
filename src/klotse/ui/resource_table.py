@@ -215,7 +215,7 @@ class ResourceTable(QWidget):
             self.presets = QComboBox()
             self.presets.setAccessibleName("Node column preset")
             self.presets.setToolTip("Choose which node columns to show")
-            self.presets.addItems(["Core", "All"])
+            self.presets.addItems(["Core", "All", "Custom"])
             self.presets.currentTextChanged.connect(self._apply_preset)
             top.addWidget(self.presets)
         self.customize_button = None
@@ -703,7 +703,7 @@ class ResourceTable(QWidget):
         self._preset_columns = {name: set(cols) for name, cols in presets.items()}
         self.presets.blockSignals(True)
         self.presets.clear()
-        self.presets.addItems(["Core", "All"] + sorted(name for name in presets if name not in ("Core", "All")))
+        self.presets.addItems(["Core", "All", "Custom"] + sorted(name for name in presets if name not in ("Core", "All", "Custom")))
         index = self.presets.findText(current)
         self.presets.setCurrentIndex(index if index >= 0 else 0)
         self.presets.blockSignals(False)
@@ -717,8 +717,14 @@ class ResourceTable(QWidget):
         included = core | self._preset_columns.get("Core", set())
         if name not in ("Core", "All"):
             included |= self._preset_columns.get(name, set())
+        hidden_by_user = (self._label_args[2] or {}).get("hidden", []) if self._label_args else []
         for i, column in enumerate(self.model.columns):
-            self.view.setColumnHidden(i, name != "All" and column[1] not in included and not column[1].startswith(("label:", "annotation:")))
+            attr = column[1]
+            if name == "Custom":
+                hidden = attr in hidden_by_user and attr != "name"
+            else:
+                hidden = name != "All" and attr not in included and not attr.startswith(("label:", "annotation:"))
+            self.view.setColumnHidden(i, hidden)
 
     def set_extra_columns(self, columns):
         """Columns added by plugins, after the built-in ones. They take part in the saved layout (order, hidden)
@@ -736,13 +742,17 @@ class ResourceTable(QWidget):
         (layout: {"order", "hidden"}). Annotation columns follow the label columns."""
         if self.kind in NOT_CUSTOMIZABLE:
             return
-        self._label_args = (keys, headings, layout, annotations, annotation_headings)
+        args = (keys, headings, layout, annotations, annotation_headings)
+        changed = self._label_args is not None and args != self._label_args
+        self._label_args = args
+        if changed and self.presets is not None:
+            self.presets.setCurrentText("Custom")
         layout = layout or {}
         first, rest = self.base_columns[:1], self.base_columns[1:]  # the first column (Name) never moves or hides
         order = layout.get("order", [])
         rank = {attr: i for i, attr in enumerate(order)}
         rest = sorted(rest, key=lambda col: rank.get(col[1], len(order)))  # stable: unknown ones keep their place
-        columns = first + [col for col in rest if col[1] not in layout.get("hidden", [])]
+        columns = first + [col for col in rest if col[1] not in layout.get("hidden", []) or (self.kind == "Node" and col[1] == "status")]
         anchor = "roles" if self.kind == "Node" else "name"
         insert_at = next((i + 1 for i, col in enumerate(columns) if col[1] == anchor), 1)
         headings = headings or {}
@@ -752,6 +762,7 @@ class ResourceTable(QWidget):
         columns[insert_at + len(keys):insert_at + len(keys)] = [
             (notes.get(key) or key, f"annotation:{key}") for key in annotations]
         if columns == self.model.columns:
+            self._apply_preset()
             return
         header = self.view.horizontalHeader()
         self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)
