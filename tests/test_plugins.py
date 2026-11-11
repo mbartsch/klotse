@@ -727,3 +727,24 @@ def test_workspace_retry_batches_same_kind_tables_before_start(qtbot, tmp_path):
     assert len(run.calls) == 1
     run.finish()
     assert {r.name for r in plugin.requests[-1].resources} == {"n1", "n2"}
+
+
+def test_workspace_prefers_fresh_table_when_other_table_has_old_uid(qtbot, tmp_path):
+    from types import SimpleNamespace
+    from klotse.ui.workspace import ClusterWorkspace
+    host, plugin, run, _, _ = host_for(tmp_path)
+    fresh = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="new")]))
+    old = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="old")]))
+    ws = SimpleNamespace(plugin_host=host, _hooked_tables=lambda: [fresh, old])
+    ClusterWorkspace._plugin_rows_loaded(ws, "Node", preferred=fresh)
+    run.finish()
+    assert plugin.requests[-1].resources[0].uid == "new"
+
+
+def test_retry_tracking_clears_when_all_rows_disappear(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    host.rows_loaded("Node", [node("old")])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [])
+    run.finish()
+    assert not run.calls and plugin.id not in host._retry_ids

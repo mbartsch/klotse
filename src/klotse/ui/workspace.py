@@ -637,7 +637,7 @@ class ClusterWorkspace(QMainWindow):
         table.set_extra_columns(self.plugins.columns_for(table.kind))
         table.set_plugin_presets(self.plugins.presets_for(table.kind))
         table.rows_incoming.connect(lambda rows, t=table: self.plugin_host.apply(t.kind, rows))
-        table.rows_set.connect(lambda rows, t=table: self._plugin_rows_loaded(t.kind))
+        table.rows_set.connect(lambda rows, t=table: self._plugin_rows_loaded(t.kind, preferred=t))
         table.plugin_actions = self.plugin_runner.offered  # right-click entries plugins add
         table.plugin_action_requested.connect(
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
@@ -684,10 +684,13 @@ class ClusterWorkspace(QMainWindow):
         if self._ready:  # connected: compute the cards now if due (a settings change makes them due)
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
 
-    def _plugin_rows_loaded(self, kind):
+    def _plugin_rows_loaded(self, kind, preferred=None):
         # One snapshot across tables of this kind, with one entry per resource key.
         rows = {}
-        for table in self._hooked_tables():
+        tables = self._hooked_tables()
+        if preferred is not None:
+            tables = [t for t in tables if t is not preferred] + [preferred]
+        for table in tables:
             if table.kind == kind:
                 for row in table.model.rows:
                     rows[(getattr(row, "namespace", ""), row.name)] = row
