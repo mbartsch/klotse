@@ -97,6 +97,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.factory = service_factory
         self.workspaces = {}  # context name -> ClusterWorkspace
+        self._connection_retries = {}  # context -> (timer, attempts started)
+        self._connection_prompts = {}  # context -> non-modal failure dialog
         self._detached = {}  # context name -> top-level window containing its workspace
         self._global_auto_paused = False
         self._global_auto_snapshot = None  # context -> (was enabled, interval ms), captured once per global pause
@@ -365,6 +367,8 @@ class MainWindow(QMainWindow):
         self.nav.context_clicked.connect(self.open_cluster)
         self.nav.connect_requested.connect(self.open_cluster)
         self.nav.disconnect_requested.connect(self._discard)
+        self.nav.cancel_retry_requested.connect(self._cancel_background_connection)
+        self.nav.retry_pending = lambda ctx: ctx in self._connection_retries
         self.nav.reconnect_requested.connect(self.reconnect_cluster)
         self.nav.view_requested.connect(self._open_view)
         self.nav.plugin_entries = lambda: [(p.id, f"{p.name or p.id}: settings for this cluster…")
@@ -528,8 +532,15 @@ class MainWindow(QMainWindow):
         """The workspace for `context`, or the one in the current tab."""
         return self.workspaces.get(context) if context else self.clusters.currentWidget()
 
-    def open_cluster(self, ctx):
+    def open_cluster(self, ctx, background=False):
         """Open `ctx` in its own tab, or focus it if it is already open."""
+        if self._shutting_down:
+            return
+        if not background:
+            self._cancel_connection_retry(ctx)
+            prompt = self._connection_prompts.pop(ctx, None)
+            if prompt is not None:
+                prompt.close()
         if ctx in self.workspaces:
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
@@ -549,7 +560,9 @@ class MainWindow(QMainWindow):
         ws.gateway_found.connect(lambda entries, c=ctx: self.nav.show_gateway(c, entries))
         ws.crd_groups_found.connect(lambda entries, c=ctx: self.nav.show_crd_groups(c, entries))
         ws.customize_requested.connect(self.customize_labels)  # the Columns… button on Nodes / Pods tabs
-        self.clusters.setCurrentIndex(self.clusters.addTab(ws, self.aliases.display(ctx)))
+        index = self.clusters.addTab(ws, self.aliases.display(ctx))
+        if not background:
+            self.clusters.setCurrentIndex(index)
         ws.read_only_changed.connect(lambda _on, w=ws: self._retitle(w))
         ws.set_read_only(self.read_only_clusters.is_read_only(ctx))
         ws.review_changes = self.review_action.isChecked()
@@ -1146,20 +1159,91 @@ class MainWindow(QMainWindow):
     def _on_state(self, ctx, state):
         self.nav.set_state(ctx, state)
         if state == "connected":
+            self._cancel_connection_retry(ctx)
             self.nav.show_views(ctx)
             QTimer.singleShot(0, lambda c=ctx: self._maybe_big_notice(self.workspaces.get(c)))
 
     def _on_failed(self, ctx, msg):
-        self._discard(ctx)
-        self.nav.set_state(ctx, "failed", msg)  # after _discard, which resets the row to idle
+        background = ctx in self._connection_retries
+        self._discard(ctx, preserve_retry=True)
+        self.nav.set_state(ctx, "failed", msg)
         self.status.showMessage(f"{ctx}: {msg}")
-        QMessageBox.warning(self, "Cannot connect", f"{ctx}\n\n{msg}")
+        if background:
+            self._schedule_connection_retry(ctx)
+            return
+        if self._shutting_down:
+            return
+        box = QMessageBox(QMessageBox.Warning, "Cannot connect", f"{ctx}\n\n{msg}", parent=self)
+        retry = box.addButton("Retry now", QMessageBox.AcceptRole)
+        later = box.addButton("Retry in background", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Cancel)
+        box.setModal(False)
+        self._connection_prompts[ctx] = box
+
+        def answered(_result):
+            if self._connection_prompts.get(ctx) is not box:
+                return
+            self._connection_prompts.pop(ctx, None)
+            clicked = box.clickedButton()
+            box.deleteLater()
+            if self._shutting_down:
+                return
+            if clicked is retry:
+                self.open_cluster(ctx)
+            elif clicked is later:
+                timer = QTimer(self, singleShot=True)
+                timer.timeout.connect(lambda: self._retry_connection(ctx))
+                self._connection_retries[ctx] = (timer, 0)
+                self._schedule_connection_retry(ctx)
+
+        box.finished.connect(answered)
+        box.show()
+
+    def _schedule_connection_retry(self, ctx):
+        current = self._connection_retries.get(ctx)
+        if current is None or self._shutting_down:
+            return
+        timer, attempts = current
+        if attempts >= 5:
+            self._cancel_connection_retry(ctx)
+            self.status.showMessage(f"{ctx}: background connection retries stopped after 5 attempts")
+            return
+        delay = min(5 * (2 ** attempts), 60)
+        self.status.showMessage(f"{ctx}: retrying in {delay}s (right-click cluster to cancel)")
+        timer.start(delay * 1000)
+
+    def _retry_connection(self, ctx):
+        current = self._connection_retries.get(ctx)
+        if current is None or self._shutting_down or ctx not in self.contexts:
+            self._cancel_connection_retry(ctx)
+            return
+        timer, attempts = current
+        timer.stop()
+        if ctx in self.workspaces:
+            return  # an attempt is already in flight
+        self._connection_retries[ctx] = (timer, attempts + 1)
+        self.open_cluster(ctx, background=True)
+
+    def _cancel_connection_retry(self, ctx):
+        current = self._connection_retries.pop(ctx, None)
+        if current:
+            current[0].stop()
+            current[0].deleteLater()
+
+    def _cancel_background_connection(self, ctx):
+        self._cancel_connection_retry(ctx)
+        if ctx in self.workspaces and not self.workspaces[ctx]._ready:
+            self._discard(ctx)
+        self.status.showMessage(f"{ctx}: background connection retry cancelled")
 
     def _close_cluster_tab(self, index):
         ws = self.clusters.widget(index)
         self._discard(ws.context)
 
-    def _discard(self, ctx):
+    def _discard(self, ctx, preserve_retry=False):
+        if not preserve_retry:
+            self._cancel_connection_retry(ctx)
         ws = self.workspaces.pop(ctx, None)
         if ws is None:
             return
@@ -1207,6 +1291,11 @@ class MainWindow(QMainWindow):
         if self._shutting_down:
             return
         self._shutting_down = True
+        for ctx in list(self._connection_retries):
+            self._cancel_connection_retry(ctx)
+        for box in list(self._connection_prompts.values()):
+            box.close()
+        self._connection_prompts.clear()
         self.closing.emit()
         for ws in self.workspaces.values():
             ws.shutdown()

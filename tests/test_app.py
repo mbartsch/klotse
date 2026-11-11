@@ -505,19 +505,121 @@ def test_view_menu_reopens_a_closed_floating_details_dock(qtbot):
     assert dock.isVisible()
 
 
-def test_failed_cluster_connection_closes_its_tab(qtbot, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a[2]))
+def test_failed_cluster_connection_offers_retry_without_blocking(qtbot):
     win = MainWindow(MultiService)
     qtbot.addWidget(win)
     open_active(win)
     win.nav.context_clicked.emit("bad")
-    qtbot.waitUntil(lambda: bool(warnings), timeout=5000)
-    assert "unreachable" in warnings[0] and "bad" in warnings[0]
-    assert "bad" not in win.workspaces and win.clusters.count() == 1  # dead tab removed, "a" untouched
+    qtbot.waitUntil(lambda: "bad" in win._connection_prompts, timeout=5000)
+    box = win._connection_prompts["bad"]
+    assert "unreachable" in box.text() and "bad" in box.text()
+    assert "bad" not in win.workspaces and win.clusters.count() == 1
     assert win.nav.cluster_item("bad").childCount() == 0
+    assert {b.text() for b in box.buttons()} >= {"Retry now", "Retry in background"}
+    box.reject()
+
+
+def test_connection_background_retry_and_cancel(qtbot):
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    win.open_cluster("bad")
+    qtbot.waitUntil(lambda: "bad" in win._connection_prompts, timeout=5000)
+    box = win._connection_prompts["bad"]
+    next(b for b in box.buttons() if b.text() == "Retry in background").click()
+    assert win._connection_retries["bad"][1] == 0
+    assert win._connection_retries["bad"][0].interval() == 5000
+    assert "Cancel background retry" in [name for name, _ in win.nav.actions_for("bad")]
+    win._retry_connection("bad")
+    qtbot.waitUntil(lambda: win._connection_retries.get("bad", (None, 0))[1] == 1 and "bad" not in win.workspaces, timeout=5000)
+    assert win._connection_retries["bad"][0].interval() == 10000
+    win._cancel_background_connection("bad")
+    assert "bad" not in win._connection_retries
+
+
+def test_connection_retry_now_starts_immediately(qtbot):
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    win.open_cluster("bad")
+    qtbot.waitUntil(lambda: "bad" in win._connection_prompts, timeout=5000)
+    box = win._connection_prompts["bad"]
+    next(b for b in box.buttons() if b.text() == "Retry now").click()
+    assert "bad" in win.workspaces
+    win._discard("bad")
+
+
+
+def test_background_retry_stops_after_five_failures_and_on_shutdown(qtbot):
+    from PySide6.QtCore import QTimer
+
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    timer = QTimer(win, singleShot=True)
+    win._connection_retries["bad"] = (timer, 4)
+    win._retry_connection("bad")
+    qtbot.waitUntil(lambda: "bad" not in win._connection_retries, timeout=5000)
+    assert "stopped after 5 attempts" in win.status.currentMessage()
+    timer2 = QTimer(win, singleShot=True)
+    win._connection_retries["bad"] = (timer2, 0)
+    win._schedule_connection_retry("bad")
+    win.shutdown()
+    assert not win._connection_retries and not timer2.isActive()
+
+
+def test_manual_connect_cancels_pending_background_retry(qtbot):
+    from PySide6.QtCore import QTimer
+
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    timer = QTimer(win, singleShot=True)
+    win._connection_retries["bad"] = (timer, 0)
+    win._schedule_connection_retry("bad")
+    win.open_cluster("bad")
+    assert "bad" not in win._connection_retries
+    assert not timer.isActive()
+    win._discard("bad")
+
+
+def test_background_retry_success_stops_and_does_not_steal_focus(qtbot, monkeypatch):
+    from PySide6.QtCore import QTimer
+
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    open_active(win)
+    qtbot.waitUntil(lambda: win.nav.cluster_item("a").childCount() > 0, timeout=5000)
+    timer = QTimer(win, singleShot=True)
+    win._connection_retries["b"] = (timer, 0)
+    win._retry_connection("b")
+    win._retry_connection("b")  # an in-flight attempt must not start a second workspace
+    assert win._connection_retries["b"][1] == 1
+    qtbot.waitUntil(lambda: "b" not in win._connection_retries, timeout=5000)
+    assert win.workspace().context == "a"
+    assert win.nav.cluster_item("b").childCount() > 0
+
+
+def test_cancelling_inflight_retry_drops_late_failure(qtbot):
+    from threading import Event
+    from PySide6.QtCore import QTimer
+
+    started, release = Event(), Event()
+
+    class SlowService(MultiService):
+        def connect(self, ctx):
+            started.set()
+            release.wait(5)
+            raise RuntimeError("late failure")
+
+    win = MainWindow(SlowService)
+    qtbot.addWidget(win)
+    timer = QTimer(win, singleShot=True)
+    win._connection_retries["bad"] = (timer, 0)
+    win._retry_connection("bad")
+    qtbot.waitUntil(started.is_set, timeout=5000)
+    win._cancel_background_connection("bad")
+    release.set()
+    qtbot.wait(100)
+    assert "bad" not in win.workspaces
+    assert "bad" not in win._connection_retries
+    assert "bad" not in win._connection_prompts
 
 
 def _pod(name, status="Running", ready="1/1", issue="", deleting=False):
