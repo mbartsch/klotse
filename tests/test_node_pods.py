@@ -164,4 +164,35 @@ def test_node_pod_counts_service_counts_unfinished_pods_per_node():
     svc = KubeService()
     svc._core = NS(list_pod_for_all_namespaces=listing)
     assert svc.node_pod_counts(["n1", "n2", "bad"]) == {"n1": 3, "n2": 0}  # a failing node is skipped
-    assert seen[0] == "spec.nodeName=n1,status.phase!=Succeeded,status.phase!=Failed"
+    assert "spec.nodeName=n1,status.phase!=Succeeded,status.phase!=Failed" in seen
+
+
+def test_visible_node_counts_are_bounded_and_fail_independently():
+    import threading
+    from klotse.k8s.client import NODE_COUNT_READS
+
+    lock = threading.Lock()
+    barrier = threading.Barrier(NODE_COUNT_READS, timeout=5)
+    active = peak = calls = 0
+
+    def listing(**kw):
+        nonlocal active, peak, calls
+        with lock:
+            active += 1
+            calls += 1
+            peak = max(peak, active)
+        try:
+            barrier.wait()
+            if "bad" in kw["field_selector"]:
+                raise RuntimeError("refused")
+            return NS(items=[object(), object()], metadata=None)
+        finally:
+            with lock:
+                active -= 1
+
+    svc = KubeService()
+    svc._core = NS(list_pod_for_all_namespaces=listing)
+    assert svc.node_pod_counts(["a", "b", "c", "bad", "a"]) == {"a": 2, "b": 2, "c": 2}
+    assert calls == NODE_COUNT_READS
+    assert peak == NODE_COUNT_READS
+    assert svc.node_pod_counts([]) == {}

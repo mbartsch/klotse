@@ -230,6 +230,7 @@ class _PagedList:
 
 
 PARALLEL_READS = 6  # big-cluster mode: namespaces whose pods are read at the same time
+NODE_COUNT_READS = 4  # visible-node counts: bound concurrent API requests per workspace
 PARALLEL_MIN_NAMESPACES = 4  # with fewer namespaces one list is as fast
 PODS_PAGE = 2000  # pods per page in the paged Pods list of a huge cluster
 
@@ -1354,16 +1355,21 @@ class KubeService:
         return counts
 
     def node_pod_counts(self, names):
-        """{node: number of pods that are not finished} for just these nodes (one small query per node)."""
-        counts = {}
-        for name in names:
+        """Count visible nodes concurrently, keeping each node's failure independent."""
+        names = list(dict.fromkeys(names))
+        if not names:
+            return {}
+
+        def count(name):
             selector = f"spec.nodeName={name},status.phase!=Succeeded,status.phase!=Failed"
             try:
-                counts[name] = sum(1 for _ in self._iter_list(self._core.list_pod_for_all_namespaces,
-                                                              field_selector=selector))
+                return name, sum(1 for _ in self._iter_list(self._core.list_pod_for_all_namespaces,
+                                                            field_selector=selector))
             except Exception:
-                continue  # leave that node uncounted rather than failing the others
-        return counts
+                return name, None  # leave that node uncounted rather than failing the others
+
+        with ThreadPoolExecutor(max_workers=min(NODE_COUNT_READS, len(names)), thread_name_prefix="node-count") as pool:
+            return {name: value for name, value in pool.map(count, names) if value is not None}
 
     def read_pod(self, name, namespace):
         """One pod, freshly read (for a pod's own tab)."""
