@@ -205,10 +205,10 @@ class ResourceTable(QWidget):
         self.more_button.setVisible(False)
         self.more_button.clicked.connect(self.more_requested.emit)
         top.addWidget(self.more_button)
-        fit_button = QPushButton("Fit columns")
-        fit_button.setToolTip("Fit column widths to their contents")
-        fit_button.clicked.connect(self.fit_columns)
-        top.addWidget(fit_button)
+        self.fit_button = QPushButton("Fit columns")
+        self.fit_button.setToolTip("Fit column widths to their contents")
+        self.fit_button.clicked.connect(self.fit_columns)
+        top.addWidget(self.fit_button)
         self.presets = None
         self._preset_columns = {}
         if kind == "Node":
