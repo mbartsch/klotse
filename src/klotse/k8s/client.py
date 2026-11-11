@@ -368,9 +368,9 @@ class KubeService:
             usage = usage_f.result()
         return self._with_usage(rows, namespace, usage)
 
-    def pod_pager(self, namespace=None):
+    def pod_pager(self, namespace=None, label_selector=None, field_selector=None):
         """A `PodPager` for the paged Pods list of a huge cluster."""
-        return PodPager(self, namespace)
+        return PodPager(self, namespace, label_selector=label_selector, field_selector=field_selector)
 
     def set_big(self, on):
         """Big-cluster mode: bigger list pages, the Overview reads only Warning events (server-side filter) instead of every event,
@@ -1390,10 +1390,14 @@ class KubeService:
             pass
         return row
 
-    def list_node_pods(self, node):
+    def list_node_pods(self, node, label_selector=None, field_selector=None):
+        selectors = [f"spec.nodeName={node}"]
+        if field_selector:
+            selectors.append(field_selector)
+        options = {"label_selector": label_selector} if label_selector else {}
         rows = [map_pod(p) for p in self._iter_list(self._core.list_pod_for_all_namespaces,
-                                                    field_selector=f"spec.nodeName={node}")]
-        return self._with_usage(rows) if rows else rows  # metrics have no node filter; skip the call for empty nodes
+                                                    field_selector=",".join(selectors), **options)]
+        return self._with_usage(rows, label_selector=label_selector) if rows else rows
 
     def read_pod_log(self, namespace, pod, container, tail=500, previous=False):
         """The last `tail` lines of one container's log as text (not streamed), or of its previous run. Looking only."""
