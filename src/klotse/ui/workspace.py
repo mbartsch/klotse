@@ -509,7 +509,7 @@ class ClusterWorkspace(QMainWindow):
         for spec in SPECS:
             table = T(spec.columns, spec.kind, editable=spec.editable)
             self.views[spec.key] = (table, spec.title)
-            self.loaders[spec.key] = (lambda ns, k=spec.key: svc().list_resource(k, ns), spec.namespaced, table.set_rows)
+            self.loaders[spec.key] = (lambda ns, k=spec.key, **options: svc().list_resource(k, ns, **options), spec.namespaced, table.set_rows)
         # Helm releases, from the labels of their storage Secrets (no release data is read for the list)
         helm = T(HELM_COLUMNS, "HelmRelease", editable=False)
         self.views["helm-releases"] = (helm, "Helm releases")
