@@ -60,6 +60,7 @@ class Navigator(QTreeWidget):
     view_requested = Signal(str, str)  # context name, view key
     connect_requested = Signal(str)
     disconnect_requested = Signal(str)
+    cancel_retry_requested = Signal(str)
     reconnect_requested = Signal(str)
     plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
     alias_requested = Signal(str)  # rename the display alias for a cluster context
@@ -95,6 +96,7 @@ class Navigator(QTreeWidget):
         self._failures = {}
         self._aliases = {}
         self.groups = None  # a ClusterGroups, or None for a plain list
+        self.retry_pending = lambda _ctx: False
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
         self._connected_hdr = self._idle_hdr = None
@@ -461,8 +463,12 @@ class Navigator(QTreeWidget):
     def actions_for(self, name):
         """Context-menu entries for a cluster as (label, signal) pairs."""
         if self._states.get(name) in ACTIVE_STATES:
-            return [("Reconnect", self.reconnect_requested), ("Disconnect", self.disconnect_requested)]
-        return [("Connect", self.connect_requested)]
+            actions = [("Reconnect", self.reconnect_requested), ("Disconnect", self.disconnect_requested)]
+        else:
+            actions = [("Connect", self.connect_requested)]
+        if self.retry_pending(name):
+            actions.append(("Cancel background retry", self.cancel_retry_requested))
+        return actions
 
     def menu_for(self, item):
         """The context menu for a sidebar item, or None when there is nothing to offer."""
