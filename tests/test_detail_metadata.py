@@ -14,7 +14,9 @@ def test_metadata_disclosure_tracks_selection_and_summary(qtbot):
     labels, label_values = panel.metadata_controls["Labels"]
     annotations, _ = panel.metadata_controls["Annotations"]
     assert not labels.isHidden() and labels.text() == "Labels (1)"
-    assert annotations.text() == "Annotations (1)"
+    assert annotations.text() == "Annotations (2)"
+    annotations.click()
+    assert "last-applied-configuration" in panel.metadata_controls["Annotations"][1].toPlainText()
     assert label_values.isHidden()
     labels.click()
     assert not label_values.isHidden() and "team = a" in label_values.toPlainText()

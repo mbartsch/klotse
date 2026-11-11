@@ -286,8 +286,6 @@ class DetailPanel(QWidget):
             pairs = meta.get(name.lower()) or {}
             if not isinstance(pairs, dict):
                 pairs = {}
-            if name == "Annotations":
-                pairs = {k: v for k, v in pairs.items() if k != "kubectl.kubernetes.io/last-applied-configuration"}
             button.setChecked(False)
             button.setText(f"{name} ({len(pairs)})")
             button.setAccessibleName(f"{name}, {len(pairs)} entries")
