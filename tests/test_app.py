@@ -19,6 +19,24 @@ def test_format_age():
     assert format_age(NOW - timedelta(seconds=7), NOW) == "7s"
 
 
+def test_right_clicking_the_navigator_logo_does_not_open_the_main_window_popup(qtbot, monkeypatch):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QContextMenuEvent
+    from PySide6.QtWidgets import QApplication, QLabel, QWidget
+
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    logo = win.findChild(QLabel, "klotseLogo")
+    title = win.findChild(QWidget, "navigatorBrand")
+    opened = []
+    monkeypatch.setattr(win, "createPopupMenu", lambda: opened.append(True))
+
+    assert logo.contextMenuPolicy() == Qt.PreventContextMenu
+    assert title.contextMenuPolicy() == Qt.PreventContextMenu
+    QApplication.sendEvent(logo, QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(8, 8)))
+    assert opened == []
+
+
 def test_map_pod_waiting_reason_and_ready():
     pod = client.V1Pod(
         metadata=client.V1ObjectMeta(name="p", namespace="ns", creation_timestamp=NOW),
