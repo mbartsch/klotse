@@ -237,6 +237,36 @@ def test_the_page_saves_the_place_and_hides_the_macos_choice_elsewhere(qtbot, tm
         assert panel.terminal.isHidden() and panel.mac_hint.isHidden()
 
 
+def test_the_macos_terminal_choice_is_only_visible_for_external_terminal(qtbot, tmp_path, monkeypatch):
+    from klotse.ui import terminal_settings
+
+    monkeypatch.setattr(terminal_settings.sys, "platform", "darwin")
+    s = settings(tmp_path)
+    panel = TerminalPanel(s)
+    qtbot.addWidget(panel)
+    mac_label = panel.layout().labelForField(panel.terminal)
+
+    assert not panel.terminal.isHidden()
+    assert not panel.mac_hint.isHidden()
+    assert not mac_label.isHidden()
+
+    panel.where.setCurrentIndex(1)
+    assert panel.terminal.isHidden()
+    assert panel.mac_hint.isHidden()
+    assert mac_label.isHidden()
+
+    panel.where.setCurrentIndex(0)
+    assert not panel.terminal.isHidden()
+    assert not panel.mac_hint.isHidden()
+    assert not mac_label.isHidden()
+
+    panel.terminal.setCurrentText("iTerm2")
+    panel.where.setCurrentIndex(1)
+    panel.save()
+    assert s.embedded is True
+    assert s.mac_terminal == "iTerm2"
+
+
 # ---- the workspace ---------------------------------------------------------------------------------------------
 @needs_web
 def test_a_shell_opens_as_a_tab_when_embedded_is_chosen(qtbot, tmp_path, monkeypatch):
