@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560">
+<rect width="1000" height="560" rx="14" fill="#101820"/>
+<text x="28" y="34" font-family="Arial,sans-serif" font-size="13" fill="#91a4b2">Klotse  /  prod-eu</text>
+<rect x="24" y="52" width="952" height="484" rx="10" fill="#17232e" stroke="#30404d"/>
+<rect x="46" y="76" width="390" height="436" rx="8" fill="#101820" stroke="#30404d"/>
+<text x="68" y="112" font-family="Arial,sans-serif" font-size="17" fill="#e6edf3">Pods</text>
+<text x="68" y="155" font-family="Arial,sans-serif" font-size="14" fill="#9fb0bb">api-7b85c7 · Running</text>
+<text x="28" y="548" font-family="Arial,sans-serif" font-size="12" fill="#91a4b2">AFTER · Floating Details window has an explicit Attach control</text>
+<rect x="492" y="110" width="460" height="390" rx="10" fill="#101820" stroke="#26a69a" stroke-width="2"/>
+<rect x="492" y="110" width="460" height="42" rx="10" fill="#22323d"/>
+<text x="510" y="137" font-family="Arial,sans-serif" font-size="14" font-weight="600" fill="#e6edf3">Details</text>
+<rect x="891" y="119" width="28" height="26" rx="5" fill="#30404d"/>
+<rect x="897" y="125" width="15" height="14" rx="2" fill="none" stroke="#dce6ed" stroke-width="1.5"/>
+<path d="M909 127l-7 7m0-4v4h4" fill="none" stroke="#dce6ed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="920" y="119" width="24" height="26" rx="5" fill="#30404d"/>
+<path d="M927 126l10 10m-6-10h6v6" fill="none" stroke="#dce6ed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="510" y="187" font-family="Arial,sans-serif" font-size="15" fill="#e6edf3">Pod · api-7b85c7</text>
+<text x="510" y="221" font-family="Arial,sans-serif" font-size="12" fill="#9fb0bb">Summary   YAML   Events   Related</text>
+<text x="510" y="263" font-family="Arial,sans-serif" font-size="12" fill="#9fb0bb">Namespace</text><text x="510" y="284" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">default</text>
+<text x="510" y="323" font-family="Arial,sans-serif" font-size="12" fill="#9fb0bb">Status</text><text x="510" y="344" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">Running</text>
+<text x="510" y="470" font-family="Arial,sans-serif" font-size="11" fill="#91a4b2">Left: detach · Right: attach to workspace</text>
+</svg>
