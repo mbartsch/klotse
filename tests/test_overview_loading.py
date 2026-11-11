@@ -1,4 +1,4 @@
-from klotse.ui.overview import CLUSTER_CARDS, OverviewView
+from klotse.ui.overview import CLUSTER_CARDS, WORKLOAD_CARDS, OverviewView
 from klotse.ui.workspace import ClusterWorkspace
 
 DATA = {"counts": {"nodes": 3}, "events": [], "lists": {}}
@@ -71,6 +71,24 @@ def test_node_health_prioritizes_not_ready_then_high_cpu_or_memory_use(qtbot):
 
     names = [view.nodes_table.item(row, 0).text() for row in range(view.nodes_table.rowCount())]
     assert names == ["not-ready-high", "not-ready-low", "ready-high-cpu", "ready-high-mem", "ready-low", "ready-unknown"]
+
+
+def test_workload_health_drill_down_has_a_clear_way_back(qtbot):
+    from klotse.k8s.models import PodRow
+
+    view = OverviewView(WORKLOAD_CARDS)
+    qtbot.addWidget(view)
+    view.show()
+    view.set_data({"counts": {"pods": 2, "pending": 1}, "events": [],
+                   "lists": {"pending": [PodRow("waiting", "shop", "0/1", "Pending", 0, "", "1m")]}})
+    view._on_card("pending")
+
+    assert view.stack.currentWidget() is view.pods_table
+    assert view.back.isVisible()
+    assert view.back.text() == "Back to Workload health"
+    view.back.click()
+    assert view.focus is None and view.stack.currentWidget() is view.events_table
+    assert view.back.isHidden()
 
 
 def test_workspace_load_drives_the_overview_indicator(qtbot):

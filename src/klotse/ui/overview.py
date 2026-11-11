@@ -176,8 +176,10 @@ class OverviewView(QWidget):
         self.plugin_grid = QGridLayout()
         self.title = QLabel("Recent events")
         self.title.setAccessibleName("Overview table heading")
-        self.back = QPushButton("Show recent events")
-        self.back.setAccessibleName("Return to recent events")
+        back_label = "Show recent events" if self.is_cluster_overview else "Back to Workload health"
+        back_name = "Return to recent events" if self.is_cluster_overview else "Return to Workload health"
+        self.back = QPushButton(back_label)
+        self.back.setAccessibleName(back_name)
         self.back.clicked.connect(lambda: self._set_focus(None))
         self.back.hide()
 
