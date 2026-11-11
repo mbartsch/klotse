@@ -34,7 +34,7 @@ def test_right_clicking_the_navigator_logo_does_not_open_the_main_window_popup(q
     monkeypatch.setattr(win, "createPopupMenu", lambda: opened.append(True))
 
     assert logo.contextMenuPolicy() == Qt.PreventContextMenu
-    assert title.contextMenuPolicy() == Qt.PreventContextMenu
+    assert title.contextMenuPolicy() == Qt.NoContextMenu
     QApplication.sendEvent(logo, QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(8, 8)))
     assert opened == []
 
@@ -323,7 +323,7 @@ def test_navigator_and_logs(qtbot):
     assert groups["Config"][:2] == ["ConfigMaps", "Secrets"] and "Resource Quotas" in groups["Config"]
     assert groups["Storage"][0] == "Persistent Volume Claims"
     assert groups["Network"] == ["Services", "Endpoints", "Endpoint Slices", "Ingresses", "Network Policies"]
-    assert win.windowTitle().endswith("ctx")
+    assert win.windowTitle().split(" — ") == ["ctx (ctx)", "Overview", "all namespaces", "Klotse"]
     win.nav.view_requested.emit("ctx", "deployments")
     assert ws.tabs.tabText(ws.tabs.currentIndex()) == "Deployments"
 
@@ -1075,8 +1075,8 @@ def test_overview_cards_drill_down_on_click(qtbot):
     assert view.title.text() == "Failed pods (2)" and view.pods_table.model.rowCount() == 2
     assert [r.status for r in view.pods_table.model.rows] == ["CrashLoopBackOff"] * 2
     assert view.back.isVisible()
-    assert c["failed"].styleSheet().startswith(f"Card {{ border: 1px solid {ACCENT}")  # the open card is outlined
-    assert c["warnings"].styleSheet().startswith(f"Card {{ border: 1px solid {BORDER}")  # the others keep the normal border
+    assert f"border: 1px solid {ACCENT};" in c["failed"].styleSheet().split("}", 1)[0]  # the open card is outlined
+    assert f"border: 1px solid {BORDER};" in c["warnings"].styleSheet().split("}", 1)[0]  # the others keep the normal border
 
     qtbot.mouseClick(c["warnings"], Qt.LeftButton)  # switch straight to another card
     assert view.focus == "warnings" and view.stack.currentWidget() is view.warnings_table

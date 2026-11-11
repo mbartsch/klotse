@@ -1,4 +1,5 @@
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -83,10 +84,10 @@ def test_macos_terminal_quoting_and_failure(monkeypatch, app):
     assert f'tell application "{app}"' in command[2]
     assert argv[2] not in command[2]
     wrapper = shlex.split(command[3])
-    assert wrapper[0] == "exec"
-    script = Path(wrapper[1]).read_text()
+    assert wrapper[:2] == ["exec", "/bin/sh"]
+    script = Path(wrapper[2]).read_text()
     assert sys.executable in script and app in script and json.dumps(argv) in script
-    Path(wrapper[1]).unlink()
+    Path(wrapper[2]).unlink()
     assert calls[0][1]["timeout"] == 15
 
     def fail(*args, **kwargs):
@@ -107,6 +108,7 @@ def test_linux_terminal_uses_a_unique_script_instead_of_inline_command(monkeypat
     argv = ["kubectl", "--context", "cluster;$(echo nope)", "exec", "pod"]
     terminal.open_terminal(argv)
     assert calls[0][:2] == ["/usr/bin/x-terminal-emulator", "-e"]
+    assert calls[0][2] == "/bin/sh"  # mkstemp scripts are readable but not executable
     assert Path(calls[0][-1]).parent == tmp_path
     script = Path(calls[0][-1]).read_text()
     assert "cluster;$(echo nope)" in script
@@ -116,21 +118,114 @@ def test_linux_terminal_uses_a_unique_script_instead_of_inline_command(monkeypat
     Path(calls[0][-1]).unlink()
 
 
-def test_windows_terminal_uses_a_batch_script(monkeypatch, tmp_path):
+@pytest.mark.parametrize("frozen,pythonw", [(False, False), (False, True), (True, False)])
+def test_windows_terminal_passes_argv_as_data_to_its_own_console(monkeypatch, tmp_path, frozen, pythonw):
     from klotse.ui import terminal
     monkeypatch.setattr(terminal.sys, "platform", "win32")
+    monkeypatch.setattr(terminal.sys, "frozen", frozen, raising=False)
+    if pythonw:
+        monkeypatch.setattr(terminal.sys, "executable", str(tmp_path / "pythonw.exe"))
+    monkeypatch.setattr(terminal.subprocess, "CREATE_NEW_CONSOLE", 0x10, raising=False)
     real_mkstemp = terminal.tempfile.mkstemp
     monkeypatch.setattr(terminal.tempfile, "mkstemp", lambda **kwargs: real_mkstemp(dir=tmp_path, **kwargs))
     calls = []
     monkeypatch.setattr(terminal.subprocess, "Popen", lambda argv, **kwargs: calls.append((argv, kwargs)))
-    argv = ["kubectl.exe", "--context", "cluster & nope", "exec", "pod"]
+    argv = ["kubectl.exe", "--context", "cluster&nope%PATH%!", "exec", "pod"]
     terminal.open_terminal(argv)
-    assert calls[0][0][:2] == ["cmd", "/k"]
-    script_path = Path(calls[0][0][-1])
-    script = script_path.read_text()
-    assert "cluster & nope" in script and "cluster & nope" not in " ".join(calls[0][0])
-    assert "del \"%~f0\"" in script
-    script_path.unlink()
+    runner, options = calls[0]
+    assert runner[0] == (str(tmp_path / "python.exe") if pythonw else sys.executable)
+    if frozen:
+        assert runner[1] == "--terminal-session"
+    else:
+        assert runner[1].endswith("terminal_session.py")
+    assert runner[-2] == "Windows"
+    assert json.loads(Path(runner[-1]).read_text()) == argv
+    assert argv[2] not in " ".join(runner)
+    assert options["creationflags"] == subprocess.CREATE_NEW_CONSOLE
+    assert options["stdin"] == options["stdout"] == options["stderr"] == subprocess.DEVNULL
+    Path(runner[-1]).unlink()
+
+
+@pytest.mark.parametrize("status", [0, 7])
+def test_windows_session_preserves_real_process_arguments_and_exit_status(tmp_path, status):
+    report = tmp_path / "received.json"
+    command_file = tmp_path / "command.json"
+    args = ["prod&ver", "%PATH%", "!EXPAND!", "a|b>c<d^e", 'quoted "value"', "with spaces",
+            "caf\u00e9 \u96ea", "", "trailing\\", json.dumps({"spec": {"nodeName": 'node-"quoted"'}})]
+    code = "import json,pathlib,sys;pathlib.Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]),encoding='utf-8');sys.exit(" + str(status) + ")"
+    command_file.write_text(json.dumps([sys.executable, "-c", code, str(report), *args]), encoding="utf-8")
+    runner = "import sys;from klotse.ui.terminal_session import run_windows_session;sys.exit(run_windows_session(sys.argv[1]))"
+    result = subprocess.run([sys.executable, "-c", runner, str(command_file)], input="\n", capture_output=True,
+                            text=True, timeout=20)
+    assert result.returncode == status, result.stderr
+    assert json.loads(report.read_text(encoding="utf-8")) == args
+    assert "Press Enter to close" in result.stdout
+    assert not command_file.exists()
+
+
+def test_windows_runner_dispatch_opens_console_before_reading_command(monkeypatch):
+    from klotse import cli
+    from klotse.ui import terminal_session
+
+    calls = []
+    monkeypatch.setattr(terminal_session, "_windows_console", lambda: calls.append("console"))
+    monkeypatch.setattr(terminal_session, "run_windows_session", lambda path: calls.append(path) or 7)
+    assert cli.handle(["--terminal-session", "Windows", "command.json"]) == 7
+    assert calls == ["console", "command.json"]
+
+
+def test_windows_session_missing_command_is_reported_and_waits_for_enter(tmp_path, monkeypatch, capsys):
+    from klotse.ui import terminal_session
+
+    command = tmp_path / "command.json"
+    command.write_text(json.dumps(["missing-kubectl.exe"]))
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("kubectl was not found")
+    monkeypatch.setattr(terminal_session.subprocess, "call", missing)
+    acknowledgements = []
+    monkeypatch.setattr("builtins.input", lambda: acknowledgements.append(True) or "")
+    assert terminal_session.run_windows_session(command) == 127
+    assert "kubectl was not found" in capsys.readouterr().out
+    assert acknowledgements == [True] and not command.exists()
+
+
+def test_windows_console_reopens_all_standard_streams(monkeypatch):
+    import ctypes
+    import io
+    from klotse.ui import terminal_session
+
+    calls = []
+    streams = [io.StringIO() for _ in range(3)]
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(kernel32=SimpleNamespace(
+        AllocConsole=lambda: calls.append("allocate"))), raising=False)
+    def opened(path, mode, **kwargs):
+        calls.append((path, mode, kwargs))
+        return streams[len(calls) - 2]
+    monkeypatch.setattr("builtins.open", opened)
+    for name in ("stdin", "stdout", "stderr"):
+        monkeypatch.setattr(terminal_session.sys, name, None)
+    terminal_session._windows_console()
+    assert calls == ["allocate", ("CONIN$", "r", {"encoding": "utf-8"}),
+                     ("CONOUT$", "w", {"encoding": "utf-8", "buffering": 1}),
+                     ("CONOUT$", "w", {"encoding": "utf-8", "buffering": 1})]
+    assert [sys.stdin, sys.stdout, sys.stderr] == streams
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Runs a real POSIX shell; Windows covers the launcher argv above")
+def test_posix_session_script_runs_without_execute_permission_and_removes_itself(tmp_path, monkeypatch):
+    from klotse.ui import terminal
+
+    report = tmp_path / "received.json"
+    args = ["context;$(echo nope)", "quoted 'value'", "with spaces"]
+    real_mkstemp = terminal.tempfile.mkstemp
+    monkeypatch.setattr(terminal.tempfile, "mkstemp", lambda **kw: real_mkstemp(dir=tmp_path, **kw))
+    code = "import json,pathlib,sys;pathlib.Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]));sys.exit(7)"
+    path = terminal._external_session_script([sys.executable, "-c", code, str(report), *args])
+    assert not os.access(path, os.X_OK)
+    result = subprocess.run(["/bin/sh", path], input="\n", text=True, capture_output=True, timeout=20)
+    assert result.returncode == 7
+    assert json.loads(report.read_text()) == args
+    assert not Path(path).exists()
 
 
 @pytest.mark.parametrize("status", [0, 7])

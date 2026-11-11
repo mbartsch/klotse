@@ -175,7 +175,7 @@ class OverviewView(QWidget):
         self._load_timer.timeout.connect(self._loading_tick)
         self.plugin_cards = {}
         self.plugin_grid = QGridLayout()
-        self.title = QLabel("Recent events")
+        self.title = QLabel("Recent events", self)
         self.title.setAccessibleName("Overview table heading")
         back_label = "Show recent events" if self.is_cluster_overview else "Back to Workload health"
         back_name = "Return to recent events" if self.is_cluster_overview else "Return to Workload health"
@@ -186,6 +186,7 @@ class OverviewView(QWidget):
 
         for key, title, tone in cards:
             card = Card(key, title, tone)
+            card.setParent(self)
             card.clicked.connect(self._on_card)
             self.cards[key] = card
 
@@ -233,6 +234,9 @@ class OverviewView(QWidget):
 
         if self.is_cluster_overview:
             self._build_cluster_dashboard()
+            for key, card in self.cards.items():
+                if key not in ("nodes", "pods", "namespaces", "warnings"):
+                    card.hide()  # retained for drill-down state, but not part of the dashboard grid
         else:
             self._build_workload_overview()
 
@@ -554,6 +558,7 @@ class OverviewView(QWidget):
         state["button"].setToolTip(f"Detach {state['title']} panel")
         state["button"].setAccessibleName(f"Detach {state['title']} panel")
         dialog.close()
+        dialog.deleteLater()
 
     def _build_workload_overview(self):
         grid = QGridLayout()

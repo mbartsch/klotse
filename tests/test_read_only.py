@@ -79,7 +79,7 @@ def test_apply_is_refused_but_a_dry__run_check_still_works():
 def make_ws(qtbot, **service):
     ws = ClusterWorkspace(SimpleNamespace(**service), "prod")
     qtbot.addWidget(ws)
-    ws.resize(1400, 800)  # wide enough that the toolbar does not move the banner into its overflow menu
+    ws.resize(1400, 800)
     ws.show()
     return ws
 
@@ -96,18 +96,30 @@ def row(**extra):
                            secret_data={}, **extra)
 
 
-def test_the_banner_and_the_service_follow_the_mode(qtbot):
-    ws = make_ws(qtbot)
-    seen = []
-    ws.read_only_changed.connect(seen.append)
-    assert not ws.read_only_label.isVisible()
-    ws.set_read_only(True)
-    qtbot.waitUntil(ws.read_only_label.isVisible, timeout=3000)
-    assert ws.read_only and ws.service.read_only is True
-    assert "Read-only" in ws.read_only_label.text() and "🔒" in ws.read_only_label.text()  # symbol and words
-    ws.set_read_only(False)
-    qtbot.waitUntil(lambda: not ws.read_only_label.isVisible(), timeout=3000)
-    assert not ws.read_only and ws.service.read_only is False and seen == [True, False]
+@pytest.mark.parametrize("styled", [False, True], ids=["current-style", "harbour-stylesheet"])
+def test_the_banner_and_the_service_follow_the_mode(qtbot, qapp, styled):
+    from klotse.ui import theme
+
+    previous_stylesheet = qapp.styleSheet()
+    try:
+        if styled:
+            qapp.setStyleSheet(theme.stylesheet(theme.HARBOUR))
+        ws = make_ws(qtbot)
+        seen = []
+        ws.read_only_changed.connect(seen.append)
+        assert not ws.read_only_label.isVisible()
+        ws.set_read_only(True)
+        # Styled controls can need more than 1400 px. Include the newly visible action before sizing the toolbar.
+        toolbar = ws.read_only_label.parentWidget()
+        ws.resize(max(ws.width(), toolbar.sizeHint().width()), ws.height())
+        qtbot.waitUntil(ws.read_only_label.isVisible, timeout=3000)
+        assert ws.read_only and ws.service.read_only is True
+        assert "Read-only" in ws.read_only_label.text() and "🔒" in ws.read_only_label.text()  # symbol and words
+        ws.set_read_only(False)
+        qtbot.waitUntil(lambda: not ws.read_only_label.isVisible(), timeout=3000)
+        assert not ws.read_only and ws.service.read_only is False and seen == [True, False]
+    finally:
+        qapp.setStyleSheet(previous_stylesheet)
 
 
 @pytest.mark.parametrize("call", [

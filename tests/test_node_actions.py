@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import json
 import shlex
 import sys
+from pathlib import Path
 
 import pytest
 from kubernetes import client
@@ -232,8 +233,14 @@ def test_macos_terminal_command_is_quoted(monkeypatch):
     terminal.open_terminal(argv)
     assert calls[0][0] == "osascript"
     wrapper = shlex.split(calls[0][-1])
-    assert wrapper[:2] == ["exec", sys.executable]
-    assert json.loads(wrapper[4]) == argv
+    assert wrapper[:2] == ["exec", "/bin/sh"]
+    script_path = Path(wrapper[2])
+    try:
+        runner = shlex.split(script_path.read_text().splitlines()[1])
+        assert runner[0] == sys.executable and runner[1].endswith("terminal_session.py")
+        assert runner[2] == "Terminal" and json.loads(runner[3]) == argv
+    finally:
+        script_path.unlink()
     assert argv[2] not in calls[0][2]  # command data never becomes AppleScript source
 
 

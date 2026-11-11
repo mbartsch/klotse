@@ -203,7 +203,7 @@ def yaml_dialog(monkeypatch, bodies):
         return EditDialog.Accepted
 
     monkeypatch.setattr(EditDialog, "exec", exec_)
-    monkeypatch.setattr("klotse.ui.workspace.confirm_risky", lambda *a: True)
+    monkeypatch.setattr("klotse.ui.workspace.confirm_risky", lambda *a, **kwargs: True)
 
 
 def test_save_after_a_good_dry_run_submits(qtbot, monkeypatch):

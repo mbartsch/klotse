@@ -519,6 +519,9 @@ class ClusterWorkspace(QMainWindow):
         self.views["crd-groups"] = (groups, "CRD groups")
         self.loaders["crd-groups"] = (lambda ns: crd_groups(svc().list_resource("crds", ns)), False, groups.set_rows)
         for key, (widget, title) in self.views.items():
+            # Lists exist before their tabs are opened. Keep even unopened lists owned by this workspace.
+            widget.setParent(self)
+            widget.hide()
             widget.view_key = key
             if isinstance(widget, ResourceTable):
                 widget.set_page_title(title)
@@ -1114,6 +1117,8 @@ class ClusterWorkspace(QMainWindow):
             columns = special or ([("Name", "name")] + ([("Namespace", "namespace")] if namespaced else []) + [("Age", "age")])
             editable = gateway_api.is_gateway_group(group)
             table = ResourceTable(columns, kind if editable else "CustomResource", editable=editable, customizable=False)
+            table.setParent(self)
+            table.hide()
             table.set_page_title(kind)
             table.view_key = key
             if editable:  # the Gateway API kinds: Edit… as YAML, New…, Delete…
@@ -1845,7 +1850,7 @@ class ClusterWorkspace(QMainWindow):
         try:
             typed = prometheus.parse_ref(manual) if manual else None
         except ValueError as error:
-            dialog.status.setText(f"The saved Prometheus address is not valid: {error}")
+            dialog.set_source_note(f"The saved Prometheus address is not valid: {error}")
             return
         if typed is None and isinstance(self._prometheus, dict):
             dialog.set_prometheus(prometheus.ref_text(self._prometheus), self._prometheus_fetch(self._prometheus, kind, row, selector))
@@ -1870,7 +1875,7 @@ class ClusterWorkspace(QMainWindow):
                 self._prometheus = False
                 if typed or notes:  # something was tried: say why it was not used
                     try:
-                        dialog.status.setText("Prometheus / VictoriaMetrics was not used. " + "; ".join(notes[:2]))
+                        dialog.set_source_note("Prometheus / VictoriaMetrics was not used. " + "; ".join(notes[:2]))
                     except RuntimeError:
                         pass
                 return

@@ -2,7 +2,7 @@
 
     klotse --version                      print the version and exit
     klotse --self-test [REPORT_FILE]      check that this installation works (used to verify packaged builds)
-    klotse --terminal-session APP JSON    run one macOS shell session (used by the packaged app, see ui/terminal.py)
+    klotse --terminal-session APP DATA    run an external terminal session (macOS JSON / Windows argv file)
     klotse --install-desktop-entry        Linux, for pip/pipx installs: add Klotse to the application menu
     klotse --uninstall-desktop-entry      Linux: remove that menu entry again
 

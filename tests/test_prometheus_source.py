@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -308,6 +309,39 @@ def test_a_typed_service_that_does_not_answer_is_reported_in_the_window(qtbot, t
     qtbot.waitUntil(lambda: "was not used" in dialog.status.text(), timeout=5000)
     assert "monitoring/broken:9090" in dialog.status.text() and "503" in dialog.status.text() and dialog.mode() == SAMPLED
     ws.shutdown()
+
+
+def test_source_failure_survives_a_late_sample_and_clears_when_reconfigured(qtbot, tmp_path):
+    fake = Fake([], ok="other")
+    released = threading.Event()
+    def delayed_sample(*args):
+        released.wait(10)
+        return {}
+    fake.metrics_sample = delayed_sample
+    ws = ws_with(qtbot, fake, tmp_path)
+    ws.metrics_sources.set("ctx", "monitoring/broken:9090")
+    try:
+        dialog = ws.show_metrics("Pod", pod_row())
+        qtbot.waitUntil(lambda: "was not used" in dialog.status.text(), timeout=5000)
+        assert dialog._busy  # The initial sample is still waiting when source validation reports its failure.
+        released.set()
+        qtbot.waitUntil(lambda: not dialog._busy, timeout=5000)
+        assert "monitoring/broken:9090" in dialog.status.text() and "503" in dialog.status.text()
+        assert "metrics-server" in dialog.status.text() and dialog.mode() == SAMPLED
+        dialog.pause_button.setChecked(True)
+        assert "was not used" in dialog.status.text() and "paused" in dialog.status.text()
+        dialog.clear()
+        assert "was not used" in dialog.status.text()
+        fake.ok = True
+        ws.metrics_sources.set("ctx", "monitoring/working:9090")
+        dialog.clear_prometheus()  # Explicitly reconfiguring the source dismisses the old problem.
+        assert "was not used" not in dialog.status.text()
+        ws._offer_prometheus(dialog, "Pod", pod_row(), "", force=True)
+        qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=5000)
+        assert "was not used" not in dialog.status.text() and not dialog.remote_note
+    finally:
+        released.set()
+        ws.shutdown()
 
 
 def test_the_setting_is_kept_per_cluster_and_cleared_with_empty_text(tmp_path):
