@@ -31,3 +31,17 @@ def test_plugin_preset_contributions():
     # Use a tiny stand-in to exercise aggregation without Qt setup.
     manager = type("Plugins", (), {"active": lambda self: [Provider()]})()
     assert PluginManager.presets_for(manager, "Node") == {"AWS": ["plugin:aws:id"], "Core": ["plugin:aws:id"]}
+
+def test_preset_switch_keeps_selection_and_column_width(qtbot):
+    from types import SimpleNamespace
+    table = ResourceTable([("Name", "name"), ("Status", "status"), ("Version", "version")], "Node")
+    qtbot.addWidget(table)
+    table.set_rows([SimpleNamespace(name="n1", status="Ready", version="v1", raw={})])
+    table.presets.setCurrentText("All")
+    version = next(i for i, c in enumerate(table.model.columns) if c[1] == "version")
+    table.view.setColumnWidth(version, 173)
+    table.view.selectRow(0)
+    table.presets.setCurrentText("Core")
+    table.presets.setCurrentText("All")
+    assert table.view.columnWidth(version) == 173
+    assert table.selected_rows()[0].name == "n1"

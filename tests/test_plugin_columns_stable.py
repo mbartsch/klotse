@@ -22,6 +22,7 @@ def workspace(qtbot, tmp_path):
     ws = ClusterWorkspace(None, "ctx", plugins=manager)
     qtbot.addWidget(ws)
     ws.plugin_host._run = Runner()
+    ws.node_table.presets.setCurrentText("All")
     return ws
 
 

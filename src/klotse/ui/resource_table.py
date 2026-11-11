@@ -205,12 +205,10 @@ class ResourceTable(QWidget):
         self.more_button.setVisible(False)
         self.more_button.clicked.connect(self.more_requested.emit)
         top.addWidget(self.more_button)
-<<<<<<< HEAD
         fit_button = QPushButton("Fit columns")
         fit_button.setToolTip("Fit column widths to their contents")
         fit_button.clicked.connect(self.fit_columns)
         top.addWidget(fit_button)
-=======
         self.presets = None
         self._preset_columns = {}
         if kind == "Node":
@@ -220,7 +218,6 @@ class ResourceTable(QWidget):
             self.presets.addItems(["Core", "All"])
             self.presets.currentTextChanged.connect(self._apply_preset)
             top.addWidget(self.presets)
->>>>>>> c08b5e8 (Add plugin-contributed node column presets)
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
@@ -757,13 +754,13 @@ class ResourceTable(QWidget):
         if columns == self.model.columns:
             return
         header = self.view.horizontalHeader()
-        self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)})
+        self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)
+                                    if not self.view.isColumnHidden(i)})
         kept = self._selection_to_keep()
         horizontal_scroll = self.view.horizontalScrollBar().value()
         sort_column = header.sortIndicatorSection()
         sort_attr = self.model.columns[sort_column][1] if 0 <= sort_column < len(self.model.columns) else None
         sort_order = header.sortIndicatorOrder()
-<<<<<<< HEAD
         selection = self.view.selectionModel()
         was_blocked = selection.blockSignals(True)
         try:
@@ -783,14 +780,7 @@ class ResourceTable(QWidget):
         finally:
             selection.blockSignals(was_blocked)
         self._update_selection_count(emit_empty=False)
-=======
-        self.model.set_columns(columns)
-        self._refresh_filter_completions()
-        new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
-        self.view.sortByColumn(new_sort, sort_order)
-        self.view.resizeColumnsToContents()
         self._apply_preset()
->>>>>>> c08b5e8 (Add plugin-contributed node column presets)
 
     def set_header_widget(self, widget):
         """Put a widget (e.g. an action bar) above the filter box."""
