@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560">
+<rect width="1000" height="560" rx="14" fill="#101820"/>
+<text x="28" y="34" font-family="Arial,sans-serif" font-size="13" fill="#91a4b2">Klotse  /  prod-eu</text>
+<rect x="24" y="52" width="952" height="484" rx="10" fill="#17232e" stroke="#30404d"/>
+<rect x="46" y="76" width="600" height="436" rx="8" fill="#101820" stroke="#30404d"/>
+<text x="68" y="112" font-family="Arial,sans-serif" font-size="17" fill="#e6edf3">Pods</text>
+<text x="68" y="155" font-family="Arial,sans-serif" font-size="14" fill="#9fb0bb">api-7b85c7 · Running</text>
+<rect x="666" y="76" width="286" height="436" rx="8" fill="#101820" stroke="#30404d"/>
+<rect x="666" y="76" width="286" height="38" rx="8" fill="#22323d"/>
+<text x="680" y="101" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">Details</text>
+<rect x="910" y="86" width="22" height="20" rx="3" fill="#30404d"/>
+<path d="M916 99v-7h8v7M920 92l5-5m-3 0h3v3" fill="none" stroke="#dce6ed" stroke-width="1.5"/>
+<text x="685" y="149" font-family="Arial,sans-serif" font-size="15" fill="#e6edf3">Pod · api-7b85c7</text>
+<text x="685" y="184" font-family="Arial,sans-serif" font-size="12" fill="#9fb0bb">Summary   YAML   Events   Related</text>
+<text x="685" y="228" font-family="Arial,sans-serif" font-size="12" fill="#9fb0bb">Namespace</text><text x="685" y="249" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">default</text>
+<text x="685" y="288" font-family="Arial,sans-serif" font-size="12" fill="#9fb0bb">Status</text><text x="685" y="309" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">Running</text>
+<text x="28" y="548" font-family="Arial,sans-serif" font-size="12" fill="#91a4b2">BEFORE · Details uses the standard dock title-bar control</text>
+</svg>
