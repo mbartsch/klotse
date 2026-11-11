@@ -237,7 +237,7 @@ PODS_PAGE = 2000  # pods per page in the paged Pods list of a huge cluster
 
 class PodPager:
     """The Pods list of a huge cluster, a page at a time: `next()` returns the next `limit` pod rows (the first call also gives
-    `total`, the exact count the API server reports for an unfiltered list). Metrics are asked once, with the first page, and reused
+    `total`, the exact count for the API server query, including any selectors). Metrics are asked once, with the first page, and reused
     for the others, so the usage columns do not cost a request per page."""
 
     def __init__(self, service, namespace=None, limit=PODS_PAGE, label_selector=None, field_selector=None):
