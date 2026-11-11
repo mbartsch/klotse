@@ -100,6 +100,8 @@ class PluginHost(QObject):
                 resources = list(unique.values())
             if resources and plugin in self.manager.enabled_for(kind):
                 self._start(plugin, kind, resources)
+            elif not any(active[0] == plugin.id for active in self._busy):
+                self._retry_ids.discard(plugin.id)
             return True
 
         def done(result):
