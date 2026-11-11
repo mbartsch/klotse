@@ -12,7 +12,7 @@ permissions:
 jobs:
   pytest:
     name: pytest (shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -34,13 +34,13 @@ jobs:
       - name: Run test shard
         env:
           SHARD: ${{ matrix.shard }}
-        shell: bash
+        shell: powershell
         run: |
-          mapfile -t files < <(find tests -maxdepth 1 -type f -name 'test_*.py' | sort)
-          selected=()
-          for index in "${!files[@]}"; do
-            if (( index % 3 == SHARD )); then
-              selected+=("${files[$index]}")
-            fi
-          done
-          pytest -q "${selected[@]}"
+          $files = Get-ChildItem tests -File -Filter 'test_*.py' | Sort-Object Name
+          $selected = @()
+          for ($index = 0; $index -lt $files.Count; $index++) {
+            if (($index % 3) -eq [int]$env:SHARD) {
+              $selected += $files[$index].FullName
+            }
+          }
+          pytest -q $selected
