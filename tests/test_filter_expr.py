@@ -90,6 +90,9 @@ def test_safe_server_selectors_keep_label_value_matching_client_side():
     expression = parse("label.app = Web-* and labels.team != platform")
     assert server_selectors(expression, "Pod") == ("app,team", "")
 
+    assert server_selectors(parse("app = web"), "Pod", lambda name: None) == ("app", "")
+    assert server_selectors(parse("Status = Running"), "Pod", lambda name: "" if name == "Status" else None) == ("", "")
+
 
 def test_supported_field_selectors_use_kubernetes_field_names_and_values():
     assert server_selectors(parse("Name = 'api-1'"), "Deployment") == ("", "metadata.name=api-1")
