@@ -315,16 +315,17 @@ class OverviewView(QWidget):
         theme.muted(self.capacity_note)
         capacity_layout.addWidget(self.capacity_note)
 
-        health_panel, health_layout = self._panel("Workload health")
+        health_panel, health_layout = self._panel("Pod status")
         self.workload_rows = {}
+        self.pod_status_actions = {}
         health_state = QWidget()
         health_state_layout = QVBoxLayout(health_state)
         health_state_layout.setContentsMargins(0, 0, 8, 0)
         health_state_layout.setSpacing(9)
         for key, label in (("running", "Running"), ("pending", "Pending"), ("failed", "Failed")):
             row = QHBoxLayout()
-            name = QLabel(label)
-            name.setMinimumWidth(62)
+            name = QLabel(f"{label} pods")
+            name.setMinimumWidth(92)
             theme.muted(name)
             bar = QProgressBar()
             bar.setRange(0, 100)
@@ -338,10 +339,12 @@ class OverviewView(QWidget):
             row.addWidget(bar, 1)
             row.addWidget(value)
             if key in ("pending", "failed"):
-                view = QPushButton("View")
+                view = QPushButton(f"View {label.lower()} pods")
                 view.setFlat(True)
                 view.setAccessibleName(f"View {label.lower()} pods")
-                view.clicked.connect(lambda _checked=False, k=key: self._on_card(k))
+                view.setEnabled(False)
+                view.clicked.connect(lambda _checked=False, k=key: self.action_requested.emit(f"pod-status:{k}"))
+                self.pod_status_actions[key] = view
                 row.addWidget(view)
             health_state_layout.addLayout(row)
             self.workload_rows[key] = (bar, value)
@@ -595,6 +598,9 @@ class OverviewView(QWidget):
                 count = int(counts.get(key, 0) or 0)
                 bar.setValue(round(100 * count / total_pods))
                 value.setText(str(count))
+                action = self.pod_status_actions.get(key)
+                if action is not None:
+                    action.setEnabled(count > 0)
             self._set_namespace_distribution(data.get("namespace_distribution"))
             self._set_nodes(data.get("nodes") or [])
         events = data.get("events") or []

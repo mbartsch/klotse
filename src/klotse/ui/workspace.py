@@ -610,6 +610,9 @@ class ClusterWorkspace(QMainWindow):
         self.load_view("namespaces")
 
     def _overview_action(self, action):
+        if action.startswith("pod-status:"):
+            self._open_overview_pod_status(action.partition(":")[2])
+            return
         handlers = {
             "refresh": lambda: self.load_view("overview"),
             "workloads": lambda: self.open_view("workloads"),
@@ -623,6 +626,20 @@ class ClusterWorkspace(QMainWindow):
         handler = handlers.get(action)
         if handler:
             handler()
+
+    def _open_overview_pod_status(self, bucket):
+        """Open the ordinary Pods list in the current namespace scope with the overview bucket visible as a filter."""
+        filters = {
+            "pending": "Status ~ '^(Pending|ContainerCreating|PodInitializing|Terminating|Init:.*)$'",
+            "failed": "Status !~ '^(Running|Succeeded|Completed|Pending|ContainerCreating|PodInitializing|Terminating|Init:.*)$'",
+        }
+        expression = filters.get(bucket)
+        if expression is None:
+            return
+        # open_view("pods") loads with the workspace's current namespace; do not change that selector here.
+        self.pod_table.filter.setText(expression)
+        self.pod_table._apply_filter()
+        self.open_view("pods")
 
     def _apply_plugin_overview(self):
         self.overview.set_plugin_cards(self.plugin_host.overview_cards())

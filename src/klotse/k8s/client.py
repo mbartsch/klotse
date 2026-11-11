@@ -69,7 +69,7 @@ def map_pod(p, include_raw=True):
     statuses = p.status.container_statuses or []
     ready = sum(1 for c in statuses if c.ready)
     total = len(p.spec.containers or [])
-    status = p.status.phase or ""
+    status = p.status.phase or "Unknown"
     for c in statuses:
         w = c.state.waiting if c.state else None
         if w and w.reason:
