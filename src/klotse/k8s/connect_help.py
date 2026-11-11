@@ -22,7 +22,7 @@ _PROCESS = re.compile(r"exec: process returned (\d+)(?:\.\s*(.*))?", re.S)
 
 
 def _helper_name(command):
-    name = os.path.basename(str(command or "")).lower()
+    name = os.path.basename(str(command or "").replace("\\", "/")).lower()
     return re.sub(r"\.(exe|cmd|bat)$", "", name)
 
 

@@ -350,7 +350,7 @@ def pager_service(total):
     service = KubeService()
     service.set_big(True)
     service._core = SimpleNamespace(list_pod_for_all_namespaces=PagedPods(total))
-    service.pod_usage = lambda namespace=None: {}
+    service.pod_usage = lambda namespace=None, label_selector=None: {}
     return service
 
 
@@ -369,7 +369,7 @@ def test_the_pager_reads_one_page_at_a_time_and_knows_the_total():
 def test_the_pager_asks_for_metrics_once():
     service = pager_service(4)
     asked = []
-    service.pod_usage = lambda namespace=None: asked.append(1) or {}
+    service.pod_usage = lambda namespace=None, label_selector=None: asked.append(1) or {}
     pager = service.pod_pager()
     pager.limit = 2
     pager.next()
