@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxL
 from . import theme
 
 WARNING = ("Plugins are code that runs with your permissions and can see everything Klotse shows. "
-           "Enable only plugins you trust. Changes on this page take effect immediately.")
+           "Enable only plugins you trust. Plugin changes are saved automatically, including when you close or cancel Preferences.")
 
 
 class PluginsPanel(QWidget):
@@ -177,13 +177,14 @@ class PluginsPanel(QWidget):
         if plugin is None:
             return
         values = self.manager.settings_for(plugin.id)
+        pending_note = None
         for setting in plugin.settings:
             if setting.kind == "note":  # a warning box that belongs to the settings below it; it holds no value
                 note = QLabel(setting.label)
                 note.setWordWrap(True)
                 note.setTextFormat(Qt.RichText)
                 note.setStyleSheet(theme.warning_style() + " padding:12px; font-size:14px;")
-                self.settings_form.addRow(note)
+                pending_note = note
                 continue
             if setting.kind == "bool":
                 box = QCheckBox(setting.label)
@@ -213,6 +214,11 @@ class PluginsPanel(QWidget):
                 self.settings_form.addRow(label, widget)
             else:
                 self.settings_form.addRow(widget)
+            if pending_note is not None:
+                self.settings_form.addRow(pending_note)
+                pending_note = None
+        if pending_note is not None:
+            self.settings_form.addRow(pending_note)
         self.settings_box.setVisible(bool(plugin.settings))
 
     @staticmethod
