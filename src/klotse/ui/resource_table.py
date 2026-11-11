@@ -105,6 +105,7 @@ class ResourceTable(QWidget):
     rows_incoming = Signal(list)  # new rows are about to go in: plugins put the values they already know on them
     rows_set = Signal(list)  # new rows are in the table (plugins ask for their columns when this fires)
     plugin_action_requested = Signal(str, str, list)  # plugin id, action key, selected row objects
+    api_filter_changed = Signal(str, str)  # safe Kubernetes label and field selectors for the current filter
 
     def __init__(self, columns, kind, editable=True, customizable=None):
         super().__init__()
@@ -120,6 +121,7 @@ class ResourceTable(QWidget):
             customizable = kind not in NOT_CUSTOMIZABLE
         self.kind = kind
         self.editable = editable
+        self._api_filter = ("", "")
         self.core_columns = list(columns)
         self.extra_columns = []  # columns added by plugins (see set_extra_columns)
         self.base_columns = list(columns)
@@ -489,6 +491,17 @@ class ResourceTable(QWidget):
             value = None  # blank: no metrics, no limit, an age that could not be read
         return value, self._unit_of_attr(attr)
 
+    def api_filter_options(self):
+        """Selectors that safely narrow this list's next API load; the table still applies the full filter locally."""
+        label_selector, field_selector = self._api_filter
+        return {key: value for key, value in (("label_selector", label_selector), ("field_selector", field_selector)) if value}
+
+    def _set_api_filter(self, expression=None):
+        selectors = filter_expr.server_selectors(expression, self.kind, self._unit_of) if expression is not None else ("", "")
+        if selectors != self._api_filter:
+            self._api_filter = selectors
+            self.api_filter_changed.emit(*selectors)
+
     def _apply_filter(self):
         """Plain text matches any column; text with a comparison is a filter expression. A bad expression is explained under the box
         and filters nothing."""
@@ -502,18 +515,21 @@ class ResourceTable(QWidget):
                 self.filter_note.setVisible(True)
                 self.proxy.set_expression(None)
                 self.proxy.setFilterFixedString("")
+                self._set_api_filter()
                 self.show_status()
                 self._update_empty_state()
                 return
             self.filter_note.setVisible(False)
             self.proxy.setFilterFixedString("")
             self.proxy.set_expression(expression)
+            self._set_api_filter(expression)
             self.show_status()
             self._update_empty_state()
             return
         self.filter_note.setVisible(False)
         self.proxy.set_expression(None)
         self.proxy.setFilterFixedString(text)
+        self._set_api_filter()
         self.show_status()
         self._update_empty_state()
 

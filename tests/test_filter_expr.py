@@ -1,6 +1,6 @@
 import pytest
 
-from klotse.ui.filter_expr import FilterError, looks_like_expression, parse
+from klotse.ui.filter_expr import FilterError, looks_like_expression, parse, server_selectors
 
 
 def resolver(**cells):
@@ -84,3 +84,26 @@ def test_what_counts_as_an_expression():
     assert looks_like_expression("Restarts > 3") and looks_like_expression("a=b") and looks_like_expression("Name ~ x")
     assert not looks_like_expression("web-1") and not looks_like_expression("kube system") and not looks_like_expression("")
     assert not looks_like_expression("name 'a=b'")  # a comparison inside quotes is text
+
+
+def test_safe_server_selectors_keep_label_value_matching_client_side():
+    expression = parse("label.app = Web-* and labels.team != platform")
+    assert server_selectors(expression, "Pod") == ("app,team", "")
+
+    assert server_selectors(parse("app = web"), "Pod", lambda name: None) == ("app", "")
+    assert server_selectors(parse("Status = Running"), "Pod", lambda name: "" if name == "Status" else None) == ("", "")
+
+
+def test_supported_field_selectors_use_kubernetes_field_names_and_values():
+    assert server_selectors(parse("Name = 'api-1'"), "Deployment") == ("", "metadata.name=api-1")
+    assert server_selectors(parse("status.phase = 'running'"), "Pod") == ("", "status.phase=Running")
+    assert server_selectors(parse("spec.nodeName = 'worker-1'"), "Pod") == ("", "spec.nodeName=worker-1")
+    assert server_selectors(parse("status.phase = 'active'"), "Namespace") == ("", "status.phase=Active")
+
+
+def test_server_selectors_skip_unsafe_or_unsupported_terms():
+    assert server_selectors(parse("label.app = api or Name = worker"), "Pod") == ("", "")
+    assert server_selectors(parse("Name ~ api-*"), "Pod") == ("", "")
+    assert server_selectors(parse("Name = API-*"), "Pod") == ("", "")
+    assert server_selectors(parse("spec.nodeName = Worker-1"), "Pod") == ("", "")
+    assert server_selectors(parse("spec.nodeName = worker-1"), "Deployment") == ("", "")

@@ -286,3 +286,99 @@ def _validate(expression, units):
 
 
 Expression.validate = lambda self, units: _validate(self, units)
+
+
+def server_selectors(expression, kind, known_name=None):
+    """Return safe Kubernetes (label_selector, field_selector) supersets for an expression.
+
+    The table still applies the full expression locally. Label predicates are pushed down
+    as key-existence checks, preserving Klotse's case-insensitive and wildcard semantics.
+    Only conjunctions are considered; OR expressions are left entirely client-side.
+    """
+    nodes = []
+
+    def flatten(node):
+        if node[0] == "and":
+            flatten(node[1])
+            flatten(node[2])
+        elif node[0] == "or":
+            raise ValueError("OR cannot be pushed down safely")
+        else:
+            nodes.append(node)
+
+    try:
+        flatten(expression.tree)
+    except ValueError:
+        return "", ""
+
+    labels, fields = set(), []
+    for _tag, op, left, right in nodes:
+        if left[0] != "name":
+            continue
+        name = left[1]
+        lowered = name.lower()
+        label_key = None
+        for prefix in ("label.", "labels."):
+            if lowered.startswith(prefix):
+                label_key = name[len(prefix):]
+                break
+        if label_key is None and known_name is not None and known_name(name) is None:
+            # A bare, unknown left-hand name can be a label key; if the key is absent,
+            # the client-side resolver also matches no rows, so presence remains a safe superset.
+            label_key = name
+        if label_key:
+            # Kubernetes label keys are qualified names. Avoid sending malformed selectors.
+            part = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
+            prefix, separator, key_name = label_key.partition("/")
+            prefix_ok = (not separator or (len(prefix) <= 253 and prefix == prefix.lower()
+                                           and all(len(part_name) <= 63 and re.fullmatch(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?", part_name)
+                                                   for part_name in prefix.split("."))))
+            if (len(label_key) <= 317 and prefix_ok and re.fullmatch(part, key_name)
+                    and len(key_name) <= 63):
+                labels.add(label_key)
+            continue
+
+        field = None
+        if lowered in ("name", "metadata.name"):
+            field = "metadata.name"
+        elif kind == "Pod":
+            field = {"status.phase": "status.phase", "spec.nodename": "spec.nodeName",
+                     "spec.restartpolicy": "spec.restartPolicy", "spec.schedulername": "spec.schedulerName",
+                     "spec.serviceaccountname": "spec.serviceAccountName"}.get(lowered)
+        elif kind == "Node" and lowered == "spec.unschedulable":
+            field = lowered
+        elif kind == "Namespace" and lowered == "status.phase":
+            field = lowered
+        # A bare name on the right can resolve to a row column or label, so only quoted strings are
+        # guaranteed to be literals for server-side field selectors.
+        if field is None or op not in ("=", "==", "!=") or right[0] != "str":
+            continue
+        value = right[1]
+        if not value or any(ch in value for ch in ",*?"):
+            continue
+        if field == "metadata.name":
+            if value != value.lower() or not re.fullmatch(
+                    r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?", value):
+                continue
+        elif field.lower() == "status.phase":
+            allowed = ({"active": "Active", "terminating": "Terminating"} if kind == "Namespace" else
+                       {"pending": "Pending", "running": "Running", "succeeded": "Succeeded",
+                        "failed": "Failed", "unknown": "Unknown"})
+            value = allowed.get(value.lower(), "")
+            if not value:
+                continue
+        elif field.lower() == "spec.restartpolicy":
+            allowed = {"always": "Always", "onfailure": "OnFailure", "never": "Never"}
+            value = allowed.get(value.lower(), "")
+            if not value:
+                continue
+        elif field.lower() == "spec.unschedulable":
+            value = value.lower()
+            if value not in ("true", "false"):
+                continue
+        elif field.lower() in ("spec.nodename", "spec.schedulername", "spec.serviceaccountname"):
+            if value != value.lower() or not re.fullmatch(r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?", value):
+                continue
+        fields.append(f"{field}{'!=' if op == '!=' else '='}{value}")
+
+    return ",".join(sorted(labels)), ",".join(fields)
