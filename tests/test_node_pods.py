@@ -196,3 +196,32 @@ def test_visible_node_counts_are_bounded_and_fail_independently():
     assert calls == NODE_COUNT_READS
     assert peak == NODE_COUNT_READS
     assert svc.node_pod_counts([]) == {}
+
+
+def test_visible_node_counts_run_in_bounded_batches():
+    import threading
+    from klotse.k8s.client import NODE_COUNT_READS
+
+    lock = threading.Lock()
+    barrier = threading.Barrier(NODE_COUNT_READS, timeout=5)
+    active = peak = calls = 0
+
+    def listing(**_kw):
+        nonlocal active, peak, calls
+        with lock:
+            active += 1
+            calls += 1
+            peak = max(peak, active)
+        try:
+            barrier.wait()
+            return NS(items=[object()], metadata=None)
+        finally:
+            with lock:
+                active -= 1
+
+    svc = KubeService()
+    svc._core = NS(list_pod_for_all_namespaces=listing)
+    names = [f"node-{i}" for i in range(NODE_COUNT_READS * 2)]
+    assert svc.node_pod_counts(names) == dict.fromkeys(names, 1)
+    assert calls == len(names)
+    assert peak == NODE_COUNT_READS
