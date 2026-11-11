@@ -288,7 +288,7 @@ def _validate(expression, units):
 Expression.validate = lambda self, units: _validate(self, units)
 
 
-def server_selectors(expression, kind):
+def server_selectors(expression, kind, known_name=None):
     """Return safe Kubernetes (label_selector, field_selector) supersets for an expression.
 
     The table still applies the full expression locally. Label predicates are pushed down
@@ -322,6 +322,10 @@ def server_selectors(expression, kind):
             if lowered.startswith(prefix):
                 label_key = name[len(prefix):]
                 break
+        if label_key is None and known_name is not None and known_name(name) is None:
+            # A bare, unknown left-hand name can be a label key; if the key is absent,
+            # the client-side resolver also matches no rows, so presence remains a safe superset.
+            label_key = name
         if label_key:
             # Kubernetes label keys are qualified names. Avoid sending malformed selectors.
             part = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
