@@ -5,7 +5,7 @@ from copy import deepcopy
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtCore import QRegularExpression, Qt, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
+                               QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
 from ..k8s.related import KINDS as RELATED_KINDS
@@ -102,6 +102,7 @@ class DetailPanel(QWidget):
         identity_top = QHBoxLayout()
         self.identity_title = QLabel()
         self.identity_title.setWordWrap(True)
+        self.identity_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
         self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.identity_status = QLabel()
@@ -173,11 +174,14 @@ class DetailPanel(QWidget):
         self.view_bar.setObjectName("detailViewBar")
         bar = QHBoxLayout(self.view_bar)
         bar.setContentsMargins(0, 0, 0, 0)
+        bar.setSpacing(0)
         bar.addWidget(self.formatted_button)
         bar.addWidget(self.yaml_button)
         bar.addWidget(self.events_button)
         bar.addWidget(self.related_button)
         for button in (self.formatted_button, self.yaml_button, self.events_button, self.related_button):
+            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            button.setMinimumWidth(0)
             button.setObjectName("detailViewButton")
             button.clicked.connect(lambda _checked=False: setattr(self, "_summary_fallback", False))
         bar.addStretch(1)
@@ -258,11 +262,22 @@ class DetailPanel(QWidget):
         layout.setSpacing(8)
         layout.addWidget(self.identity_header)
         layout.addWidget(self.view_bar)
-        layout.addWidget(self.metadata_area)
         layout.addWidget(self.yaml_tools)
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
-        layout.addWidget(self.formatted)
+        self.summary_scroll = QScrollArea()
+        self.summary_scroll.setWidgetResizable(True)
+        self.summary_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.summary_scroll.setMinimumSize(0, 0)
+        summary_content = QWidget()
+        summary_layout = QVBoxLayout(summary_content)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.addWidget(self.metadata_area)
+        self.formatted.setMinimumHeight(160)
+        summary_layout.addWidget(self.formatted)
+        self.summary_scroll.setWidget(summary_content)
+        self.summary_scroll.hide()
+        layout.addWidget(self.summary_scroll)
         layout.addWidget(self.events)
         layout.addWidget(self.related)
         layout.addWidget(self.editor)
@@ -335,6 +350,7 @@ class DetailPanel(QWidget):
         self.metadata_area.hide()
         self.yaml_tools.hide()
         self.formatted.hide()
+        self.summary_scroll.hide()
         self.events.hide()
         self.related.hide()
         self.editor.show()
@@ -528,6 +544,7 @@ class DetailPanel(QWidget):
         events = not related and self._events_ok and self.events_button.isChecked()
         formatted = not events and not related and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
+        self.summary_scroll.setVisible(formatted)
         self.metadata_area.setVisible(formatted and self._formatted_ok and any(not b.isHidden() for b, _ in self.metadata_controls.values()))
         self.events.setVisible(events)
         self.related.setVisible(related)

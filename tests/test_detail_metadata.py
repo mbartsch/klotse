@@ -26,3 +26,22 @@ def test_metadata_disclosure_tracks_selection_and_summary(qtbot):
                                    name="empty", table_kind="Pod"))
     panel.formatted_button.click()
     assert panel.metadata_area.isHidden()
+
+
+def test_narrow_inspector_scrolls_expanded_metadata_and_summary(qtbot):
+    panel = DetailPanel()
+    qtbot.addWidget(panel)
+    panel.resize(300, 420)
+    row = SimpleNamespace(raw={"kind": "Pod", "metadata": {"name": "a-very-long-resource-name-with-numbers-123456789",
+                          "labels": {"team": "a"}, "annotations": {"owner": "b"}}, "spec": {}, "status": {}},
+                          name="a-very-long-resource-name-with-numbers-123456789", table_kind="Pod")
+    panel.show_row(row)
+    panel.show()
+    for button, _ in panel.metadata_controls.values():
+        button.click()
+    qtbot.wait(1)
+    assert panel.width() == 300
+    assert panel.summary_scroll.verticalScrollBar().maximum() > 0
+    assert panel.formatted.minimumHeight() >= 160
+    panel.yaml_button.click()
+    assert panel.summary_scroll.isHidden()
