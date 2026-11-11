@@ -280,7 +280,7 @@ def test_a_wrong_answer_is_a_reported_problem_and_unknown_columns_are_dropped(qt
 
 def test_a_success_clears_an_old_error(qtbot, tmp_path):
     host, _, run, manager, _ = host_for(tmp_path)
-    manager.record_error("zone", "earlier problem")
+    manager.record_error("zone", "earlier problem", scope=(host.context, "enrich", "Node"))
     host.rows_loaded("Node", [node("n1")])
     run.finish()
     assert manager.errors == {}
@@ -587,7 +587,7 @@ def test_retry_resets_backoff_and_cached_values_without_dismissing_error(qtbot, 
     run.finish()
     host._retry_at[(plugin.id, "Node")] = host._clock() + 100
     host._overview_due[plugin.id] = host._clock() + 100
-    manager.record_error(plugin.id, "expired credentials")
+    manager.record_error(plugin.id, "expired credentials", scope=(host.context, "enrich", "Node"))
     manager.retry_requested.connect(host.retry)
     dialog = dialog_for(qtbot, manager)
     dialog.retry_error.click()
@@ -631,3 +631,34 @@ def test_dismiss_updates_status_and_later_failure_reappears(qtbot, tmp_path):
     assert "connection failed" in win.plugin_errors_button.toolTip()
     manager.record_error("zone", "expired again")
     assert win.plugin_errors_button.text() == "Plugin errors (2)"
+
+
+def test_retry_while_enrichment_is_running_starts_fresh_request(qtbot, tmp_path):
+    host, plugin, run, manager, _ = host_for(tmp_path)
+    row = node("n1")
+    host.rows_loaded("Node", [row])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [row])
+    assert len(run.calls) == 1
+    run.finish()
+    assert len(run.calls) == 1  # the older answer is dropped and retry starts
+    run.finish()
+    assert len(plugin.requests) == 2 and not host._busy
+
+
+def test_success_in_one_cluster_does_not_clear_another_clusters_error(qtbot, tmp_path):
+    from klotse.plugins.host import PluginHost
+    plugin = Zone()
+    manager = manager_with(tmp_path, plugin)
+    first, second = Runner(), Runner()
+    host_a = PluginHost(manager, "cluster-a", first)
+    host_b = PluginHost(manager, "cluster-b", second)
+    manager.record_error(plugin.id, "cluster a failed", scope=("cluster-a", "enrich", "Node"))
+    manager.record_error(plugin.id, "cluster a overview failed", scope=("cluster-a", "overview"))
+    host_b.rows_loaded("Node", [node("n1")])
+    second.finish()
+    assert "cluster a failed" in manager.errors[plugin.id]
+    manager.clear_error(plugin.id, scope=("cluster-a", "enrich", "Node"))
+    assert manager.errors[plugin.id] == "cluster a overview failed"
+    manager.dismiss_error(plugin.id)
+    assert plugin.id not in manager.errors

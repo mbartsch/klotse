@@ -124,7 +124,8 @@ class PluginManager(QObject):
         self.store = store if store is not None else default_store()
         self.folder = Path(folder) if folder else None
         self._bundled, self._use_entry_points = tuple(bundled), entry_points
-        self.errors = {}  # plugin id -> the last problem while running it
+        self.errors = {}  # plugin id -> visible problems while running it
+        self._error_scopes = {}  # plugin id -> {operation/cluster: message}
         self.loaded = []
         self._loads = {}
         self._enabled = self._read_enabled()
@@ -409,17 +410,25 @@ class PluginManager(QObject):
         """A folder the plugin may keep downloaded data in (next to the settings file). Not created here."""
         return Path(self.store.fileName()).parent / "plugin-cache" / plugin_id
 
-    def record_error(self, plugin_id, message):
-        self.errors[plugin_id] = message
+    def record_error(self, plugin_id, message, scope=None):
+        self._error_scopes.setdefault(plugin_id, {})[scope] = message
+        self.errors[plugin_id] = "; ".join(dict.fromkeys(self._error_scopes[plugin_id].values()))
         self.errors_changed.emit()
 
-    def clear_error(self, plugin_id):
-        if self.errors.pop(plugin_id, None) is not None:
-            self.errors_changed.emit()
+    def clear_error(self, plugin_id, scope=None):
+        scopes = self._error_scopes.get(plugin_id, {})
+        scopes.pop(scope, None)
+        if scopes:
+            self.errors[plugin_id] = "; ".join(dict.fromkeys(scopes.values()))
+        else:
+            self._error_scopes.pop(plugin_id, None)
+            self.errors.pop(plugin_id, None)
+        self.errors_changed.emit()
 
     def dismiss_error(self, plugin_id):
         """Dismiss the stored message for one plugin; this does not repair the plugin."""
         self.errors.pop(plugin_id, None)
+        self._error_scopes.pop(plugin_id, None)
         item = next((entry for entry in self.loaded if entry.id == plugin_id), None)
         if item is not None:
             item.error = ""

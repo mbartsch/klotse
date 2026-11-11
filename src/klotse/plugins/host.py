@@ -35,6 +35,9 @@ class PluginHost(QObject):
         self._overview_values = {}  # plugin id -> {card key: value}, the last answer (kept while the next is computed)
         self._overview_due = {}  # plugin id -> compute the cards again at this time
         self._overview_busy = False
+        self._pending_slots = set()
+        self._pending_overview = None
+        self._retry_overview_ids = set()
 
     def rows_loaded(self, kind, rows):
         """Rows of `kind` were put in a table: show what is cached and ask for what is missing or stale."""
@@ -74,14 +77,24 @@ class PluginHost(QObject):
         request = EnrichRequest(plugin.id, kind, self.context, due, self.manager.settings_for(plugin.id, self.context),
                                 cache_dir=self.manager.cache_dir(plugin.id), api_client=self.api_client)
 
-        def done(result):
+        def again():
             self._busy.discard(slot)
-            self._store(plugin, kind, request, result)
+            if slot not in self._pending_slots:
+                return False
+            self._pending_slots.discard(slot)
+            if plugin in self.manager.enabled_for(kind):
+                self._start(plugin, kind, request.resources)
+            return True
+
+        def done(result):
+            if not again():
+                self._store(plugin, kind, request, result)
 
         def failed(message):
-            self._busy.discard(slot)
+            if again():
+                return
             self._retry_at[slot] = self._clock() + RETRY_AFTER_S
-            self.manager.record_error(plugin.id, str(message))
+            self.manager.record_error(plugin.id, str(message), scope=(self.context, "enrich", kind))
 
         def work():
             # Record identifiers and counts only: request data and warning/error text may contain secrets.
@@ -96,7 +109,7 @@ class PluginHost(QObject):
     def _store(self, plugin, kind, request, result):
         if not isinstance(result, dict):
             self._retry_at[(plugin.id, kind)] = self._clock() + RETRY_AFTER_S
-            self.manager.record_error(plugin.id, f"enrich() returned {type(result).__name__}, expected a dict")
+            self.manager.record_error(plugin.id, f"enrich() returned {type(result).__name__}, expected a dict", scope=(self.context, "enrich", kind))
             return
         known = {col.key for col in plugin.columns}
         now = self._clock()
@@ -111,9 +124,9 @@ class PluginHost(QObject):
             self._cache[(plugin.id, kind, info.key)] = (
                 info.uid, {column_attr(plugin.id, k): v for k, v in values.items() if k in known}, ask_again)
         if request.warnings:  # it answered, but something was wrong on the way: use the values, show the problem
-            self.manager.record_error(plugin.id, "; ".join(request.warnings))
+            self.manager.record_error(plugin.id, "; ".join(request.warnings), scope=(self.context, "enrich", kind))
         else:
-            self.manager.clear_error(plugin.id)
+            self.manager.clear_error(plugin.id, scope=(self.context, "enrich", kind))
         self.updated.emit(kind)
 
     # ---- the Overview cards ---------------------------------------------------------------------
@@ -135,7 +148,11 @@ class PluginHost(QObject):
         last values stay shown."""
         now = self._clock()
         due = [p for p in self.manager.overview_plugins() if now >= self._overview_due.get(p.id, 0)]
-        if not due or self._overview_busy:
+        if self._overview_busy:
+            if self._retry_overview_ids:
+                self._pending_overview = list_nodes
+            return
+        if not due:
             return
         self._overview_busy = True
         settings = {p.id: self.manager.settings_for(p.id, self.context) for p in due}
@@ -160,13 +177,24 @@ class PluginHost(QObject):
                     answers[plugin.id] = (None, str(error) or type(error).__name__, [])
             return answers
 
-        def done(answers):
+        def finish(answers):
             self._overview_busy = False
-            self._store_overview(due, answers)
+            pending = self._pending_overview
+            self._pending_overview = None
+            if pending is not None:
+                # Keep unrelated plugin results but replace in-flight results for explicitly retried plugins.
+                retrying = self._retry_overview_ids
+                self._retry_overview_ids = set()
+                self._store_overview([p for p in due if p.id not in retrying], answers)
+                self.refresh_overview(pending)
+            else:
+                self._store_overview(due, answers)
+
+        def done(answers):
+            finish(answers)
 
         def failed(message):
-            self._overview_busy = False
-            self._store_overview(due, {p.id: (None, str(message), []) for p in due})
+            finish({p.id: (None, str(message), []) for p in due})
 
         self._run(work, done, on_error=failed)
 
@@ -178,15 +206,15 @@ class PluginHost(QObject):
                 error = f"overview() returned {type(values).__name__}, expected a dict"
             if error is not None:
                 self._overview_due[plugin.id] = now + RETRY_AFTER_S
-                self.manager.record_error(plugin.id, error)
+                self.manager.record_error(plugin.id, error, scope=(self.context, "overview"))
                 continue
             self._overview_values[plugin.id] = {k: v for k, v in values.items() if k in {c.key for c in plugin.overview_cards}}
             if warnings:
                 self._overview_due[plugin.id] = now + RETRY_AFTER_S
-                self.manager.record_error(plugin.id, "; ".join(warnings))
+                self.manager.record_error(plugin.id, "; ".join(warnings), scope=(self.context, "overview"))
             else:
                 self._overview_due[plugin.id] = now + (plugin.overview_refresh_s or 0)
-                self.manager.clear_error(plugin.id)
+                self.manager.clear_error(plugin.id, scope=(self.context, "overview"))
         self.overview_updated.emit()
 
     def forget(self, plugin_id=None):
@@ -198,6 +226,9 @@ class PluginHost(QObject):
 
     def retry(self, plugin_id):
         """Forget retry backoff and stale values so the next request runs immediately."""
+        self._pending_slots.update(slot for slot in self._busy if slot[0] == plugin_id)
+        if self._overview_busy:
+            self._retry_overview_ids.add(plugin_id)
         self.forget(plugin_id)
         for slot in [slot for slot in self._retry_at if slot[0] == plugin_id]:
             del self._retry_at[slot]
