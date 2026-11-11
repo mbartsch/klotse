@@ -346,15 +346,12 @@ def server_selectors(expression, kind):
             field = lowered
         elif kind == "Namespace" and lowered == "status.phase":
             field = lowered
-        if field is None or op not in ("=", "==", "!=") or right[0] not in ("name", "str"):
+        # A bare name on the right can resolve to a row column or label, so only quoted strings are
+        # guaranteed to be literals for server-side field selectors.
+        if field is None or op not in ("=", "==", "!=") or right[0] != "str":
             continue
         value = right[1]
         if not value or any(ch in value for ch in ",*?"):
-            continue
-        # A bare RHS that resolves to another column is a column comparison, not a literal.
-        if right[0] == "name" and normalize(value) in {
-                "name", "namespace", "kind", "age", "statusphase", "specnodename",
-                "specrestartpolicy", "specschedulername", "specserviceaccountname"}:
             continue
         if field in ("metadata.name", "metadata.namespace"):
             if value != value.lower() or not re.fullmatch(
