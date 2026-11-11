@@ -240,8 +240,9 @@ class PodPager:
     `total`, the exact count the API server reports for an unfiltered list). Metrics are asked once, with the first page, and reused
     for the others, so the usage columns do not cost a request per page."""
 
-    def __init__(self, service, namespace=None, limit=PODS_PAGE):
+    def __init__(self, service, namespace=None, limit=PODS_PAGE, label_selector=None, field_selector=None):
         self.service, self.namespace, self.limit = service, namespace or None, limit
+        self.label_selector, self.field_selector = label_selector or None, field_selector or None
         self.token, self.started, self.total, self.loaded, self.usage = None, False, None, 0, None
 
     @property
@@ -255,8 +256,9 @@ class PodPager:
         fn, args = (api.list_namespaced_pod, (self.namespace,)) if self.namespace else (api.list_pod_for_all_namespaces, ())
         began = time.perf_counter()
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage") as pool:
-            usage_f = pool.submit(service.pod_usage, self.namespace) if self.usage is None else None
-            page = fn(*args, limit=self.limit, _continue=self.token, _request_timeout=30)
+            usage_f = pool.submit(service.pod_usage, self.namespace, self.label_selector) if self.usage is None else None
+            options = {k: v for k, v in (("label_selector", self.label_selector), ("field_selector", self.field_selector)) if v}
+            page = fn(*args, limit=self.limit, _continue=self.token, _request_timeout=30, **options)
             rows = [map_pod(p) for p in page.items or []]
             if usage_f is not None:
                 self.usage = usage_f.result()
@@ -1079,14 +1081,15 @@ class KubeService:
                     return
 
     # ---- metrics-server (optional): every call degrades to "no data" ------
-    def _metrics(self, plural, namespace=None):
-        """Items of metrics.k8s.io/v1beta1 <plural>, or [] when metrics-server is missing or not permitted."""
+    def _metrics(self, plural, namespace=None, label_selector=None):
+        """Items of metrics.k8s.io/v1beta1 <plural>, optionally narrowed by labels, or [] when unavailable."""
         try:
+            options = {"label_selector": label_selector} if label_selector else {}
             if namespace:
                 page = self._custom.list_namespaced_custom_object(
-                    "metrics.k8s.io", "v1beta1", namespace, plural, _request_timeout=10)
+                    "metrics.k8s.io", "v1beta1", namespace, plural, _request_timeout=10, **options)
             else:
-                page = self._custom.list_cluster_custom_object("metrics.k8s.io", "v1beta1", plural, _request_timeout=10)
+                page = self._custom.list_cluster_custom_object("metrics.k8s.io", "v1beta1", plural, _request_timeout=10, **options)
             return page.get("items") or []
         except Exception:
             return []
@@ -1168,48 +1171,51 @@ class KubeService:
                 return {}
             raise
 
-    def node_usage(self):
+    def node_usage(self, label_selector=None):
         """{node name: (cores, GiB)} currently in use."""
         return {i["metadata"]["name"]: (float(parse_quantity(i["usage"].get("cpu", 0))),
                                         float(parse_quantity(i["usage"].get("memory", 0))) / 2**30)
-                for i in self._metrics("nodes")}
+                for i in self._metrics("nodes", label_selector=label_selector)}
 
-    def pod_usage(self, namespace=None):
+    def pod_usage(self, namespace=None, label_selector=None):
         """{(namespace, pod): (cores, MiB)} summed over containers."""
         usage = {}
-        for i in self._metrics("pods", namespace):
+        for i in self._metrics("pods", namespace, label_selector):
             containers = i.get("containers") or []
             usage[(i["metadata"].get("namespace", ""), i["metadata"]["name"])] = (
                 sum(float(parse_quantity(c["usage"].get("cpu", 0))) for c in containers),
                 sum(float(parse_quantity(c["usage"].get("memory", 0))) for c in containers) / 2**20)
         return usage
 
-    def list_namespaces(self):
-        return [map_namespace(n) for n in self._iter_list(self._core.list_namespace)]
+    def list_namespaces(self, label_selector=None, field_selector=None):
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        return [map_namespace(n) for n in self._iter_list(self._core.list_namespace, **options)]
 
-    def list_pods(self, namespace=None):
+    def list_pods(self, namespace=None, label_selector=None, field_selector=None):
         api = self._core
-        items = (self._iter_list(api.list_namespaced_pod, namespace) if namespace
-                 else self._iter_list(api.list_pod_for_all_namespaces))
-        if self.big:  # the metrics call does not depend on the pod list: ask for it while the pages come in
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        items = (self._iter_list(api.list_namespaced_pod, namespace, **options) if namespace
+                 else self._iter_list(api.list_pod_for_all_namespaces, **options))
+        if self.big:  # the metrics call follows the same label subset while the pages come in
             with ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage") as pool:
-                usage_f = pool.submit(self.pod_usage, namespace)
+                usage_f = pool.submit(self.pod_usage, namespace, label_selector)
                 rows = [map_pod(p) for p in items]
                 return self._with_usage(rows, namespace, usage_f.result())
-        return self._with_usage([map_pod(p) for p in items], namespace)
+        return self._with_usage([map_pod(p) for p in items], namespace, label_selector=label_selector)
 
-    def _with_usage(self, rows, namespace=None, usage=None):
+    def _with_usage(self, rows, namespace=None, usage=None, label_selector=None):
         """Fill cpu_used/mem_used from metrics-server where it has data; rows it does not know stay -1."""
-        usage = self.pod_usage(namespace) if usage is None else usage
+        usage = self.pod_usage(namespace, label_selector) if usage is None else usage
         if usage:
             for r in rows:
                 if (r.namespace, r.name) in usage:
                     r.cpu_used, r.mem_used = usage[(r.namespace, r.name)]
         return rows
 
-    def list_nodes(self):
-        rows = [map_node(n) for n in self._iter_list(self._core.list_node)]
-        usage = self.node_usage()
+    def list_nodes(self, label_selector=None, field_selector=None):
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        rows = [map_node(n) for n in self._iter_list(self._core.list_node, **options)]
+        usage = self.node_usage(label_selector)
         for r in rows:
             if r.name in usage:
                 r.cpu_used, r.mem_used = usage[r.name]
@@ -1523,26 +1529,31 @@ class KubeService:
             budgets = []
         return pods, budgets
 
-    def _list_apps(self, all_fn, ns_fn, mapper, namespace):
-        items = self._iter_list(ns_fn, namespace) if namespace else self._iter_list(all_fn)
+    def _list_apps(self, all_fn, ns_fn, mapper, namespace, label_selector=None, field_selector=None):
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        items = self._iter_list(ns_fn, namespace, **options) if namespace else self._iter_list(all_fn, **options)
         return [mapper(i) for i in items]
 
-    def list_replicasets(self, namespace=None):
+    def list_replicasets(self, namespace=None, label_selector=None, field_selector=None):
         a = self._apps
-        return self._list_apps(a.list_replica_set_for_all_namespaces, a.list_namespaced_replica_set, map_replicaset, namespace)
+        return self._list_apps(a.list_replica_set_for_all_namespaces, a.list_namespaced_replica_set, map_replicaset, namespace,
+                               label_selector, field_selector)
 
-    def list_deployments(self, namespace=None):
+    def list_deployments(self, namespace=None, label_selector=None, field_selector=None):
         a = self._apps
-        return self._list_apps(a.list_deployment_for_all_namespaces, a.list_namespaced_deployment, map_deployment, namespace)
+        return self._list_apps(a.list_deployment_for_all_namespaces, a.list_namespaced_deployment, map_deployment, namespace,
+                               label_selector, field_selector)
 
-    def list_statefulsets(self, namespace=None):
+    def list_statefulsets(self, namespace=None, label_selector=None, field_selector=None):
         a = self._apps
-        return self._list_apps(a.list_stateful_set_for_all_namespaces, a.list_namespaced_stateful_set, map_statefulset, namespace)
+        return self._list_apps(a.list_stateful_set_for_all_namespaces, a.list_namespaced_stateful_set, map_statefulset, namespace,
+                               label_selector, field_selector)
 
-    def list_resource(self, key, namespace=None):
+    def list_resource(self, key, namespace=None, label_selector=None, field_selector=None):
         """Generic list for the specs in resources.py; events come back newest first."""
         spec = SPEC_BY_KEY[key]
-        rows = [spec.mapper(i) for i in self._resource_items(key, namespace)]
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        rows = [spec.mapper(i) for i in self._resource_items(key, namespace, **options)]
         if key == "events":
             rows.sort(key=lambda r: r.ts, reverse=True)
         return rows
@@ -1570,7 +1581,8 @@ class KubeService:
             return self._iter_list(getattr(api, f"list_namespaced_{spec.snake}"), namespace, **options)
         return self._iter_list(getattr(api, f"list_{spec.snake}_for_all_namespaces"), **options)
 
-    def list_custom_objects(self, group, version, plural, namespaced, namespace=None, kind=None):
+    def list_custom_objects(self, group, version, plural, namespaced, namespace=None, kind=None,
+                            label_selector=None, field_selector=None):
         """Instances of a custom resource: one namespace, or every namespace for a namespaced kind. `kind` lets a
         well-known resource (Karpenter's NodePool, NodeClaim) fill the extra columns it has."""
         api = self._custom
@@ -1578,14 +1590,15 @@ class KubeService:
             fn, args = api.list_namespaced_custom_object, (group, version, namespace, plural)
         else:  # cluster-scoped kinds, or a namespaced kind across all namespaces
             fn, args = api.list_cluster_custom_object, (group, version, plural)
-        return [map_custom_object(i, group=group, kind=kind) for i in self._iter_dicts(fn, *args)]
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        return [map_custom_object(i, group=group, kind=kind) for i in self._iter_dicts(fn, *args, **options)]
 
     @staticmethod
-    def _iter_dicts(fn, *args):
+    def _iter_dicts(fn, *args, **kwargs):
         """Like _iter_list, but custom objects come back as plain dicts."""
         token = None
         while True:
-            page = fn(*args, limit=500, _continue=token, _request_timeout=30)
+            page = fn(*args, limit=500, _continue=token, _request_timeout=30, **kwargs)
             yield from page.get("items") or []
             token = (page.get("metadata") or {}).get("continue")
             if not token:
