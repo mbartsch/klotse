@@ -113,6 +113,7 @@ class ResourceTable(QWidget):
         self._loaded_at = ""
         self._last_error = ""
         self._sized_columns = False
+        self._column_widths = {}  # widths keyed by attribute, including temporarily hidden plugin columns
         self._has_loaded = False
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
@@ -556,7 +557,7 @@ class ResourceTable(QWidget):
         try:
             self.model.set_rows(rows)
             self._refresh_filter_completions()
-            if not self._sized_columns:
+            if rows and not self._sized_columns:
                 self.fit_columns()
                 self._sized_columns = True
             self._restore_selection(*kept)
@@ -660,10 +661,8 @@ class ResourceTable(QWidget):
     def _restore_selection(self, keys, current_key, scroll):
         """Select the same objects again, silently: nothing changed for the user, so the Details pane (and its
         decoded secret keys) must not be redrawn or cleared."""
-        if not keys and current_key is None:
-            return
         selection = self.view.selectionModel()
-        selection.blockSignals(True)
+        was_blocked = selection.blockSignals(True)
         try:
             for source_row, row in enumerate(self.model.rows):
                 key = self._row_key(row)
@@ -677,7 +676,7 @@ class ResourceTable(QWidget):
                 if key == current_key:
                     selection.setCurrentIndex(index, QItemSelectionModel.NoUpdate)
         finally:
-            selection.blockSignals(False)
+            selection.blockSignals(was_blocked)
         self.view.verticalScrollBar().setValue(scroll)
 
     def fit_columns(self):
@@ -721,21 +720,31 @@ class ResourceTable(QWidget):
         if columns == self.model.columns:
             return
         header = self.view.horizontalHeader()
-        widths = {col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)}
+        self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)})
+        kept = self._selection_to_keep()
+        horizontal_scroll = self.view.horizontalScrollBar().value()
         sort_column = header.sortIndicatorSection()
         sort_attr = self.model.columns[sort_column][1] if 0 <= sort_column < len(self.model.columns) else None
         sort_order = header.sortIndicatorOrder()
-        self.model.set_columns(columns)
-        self._refresh_filter_completions()
-        new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
-        self.view.sortByColumn(new_sort, sort_order)
-        for i, col in enumerate(columns):
-            if col[1] in widths:
-                self.view.setColumnWidth(i, widths[col[1]])
-            else:
-                self.view.resizeColumnToContents(i)
-                if col[1].startswith("plugin:") and self.view.columnWidth(i) > 240:
-                    self.view.setColumnWidth(i, 240)
+        selection = self.view.selectionModel()
+        was_blocked = selection.blockSignals(True)
+        try:
+            self.model.set_columns(columns)
+            self._refresh_filter_completions()
+            new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
+            self.view.sortByColumn(new_sort, sort_order)
+            for i, col in enumerate(columns):
+                if col[1] in self._column_widths:
+                    self.view.setColumnWidth(i, self._column_widths[col[1]])
+                else:
+                    self.view.resizeColumnToContents(i)
+                    if col[1].startswith("plugin:") and self.view.columnWidth(i) > 240:
+                        self.view.setColumnWidth(i, 240)
+            self._restore_selection(*kept)
+            self.view.horizontalScrollBar().setValue(horizontal_scroll)
+        finally:
+            selection.blockSignals(was_blocked)
+        self._update_selection_count(emit_empty=False)
 
     def set_header_widget(self, widget):
         """Put a widget (e.g. an action bar) above the filter box."""
