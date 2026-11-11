@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+<rect width="920" height="520" fill="#101820"/>
+<rect x="0" y="0" width="218" height="520" fill="#17232e"/>
+<circle cx="31" cy="30" r="13" fill="#26a69a"/><circle cx="39" cy="37" r="4" fill="#f3b34c"/>
+<text x="54" y="35" font-family="Arial,sans-serif" font-size="16" font-weight="700" fill="#e6edf3">Klotse</text>
+<text x="20" y="91" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#96a9b7">CONNECTED</text>
+<rect x="9" y="103" width="198" height="32" rx="7" fill="#263541"/><text x="29" y="124" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">prod-eu</text>
+<text x="40" y="169" font-family="Arial,sans-serif" font-size="13" fill="#aebdc7">Overview</text>
+<rect x="9" y="181" width="198" height="32" rx="7" fill="#243f46"/><rect x="9" y="187" width="3" height="20" rx="2" fill="#41c7b7"/><text x="40" y="202" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">Pods</text>
+<text x="40" y="240" font-family="Arial,sans-serif" font-size="13" fill="#aebdc7">Deployments</text>
+<text x="40" y="270" font-family="Arial,sans-serif" font-size="13" fill="#aebdc7">Namespaces</text>
+<text x="246" y="47" font-family="Arial,sans-serif" font-size="12" fill="#92a4b1">prod-eu  /  Workloads</text>
+<text x="246" y="84" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#e6edf3">Pods</text>
+<text x="246" y="108" font-family="Arial,sans-serif" font-size="13" fill="#92a4b1">Pods in all namespaces</text>
+<rect x="246" y="130" width="655" height="42" rx="8" fill="#17232e" stroke="#30404d"/>
+<text x="264" y="156" font-family="Arial,sans-serif" font-size="14" fill="#dce6ed">⌕   web</text>
+<rect x="246" y="190" width="655" height="38" rx="6" fill="#1b2934"/>
+<text x="264" y="214" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#96a9b7">NAME</text>
+<text x="478" y="214" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#96a9b7">NAMESPACE</text>
+<text x="653" y="214" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#96a9b7">STATUS</text>
+<text x="264" y="255" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">web-1</text><text x="478" y="255" font-family="Arial,sans-serif" font-size="13" fill="#d0dbe2">shop</text><text x="653" y="255" font-family="Arial,sans-serif" font-size="13" fill="#63cf9b">Running</text>
+<line x1="246" y1="271" x2="901" y2="271" stroke="#2b3945"/>
+<text x="264" y="298" font-family="Arial,sans-serif" font-size="13" fill="#e6edf3">web-2</text><text x="478" y="298" font-family="Arial,sans-serif" font-size="13" fill="#d0dbe2">shop</text><text x="653" y="298" font-family="Arial,sans-serif" font-size="13" fill="#e6a451">CrashLoopBackOff</text>
+<line x1="246" y1="315" x2="901" y2="315" stroke="#2b3945"/>
+<text x="246" y="348" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#a7b7c2">Shown: 2, total: 4 rows</text>
+<rect x="246" y="374" width="655" height="1" fill="#26343f"/>
+<text x="246" y="493" font-family="Arial,sans-serif" font-size="11" fill="#738894">Illustrative UI comparison</text>
+</svg>

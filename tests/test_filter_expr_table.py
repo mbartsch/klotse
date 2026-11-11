@@ -197,3 +197,16 @@ def test_manifest_paths_tolerate_absent_or_malformed_raw(table, raw):
     row = pod("empty")
     row.raw = raw
     assert table._resolve(row, "spec.replicas") == (None, None)
+
+
+def test_status_shows_filtered_and_total_row_counts(table, qtbot):
+    assert table.status.text().startswith("4 rows")
+
+    assert shown(table, qtbot, "web") == ["web-1", "web-2"]
+    assert table.status.text().startswith("Shown: 2, total: 4 rows")
+
+    assert shown(table, qtbot, "no-match") == []
+    assert table.status.text().startswith("Shown: 0, total: 4 rows")
+
+    assert shown(table, qtbot, "") == ["db-1", "kube-dns", "web-1", "web-2"]
+    assert table.status.text().startswith("4 rows")

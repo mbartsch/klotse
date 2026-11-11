@@ -475,16 +475,19 @@ class ResourceTable(QWidget):
                 self.filter_note.setVisible(True)
                 self.proxy.set_expression(None)
                 self.proxy.setFilterFixedString("")
+                self.show_status()
                 self._update_empty_state()
                 return
             self.filter_note.setVisible(False)
             self.proxy.setFilterFixedString("")
             self.proxy.set_expression(expression)
+            self.show_status()
             self._update_empty_state()
             return
         self.filter_note.setVisible(False)
         self.proxy.set_expression(None)
         self.proxy.setFilterFixedString(text)
+        self.show_status()
         self._update_empty_state()
 
     def _update_empty_state(self):
@@ -605,14 +608,24 @@ class ResourceTable(QWidget):
         if final:
             self._goto = None
 
+    def _row_count_text(self):
+        """Show loaded and filtered row counts when an active filter narrows the list."""
+        total = self.model.rowCount()
+        if self.filter.text().strip() and self.filter_note.isHidden():
+            return f"Shown: {self.proxy.rowCount():,}, total: {total:,} rows"
+        return f"{total:,} rows" if total else "No resources found"
+
     def show_status(self):
         """The line under the list: the row count, and for a list that reloads only on request when it was loaded."""
+        row_count = self._row_count_text()
         if self._last_error and self._has_loaded:
             first = (self._last_error.splitlines() or [""])[0]
-            self.status.setText(f"Refresh failed · showing data from {self._loaded_at}: {first}")
+            text = f"Refresh failed · showing data from {self._loaded_at}: {first}"
+            if row_count.startswith("Shown:"):
+                text += f" · {row_count}"
+            self.status.setText(text)
             return
-        count = self.model.rowCount()
-        text = f"{count:,} rows" if count else "No resources found"
+        text = row_count
         metric_rows = [row for row in self.model.rows if hasattr(row, "cpu_used") or hasattr(row, "mem_used")]
         if metric_rows and all(all(getattr(row, field, -1) < 0 for field in ("cpu_used", "mem_used")) for row in metric_rows):
             text += " · Metrics unavailable (metrics-server)"
