@@ -689,7 +689,9 @@ class ClusterWorkspace(QMainWindow):
         rows = {}
         tables = self._hooked_tables()
         if preferred is not None:
-            tables = [t for t in tables if t is not preferred] + [preferred]
+            self._plugin_rows_epoch = getattr(self, "_plugin_rows_epoch", 0) + 1
+            preferred._plugin_rows_epoch = self._plugin_rows_epoch
+        tables.sort(key=lambda table: getattr(table, "_plugin_rows_epoch", 0))
         for table in tables:
             if table.kind == kind:
                 for row in table.model.rows:

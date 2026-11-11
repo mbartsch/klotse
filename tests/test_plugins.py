@@ -748,3 +748,21 @@ def test_retry_tracking_clears_when_all_rows_disappear(qtbot, tmp_path):
     host.rows_loaded("Node", [])
     run.finish()
     assert not run.calls and plugin.id not in host._retry_ids
+
+
+def test_workspace_retry_prefers_most_recent_table_uid(qtbot, tmp_path):
+    from types import SimpleNamespace
+    from klotse.ui.workspace import ClusterWorkspace
+    host, plugin, run, _, _ = host_for(tmp_path)
+    fresh = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="new")]))
+    stale = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="old")]))
+    ws = SimpleNamespace(_closed=False, _ready=True, plugin_host=host,
+                         service=SimpleNamespace(list_nodes=lambda: []), _hooked_tables=lambda: [fresh, stale])
+    ws._plugin_rows_loaded = lambda kind, preferred=None: ClusterWorkspace._plugin_rows_loaded(ws, kind, preferred)
+    ws._plugin_rows_loaded("Node", preferred=stale)
+    run.finish()
+    ws._plugin_rows_loaded("Node", preferred=fresh)
+    run.finish()
+    ClusterWorkspace._retry_plugin(ws, plugin.id)
+    run.finish()
+    assert plugin.requests[-1].resources[0].uid == "new"
