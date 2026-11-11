@@ -684,3 +684,17 @@ def test_action_failure_prompts_user_to_retry_original_action(qtbot, tmp_path):
     manager.record_error(plugin.id, "different cluster failed", scope=("cluster-b", "action", "open"))
     manager.clear_error(plugin.id, scope=("cluster-a", "action", "open"))
     assert manager.errors[plugin.id] == "different cluster failed"
+
+
+def test_pending_retry_keeps_rows_from_multiple_tables_and_ignores_empty_table(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    table_a, table_b, table_empty = object(), object(), object()
+    host.rows_loaded("Node", [node("old")], source=table_a)
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [node("new-a")], source=table_a)
+    host.rows_loaded("Node", [node("new-b")], source=table_b)
+    host.rows_loaded("Node", [], source=table_empty)
+    run.finish()
+    assert len(run.calls) == 1
+    run.finish()
+    assert {r.name for r in plugin.requests[-1].resources} == {"new-a", "new-b"}

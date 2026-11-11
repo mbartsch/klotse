@@ -40,7 +40,7 @@ class PluginHost(QObject):
         self._pending_overview = None
         self._retry_overview_ids = set()
 
-    def rows_loaded(self, kind, rows):
+    def rows_loaded(self, kind, rows, source=None):
         """Rows of `kind` were put in a table: show what is cached and ask for what is missing or stale."""
         plugins = self.manager.enabled_for(kind)
         if not plugins:
@@ -57,7 +57,7 @@ class PluginHost(QObject):
                 if entry is None or entry[0] != info.uid or stale:
                     due.append(info)
             if slot in self._pending_slots:
-                self._pending_resources[slot] = due
+                self._pending_resources.setdefault(slot, {})[source] = due
             if due and slot not in self._busy and now >= self._retry_at.get(slot, 0):
                 self._start(plugin, kind, due)
         self.apply(kind, rows)
@@ -85,7 +85,12 @@ class PluginHost(QObject):
             if slot not in self._pending_slots:
                 return False
             self._pending_slots.discard(slot)
-            resources = self._pending_resources.pop(slot, request.resources)
+            batches = self._pending_resources.pop(slot, None)
+            if batches is None:
+                resources = request.resources
+            else:
+                unique = {(item.key, item.uid): item for batch in batches.values() for item in batch}
+                resources = list(unique.values())
             if resources and plugin in self.manager.enabled_for(kind):
                 self._start(plugin, kind, resources)
             return True
