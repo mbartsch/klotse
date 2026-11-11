@@ -3,9 +3,9 @@ import binascii
 from copy import deepcopy
 
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
-from PySide6.QtCore import QRegularExpression, Qt, Signal
+from PySide6.QtCore import QRegularExpression, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMenu, QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
+                               QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
                                QWidgetAction)
 
 from ..k8s.related import KINDS as RELATED_KINDS
@@ -102,6 +102,7 @@ class DetailPanel(QWidget):
         identity_top = QHBoxLayout()
         self.identity_title = QLabel()
         self.identity_title.setWordWrap(True)
+        self.identity_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
         self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.identity_status = QLabel()
@@ -173,11 +174,14 @@ class DetailPanel(QWidget):
         self.view_bar.setObjectName("detailViewBar")
         bar = QHBoxLayout(self.view_bar)
         bar.setContentsMargins(0, 0, 0, 0)
+        bar.setSpacing(0)
         bar.addWidget(self.formatted_button)
         bar.addWidget(self.yaml_button)
         bar.addWidget(self.events_button)
         bar.addWidget(self.related_button)
         for button in (self.formatted_button, self.yaml_button, self.events_button, self.related_button):
+            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            button.setMinimumWidth(0)
             button.setObjectName("detailViewButton")
             button.clicked.connect(lambda _checked=False: setattr(self, "_summary_fallback", False))
         bar.addStretch(1)
@@ -209,6 +213,25 @@ class DetailPanel(QWidget):
         self._events_ok = False  # the current row can have events (it has a UID and is not an event itself)
         self._events_row = None  # the row the Events view is waiting for or showing
         self.view_bar.hide()
+        self.metadata_area = QWidget()
+        metadata_layout = QVBoxLayout(self.metadata_area)
+        metadata_layout.setContentsMargins(0, 0, 0, 0)
+        metadata_layout.setSpacing(2)
+        self.metadata_controls = {}
+        for name in ("Labels", "Annotations"):
+            button = QToolButton(text=name, checkable=True)
+            button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            button.setArrowType(Qt.RightArrow)
+            value = QPlainTextEdit(readOnly=True)
+            value.setAccessibleName(f"{name} values")
+            value.setMaximumHeight(120)
+            value.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+            value.hide()
+            button.toggled.connect(lambda checked, b=button, v=value: (b.setArrowType(Qt.DownArrow if checked else Qt.RightArrow), v.setVisible(checked)))
+            metadata_layout.addWidget(button)
+            metadata_layout.addWidget(value)
+            self.metadata_controls[name] = (button, value)
+        self.metadata_area.hide()
         # Tools for the YAML text: find (Enter = next, Shift+Enter = previous), copy and line wrap
         self.find_edit = QLineEdit(placeholderText="Find in YAML…", clearButtonEnabled=True)
         self.find_edit.setAccessibleName("Find text in resource YAML")
@@ -242,7 +265,19 @@ class DetailPanel(QWidget):
         layout.addWidget(self.yaml_tools)
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
-        layout.addWidget(self.formatted)
+        self.summary_scroll = QScrollArea()
+        self.summary_scroll.setWidgetResizable(True)
+        self.summary_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.summary_scroll.setMinimumSize(0, 0)
+        summary_content = QWidget()
+        summary_layout = QVBoxLayout(summary_content)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.addWidget(self.metadata_area)
+        self.formatted.setMinimumHeight(160)
+        summary_layout.addWidget(self.formatted)
+        self.summary_scroll.setWidget(summary_content)
+        self.summary_scroll.hide()
+        layout.addWidget(self.summary_scroll)
         layout.addWidget(self.events)
         layout.addWidget(self.related)
         layout.addWidget(self.editor)
@@ -258,14 +293,33 @@ class DetailPanel(QWidget):
         if row is None:
             self.clear_row()
             return
+        meta = (row.raw.get("metadata") or {}) if isinstance(row.raw, dict) else {}
+        key = (meta.get("uid"),) if meta.get("uid") else ((row.raw.get("kind", "") if isinstance(row.raw, dict) else ""), meta.get("namespace", ""),
+                                                            meta.get("name") or getattr(row, "name", ""))
+        same = key == getattr(self, "_detail_key", None)
+        outer_scroll = self.summary_scroll.verticalScrollBar().value() if same else 0
+        inner_scroll = self.formatted.verticalScrollBar().value() if same else 0
+        expanded = {name: button.isChecked() for name, (button, _) in self.metadata_controls.items()} if same else {}
+        self._detail_key = key
+        self.summary_scroll.verticalScrollBar().setValue(0)
         self._secret_row = row
         self._secret_data = getattr(row, "secret_data", {})
         self._set_identity(row)
+        for name, (button, value) in self.metadata_controls.items():
+            pairs = meta.get(name.lower()) or {}
+            if not isinstance(pairs, dict):
+                pairs = {}
+            button.setChecked(bool(pairs) and expanded.get(name, False))
+            button.setText(f"{name} ({len(pairs)})")
+            button.setAccessibleName(f"{name}, {len(pairs)} entries")
+            button.setVisible(bool(pairs))
+            value.setPlainText("\n".join(f"{k} = {v}" for k, v in sorted(pairs.items())))
+            value.setVisible(button.isChecked())
         self._decoded_keys.clear()
         self.hide_values_button.hide()
         self.decode_list.clear()
-        for key in sorted(self._secret_data):
-            item = QListWidgetItem(key)
+        for secret_key in sorted(self._secret_data):
+            item = QListWidgetItem(secret_key)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Unchecked)
             self.decode_list.addItem(item)
@@ -280,10 +334,16 @@ class DetailPanel(QWidget):
         self._related_ok = getattr(row, "table_kind", None) in RELATED_KINDS and isinstance(getattr(row, "raw", None), dict)
         self._related_row = None
         self._render_formatted(row)
+        def restore_scroll():
+            if self._detail_key == key:
+                self.summary_scroll.verticalScrollBar().setValue(outer_scroll)
+                self.formatted.verticalScrollBar().setValue(inner_scroll)
+        QTimer.singleShot(0, restore_scroll)
 
     def clear_row(self):
         """Return Details to its empty state and discard object-specific actions and secret values."""
         self._secret_row = None
+        self._detail_key = None
         self._secret_data = {}
         self._decoded_keys.clear()
         self.decode_list.clear()
@@ -301,8 +361,10 @@ class DetailPanel(QWidget):
         self.set_object_actions([])
         self.identity_header.hide()
         self.view_bar.hide()
+        self.metadata_area.hide()
         self.yaml_tools.hide()
         self.formatted.hide()
+        self.summary_scroll.hide()
         self.events.hide()
         self.related.hide()
         self.editor.show()
@@ -341,7 +403,7 @@ class DetailPanel(QWidget):
         self._formatted_ok = False
         if getattr(row, "table_kind", None) == "Node" or hasattr(row, "is_ready"):
             try:
-                self.formatted.setHtml(node_view.render(row.raw, include_header=False))
+                self.formatted.setHtml(node_view.render(row.raw, include_header=False, include_metadata=False))
                 self._formatted_ok = True
             except Exception as e:  # noqa: BLE001
                 self.formatted.setPlainText(f"Cannot format this Node: {type(e).__name__}: {e}")
@@ -361,7 +423,7 @@ class DetailPanel(QWidget):
                     kind, view = workload_view.kind_of(row.raw), workload_view
         if kind is not None:
             try:
-                self.formatted.setHtml(view.render(kind, row.raw, include_header=False))
+                self.formatted.setHtml(view.render(kind, row.raw, include_header=False, **({"include_metadata": False} if view in (rbac_view, workload_view) else {})))
                 self._formatted_ok = True
             except Exception as e:  # a odd manifest must never break Details; the YAML is still there
                 self.formatted.setPlainText(f"Cannot format this {kind}: {type(e).__name__}: {e}")
@@ -496,6 +558,8 @@ class DetailPanel(QWidget):
         events = not related and self._events_ok and self.events_button.isChecked()
         formatted = not events and not related and self.formatted_button.isChecked()
         self.formatted.setVisible(formatted)
+        self.summary_scroll.setVisible(formatted)
+        self.metadata_area.setVisible(formatted and self._formatted_ok and any(not b.isHidden() for b, _ in self.metadata_controls.values()))
         self.events.setVisible(events)
         self.related.setVisible(related)
         self.editor.setVisible(not formatted and not events and not related)

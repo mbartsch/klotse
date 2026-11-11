@@ -412,11 +412,11 @@ def _metadata(raw):
     return _section("Labels", _pairs(meta.get("labels"))) + _section("Annotations", _pairs(notes))
 
 
-def render(kind, raw, include_header=True):
+def render(kind, raw, include_header=True, include_metadata=True):
     """HTML for `kind` (one of WORKLOAD_KINDS) built from its manifest dict."""
     if kind not in WORKLOAD_KINDS or not isinstance(raw, dict):
         raise ValueError(f"No formatted view for {kind}")
     body = ((_header(kind, raw) if include_header else "") + _summary(kind, raw) + _conditions(raw) + _containers(kind, raw)
-            + _scheduling(kind, raw) + _metadata(raw))
+            + _scheduling(kind, raw) + (_metadata(raw) if include_metadata else ""))
     return f"<div style='font-size:12px'>{body}</div>"  # no <hr>: Qt draws it white, whatever the theme
 
