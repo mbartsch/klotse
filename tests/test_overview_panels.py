@@ -1,3 +1,6 @@
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QToolButton
+
 from klotse.ui.overview import CLUSTER_CARDS, OverviewView
 
 
@@ -18,9 +21,15 @@ def test_dashboard_panels_can_be_detached_and_reattached(qtbot):
     qtbot.waitUntil(lambda: id(panel) in view._detached_panels)
     dialog = view._detached_panels[id(panel)]["dialog"]
     assert panel.parentWidget() is dialog
-    assert button.text() == "Attach"
+    assert isinstance(button, QToolButton)
+    assert button.text() == ""
+    assert button.toolButtonStyle() == Qt.ToolButtonIconOnly
+    assert not button.icon().isNull()
+    assert button.toolTip() == "Attach Resource allocation panel"
+    assert button.accessibleName() == "Attach Resource allocation panel"
 
     dialog.close()
     qtbot.waitUntil(lambda: id(panel) not in view._detached_panels)
     assert original_splitter.indexOf(panel) >= 0
-    assert button.text() == "Detach"
+    assert button.toolTip() == "Detach Resource allocation panel"
+    assert button.accessibleName() == "Detach Resource allocation panel"
