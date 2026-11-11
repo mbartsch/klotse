@@ -234,6 +234,7 @@ class ClusterWorkspace(QMainWindow):
             plugins.settings_changed.connect(self.plugin_host.forget)  # new settings: what was fetched may be wrong now
             self.plugin_host.overview_updated.connect(self._apply_plugin_overview)
             plugins.changed.connect(self._plugins_changed)
+            plugins.retry_requested.connect(self._retry_plugin)
             self.plugin_host.updated.connect(self._plugins_updated)
 
         # central: closable tabs, one per opened view (the widgets persist when a tab is closed)
@@ -636,7 +637,7 @@ class ClusterWorkspace(QMainWindow):
         table.set_extra_columns(self.plugins.columns_for(table.kind))
         table.set_plugin_presets(self.plugins.presets_for(table.kind))
         table.rows_incoming.connect(lambda rows, t=table: self.plugin_host.apply(t.kind, rows))
-        table.rows_set.connect(lambda rows, t=table: self.plugin_host.rows_loaded(t.kind, rows))
+        table.rows_set.connect(lambda rows, t=table: self._plugin_rows_loaded(t.kind, preferred=t))
         table.plugin_actions = self.plugin_runner.offered  # right-click entries plugins add
         table.plugin_action_requested.connect(
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
@@ -677,11 +678,34 @@ class ClusterWorkspace(QMainWindow):
         for table in self._hooked_tables():
             table.set_extra_columns(self.plugins.columns_for(table.kind))
             table.set_plugin_presets(self.plugins.presets_for(table.kind))
-            self.plugin_host.rows_loaded(table.kind, table.model.rows)
+            self.plugin_host.rows_loaded(table.kind, table.model.rows, source=table)
         self._plugins_updated(None)
         self._apply_plugin_overview()  # cards of a plugin that was disabled go, those of one enabled come with the next load
         if self._ready:  # connected: compute the cards now if due (a settings change makes them due)
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
+
+    def _plugin_rows_loaded(self, kind, preferred=None):
+        # One snapshot across tables of this kind, with one entry per resource key.
+        rows = {}
+        tables = self._hooked_tables()
+        if preferred is not None:
+            self._plugin_rows_epoch = getattr(self, "_plugin_rows_epoch", 0) + 1
+            preferred._plugin_rows_epoch = self._plugin_rows_epoch
+        tables.sort(key=lambda table: getattr(table, "_plugin_rows_epoch", 0))
+        for table in tables:
+            if table.kind == kind:
+                for row in table.model.rows:
+                    rows[(getattr(row, "namespace", ""), row.name)] = row
+        self.plugin_host.rows_loaded(kind, list(rows.values()))
+
+    def _retry_plugin(self, plugin_id):
+        if self._closed or not self._ready:
+            return
+        self.plugin_host.retry(plugin_id)
+        for kind in {table.kind for table in self._hooked_tables()}:
+            self._plugin_rows_loaded(kind)
+        self.plugin_host.end_retry_dispatch(plugin_id)
+        self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
 
     def _plugins_updated(self, kind):
         for table in self._hooked_tables():

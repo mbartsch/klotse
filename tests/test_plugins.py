@@ -280,7 +280,7 @@ def test_a_wrong_answer_is_a_reported_problem_and_unknown_columns_are_dropped(qt
 
 def test_a_success_clears_an_old_error(qtbot, tmp_path):
     host, _, run, manager, _ = host_for(tmp_path)
-    manager.record_error("zone", "earlier problem")
+    manager.record_error("zone", "earlier problem", scope=(host.context, "enrich", "Node"))
     host.rows_loaded("Node", [node("n1")])
     run.finish()
     assert manager.errors == {}
@@ -560,3 +560,209 @@ def test_plugins_page_explains_save_and_cancel(qtbot, tmp_path):
     dialog.plugins_panel.list.item(0).setCheckState(Qt.Checked)
     dialog.reject()
     assert manager.is_enabled("zone")
+
+
+def test_dismiss_one_plugin_error_preserves_others_and_new_failures(qtbot, tmp_path):
+    from klotse.plugins.manager import Loaded
+    manager = manager_with(tmp_path, Zone())
+    manager.loaded.append(Loaded("broken", "file", "broken", error="import failed"))
+    manager.record_error("zone", "credentials expired")
+    manager.record_error("broken", "previous runtime error")
+    dialog = dialog_for(qtbot, manager)
+    dialog.list.setCurrentRow(1)
+    assert "import failed" in dialog.error.text()
+    dialog.dismiss_error.click()
+    assert manager.loaded[1].error == "" and "broken" not in manager.errors
+    assert manager.errors["zone"] == "credentials expired"
+    manager.record_error("broken", "failed again")
+    assert "failed again" in dialog.error.text()
+    dialog.dismiss_error.click()
+    assert "broken" not in manager.errors and manager.errors["zone"] == "credentials expired"
+
+
+def test_retry_resets_backoff_and_cached_values_without_dismissing_error(qtbot, tmp_path):
+    host, plugin, run, manager, _ = host_for(tmp_path)
+    row = node("n1")
+    host.rows_loaded("Node", [row])
+    run.finish()
+    host._retry_at[(plugin.id, "Node")] = host._clock() + 100
+    host._overview_due[plugin.id] = host._clock() + 100
+    manager.record_error(plugin.id, "expired credentials", scope=(host.context, "enrich", "Node"))
+    manager.retry_requested.connect(host.retry)
+    dialog = dialog_for(qtbot, manager)
+    dialog.retry_error.click()
+    assert manager.errors[plugin.id] == "expired credentials"
+    assert (plugin.id, "Node") not in host._retry_at and plugin.id not in host._overview_due
+    host.rows_loaded("Node", [row])
+    assert len(run.calls) == 1
+    run.finish()
+    assert plugin.id not in manager.errors
+
+
+def test_failed_import_can_retry_without_losing_message(qtbot, tmp_path, monkeypatch):
+    from klotse.plugins.manager import Loaded
+    plugin = Zone()
+    manager = manager_with(tmp_path, plugin, enabled=False)
+    found = Loaded(plugin.id, "file", "path", error="import failed", manifest=plugin, loader=lambda: plugin)
+    manager.loaded = [found]
+    calls = []
+    monkeypatch.setattr(manager, "_start_load", lambda item, preserve_error=False: calls.append((item, preserve_error)))
+    dialog = dialog_for(qtbot, manager)
+    assert "import failed" in dialog.error.text()
+    dialog.retry_error.click()
+    assert calls == [(found, True)] and found.error == "import failed"
+    manager._loaded((found, found.generation, plugin, ""))
+    assert not found.error and manager.is_enabled(plugin.id)
+
+
+def test_dismiss_updates_status_and_later_failure_reappears(qtbot, tmp_path):
+    from klotse.ui.main_window import MainWindow
+    manager = manager_with(tmp_path, Zone())
+    from test_app import MultiService
+    win = MainWindow(MultiService, plugin_manager=manager)
+    qtbot.addWidget(win)
+    win.show()
+    manager.record_error("zone", "expired")
+    manager.record_error("other", "connection failed")
+    assert win.plugin_errors_button.text() == "Plugin errors (2)"
+    dialog = dialog_for(qtbot, manager)
+    dialog.dismiss_error.click()
+    assert win.plugin_errors_button.text() == "Plugin error"
+    assert "connection failed" in win.plugin_errors_button.toolTip()
+    manager.record_error("zone", "expired again")
+    assert win.plugin_errors_button.text() == "Plugin errors (2)"
+
+
+def test_retry_while_enrichment_is_running_starts_fresh_request(qtbot, tmp_path):
+    host, plugin, run, manager, _ = host_for(tmp_path)
+    row = node("n1")
+    host.rows_loaded("Node", [row])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [row])
+    assert len(run.calls) == 1
+    run.finish()
+    assert len(run.calls) == 1  # the older answer is dropped and retry starts
+    run.finish()
+    assert len(plugin.requests) == 2 and not host._busy
+
+
+def test_success_in_one_cluster_does_not_clear_another_clusters_error(qtbot, tmp_path):
+    from klotse.plugins.host import PluginHost
+    plugin = Zone()
+    manager = manager_with(tmp_path, plugin)
+    first, second = Runner(), Runner()
+    host_a = PluginHost(manager, "cluster-a", first)
+    host_b = PluginHost(manager, "cluster-b", second)
+    manager.record_error(plugin.id, "cluster a failed", scope=("cluster-a", "enrich", "Node"))
+    manager.record_error(plugin.id, "cluster a overview failed", scope=("cluster-a", "overview"))
+    host_b.rows_loaded("Node", [node("n1")])
+    second.finish()
+    assert "cluster a failed" in manager.errors[plugin.id]
+    manager.clear_error(plugin.id, scope=("cluster-a", "enrich", "Node"))
+    assert manager.errors[plugin.id] == "cluster a overview failed"
+    manager.dismiss_error(plugin.id)
+    assert plugin.id not in manager.errors
+
+
+def test_retry_during_inflight_uses_latest_rows(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    host.rows_loaded("Node", [node("old")])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [node("new")])
+    run.finish()
+    run.finish()
+    assert [r.name for r in plugin.requests[-1].resources] == ["new"]
+
+
+def test_action_failure_prompts_user_to_retry_original_action(qtbot, tmp_path):
+    plugin = Zone()
+    manager = manager_with(tmp_path, plugin)
+    manager.record_error(plugin.id, "action failed", scope=("cluster-a", "action", "open"))
+    dialog = dialog_for(qtbot, manager)
+    assert dialog.retry_error.isHidden()
+    assert "original menu" in dialog.error.text()
+    manager.record_error(plugin.id, "different cluster failed", scope=("cluster-b", "action", "open"))
+    manager.clear_error(plugin.id, scope=("cluster-a", "action", "open"))
+    assert manager.errors[plugin.id] == "different cluster failed"
+
+
+def test_pending_retry_keeps_rows_from_multiple_tables_and_ignores_empty_table(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    table_a, table_b, table_empty = object(), object(), object()
+    host.rows_loaded("Node", [node("old")], source=table_a)
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [node("new-a")], source=table_a)
+    host.rows_loaded("Node", [node("new-b")], source=table_b)
+    host.rows_loaded("Node", [], source=table_empty)
+    run.finish()
+    assert len(run.calls) == 1
+    run.finish()
+    assert {r.name for r in plugin.requests[-1].resources} == {"new-a", "new-b"}
+
+
+def test_retry_drains_new_rows_arriving_during_followup(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    host.rows_loaded("Node", [node("initial")])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [node("retry")])
+    run.finish()
+    host.rows_loaded("Node", [node("latest")])
+    run.finish()
+    assert len(run.calls) == 1
+    run.finish()
+    assert [r.name for r in plugin.requests[-1].resources] == ["latest"]
+
+
+def test_workspace_retry_batches_same_kind_tables_before_start(qtbot, tmp_path):
+    from types import SimpleNamespace
+    from klotse.ui.workspace import ClusterWorkspace
+    host, plugin, run, _, _ = host_for(tmp_path)
+    tables = [SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1")])),
+              SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n2")])),
+              SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[]))]
+    ws = SimpleNamespace(_closed=False, _ready=True, plugin_host=host, service=SimpleNamespace(list_nodes=lambda: []),
+                         _hooked_tables=lambda: tables)
+    ws._plugin_rows_loaded = lambda kind: ClusterWorkspace._plugin_rows_loaded(ws, kind)
+    ClusterWorkspace._retry_plugin(ws, plugin.id)
+    assert len(run.calls) == 1
+    run.finish()
+    assert {r.name for r in plugin.requests[-1].resources} == {"n1", "n2"}
+
+
+def test_workspace_prefers_fresh_table_when_other_table_has_old_uid(qtbot, tmp_path):
+    from types import SimpleNamespace
+    from klotse.ui.workspace import ClusterWorkspace
+    host, plugin, run, _, _ = host_for(tmp_path)
+    fresh = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="new")]))
+    old = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="old")]))
+    ws = SimpleNamespace(plugin_host=host, _hooked_tables=lambda: [fresh, old])
+    ClusterWorkspace._plugin_rows_loaded(ws, "Node", preferred=fresh)
+    run.finish()
+    assert plugin.requests[-1].resources[0].uid == "new"
+
+
+def test_retry_tracking_clears_when_all_rows_disappear(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    host.rows_loaded("Node", [node("old")])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [])
+    run.finish()
+    assert not run.calls and plugin.id not in host._retry_ids
+
+
+def test_workspace_retry_prefers_most_recent_table_uid(qtbot, tmp_path):
+    from types import SimpleNamespace
+    from klotse.ui.workspace import ClusterWorkspace
+    host, plugin, run, _, _ = host_for(tmp_path)
+    fresh = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="new")]))
+    stale = SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1", uid="old")]))
+    ws = SimpleNamespace(_closed=False, _ready=True, plugin_host=host,
+                         service=SimpleNamespace(list_nodes=lambda: []), _hooked_tables=lambda: [fresh, stale])
+    ws._plugin_rows_loaded = lambda kind, preferred=None: ClusterWorkspace._plugin_rows_loaded(ws, kind, preferred)
+    ws._plugin_rows_loaded("Node", preferred=stale)
+    run.finish()
+    ws._plugin_rows_loaded("Node", preferred=fresh)
+    run.finish()
+    ClusterWorkspace._retry_plugin(ws, plugin.id)
+    run.finish()
+    assert plugin.requests[-1].resources[0].uid == "new"

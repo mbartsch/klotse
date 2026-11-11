@@ -303,3 +303,17 @@ def test_a_cluster_with_no_aws_nodes_gets_no_cards(prices):
 
 def test_the_aws_plugin_declares_its_cards_and_needs_api_5():
     assert [c.key for c in AwsPlugin.overview_cards] == ["cost_hour", "cost_month", "priced"] and AwsPlugin.requires_api == 10
+
+
+def test_retry_while_overview_running_schedules_new_work(qtbot, tmp_path):
+    plugin = Totals()
+    host, manager, run, _ = host_for(tmp_path, plugin)
+    manager.record_error(plugin.id, "old error", scope=(host.context, "overview"))
+    host.refresh_overview(lambda: rows("n1"))
+    host.retry(plugin.id)
+    host.refresh_overview(lambda: rows("n1", "n2"))
+    assert len(run.calls) == 1
+    run.finish()
+    assert len(run.calls) == 1 and plugin.id in manager.errors
+    run.finish()
+    assert host.overview_values()["totals:count"] == 2 and plugin.id not in manager.errors
