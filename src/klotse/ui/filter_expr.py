@@ -285,7 +285,6 @@ def _validate(expression, units):
     walk(expression.tree)
 
 
-
 Expression.validate = lambda self, units: _validate(self, units)
 
 
@@ -328,7 +327,7 @@ def server_selectors(expression, kind):
             part = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
             prefix, separator, key_name = label_key.partition("/")
             prefix_ok = (not separator or (len(prefix) <= 253 and prefix == prefix.lower()
-                                           and all(re.fullmatch(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?", part_name)
+                                           and all(len(part_name) <= 63 and re.fullmatch(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?", part_name)
                                                    for part_name in prefix.split("."))))
             if (len(label_key) <= 317 and prefix_ok and re.fullmatch(part, key_name)
                     and len(key_name) <= 63):
@@ -353,7 +352,7 @@ def server_selectors(expression, kind):
         value = right[1]
         if not value or any(ch in value for ch in ",*?"):
             continue
-        if field in ("metadata.name", "metadata.namespace"):
+        if field == "metadata.name":
             if value != value.lower() or not re.fullmatch(
                     r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?", value):
                 continue
