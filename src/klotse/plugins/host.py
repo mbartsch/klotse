@@ -143,8 +143,10 @@ class PluginHost(QObject):
 
         def work():
             with timings.timed("plugin", "overview.nodes") as info:
+                info["outcome"] = "error"
                 nodes = [resource_info(row) for row in list_nodes()]
                 info["resources"] = len(nodes)
+                info["outcome"] = "ok"
             answers = {}
             for plugin in due:
                 request = OverviewRequest(plugin.id, self.context, nodes, settings[plugin.id], caches[plugin.id])

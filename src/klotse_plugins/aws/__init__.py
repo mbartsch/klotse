@@ -233,18 +233,32 @@ class AwsPlugin(Plugin):
             return result
         profile = profile_for(context, settings)
         tables = {}
-        with timings.timed("plugin", "aws.prices", resources=len(nodes)):
+        with timings.timed("plugin", "aws.prices", resources=len(nodes)) as phase:
+            phase["outcome"] = "error"
+            warning = False
             for region, os_name in sorted({(n.region, n.os) for n in nodes.values()}):
                 try:
                     table = on_demand_prices(region, os_name, cache_dir, profile=profile)
                 except PriceError as error:
+                    warning = True
                     warn(str(error))
                     continue
                 if table.note:
+                    warning = True
                     warn(f"{region}: {table.note}")
                 tables[(region, os_name)] = table
-        with timings.timed("plugin", "aws.ec2", resources=len(nodes)):
-            details, spot, no_boto3 = self._from_aws(nodes, settings, warn, cache_dir, profile)
+            phase["outcome"] = "warning" if warning else "ok"
+        with timings.timed("plugin", "aws.ec2", resources=len(nodes)) as phase:
+            phase["outcome"] = "error"
+
+            warned = []
+
+            def ec2_warn(message):
+                warned.append(True)
+                warn(message)
+
+            details, spot, no_boto3 = self._from_aws(nodes, settings, ec2_warn, cache_dir, profile)
+            phase["outcome"] = "warning" if warned else "ok"
         without_ami = [n for n in nodes.values() if not n.ami and not (details.get(n.instance_id) or {}).get("ami")]
         if no_boto3 and without_ami:  # these AMIs can only come from EC2, which needs boto3 and credentials
             warn(f"{len(without_ami)} node(s) have no node group image label, so their AMI can only be looked up in "

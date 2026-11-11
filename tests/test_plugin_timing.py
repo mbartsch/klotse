@@ -65,3 +65,20 @@ def test_failed_enrichment_records_outcome_without_error_message(qtbot, tmp_path
         assert "private credentials" not in path.read_text(encoding="utf-8")
     finally:
         timing.timings.configure(None, False)
+
+
+def test_overview_node_list_failure_records_safe_error(qtbot, tmp_path, monkeypatch):
+    monkeypatch.delenv(timing.ENV, raising=False)
+    path = tmp_path / "timings.log"
+    host, _, run, _ = overview_host(tmp_path, Totals())
+    timing.timings.configure(path, True)
+    try:
+        def fail():
+            raise ValueError("private node lookup")
+        host.refresh_overview(fail)
+        run.finish()
+        event = next(e for e in entries(path) if e["label"] == "overview.nodes")
+        assert event["outcome"] == "error"
+        assert "private node lookup" not in path.read_text(encoding="utf-8")
+    finally:
+        timing.timings.configure(None, False)
