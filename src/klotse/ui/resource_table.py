@@ -497,7 +497,7 @@ class ResourceTable(QWidget):
         return {key: value for key, value in (("label_selector", label_selector), ("field_selector", field_selector)) if value}
 
     def _set_api_filter(self, expression=None):
-        selectors = filter_expr.server_selectors(expression, self.kind) if expression is not None else ("", "")
+        selectors = filter_expr.server_selectors(expression, self.kind, self._unit_of) if expression is not None else ("", "")
         if selectors != self._api_filter:
             self._api_filter = selectors
             self.api_filter_changed.emit(*selectors)
