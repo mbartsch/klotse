@@ -57,6 +57,10 @@ def read_manifest(path):
                 if not isinstance(entry["kinds"], list) or not entry["kinds"] or not all(isinstance(k, str) and k for k in entry["kinds"]):
                     raise ValueError("manifest kinds must be a non-empty list of resource kinds")
                 entry["kinds"] = tuple(entry["kinds"])
+            if "presets" in entry:
+                if not isinstance(entry["presets"], list) or not all(isinstance(p, str) and p.strip() for p in entry["presets"]):
+                    raise ValueError("manifest presets must be a list of non-empty names")
+                entry["presets"] = tuple(entry["presets"])
             item = cls(**entry)
             for key in ("key", "title", "label", "help", "pattern", "kind", "section"):
                 if hasattr(item, key) and not isinstance(getattr(item, key), str):

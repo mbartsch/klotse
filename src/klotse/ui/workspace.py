@@ -634,6 +634,7 @@ class ClusterWorkspace(QMainWindow):
             return
         table._plugin_hooked = True
         table.set_extra_columns(self.plugins.columns_for(table.kind))
+        table.set_plugin_presets(self.plugins.presets_for(table.kind))
         table.rows_incoming.connect(lambda rows, t=table: self.plugin_host.apply(t.kind, rows))
         table.rows_set.connect(lambda rows, t=table: self.plugin_host.rows_loaded(t.kind, rows))
         table.plugin_actions = self.plugin_runner.offered  # right-click entries plugins add
@@ -675,6 +676,7 @@ class ClusterWorkspace(QMainWindow):
         """A plugin was enabled, disabled or reconfigured: update the columns and ask for the values."""
         for table in self._hooked_tables():
             table.set_extra_columns(self.plugins.columns_for(table.kind))
+            table.set_plugin_presets(self.plugins.presets_for(table.kind))
             self.plugin_host.rows_loaded(table.kind, table.model.rows)
         self._plugins_updated(None)
         self._apply_plugin_overview()  # cards of a plugin that was disabled go, those of one enabled come with the next load

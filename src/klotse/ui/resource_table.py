@@ -3,7 +3,7 @@ import re
 import time
 
 from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.clone import COPYABLE
@@ -209,6 +209,15 @@ class ResourceTable(QWidget):
         fit_button.setToolTip("Fit column widths to their contents")
         fit_button.clicked.connect(self.fit_columns)
         top.addWidget(fit_button)
+        self.presets = None
+        self._preset_columns = {}
+        if kind == "Node":
+            self.presets = QComboBox()
+            self.presets.setAccessibleName("Node column preset")
+            self.presets.setToolTip("Choose which node columns to show")
+            self.presets.addItems(["Core", "All", "Custom"])
+            self.presets.currentTextChanged.connect(self._apply_preset)
+            top.addWidget(self.presets)
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
@@ -270,6 +279,7 @@ class ResourceTable(QWidget):
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.loading_page)
         lay.addWidget(self.stack, 1)
+        self._apply_preset()
 
     def set_page_title(self, title):
         """Workspace lists have a heading; embedded overview lists stay compact."""
@@ -686,6 +696,36 @@ class ResourceTable(QWidget):
             if column[1].startswith("plugin:") and self.view.columnWidth(index) > 240:
                 self.view.setColumnWidth(index, 240)
 
+    def set_plugin_presets(self, presets):
+        if self.presets is None:
+            return
+        current = self.presets.currentText()
+        self._preset_columns = {name: set(cols) for name, cols in presets.items()}
+        self.presets.blockSignals(True)
+        self.presets.clear()
+        self.presets.addItems(["Core", "All", "Custom"] + sorted(name for name in presets if name not in ("Core", "All", "Custom")))
+        index = self.presets.findText(current)
+        self.presets.setCurrentIndex(index if index >= 0 else 0)
+        self.presets.blockSignals(False)
+        self._apply_preset()
+
+    def _apply_preset(self, *_):
+        if self.presets is None:
+            return
+        name = self.presets.currentText()
+        core = {"name", "status", "roles", "pods", "cpu", "memory", "age"}
+        included = core | self._preset_columns.get("Core", set())
+        if name not in ("Core", "All"):
+            included |= self._preset_columns.get(name, set())
+        hidden_by_user = (self._label_args[2] or {}).get("hidden", []) if self._label_args else []
+        for i, column in enumerate(self.model.columns):
+            attr = column[1]
+            if name == "Custom":
+                hidden = attr in hidden_by_user and attr != "name"
+            else:
+                hidden = name != "All" and attr not in included and not attr.startswith(("label:", "annotation:"))
+            self.view.setColumnHidden(i, hidden)
+
     def set_extra_columns(self, columns):
         """Columns added by plugins, after the built-in ones. They take part in the saved layout (order, hidden)
         and the Columns… dialog like any built-in column."""
@@ -702,13 +742,17 @@ class ResourceTable(QWidget):
         (layout: {"order", "hidden"}). Annotation columns follow the label columns."""
         if self.kind in NOT_CUSTOMIZABLE:
             return
-        self._label_args = (keys, headings, layout, annotations, annotation_headings)
+        args = (keys, headings, layout, annotations, annotation_headings)
+        changed = self._label_args is not None and args != self._label_args
+        self._label_args = args
+        if changed and self.presets is not None:
+            self.presets.setCurrentText("Custom")
         layout = layout or {}
         first, rest = self.base_columns[:1], self.base_columns[1:]  # the first column (Name) never moves or hides
         order = layout.get("order", [])
         rank = {attr: i for i, attr in enumerate(order)}
         rest = sorted(rest, key=lambda col: rank.get(col[1], len(order)))  # stable: unknown ones keep their place
-        columns = first + [col for col in rest if col[1] not in layout.get("hidden", [])]
+        columns = first + [col for col in rest if self.kind == "Node" or col[1] not in layout.get("hidden", [])]
         anchor = "roles" if self.kind == "Node" else "name"
         insert_at = next((i + 1 for i, col in enumerate(columns) if col[1] == anchor), 1)
         headings = headings or {}
@@ -718,9 +762,11 @@ class ResourceTable(QWidget):
         columns[insert_at + len(keys):insert_at + len(keys)] = [
             (notes.get(key) or key, f"annotation:{key}") for key in annotations]
         if columns == self.model.columns:
+            self._apply_preset()
             return
         header = self.view.horizontalHeader()
-        self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)})
+        self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)
+                                    if not self.view.isColumnHidden(i)})
         kept = self._selection_to_keep()
         horizontal_scroll = self.view.horizontalScrollBar().value()
         sort_column = header.sortIndicatorSection()
@@ -745,6 +791,7 @@ class ResourceTable(QWidget):
         finally:
             selection.blockSignals(was_blocked)
         self._update_selection_count(emit_empty=False)
+        self._apply_preset()
 
     def set_header_widget(self, widget):
         """Put a widget (e.g. an action bar) above the filter box."""
