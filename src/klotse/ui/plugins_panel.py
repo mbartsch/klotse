@@ -33,7 +33,7 @@ class PluginsPanel(QWidget):
         self.provides.setWordWrap(True)
         self.error = QLabel()
         self.error.setWordWrap(True)
-        self.error.setStyleSheet("color: #e5484d;")
+        self.error.setStyleSheet(f"color: {theme.BAD};")
         for label in (self.title, self.description, self.source, self.provides, self.error):
             label.setTextFormat(Qt.PlainText)
         self.settings_box = QGroupBox("Settings")
