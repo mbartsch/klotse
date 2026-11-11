@@ -6,10 +6,10 @@ import time
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
-from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QSize, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
-                               QTabWidget, QToolBar, QSizePolicy, QWidget)
+from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
+                               QStyle, QTabWidget, QToolBar, QSizePolicy, QWidget)
 
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
@@ -255,6 +255,35 @@ class ClusterWorkspace(QMainWindow):
         self.detail.goto_object.connect(self.go_to_object)
         self.detail_dock = QDockWidget("Details", self)
         self.detail_dock.setObjectName("detailsDock")
+        # A compact title-bar control keeps Details easy to detach and gives the floating
+        # window an explicit way to return to the workspace.
+        detail_titlebar = QWidget(self.detail_dock)
+        detail_title_layout = QHBoxLayout(detail_titlebar)
+        detail_title_layout.setContentsMargins(8, 0, 4, 0)
+        detail_title_layout.setSpacing(6)
+        detail_title = QLabel("Details", detail_titlebar)
+        detail_title.setStyleSheet("font-weight: 600;")
+        detail_title_layout.addWidget(detail_title)
+        detail_title_layout.addStretch(1)
+        self.detail_dock_button = QToolButton(detail_titlebar)
+        self.detail_dock_button.setAutoRaise(True)
+        self.detail_dock_button.setIconSize(QSize(16, 16))
+        self.detail_dock_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.detail_dock_button.setIcon(action_icon("detach"))
+        self.detail_dock_button.setToolTip("Detach Details panel")
+        self.detail_dock_button.setAccessibleName("Detach Details panel")
+        self.detail_dock_button.clicked.connect(
+            lambda: self.detail_dock.setFloating(not self.detail_dock.isFloating()))
+        detail_title_layout.addWidget(self.detail_dock_button)
+        close_button = QToolButton(detail_titlebar)
+        close_button.setAutoRaise(True)
+        close_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarCloseButton))
+        close_button.setToolTip("Close Details panel")
+        close_button.setAccessibleName("Close Details panel")
+        close_button.clicked.connect(self.detail_dock.hide)
+        detail_title_layout.addWidget(close_button)
+        self.detail_dock.setTitleBarWidget(detail_titlebar)
+        self.detail_dock.topLevelChanged.connect(self._sync_detail_dock_button)
         self.detail_dock.setWidget(self.detail)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
         self.detail_dock.dockLocationChanged.connect(self._limit_dock)
@@ -407,6 +436,13 @@ class ClusterWorkspace(QMainWindow):
             blocker = QSignalBlocker(self.auto_interval)
             self.auto_interval.setCurrentIndex(wanted)
             del blocker
+
+    def _sync_detail_dock_button(self, floating):
+        action = "attach" if floating else "detach"
+        verb = "Attach" if floating else "Detach"
+        self.detail_dock_button.setIcon(action_icon(action))
+        self.detail_dock_button.setToolTip(f"{verb} Details panel")
+        self.detail_dock_button.setAccessibleName(f"{verb} Details panel")
 
     def createPopupMenu(self):
         """The right-click menu of the toolbar and dock title bars: only the docks (so a closed Details or Logs pane can be

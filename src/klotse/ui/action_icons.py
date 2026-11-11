@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QP
 from . import theme
 
 
-NAMES = frozenset({"search", "refresh", "create", "edit", "delete", "copy"})
+NAMES = frozenset({"search", "refresh", "create", "edit", "delete", "copy", "detach", "attach"})
 
 
 class _ActionIcon(QIconEngine):
@@ -45,6 +45,24 @@ class _ActionIcon(QIconEngine):
             painter.drawPath(path)
             path = QPainterPath()
             path.addRoundedRect(QRectF(4, 7, 12, 14), 1.2, 1.2)
+        elif self.name == "detach":
+            path.addRoundedRect(QRectF(3.5, 8, 11, 12), 1.2, 1.2)
+            painter.drawPath(path)
+            path = QPainterPath()
+            path.moveTo(9, 15)
+            path.lineTo(19.5, 4.5)
+            path.moveTo(14.2, 4.5)
+            path.lineTo(19.5, 4.5)
+            path.lineTo(19.5, 9.8)
+        elif self.name == "attach":
+            path.addRoundedRect(QRectF(3.5, 3.5, 17, 17), 1.2, 1.2)
+            painter.drawPath(path)
+            path = QPainterPath()
+            path.moveTo(19, 5)
+            path.lineTo(10, 14)
+            path.moveTo(10, 9.5)
+            path.lineTo(10, 14)
+            path.lineTo(14.5, 14)
         elif self.name == "create":
             path.moveTo(12, 4)
             path.lineTo(12, 20)

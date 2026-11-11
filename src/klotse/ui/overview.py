@@ -1,4 +1,4 @@
-from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QDialog, QDialogButtonBox, QFormLayout, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton,
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QDialog, QDialogBu
 from ..k8s.resources import SPEC_BY_KEY
 from .loading_pane import LoadingPane
 from .resource_table import ResourceTable
+from .action_icons import action_icon
 from . import theme
 
 # (counts key, caption, tone when the value is non-zero)
@@ -498,8 +499,12 @@ class OverviewView(QWidget):
         if header is None:
             header = panel.layout().itemAt(0).layout()
             index = header.count() - 1
-        button = QPushButton("Detach")
-        button.setFlat(True)
+        button = QToolButton()
+        button.setAutoRaise(True)
+        button.setIconSize(QSize(16, 16))
+        button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        button.setIcon(action_icon("detach"))
+        button.setToolTip(f"Detach {title} panel")
         button.setAccessibleName(f"Detach {title} panel")
         header.insertWidget(index, button)
         button.clicked.connect(lambda _checked=False, p=panel, b=button, t=title: self._toggle_panel_detached(p, b, t))
@@ -528,7 +533,8 @@ class OverviewView(QWidget):
         state = {"splitter": splitter, "index": index, "placeholder": placeholder, "sizes": sizes,
                  "dialog": dialog, "button": button, "title": title}
         self._detached_panels[id(panel)] = state
-        button.setText("Attach")
+        button.setIcon(action_icon("attach"))
+        button.setToolTip(f"Attach {title} panel")
         button.setAccessibleName(f"Attach {title} panel")
         dialog.finished.connect(lambda _result, p=panel: self._attach_panel(p))
         dialog.resize(760, 460)
@@ -544,7 +550,8 @@ class OverviewView(QWidget):
         state["placeholder"].hide()
         state["placeholder"].deleteLater()
         state["splitter"].setSizes(state["sizes"])
-        state["button"].setText("Detach")
+        state["button"].setIcon(action_icon("detach"))
+        state["button"].setToolTip(f"Detach {state['title']} panel")
         state["button"].setAccessibleName(f"Detach {state['title']} panel")
         dialog.close()
 
