@@ -35,6 +35,8 @@ class PluginHost(QObject):
         self._overview_values = {}  # plugin id -> {card key: value}, the last answer (kept while the next is computed)
         self._overview_due = {}  # plugin id -> compute the cards again at this time
         self._overview_busy = False
+        self._retry_ids = set()
+        self._inflight = {}
         self._pending_slots = set()
         self._pending_resources = {}
         self._pending_overview = None
@@ -56,6 +58,9 @@ class PluginHost(QObject):
                 stale = entry is not None and entry[2] is not None and now >= entry[2]
                 if entry is None or entry[0] != info.uid or stale:
                     due.append(info)
+            signature = {(info.key, info.uid) for info in due}
+            if plugin.id in self._retry_ids and slot in self._busy and signature != self._inflight.get(slot, set()):
+                self._pending_slots.add(slot)
             if slot in self._pending_slots:
                 self._pending_resources.setdefault(slot, {})[source] = due
             if due and slot not in self._busy and now >= self._retry_at.get(slot, 0):
@@ -77,11 +82,13 @@ class PluginHost(QObject):
     def _start(self, plugin, kind, due):
         slot = (plugin.id, kind)
         self._busy.add(slot)
+        self._inflight[slot] = {(info.key, info.uid) for info in due}
         request = EnrichRequest(plugin.id, kind, self.context, due, self.manager.settings_for(plugin.id, self.context),
                                 cache_dir=self.manager.cache_dir(plugin.id), api_client=self.api_client)
 
         def again():
             self._busy.discard(slot)
+            self._inflight.pop(slot, None)
             if slot not in self._pending_slots:
                 return False
             self._pending_slots.discard(slot)
@@ -89,7 +96,7 @@ class PluginHost(QObject):
             if batches is None:
                 resources = request.resources
             else:
-                unique = {(item.key, item.uid): item for batch in batches.values() for item in batch}
+                unique = {item.key: item for batch in batches.values() for item in batch}
                 resources = list(unique.values())
             if resources and plugin in self.manager.enabled_for(kind):
                 self._start(plugin, kind, resources)
@@ -98,12 +105,16 @@ class PluginHost(QObject):
         def done(result):
             if not again():
                 self._store(plugin, kind, request, result)
+                if not any(active[0] == plugin.id for active in self._busy):
+                    self._retry_ids.discard(plugin.id)
 
         def failed(message):
             if again():
                 return
             self._retry_at[slot] = self._clock() + RETRY_AFTER_S
             self.manager.record_error(plugin.id, str(message), scope=(self.context, "enrich", kind))
+            if not any(active[0] == plugin.id for active in self._busy):
+                self._retry_ids.discard(plugin.id)
 
         def work():
             # Record identifiers and counts only: request data and warning/error text may contain secrets.
@@ -235,9 +246,15 @@ class PluginHost(QObject):
 
     def retry(self, plugin_id):
         """Forget retry backoff and stale values so the next request runs immediately."""
+        self._retry_ids.add(plugin_id)
         self._pending_slots.update(slot for slot in self._busy if slot[0] == plugin_id)
         if self._overview_busy:
             self._retry_overview_ids.add(plugin_id)
         self.forget(plugin_id)
         for slot in [slot for slot in self._retry_at if slot[0] == plugin_id]:
             del self._retry_at[slot]
+
+    def end_retry_dispatch(self, plugin_id):
+        """Stop tracking a retry that had no rows to ask about."""
+        if not any(slot[0] == plugin_id for slot in self._busy):
+            self._retry_ids.discard(plugin_id)

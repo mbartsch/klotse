@@ -698,3 +698,32 @@ def test_pending_retry_keeps_rows_from_multiple_tables_and_ignores_empty_table(q
     assert len(run.calls) == 1
     run.finish()
     assert {r.name for r in plugin.requests[-1].resources} == {"new-a", "new-b"}
+
+
+def test_retry_drains_new_rows_arriving_during_followup(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    host.rows_loaded("Node", [node("initial")])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [node("retry")])
+    run.finish()
+    host.rows_loaded("Node", [node("latest")])
+    run.finish()
+    assert len(run.calls) == 1
+    run.finish()
+    assert [r.name for r in plugin.requests[-1].resources] == ["latest"]
+
+
+def test_workspace_retry_batches_same_kind_tables_before_start(qtbot, tmp_path):
+    from types import SimpleNamespace
+    from klotse.ui.workspace import ClusterWorkspace
+    host, plugin, run, _, _ = host_for(tmp_path)
+    tables = [SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n1")])),
+              SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[node("n2")])),
+              SimpleNamespace(kind="Node", model=SimpleNamespace(rows=[]))]
+    ws = SimpleNamespace(_closed=False, _ready=True, plugin_host=host, service=SimpleNamespace(list_nodes=lambda: []),
+                         _hooked_tables=lambda: tables)
+    ws._plugin_rows_loaded = lambda kind: ClusterWorkspace._plugin_rows_loaded(ws, kind)
+    ClusterWorkspace._retry_plugin(ws, plugin.id)
+    assert len(run.calls) == 1
+    run.finish()
+    assert {r.name for r in plugin.requests[-1].resources} == {"n1", "n2"}

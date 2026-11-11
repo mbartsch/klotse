@@ -637,7 +637,7 @@ class ClusterWorkspace(QMainWindow):
         table.set_extra_columns(self.plugins.columns_for(table.kind))
         table.set_plugin_presets(self.plugins.presets_for(table.kind))
         table.rows_incoming.connect(lambda rows, t=table: self.plugin_host.apply(t.kind, rows))
-        table.rows_set.connect(lambda rows, t=table: self.plugin_host.rows_loaded(t.kind, rows, source=t))
+        table.rows_set.connect(lambda rows, t=table: self._plugin_rows_loaded(t.kind))
         table.plugin_actions = self.plugin_runner.offered  # right-click entries plugins add
         table.plugin_action_requested.connect(
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
@@ -684,12 +684,22 @@ class ClusterWorkspace(QMainWindow):
         if self._ready:  # connected: compute the cards now if due (a settings change makes them due)
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
 
+    def _plugin_rows_loaded(self, kind):
+        # One snapshot across tables of this kind, with one entry per resource key.
+        rows = {}
+        for table in self._hooked_tables():
+            if table.kind == kind:
+                for row in table.model.rows:
+                    rows[(getattr(row, "namespace", ""), row.name)] = row
+        self.plugin_host.rows_loaded(kind, list(rows.values()))
+
     def _retry_plugin(self, plugin_id):
         if self._closed or not self._ready:
             return
         self.plugin_host.retry(plugin_id)
-        for table in self._hooked_tables():
-            self.plugin_host.rows_loaded(table.kind, table.model.rows, source=table)
+        for kind in {table.kind for table in self._hooked_tables()}:
+            self._plugin_rows_loaded(kind)
+        self.plugin_host.end_retry_dispatch(plugin_id)
         self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
 
     def _plugins_updated(self, kind):
