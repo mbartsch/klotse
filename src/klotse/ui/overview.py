@@ -3,7 +3,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QDialog, QDialogButtonBox, QFormLayout, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton,
                                QHeaderView, QMenu, QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem,
-                               QToolButton, QVBoxLayout, QWidget)
+                               QSplitter, QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.resources import SPEC_BY_KEY
 from .loading_pane import LoadingPane
@@ -313,6 +313,8 @@ class OverviewView(QWidget):
         self.plugin_host.setLayout(self.plugin_grid)
 
         capacity, capacity_layout = self._panel("Resource allocation")
+        self.capacity_panel = capacity
+        self.capacity_detach_button = self._detachable_panel_button(capacity, "Resource allocation")
         capacity_layout.setAlignment(Qt.AlignTop)
         self.usage.layout().setDirection(QBoxLayout.TopToBottom)
         self.usage.layout().setSpacing(4)
@@ -323,6 +325,8 @@ class OverviewView(QWidget):
         capacity_layout.addWidget(self.capacity_note)
 
         health_panel, health_layout = self._panel("Workload health")
+        self.workload_health_panel = health_panel
+        self.workload_health_detach_button = self._detachable_panel_button(health_panel, "Workload health")
         self.workload_rows = {}
         health_state = QWidget()
         health_state_layout = QVBoxLayout(health_state)
@@ -399,10 +403,11 @@ class OverviewView(QWidget):
         health_columns.addWidget(health_state)
         health_columns.addWidget(namespace_summary)
         health_layout.addLayout(health_columns)
-        top_panels = QHBoxLayout()
-        top_panels.setSpacing(10)
-        top_panels.addWidget(capacity, 1)
-        top_panels.addWidget(health_panel, 1)
+        top_panels = QSplitter(Qt.Horizontal)
+        top_panels.setObjectName("overviewTopPanels")
+        top_panels.setChildrenCollapsible(False)
+        top_panels.addWidget(capacity)
+        top_panels.addWidget(health_panel)
 
         self.nodes_table = QTableWidget(0, 5)
         self.nodes_table.setAccessibleName("Node health summary")
@@ -416,16 +421,18 @@ class OverviewView(QWidget):
         self.nodes_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.nodes_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.nodes_table.setFocusPolicy(Qt.StrongFocus)
-        self.nodes_table.setMaximumHeight(190)
         self.nodes_table.itemSelectionChanged.connect(self._node_selection_changed)
         self.nodes_table.itemActivated.connect(self._open_node_item)
         node_panel, node_layout = self._panel("Node health", "Not-ready first, then highest CPU or memory use")
+        self.node_health_panel = node_panel
         node_panel.setMaximumWidth(680)
         node_panel_head = node_layout.itemAt(0).layout()
         self.all_nodes_button = QPushButton("All nodes")
         self.all_nodes_button.setAccessibleName("Open all nodes")
         self.all_nodes_button.clicked.connect(lambda: self.action_requested.emit("nodes"))
         node_panel_head.addWidget(self.all_nodes_button)
+        self.node_health_detach_button = self._detachable_panel_button(node_panel, "Node health", node_panel_head,
+                                                                       node_panel_head.count() - 2)
         node_layout.addWidget(self.nodes_table)
         self.node_note = QLabel("Node health will appear after cluster data loads.")
         self.node_note.setWordWrap(True)
@@ -434,8 +441,10 @@ class OverviewView(QWidget):
         self._style_overview_tables()
 
         recent_panel, recent_layout = self._panel("Recent events")
+        self.recent_events_panel = recent_panel
         recent_header = recent_layout.itemAt(0).layout()
         recent_header.addStretch(1)
+        self.recent_events_detach_button = self._detachable_panel_button(recent_panel, "Recent events", recent_header, 1)
         all_events_button = QPushButton("All events")
         all_events_button.setFlat(True)
         all_events_button.setAccessibleName("Open all events")
@@ -459,15 +468,19 @@ class OverviewView(QWidget):
         content_layout.addWidget(self.health_summary)
         content_layout.addLayout(self.stats_grid)
         content_layout.addWidget(self.plugin_host)
-        content_layout.addLayout(top_panels)
-        lower = QGridLayout()
-        lower.setSpacing(10)
-        lower.addWidget(node_panel, 0, 0)
-        lower.addWidget(recent_panel, 0, 1)
-        lower.setRowStretch(0, 1)
-        lower.setColumnStretch(0, 1)
-        lower.setColumnStretch(1, 2)
-        content_layout.addLayout(lower, 1)
+        bottom_panels = QSplitter(Qt.Horizontal)
+        bottom_panels.setObjectName("overviewBottomPanels")
+        bottom_panels.setChildrenCollapsible(False)
+        bottom_panels.addWidget(node_panel)
+        bottom_panels.addWidget(recent_panel)
+        self.panel_splitter = QSplitter(Qt.Vertical)
+        self.panel_splitter.setObjectName("overviewPanelSplitter")
+        self.panel_splitter.setChildrenCollapsible(False)
+        self.panel_splitter.addWidget(top_panels)
+        self.panel_splitter.addWidget(bottom_panels)
+        self.top_panel_splitter = top_panels
+        self.bottom_panel_splitter = bottom_panels
+        content_layout.addWidget(self.panel_splitter, 1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -478,6 +491,62 @@ class OverviewView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(scroll)
+
+    def _detachable_panel_button(self, panel, title, header=None, index=None):
+        if not hasattr(self, "_detached_panels"):
+            self._detached_panels = {}
+        if header is None:
+            header = panel.layout().itemAt(0).layout()
+            index = header.count() - 1
+        button = QPushButton("Detach")
+        button.setFlat(True)
+        button.setAccessibleName(f"Detach {title} panel")
+        header.insertWidget(index, button)
+        button.clicked.connect(lambda _checked=False, p=panel, b=button, t=title: self._toggle_panel_detached(p, b, t))
+        return button
+
+    def _toggle_panel_detached(self, panel, button, title):
+        state = self._detached_panels.get(id(panel))
+        if state:
+            self._attach_panel(panel)
+            return
+        splitter = panel.parentWidget()
+        if not isinstance(splitter, QSplitter):
+            return
+        index = splitter.indexOf(panel)
+        placeholder = QWidget()
+        placeholder.setObjectName(f"{panel.objectName() or title.replace(' ', '')}Placeholder")
+        sizes = splitter.sizes()
+        splitter.replaceWidget(index, placeholder)
+        dialog = QDialog(self, Qt.Window)
+        dialog.setWindowTitle(title)
+        dialog.setMinimumSize(420, 260)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        panel.setParent(dialog)
+        layout.addWidget(panel)
+        state = {"splitter": splitter, "index": index, "placeholder": placeholder, "sizes": sizes,
+                 "dialog": dialog, "button": button, "title": title}
+        self._detached_panels[id(panel)] = state
+        button.setText("Attach")
+        button.setAccessibleName(f"Attach {title} panel")
+        dialog.finished.connect(lambda _result, p=panel: self._attach_panel(p))
+        dialog.resize(760, 460)
+        dialog.show()
+
+    def _attach_panel(self, panel):
+        state = self._detached_panels.pop(id(panel), None)
+        if state is None:
+            return
+        dialog = state["dialog"]
+        panel.setParent(None)
+        state["splitter"].insertWidget(state["index"], panel)
+        state["placeholder"].hide()
+        state["placeholder"].deleteLater()
+        state["splitter"].setSizes(state["sizes"])
+        state["button"].setText("Detach")
+        state["button"].setAccessibleName(f"Detach {state['title']} panel")
+        dialog.close()
 
     def _build_workload_overview(self):
         grid = QGridLayout()
