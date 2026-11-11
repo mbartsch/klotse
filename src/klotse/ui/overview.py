@@ -1,6 +1,7 @@
 from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+                               QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton,
                                QHeaderView, QMenu, QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -196,24 +197,28 @@ class OverviewView(QWidget):
         usage.addWidget(self.pod_bar)
         self.usage.hide()
 
-        event_columns = list(SPEC_BY_KEY["events"].columns)
-        event_columns[3] = ("Event", "overview_summary")
-        event_columns[6] = ("When", "last_seen")
+        event_columns = [("Object", "object"), ("Namespace", "namespace"), ("Reason", "reason"),
+                         ("Age", "last_seen"), ("Message", "message")]
         self.events_table = ResourceTable(event_columns, "Event", editable=False, customizable=False)
+        self._event_dialogs = {}
+        self._recent_event_columns_sized = False
+        self.events_table.view.activated.connect(self._open_event_details)
+        self.events_table.view.doubleClicked.connect(self._open_event_details)
         if self.is_cluster_overview:
+            self.events_table.fit_button.hide()
+            self.events_table.layout().setContentsMargins(0, 0, 0, 0)
+            self.events_table.layout().setSpacing(4)
             self.events_table.filter.hide()
             self.events_table.filter_note.hide()
             self.events_table.status.hide()
             self.events_table.selection_count.hide()
             self.events_table.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            self.events_table.view.setColumnHidden(0, True)
-            self.events_table.view.setColumnHidden(1, True)
-            self.events_table.view.setColumnHidden(2, True)
-            self.events_table.view.setColumnHidden(4, True)
-            self.events_table.view.setColumnHidden(5, True)
-            self.events_table.view.setColumnHidden(6, True)
+            self.events_table.view.setAccessibleName("Recent cluster events")
+            self.events_table.view.setWordWrap(True)
             self.events_table.view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-            self.events_table.view.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+            self.events_table.view.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+            self.events_table.view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+            self.events_table.view.verticalHeader().setMaximumSectionSize(76)
             self.events_table.view.setMinimumWidth(0)
             self.events_table.loading_page.label.setStyleSheet(f"font-size: 13px; color: {theme.MUTED};")
         self.pods_table = ResourceTable(POD_COLUMNS_BASIC, "Pod", customizable=False)
@@ -416,6 +421,7 @@ class OverviewView(QWidget):
         self.nodes_table.itemSelectionChanged.connect(self._node_selection_changed)
         self.nodes_table.itemActivated.connect(self._open_node_item)
         node_panel, node_layout = self._panel("Node health", "Ready state and live resource use")
+        node_panel.setMaximumWidth(680)
         node_panel_head = node_layout.itemAt(0).layout()
         self.all_nodes_button = QPushButton("All nodes")
         self.all_nodes_button.setAccessibleName("Open all nodes")
@@ -423,6 +429,7 @@ class OverviewView(QWidget):
         node_panel_head.addWidget(self.all_nodes_button)
         node_layout.addWidget(self.nodes_table)
         self.node_note = QLabel("Node health will appear after cluster data loads.")
+        self.node_note.setWordWrap(True)
         theme.muted(self.node_note)
         node_layout.addWidget(self.node_note)
         self._style_overview_tables()
@@ -438,8 +445,7 @@ class OverviewView(QWidget):
         self.back.setStyleSheet("border: 0;")
         recent_header.addWidget(self.back)
         recent_layout.addWidget(self.stack, 1)
-        self.stack.setMinimumHeight(135)
-        self.stack.setMaximumHeight(160)
+        self.stack.setMinimumHeight(270)
         self.title.hide()  # kept as the dynamic heading for the existing drill-down state
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -459,6 +465,9 @@ class OverviewView(QWidget):
         lower.setSpacing(10)
         lower.addWidget(node_panel, 0, 0)
         lower.addWidget(recent_panel, 0, 1)
+        lower.setRowStretch(0, 1)
+        lower.setColumnStretch(0, 1)
+        lower.setColumnStretch(1, 2)
         content_layout.addLayout(lower, 1)
 
         scroll = QScrollArea()
@@ -606,15 +615,7 @@ class OverviewView(QWidget):
         events = data.get("events") or []
         if self.is_cluster_overview:
             for row in events:
-                reason = getattr(row, "reason", "")
-                message = " ".join(str(getattr(row, "message", "")).split())
-                target = getattr(row, "object", "")
-                age = getattr(row, "last_seen", "")
-                row.overview_summary = " · ".join(part for part in (target, reason, age) if part)
-                row.overview_tooltip = "\n".join(part for part in (
-                    f"{target}: {reason}".strip(": "), message,
-                    f"Last seen {age}" if age else "",
-                ) if part)
+                row.message_tooltip = str(getattr(row, "message", ""))
         self.events_table.set_rows(events)
         if self.is_cluster_overview:
             self._size_recent_events()
@@ -624,9 +625,55 @@ class OverviewView(QWidget):
 
     def _size_recent_events(self):
         header = self.events_table.view.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        if not self._recent_event_columns_sized:
+            header.setStretchLastSection(False)
+            for column, width in ((0, 112), (1, 88), (2, 118), (3, 54)):
+                self.events_table.view.setColumnWidth(column, width)
+            header.setSectionResizeMode(4, QHeaderView.Stretch)
+            self._recent_event_columns_sized = True
+        self.events_table.view.resizeRowsToContents()
         self.events_table.view.clearFocus()
+
+    def _open_event_details(self, index):
+        if not index.isValid():
+            return None
+        source = self.events_table.proxy.mapToSource(index)
+        if not source.isValid() or not 0 <= source.row() < len(self.events_table.model.rows):
+            return None
+        row = self.events_table.model.rows[source.row()]
+        existing = self._event_dialogs.get(id(row))
+        if existing is not None:
+            existing.raise_()
+            existing.activateWindow()
+            return existing
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Event details")
+        dialog.setAccessibleName(f"Event details for {getattr(row, 'object', '')}")
+        dialog.setMinimumSize(520, 380)
+        layout = QVBoxLayout(dialog)
+        details = QFormLayout()
+        for label, value in (("Object", getattr(row, "object", "")),
+                             ("Namespace", getattr(row, "namespace", "")),
+                             ("Reason", getattr(row, "reason", "")),
+                             ("Age", getattr(row, "last_seen", ""))):
+            field = QLabel(str(value) or "—")
+            field.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            details.addRow(label, field)
+        layout.addLayout(details)
+        message = QPlainTextEdit()
+        message.setObjectName("eventFullMessage")
+        message.setAccessibleName("Full event message")
+        message.setReadOnly(True)
+        message.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        message.setPlainText(str(getattr(row, "message", "")) or "No message was provided.")
+        layout.addWidget(message, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.close)
+        layout.addWidget(buttons)
+        self._event_dialogs[id(row)] = dialog
+        dialog.finished.connect(lambda _result, key=id(row): self._event_dialogs.pop(key, None))
+        dialog.open()
+        return dialog
 
     def _set_health_summary(self, counts):
         nodes, ready = counts.get("nodes", 0), counts.get("nodes_ready", 0)
