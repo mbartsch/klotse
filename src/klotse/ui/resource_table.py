@@ -743,11 +743,16 @@ class ResourceTable(QWidget):
         if self.kind in NOT_CUSTOMIZABLE:
             return
         args = (keys, headings, layout, annotations, annotation_headings)
-        changed = self._label_args is not None and args != self._label_args
+        initial = self._label_args is None
+        changed = not initial and args != self._label_args
         self._label_args = args
-        if changed and self.presets is not None:
-            self.presets.setCurrentText("Custom")
         layout = layout or {}
+        # A saved Node column layout is the user's explicit selection. Start in
+        # Custom even when no plugin columns caused an earlier set_label_columns call.
+        core = {"name", "status", "roles", "pods", "cpu", "memory", "age"}
+        if self.presets is not None and (changed or (initial and any(
+                attr not in core for attr in layout.get("hidden", [])))):
+            self.presets.setCurrentText("Custom")
         first, rest = self.base_columns[:1], self.base_columns[1:]  # the first column (Name) never moves or hides
         order = layout.get("order", [])
         rank = {attr: i for i, attr in enumerate(order)}
