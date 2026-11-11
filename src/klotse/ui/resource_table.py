@@ -112,6 +112,8 @@ class ResourceTable(QWidget):
         self.refresh_mode = None  # () -> True when this list reloads only on request; set by the workspace (None = no such menu)
         self._loaded_at = ""
         self._last_error = ""
+        self._sized_columns = False
+        self._column_widths = {}  # widths keyed by attribute, including temporarily hidden plugin columns
         self._has_loaded = False
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
@@ -175,7 +177,9 @@ class ResourceTable(QWidget):
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.ExtendedSelection)  # Ctrl/Shift-click for bulk actions
         self.view.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.view.horizontalHeader().setStretchLastSection(True)
+        # Stretching the last section would silently change its width when the
+        # window or the set of plugin columns changes.
+        self.view.horizontalHeader().setStretchLastSection(False)
         self.view.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         # Column sizing runs on the GUI thread. Sample a bounded number of rows.
         self.view.horizontalHeader().setResizeContentsPrecision(100)
@@ -201,6 +205,10 @@ class ResourceTable(QWidget):
         self.more_button.setVisible(False)
         self.more_button.clicked.connect(self.more_requested.emit)
         top.addWidget(self.more_button)
+        fit_button = QPushButton("Fit columns")
+        fit_button.setToolTip("Fit column widths to their contents")
+        fit_button.clicked.connect(self.fit_columns)
+        top.addWidget(fit_button)
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
@@ -245,6 +253,14 @@ class ResourceTable(QWidget):
         lay.addWidget(self.filter_note)
         status_row = QHBoxLayout()
         status_row.addWidget(self.status, 1)
+        self.retry_button = QPushButton("Retry")
+        self.retry_button.clicked.connect(self.refresh_requested.emit)
+        self.retry_button.hide()
+        status_row.addWidget(self.retry_button)
+        self.error_details_button = QPushButton("Error details…")
+        self.error_details_button.clicked.connect(self._show_error_details)
+        self.error_details_button.hide()
+        status_row.addWidget(self.error_details_button)
         status_row.addWidget(self.selection_count)
         lay.addLayout(status_row)
         # Long lists (Nodes, Pods) can take a while the first time: while there is nothing to show yet, a large
@@ -279,6 +295,9 @@ class ResourceTable(QWidget):
             self.stack.setCurrentWidget(self.loading_page)
         self._load_timer.start()
 
+    def _show_error_details(self):
+        QMessageBox.warning(self, "Refresh failed", self._last_error)
+
     def _loading_tick(self):
         text = f"Loading… {self._load_clock.elapsed() // 1000}s"
         self.status.setText(text)
@@ -289,8 +308,13 @@ class ResourceTable(QWidget):
         self._load_timer.stop()
         self._last_error = str(message)
         first = (str(message).splitlines() or [""])[0]
-        self.status.setText(f"Load failed: {first}")
-        if not self.model.rowCount():  # nothing else on screen: say it where the list would be
+        if self._has_loaded:
+            self.status.setText(f"Refresh failed · showing data from {self._loaded_at}: {first}")
+            self.retry_button.show()
+            self.error_details_button.show()
+        else:
+            self.status.setText(f"Load failed: {first}")
+        if not self._has_loaded:
             actions = [("Retry", self.refresh_requested.emit)]
             if "My permissions" in str(message):
                 actions.append(("View permissions", self.permissions_requested.emit))
@@ -522,6 +546,8 @@ class ResourceTable(QWidget):
         self._load_timer.stop()
         self._has_loaded = True
         self._last_error = ""
+        self.retry_button.hide()
+        self.error_details_button.hide()
         self.stack.setCurrentWidget(self.view)
         self.rows_incoming.emit(rows)  # before the columns are measured: a refresh must not blank or shrink plugin columns
         kept = self._selection_to_keep()
@@ -531,7 +557,9 @@ class ResourceTable(QWidget):
         try:
             self.model.set_rows(rows)
             self._refresh_filter_completions()
-            self.view.resizeColumnsToContents()
+            if rows and not self._sized_columns:
+                self.fit_columns()
+                self._sized_columns = True
             self._restore_selection(*kept)
         finally:
             selection.blockSignals(was_blocked)
@@ -569,6 +597,10 @@ class ResourceTable(QWidget):
 
     def show_status(self):
         """The line under the list: the row count, and for a list that reloads only on request when it was loaded."""
+        if self._last_error and self._has_loaded:
+            first = (self._last_error.splitlines() or [""])[0]
+            self.status.setText(f"Refresh failed · showing data from {self._loaded_at}: {first}")
+            return
         count = self.model.rowCount()
         text = f"{count:,} rows" if count else "No resources found"
         metric_rows = [row for row in self.model.rows if hasattr(row, "cpu_used") or hasattr(row, "mem_used")]
@@ -596,6 +628,10 @@ class ResourceTable(QWidget):
         if not rows:
             return
         self._load_timer.stop()
+        self._has_loaded = True
+        self._last_error = ""
+        self.retry_button.hide()
+        self.error_details_button.hide()
         self.stack.setCurrentWidget(self.view)
         self.rows_incoming.emit(rows)
         began = time.perf_counter() if timings.enabled else 0.0
@@ -625,10 +661,8 @@ class ResourceTable(QWidget):
     def _restore_selection(self, keys, current_key, scroll):
         """Select the same objects again, silently: nothing changed for the user, so the Details pane (and its
         decoded secret keys) must not be redrawn or cleared."""
-        if not keys and current_key is None:
-            return
         selection = self.view.selectionModel()
-        selection.blockSignals(True)
+        was_blocked = selection.blockSignals(True)
         try:
             for source_row, row in enumerate(self.model.rows):
                 key = self._row_key(row)
@@ -642,14 +676,15 @@ class ResourceTable(QWidget):
                 if key == current_key:
                     selection.setCurrentIndex(index, QItemSelectionModel.NoUpdate)
         finally:
-            selection.blockSignals(False)
+            selection.blockSignals(was_blocked)
         self.view.verticalScrollBar().setValue(scroll)
 
-    def fit_plugin_columns(self):
-        """Widen the plugin columns to their values (done when values arrive, not on every refresh)."""
+    def fit_columns(self):
+        """Fit visible columns, limiting long plugin values to a practical width."""
+        self.view.resizeColumnsToContents()
         for index, column in enumerate(self.model.columns):
-            if column[1].startswith("plugin:"):
-                self.view.resizeColumnToContents(index)
+            if column[1].startswith("plugin:") and self.view.columnWidth(index) > 240:
+                self.view.setColumnWidth(index, 240)
 
     def set_extra_columns(self, columns):
         """Columns added by plugins, after the built-in ones. They take part in the saved layout (order, hidden)
@@ -685,14 +720,31 @@ class ResourceTable(QWidget):
         if columns == self.model.columns:
             return
         header = self.view.horizontalHeader()
+        self._column_widths.update({col[1]: self.view.columnWidth(i) for i, col in enumerate(self.model.columns)})
+        kept = self._selection_to_keep()
+        horizontal_scroll = self.view.horizontalScrollBar().value()
         sort_column = header.sortIndicatorSection()
         sort_attr = self.model.columns[sort_column][1] if 0 <= sort_column < len(self.model.columns) else None
         sort_order = header.sortIndicatorOrder()
-        self.model.set_columns(columns)
-        self._refresh_filter_completions()
-        new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
-        self.view.sortByColumn(new_sort, sort_order)
-        self.view.resizeColumnsToContents()
+        selection = self.view.selectionModel()
+        was_blocked = selection.blockSignals(True)
+        try:
+            self.model.set_columns(columns)
+            self._refresh_filter_completions()
+            new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
+            self.view.sortByColumn(new_sort, sort_order)
+            for i, col in enumerate(columns):
+                if col[1] in self._column_widths:
+                    self.view.setColumnWidth(i, self._column_widths[col[1]])
+                else:
+                    self.view.resizeColumnToContents(i)
+                    if col[1].startswith("plugin:") and self.view.columnWidth(i) > 240:
+                        self.view.setColumnWidth(i, 240)
+            self._restore_selection(*kept)
+            self.view.horizontalScrollBar().setValue(horizontal_scroll)
+        finally:
+            selection.blockSignals(was_blocked)
+        self._update_selection_count(emit_empty=False)
 
     def set_header_widget(self, widget):
         """Put a widget (e.g. an action bar) above the filter box."""

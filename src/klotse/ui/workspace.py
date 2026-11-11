@@ -686,7 +686,6 @@ class ClusterWorkspace(QMainWindow):
             if kind is None or table.kind == kind:
                 self.plugin_host.apply(table.kind, table.model.rows)
                 table.model.refresh_plugin_columns()
-                table.fit_plugin_columns()
 
     def apply_label_columns(self):
         for table in self.resource_tables():
