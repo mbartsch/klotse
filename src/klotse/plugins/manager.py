@@ -59,6 +59,9 @@ def _as_plugin(obj):
             raise ValueError(f"plugin {obj.id}: column and setting keys must be non-empty and unique")
     if not all(isinstance(item.kinds, tuple) and item.kinds for item in (*obj.columns, *obj.actions)):
         raise ValueError(f"plugin {obj.id}: the kinds of a column or action must be a non-empty tuple such as ('Node',)")
+    if any(not isinstance(col.presets, tuple) or any(not isinstance(name, str) or not name.strip() for name in col.presets)
+           for col in obj.columns):
+        raise ValueError(f"plugin {obj.id}: column presets must be a tuple of non-empty names")
     return obj
 
 
@@ -374,6 +377,16 @@ class PluginManager(QObject):
                     attr = column_attr(plugin.id, col.key)
                     columns.append((col.title, attr, col.format) if col.format else (col.title, attr))
         return columns
+
+    def presets_for(self, kind):
+        """Enabled plugin contributions: preset name -> column attributes."""
+        presets = {}
+        for plugin in self.active():
+            for col in plugin.columns:
+                if kind in col.kinds:
+                    for preset in col.presets:
+                        presets.setdefault(preset, []).append(column_attr(plugin.id, col.key))
+        return presets
 
     def overview_plugins(self):
         """The enabled plugins that add cards to the cluster Overview."""

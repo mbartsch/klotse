@@ -3,7 +3,7 @@
   "id": "aws",
   "name": "AWS Plugin",
   "version": "0.1",
-  "requires_api": 9,
+  "requires_api": 10,
   "description": "Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. China region prices use the AWS Price List API and need AWS credentials with pricing:GetProducts permission.",
   "columns": [
     {
@@ -61,6 +61,9 @@
       "title": "Instance ID",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -68,6 +71,9 @@
       "title": "Instance type",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -75,6 +81,9 @@
       "title": "Capacity",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -82,6 +91,9 @@
       "title": "AMI",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -89,6 +101,9 @@
       "title": "On-demand price/h",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -96,6 +111,9 @@
       "title": "Price/h",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -103,6 +121,9 @@
       "title": "Price/month",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     },
     {
@@ -110,6 +131,9 @@
       "title": "Launched",
       "kinds": [
         "Node"
+      ],
+      "presets": [
+        "AWS"
       ]
     }
   ],

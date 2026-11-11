@@ -67,7 +67,7 @@ class AwsPlugin(Plugin):
     id = "aws"
     name = "AWS Plugin"
     version = "0.1"
-    requires_api = 9
+    requires_api = 10
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
                    "China region prices use the AWS Price List API and need AWS credentials with "
@@ -78,14 +78,14 @@ class AwsPlugin(Plugin):
         Column("aws_state", "AWS state", kinds=INFRA_KINDS),
         Column("aws_region", "AWS region", kinds=INFRA_KINDS),
         Column("aws_details", "AWS details", kinds=INFRA_KINDS),
-        Column("instance_id", "Instance ID"),
-        Column("instance_type", "Instance type"),
-        Column("capacity", "Capacity"),
-        Column("ami", "AMI"),
-        Column("price_od", "On-demand price/h", format=per_hour),
-        Column("price_now", "Price/h", format=per_hour),
-        Column("price_month", "Price/month", format=per_month),
-        Column("launched", "Launched", format=when),
+        Column("instance_id", "Instance ID", presets=("AWS",)),
+        Column("instance_type", "Instance type", presets=("AWS",)),
+        Column("capacity", "Capacity", presets=("AWS",)),
+        Column("ami", "AMI", presets=("AWS",)),
+        Column("price_od", "On-demand price/h", format=per_hour, presets=("AWS",)),
+        Column("price_now", "Price/h", format=per_hour, presets=("AWS",)),
+        Column("price_month", "Price/month", format=per_month, presets=("AWS",)),
+        Column("launched", "Launched", format=when, presets=("AWS",)),
     )
     actions = (
         Action("resource-details", "AWS infrastructure details…", kinds=INFRA_KINDS),

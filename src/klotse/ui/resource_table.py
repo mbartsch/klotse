@@ -3,7 +3,7 @@ import re
 import time
 
 from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.clone import COPYABLE
@@ -205,10 +205,22 @@ class ResourceTable(QWidget):
         self.more_button.setVisible(False)
         self.more_button.clicked.connect(self.more_requested.emit)
         top.addWidget(self.more_button)
+<<<<<<< HEAD
         fit_button = QPushButton("Fit columns")
         fit_button.setToolTip("Fit column widths to their contents")
         fit_button.clicked.connect(self.fit_columns)
         top.addWidget(fit_button)
+=======
+        self.presets = None
+        self._preset_columns = {}
+        if kind == "Node":
+            self.presets = QComboBox()
+            self.presets.setAccessibleName("Node column preset")
+            self.presets.setToolTip("Choose which node columns to show")
+            self.presets.addItems(["Core", "All"])
+            self.presets.currentTextChanged.connect(self._apply_preset)
+            top.addWidget(self.presets)
+>>>>>>> c08b5e8 (Add plugin-contributed node column presets)
         self.customize_button = None
         if customizable:  # Node and Pod lists: pick which labels become columns
             self.customize_button = QPushButton("Columns…")
@@ -270,6 +282,7 @@ class ResourceTable(QWidget):
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.loading_page)
         lay.addWidget(self.stack, 1)
+        self._apply_preset()
 
     def set_page_title(self, title):
         """Workspace lists have a heading; embedded overview lists stay compact."""
@@ -686,6 +699,30 @@ class ResourceTable(QWidget):
             if column[1].startswith("plugin:") and self.view.columnWidth(index) > 240:
                 self.view.setColumnWidth(index, 240)
 
+    def set_plugin_presets(self, presets):
+        if self.presets is None:
+            return
+        current = self.presets.currentText()
+        self._preset_columns = {name: set(cols) for name, cols in presets.items()}
+        self.presets.blockSignals(True)
+        self.presets.clear()
+        self.presets.addItems(["Core", "All"] + sorted(name for name in presets if name not in ("Core", "All")))
+        index = self.presets.findText(current)
+        self.presets.setCurrentIndex(index if index >= 0 else 0)
+        self.presets.blockSignals(False)
+        self._apply_preset()
+
+    def _apply_preset(self, *_):
+        if self.presets is None:
+            return
+        name = self.presets.currentText()
+        core = {"name", "status", "roles", "pods", "cpu", "memory", "age"}
+        included = core | self._preset_columns.get("Core", set())
+        if name not in ("Core", "All"):
+            included |= self._preset_columns.get(name, set())
+        for i, column in enumerate(self.model.columns):
+            self.view.setColumnHidden(i, name != "All" and column[1] not in included and not column[1].startswith(("label:", "annotation:")))
+
     def set_extra_columns(self, columns):
         """Columns added by plugins, after the built-in ones. They take part in the saved layout (order, hidden)
         and the Columns… dialog like any built-in column."""
@@ -726,6 +763,7 @@ class ResourceTable(QWidget):
         sort_column = header.sortIndicatorSection()
         sort_attr = self.model.columns[sort_column][1] if 0 <= sort_column < len(self.model.columns) else None
         sort_order = header.sortIndicatorOrder()
+<<<<<<< HEAD
         selection = self.view.selectionModel()
         was_blocked = selection.blockSignals(True)
         try:
@@ -745,6 +783,14 @@ class ResourceTable(QWidget):
         finally:
             selection.blockSignals(was_blocked)
         self._update_selection_count(emit_empty=False)
+=======
+        self.model.set_columns(columns)
+        self._refresh_filter_completions()
+        new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
+        self.view.sortByColumn(new_sort, sort_order)
+        self.view.resizeColumnsToContents()
+        self._apply_preset()
+>>>>>>> c08b5e8 (Add plugin-contributed node column presets)
 
     def set_header_widget(self, widget):
         """Put a widget (e.g. an action bar) above the filter box."""
