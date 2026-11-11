@@ -281,8 +281,9 @@ class PluginsPanel(QWidget):
         self.error.setText(("Retrying plugin: " if found.loading else "Problem: ") + problem if problem else
                            ("Loading plugin..." if found and found.loading else ""))
         self.dismiss_error.setVisible(bool(problem))
-        can_retry = bool(found and (found.loader or (found.plugin and self.manager.is_enabled(found.id) and
-                         (found.plugin.columns or found.plugin.overview_cards))))
+        can_retry = bool(found and ((found.plugin is None and found.manifest is not None and found.loader) or
+                         (found.plugin and self.manager.is_enabled(found.id) and
+                          (found.plugin.columns or found.plugin.overview_cards))))
         self.retry_error.setVisible(bool(problem) and can_retry)
         self.retry_error.setEnabled(bool(found and not found.loading))
 
