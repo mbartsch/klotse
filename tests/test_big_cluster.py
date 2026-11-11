@@ -505,7 +505,9 @@ def test_a_failed_table_read_is_written_to_the_timing_log(tmp_path, monkeypatch)
 def test_the_remaining_pages_load_by_themselves_when_the_user_is_idle(qtbot):
     ws, _service = huge_workspace(qtbot, 7)
     ws.pod_idle_s = 0.05
-    ws.pod_table.show()
+    ws._show_view("pods")  # open the real tab; the fake pager's first page is supplied below
+    ws.show()
+    qtbot.waitUntil(ws.pod_table.isVisible)
     ws._pods_loaded(ws._read_pods(None))
     assert ws.pod_table.model.rowCount() == 2
     qtbot.waitUntil(lambda: ws.pod_table.model.rowCount() == 7, timeout=8000)  # pages of 2, with no click on Load more
@@ -515,7 +517,9 @@ def test_the_remaining_pages_load_by_themselves_when_the_user_is_idle(qtbot):
 def test_loading_waits_while_the_user_is_working_in_the_list(qtbot):
     ws, _service = huge_workspace(qtbot, 7)
     ws.pod_idle_s = 0.2
-    ws.pod_table.show()
+    ws._show_view("pods")  # open the real tab; the fake pager's first page is supplied below
+    ws.show()
+    qtbot.waitUntil(ws.pod_table.isVisible)
     ws._pods_loaded(ws._read_pods(None))
     for _ in range(6):  # a click or key every 80 ms keeps the list "in use"
         ws.note_pod_input()

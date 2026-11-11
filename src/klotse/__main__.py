@@ -1,3 +1,4 @@
+import ctypes
 import os
 import sys
 from threading import Timer
@@ -15,7 +16,19 @@ from .ui.main_window import MainWindow
 THREAD_GRACE_MS = 1000  # how long a thread that is winding down may take before the process stops waiting for it
 
 
-def leave(status, threads=None, hard_exit=os._exit, grace_ms=THREAD_GRACE_MS):
+def _hard_exit(status):
+    """Stop immediately without running DLL teardown while a Qt thread is still blocked (Windows)."""
+    if sys.platform == "win32":
+        # os._exit still reaches Windows process/DLL teardown, where Qt can crash if a QThread is active.
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        if kernel32.TerminateProcess(kernel32.GetCurrentProcess(), status):
+            return
+    os._exit(status)
+
+
+def leave(status, threads=None, hard_exit=None, grace_ms=THREAD_GRACE_MS):
     """End the process once the event loop has returned.
 
     A QThread that is still running when Python tears down is destroyed mid-run: Qt prints "QThread: Destroyed while
@@ -33,7 +46,7 @@ def leave(status, threads=None, hard_exit=os._exit, grace_ms=THREAD_GRACE_MS):
             stream.flush()
         except (AttributeError, OSError, ValueError):
             pass  # a packaged Windows app has no console streams
-    hard_exit(status)
+    (hard_exit or _hard_exit)(status)
 
 
 def main(argv=None):
@@ -59,7 +72,7 @@ def main(argv=None):
         if exit_timer is None:
             # Qt waits for running QRunnables during teardown. A blocked API or
             # credential helper cannot be safely interrupted; bound process exit.
-            exit_timer = Timer(3.0, lambda: os._exit(0))
+            exit_timer = Timer(3.0, lambda: _hard_exit(0))
             exit_timer.daemon = True
             exit_timer.start()
 

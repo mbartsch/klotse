@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeyEvent, QTextCursor
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor
 
 from klotse.ui.edit_dialog import EditDialog
 from klotse.ui.workspace import ClusterWorkspace
@@ -87,7 +86,10 @@ def test_ctrl_space_opens_the_popup_and_choosing_inserts_the_field(qtbot):
     dialog.show()
     dialog.help.set_schema(DOC, "Deployment", "apps/v1")
     put_cursor(dialog, typed.splitlines().index("        im"))
-    QApplication.sendEvent(dialog.editor, QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.ControlModifier))
+    try:
+        qtbot.keyClick(dialog.editor, Qt.Key_Space, Qt.ControlModifier)
+    finally:
+        qtbot.keyRelease(dialog.editor, Qt.Key_Control)  # the shortcut's modifier must not affect later row selections
     assert dialog.help.completer.popup().isVisible() and dialog.help.model.stringList() == ["image  (string)"]
     dialog.help._insert("image  (string)")
     assert "        image: \n" in dialog.editor.toPlainText() and "\n        im\n" not in dialog.editor.toPlainText()

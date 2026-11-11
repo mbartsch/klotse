@@ -44,6 +44,7 @@ class MetricsDialog(QDialog):
         self.history, self.started = mh.History(), time.time()
         self._busy, self._closed, self._errors = False, False, 0
         self.fetch_remote, self.remote_label, self.remote_note = None, "", ""
+        self._status_text = ""
         self.object_options = dict(object_options or {})
         self.cpu_chart = LineChart("CPU", mh.format_cores)
         self.mem_chart = LineChart("Memory", mh.format_mib)
@@ -115,7 +116,7 @@ class MetricsDialog(QDialog):
             self.timer.start()
             self.sample()  # the first point now, not after the first interval
         else:
-            self.status.setText("This cluster does not serve the metrics API (metrics.k8s.io), so there is nothing to chart from metrics-server. "
+            self._set_status("This cluster does not serve the metrics API (metrics.k8s.io), so there is nothing to chart from metrics-server. "
                                 "Install it, or use Source… to point at a Prometheus or VictoriaMetrics service.")
 
     def _set_hovered_line(self, name):
@@ -156,13 +157,26 @@ class MetricsDialog(QDialog):
 
     def clear_prometheus(self):
         """Stop offering the Prometheus source (back to metrics-server)."""
+        self.set_source_note("")
         index = self.source_box.findData(REMOTE)
         if index >= 0:
             self.source_box.setCurrentIndex(0)
             self.source_box.removeItem(index)
         self.fetch_remote, self.remote_label = None, ""
 
+    def set_source_note(self, message):
+        """Keep a source-validation problem visible while sampled readings continue to update the chart."""
+        self.remote_note = message
+        self._set_status(self._status_text)
+
+    def _set_status(self, text):
+        self._status_text = text
+        if self.remote_note and self.mode() == SAMPLED:
+            text = f"{text}\n{self.remote_note}" if text else self.remote_note
+        self.status.setText(text)
+
     def _source_changed(self):
+        self.set_source_note("")
         remote = self.mode() == REMOTE
         self.range_box.setEnabled(remote)
         self.pause_button.setEnabled(True)
@@ -205,7 +219,7 @@ class MetricsDialog(QDialog):
         if self._busy or self._closed or self.mode() != REMOTE or self.fetch_remote is None:
             return
         seconds, fetch = self.range_box.currentData(), self.fetch_remote
-        self.status.setText(f"Asking {self.remote_label}…")
+        self._set_status(f"Asking {self.remote_label}…")
         self._start(lambda: fetch(seconds), self._got_remote, lambda message: self._failed(self.remote_label, message))
 
     def _got(self, sample):
@@ -227,7 +241,7 @@ class MetricsDialog(QDialog):
         self.mem_chart.set_data(mem, self.refs.get("mem"), placeholder=empty)
         self._refresh_object_menu()
         points = max((len(p) for p in list(cpu.values()) + list(mem.values())), default=0)
-        self.status.setText(f"Prometheus / VictoriaMetrics · {self.remote_label} · {self.range_box.currentText().lower()} · {points} points per line"
+        self._set_status(f"Prometheus / VictoriaMetrics · {self.remote_label} · {self.range_box.currentText().lower()} · {points} points per line"
                             f" · every {REFRESH_S} s" + (" · paused" if self.pause_button.isChecked() else ""))
 
     def _failed(self, source, message):
@@ -235,7 +249,7 @@ class MetricsDialog(QDialog):
         if self._closed:
             return
         self._errors += 1
-        self.status.setText(f"Could not read {source}: {message.splitlines()[0] if message else 'failed'}")
+        self._set_status(f"Could not read {source}: {message.splitlines()[0] if message else 'failed'}")
 
     def _pause(self, paused):
         if paused:
@@ -262,7 +276,7 @@ class MetricsDialog(QDialog):
             count = self.history.count()
             first = self.history.first_time()
             since = time.strftime("%H:%M:%S", time.localtime(first if first else self.started))
-            self.status.setText(f"metrics-server · {count} sample{'s' if count != 1 else ''} since {since} · every {self.interval_s:g} s"
+            self._set_status(f"metrics-server · {count} sample{'s' if count != 1 else ''} since {since} · every {self.interval_s:g} s"
                                 + (" · paused" if self.pause_button.isChecked() else ""))
 
     def done(self, result):
