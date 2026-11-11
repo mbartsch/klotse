@@ -54,7 +54,8 @@ def test_summary_scroll_resets_for_new_object_but_survives_refresh(qtbot):
     def row(name):
         return SimpleNamespace(raw={"kind": "Pod", "metadata": {"name": name, "uid": name,
                                "labels": {"key": "value"}, "annotations": {"a": "b"}},
-                               "spec": {}, "status": {}}, name=name, table_kind="Pod")
+                               "spec": {}, "status": {}}, name=name, table_kind="Pod",
+                               secret_data={"token": "encoded"})
     panel.show_row(row("one"))
     panel.show()
     for button, _ in panel.metadata_controls.values():

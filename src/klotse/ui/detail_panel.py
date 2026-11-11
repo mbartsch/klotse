@@ -318,8 +318,8 @@ class DetailPanel(QWidget):
         self._decoded_keys.clear()
         self.hide_values_button.hide()
         self.decode_list.clear()
-        for key in sorted(self._secret_data):
-            item = QListWidgetItem(key)
+        for secret_key in sorted(self._secret_data):
+            item = QListWidgetItem(secret_key)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Unchecked)
             self.decode_list.addItem(item)
