@@ -208,7 +208,8 @@
       "default": "",
       "kind": "multiline",
       "help": "Clusters in other accounts need their own profile. One per line, as context = profile; the context is the cluster's name in your kubeconfig. A cluster that is not listed uses the default profile above.",
-      "pattern": ""
+      "pattern": "",
+      "section": "Per-cluster overrides"
     },
     {
       "key": "keys_warning",
@@ -216,23 +217,26 @@
       "default": "",
       "kind": "note",
       "help": "",
-      "pattern": ""
+      "pattern": "",
+      "section": "Credentials"
     },
     {
       "key": "access_key_id",
       "label": "AWS access key ID (optional)",
       "default": "",
       "kind": "text",
-      "help": "Instead of a profile. Needs the secret access key too. When both are filled in they are used for every cluster and replace all profiles. Read the warning above first.",
-      "pattern": ""
+      "help": "Instead of a profile. Needs the secret access key too. When both are filled in they are used for every cluster and replace all profiles. Read the storage warning below.",
+      "pattern": "",
+      "section": "Credentials"
     },
     {
       "key": "secret_access_key",
       "label": "AWS secret access key",
       "default": "",
       "kind": "password",
-      "help": "Saved as plain text in the settings file. Read the warning above first.",
-      "pattern": ""
+      "help": "Saved as plain text in the settings file. Read the storage warning below.",
+      "pattern": "",
+      "section": "Credentials"
     },
     {
       "key": "session_token",
@@ -240,7 +244,8 @@
       "default": "",
       "kind": "password",
       "help": "Only for temporary keys (access key IDs starting with ASIA). Leave empty for long-lived keys. Temporary keys expire: paste new ones here when they do.",
-      "pattern": ""
+      "pattern": "",
+      "section": "Credentials"
     },
     {
       "key": "multi_account",
@@ -280,7 +285,8 @@
       "default": "",
       "kind": "multiline",
       "help": "Which account a cluster is in, one per line as context = 123456789012. Only needed when the context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id).",
-      "pattern": ""
+      "pattern": "",
+      "section": "Per-cluster overrides"
     }
   ],
   "cluster_settings": [
