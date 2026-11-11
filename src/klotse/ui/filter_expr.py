@@ -326,8 +326,12 @@ def server_selectors(expression, kind):
         if label_key:
             # Kubernetes label keys are qualified names. Avoid sending malformed selectors.
             part = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
-            if (len(label_key) <= 317 and re.fullmatch(part + r"(?:/" + part + r")?", label_key)
-                    and len(label_key.rsplit("/", 1)[-1]) <= 63):
+            prefix, separator, key_name = label_key.partition("/")
+            prefix_ok = (not separator or (len(prefix) <= 253 and prefix == prefix.lower()
+                                           and all(re.fullmatch(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?", part_name)
+                                                   for part_name in prefix.split("."))))
+            if (len(label_key) <= 317 and prefix_ok and re.fullmatch(part, key_name)
+                    and len(key_name) <= 63):
                 labels.add(label_key)
             continue
 
@@ -358,18 +362,14 @@ def server_selectors(expression, kind):
                     r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?", value):
                 continue
         elif field == "status.phase":
-            allowed = {"pending": "Pending", "running": "Running", "succeeded": "Succeeded",
-                       "failed": "Failed", "unknown": "Unknown"}
+            allowed = ({"active": "Active", "terminating": "Terminating"} if kind == "Namespace" else
+                       {"pending": "Pending", "running": "Running", "succeeded": "Succeeded",
+                        "failed": "Failed", "unknown": "Unknown"})
             value = allowed.get(value.lower(), "")
             if not value:
                 continue
         elif field == "spec.restartpolicy":
             allowed = {"always": "Always", "onfailure": "OnFailure", "never": "Never"}
-            value = allowed.get(value.lower(), "")
-            if not value:
-                continue
-        elif field == "status.phase" and kind == "Namespace":
-            allowed = {"active": "Active", "terminating": "Terminating"}
             value = allowed.get(value.lower(), "")
             if not value:
                 continue
