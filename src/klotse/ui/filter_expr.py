@@ -340,9 +340,10 @@ def server_selectors(expression, kind):
             field = "metadata.name"
         elif lowered in ("namespace", "metadata.namespace"):
             field = "metadata.namespace"
-        elif kind == "Pod" and lowered in ("status.phase", "spec.nodename", "spec.restartpolicy",
-                                             "spec.schedulername", "spec.serviceaccountname"):
-            field = lowered
+        elif kind == "Pod":
+            field = {"status.phase": "status.phase", "spec.nodename": "spec.nodeName",
+                     "spec.restartpolicy": "spec.restartPolicy", "spec.schedulername": "spec.schedulerName",
+                     "spec.serviceaccountname": "spec.serviceAccountName"}.get(lowered)
         elif kind == "Node" and lowered == "spec.unschedulable":
             field = lowered
         elif kind == "Namespace" and lowered == "status.phase":
@@ -361,23 +362,23 @@ def server_selectors(expression, kind):
             if value != value.lower() or not re.fullmatch(
                     r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?", value):
                 continue
-        elif field == "status.phase":
+        elif field.lower() == "status.phase":
             allowed = ({"active": "Active", "terminating": "Terminating"} if kind == "Namespace" else
                        {"pending": "Pending", "running": "Running", "succeeded": "Succeeded",
                         "failed": "Failed", "unknown": "Unknown"})
             value = allowed.get(value.lower(), "")
             if not value:
                 continue
-        elif field == "spec.restartpolicy":
+        elif field.lower() == "spec.restartpolicy":
             allowed = {"always": "Always", "onfailure": "OnFailure", "never": "Never"}
             value = allowed.get(value.lower(), "")
             if not value:
                 continue
-        elif field == "spec.unschedulable":
+        elif field.lower() == "spec.unschedulable":
             value = value.lower()
             if value not in ("true", "false"):
                 continue
-        elif field in ("spec.nodename", "spec.schedulername", "spec.serviceaccountname"):
+        elif field.lower() in ("spec.nodename", "spec.schedulername", "spec.serviceaccountname"):
             if value != value.lower() or not re.fullmatch(r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?", value):
                 continue
         fields.append(f"{field}{'!=' if op == '!=' else '='}{value}")
