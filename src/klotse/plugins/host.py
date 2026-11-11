@@ -36,6 +36,7 @@ class PluginHost(QObject):
         self._overview_due = {}  # plugin id -> compute the cards again at this time
         self._overview_busy = False
         self._pending_slots = set()
+        self._pending_resources = {}
         self._pending_overview = None
         self._retry_overview_ids = set()
 
@@ -55,6 +56,8 @@ class PluginHost(QObject):
                 stale = entry is not None and entry[2] is not None and now >= entry[2]
                 if entry is None or entry[0] != info.uid or stale:
                     due.append(info)
+            if slot in self._pending_slots:
+                self._pending_resources[slot] = due
             if due and slot not in self._busy and now >= self._retry_at.get(slot, 0):
                 self._start(plugin, kind, due)
         self.apply(kind, rows)
@@ -82,8 +85,9 @@ class PluginHost(QObject):
             if slot not in self._pending_slots:
                 return False
             self._pending_slots.discard(slot)
-            if plugin in self.manager.enabled_for(kind):
-                self._start(plugin, kind, request.resources)
+            resources = self._pending_resources.pop(slot, request.resources)
+            if resources and plugin in self.manager.enabled_for(kind):
+                self._start(plugin, kind, resources)
             return True
 
         def done(result):

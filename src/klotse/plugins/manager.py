@@ -425,6 +425,15 @@ class PluginManager(QObject):
             self.errors.pop(plugin_id, None)
         self.errors_changed.emit()
 
+    def has_retryable_error(self, plugin_id):
+        """Whether a recorded background failure can be retried from Preferences."""
+        return any(isinstance(scope, tuple) and len(scope) > 1 and scope[1] in ("enrich", "overview")
+                   for scope in self._error_scopes.get(plugin_id, {}))
+
+    def has_action_error(self, plugin_id):
+        return any(isinstance(scope, tuple) and len(scope) > 1 and scope[1] == "action"
+                   for scope in self._error_scopes.get(plugin_id, {}))
+
     def dismiss_error(self, plugin_id):
         """Dismiss the stored message for one plugin; this does not repair the plugin."""
         self.errors.pop(plugin_id, None)

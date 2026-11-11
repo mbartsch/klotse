@@ -98,12 +98,14 @@ class PluginActionRunner(QObject):
 
     def _done(self, plugin, action, result):
         results = [] if result is None else list(result) if isinstance(result, (list, tuple)) else [result]
+        if not any(isinstance(item, Message) and item.level == "error" for item in results):
+            self.ws.plugins.clear_error(plugin.id, scope=(self.ws.context, "action", action.key))
         for item in results:
             self._carry_out(plugin, action, item)
 
     def _failed(self, plugin, action, message):
         label = plugin.name or plugin.id
-        self.ws.plugins.record_error(plugin.id, f"{action.title}: {message}")
+        self.ws.plugins.record_error(plugin.id, f"{action.title}: {message}", scope=(self.ws.context, "action", action.key))
         self.note(f"{label}: {action.title} failed: {message}")
         QMessageBox.warning(self.ws, f"Plugin {label}", f"{action.title} failed:\n\n{message}")
 

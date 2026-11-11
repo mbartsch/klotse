@@ -662,3 +662,25 @@ def test_success_in_one_cluster_does_not_clear_another_clusters_error(qtbot, tmp
     assert manager.errors[plugin.id] == "cluster a overview failed"
     manager.dismiss_error(plugin.id)
     assert plugin.id not in manager.errors
+
+
+def test_retry_during_inflight_uses_latest_rows(qtbot, tmp_path):
+    host, plugin, run, _, _ = host_for(tmp_path)
+    host.rows_loaded("Node", [node("old")])
+    host.retry(plugin.id)
+    host.rows_loaded("Node", [node("new")])
+    run.finish()
+    run.finish()
+    assert [r.name for r in plugin.requests[-1].resources] == ["new"]
+
+
+def test_action_failure_prompts_user_to_retry_original_action(qtbot, tmp_path):
+    plugin = Zone()
+    manager = manager_with(tmp_path, plugin)
+    manager.record_error(plugin.id, "action failed", scope=("cluster-a", "action", "open"))
+    dialog = dialog_for(qtbot, manager)
+    assert dialog.retry_error.isHidden()
+    assert "original menu" in dialog.error.text()
+    manager.record_error(plugin.id, "different cluster failed", scope=("cluster-b", "action", "open"))
+    manager.clear_error(plugin.id, scope=("cluster-a", "action", "open"))
+    assert manager.errors[plugin.id] == "different cluster failed"
