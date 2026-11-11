@@ -28,6 +28,8 @@ def test_right_clicking_the_navigator_logo_does_not_open_the_main_window_popup(q
     qtbot.addWidget(win)
     logo = win.findChild(QLabel, "klotseLogo")
     title = win.findChild(QWidget, "navigatorBrand")
+    assert win.createPopupMenu() is None
+
     opened = []
     monkeypatch.setattr(win, "createPopupMenu", lambda: opened.append(True))
 
