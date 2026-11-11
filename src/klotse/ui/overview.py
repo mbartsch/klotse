@@ -417,7 +417,7 @@ class OverviewView(QWidget):
         self.nodes_table.setMaximumHeight(190)
         self.nodes_table.itemSelectionChanged.connect(self._node_selection_changed)
         self.nodes_table.itemActivated.connect(self._open_node_item)
-        node_panel, node_layout = self._panel("Node health", "Ready state and live resource use")
+        node_panel, node_layout = self._panel("Node health", "Not-ready first, then highest CPU or memory use")
         node_panel.setMaximumWidth(680)
         node_panel_head = node_layout.itemAt(0).layout()
         self.all_nodes_button = QPushButton("All nodes")
@@ -723,7 +723,14 @@ class OverviewView(QWidget):
     def _set_nodes(self, nodes):
         self.nodes_table.clearContents()
         self.nodes_table.setRowCount(0)
-        ordered = sorted(nodes, key=lambda node: (0 if not node.is_ready else 1, node.name.casefold()))
+        def priority(node):
+            usage = [used / total for used, total in ((node.cpu_used, node.cpu), (node.mem_used, node.memory))
+                     if used >= 0 and total > 0]
+            highest = max(usage) if usage else -1
+            return (0 if not node.is_ready else 1, 0 if highest >= 0 else 1, -highest if highest >= 0 else 0,
+                    node.name.casefold())
+
+        ordered = sorted(nodes, key=priority)
         shown = ordered[:8]
         self._shown_nodes = {node.name: node for node in shown}
         self.nodes_table.setRowCount(len(shown))
@@ -747,7 +754,7 @@ class OverviewView(QWidget):
         for column, width in ((1, 56), (2, 52), (3, 57), (4, 38)):
             self.nodes_table.setColumnWidth(column, width)
         if len(ordered) > len(shown):
-            self.node_note.setText(f"Showing {len(shown)} of {len(ordered)} nodes · open All nodes to browse the full list.")
+            self.node_note.setText(f"Showing {len(shown)} of {len(ordered)} nodes, prioritizing NotReady and high use · open All nodes to browse the full list.")
         else:
             self.node_note.setText("Select a node to inspect it in Details; press Enter to open its node view.")
         self.node_note.show()
