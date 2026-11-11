@@ -499,17 +499,17 @@ class ClusterWorkspace(QMainWindow):
         self.loaders = {
             "overview": (lambda ns: svc().overview_cluster(), False, self._overview_loaded),
             "workloads": (lambda ns: svc().overview_workloads(ns), True, self.wl_overview.set_data),
-            "nodes": (lambda ns: svc().list_nodes(**self.node_table.api_filter_options()), False, self._set_nodes),
-            "namespaces": (lambda ns: svc().list_namespaces(**self.ns_table.api_filter_options()), False, self._set_namespaces),
-            "pods": (self._read_pods, True, self._pods_loaded),
-            "deployments": (lambda ns: svc().list_deployments(ns, **self.deploy_table.api_filter_options()), True, self.deploy_table.set_rows),
-            "replicasets": (lambda ns: svc().list_replicasets(ns, **self.rs_table.api_filter_options()), True, self.rs_table.set_rows),
-            "statefulsets": (lambda ns: svc().list_statefulsets(ns, **self.sts_table.api_filter_options()), True, self.sts_table.set_rows),
+            "nodes": (lambda ns, **options: svc().list_nodes(**options), False, self._set_nodes),
+            "namespaces": (lambda ns, **options: svc().list_namespaces(**options), False, self._set_namespaces),
+            "pods": (lambda ns, **options: self._read_pods(ns, **options), True, self._pods_loaded),
+            "deployments": (lambda ns, **options: svc().list_deployments(ns, **options), True, self.deploy_table.set_rows),
+            "replicasets": (lambda ns, **options: svc().list_replicasets(ns, **options), True, self.rs_table.set_rows),
+            "statefulsets": (lambda ns, **options: svc().list_statefulsets(ns, **options), True, self.sts_table.set_rows),
         }
         for spec in SPECS:
             table = T(spec.columns, spec.kind, editable=spec.editable)
             self.views[spec.key] = (table, spec.title)
-            self.loaders[spec.key] = (lambda ns, k=spec.key, t=table: svc().list_resource(k, ns, **t.api_filter_options()), spec.namespaced, table.set_rows)
+            self.loaders[spec.key] = (lambda ns, k=spec.key: svc().list_resource(k, ns), spec.namespaced, table.set_rows)
         # Helm releases, from the labels of their storage Secrets (no release data is read for the list)
         helm = T(HELM_COLUMNS, "HelmRelease", editable=False)
         self.views["helm-releases"] = (helm, "Helm releases")
@@ -541,9 +541,8 @@ class ClusterWorkspace(QMainWindow):
         if getattr(self, "_ready", False) and not self._closed and key in self.loaders:
             self.load_view(key)
 
-    def _read_pods(self, namespace):
+    def _read_pods(self, namespace, **options):
         """The Pods list loader. A huge cluster gets its first page only (see PodPager); the rest comes with Load more."""
-        options = self.pod_table.api_filter_options()
         make = getattr(self.service, "pod_pager", None)
         if self.big and self.huge and make is not None:
             pager = self._pod_pager = make(namespace, **options)
@@ -1111,7 +1110,7 @@ class ClusterWorkspace(QMainWindow):
             table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
             table.action_requested.connect(self._crd_action)
             self.views[key] = (table, f"CRDs: {group or '(core)'}")
-            self.loaders[key] = (lambda ns: [c for c in self.service.list_resource("crds", ns, **table.api_filter_options()) if (c.group or "") == group],
+            self.loaders[key] = (lambda ns, **options: [c for c in self.service.list_resource("crds", ns, **options) if (c.group or "") == group],
                                  False, table.set_rows)
             self._wire_api_filter(table)
             self._wire_refresh(table)
@@ -1143,11 +1142,11 @@ class ClusterWorkspace(QMainWindow):
             table.goto_requested.connect(self.go_to)
             self.views[key] = (table, f"{kind}")
             if special:
-                load = lambda ns: self.service.list_custom_objects(group, version, plural, namespaced, ns, kind,
-                                                                    **table.api_filter_options())
+                load = lambda ns, **options: self.service.list_custom_objects(group, version, plural, namespaced, ns, kind,
+                                                                    **options)
             else:
-                load = lambda ns: self.service.list_custom_objects(group, version, plural, namespaced, ns,
-                                                                    **table.api_filter_options())
+                load = lambda ns, **options: self.service.list_custom_objects(group, version, plural, namespaced, ns,
+                                                                    **options)
             self.loaders[key] = (load, namespaced, table.set_rows)
             self._wire_api_filter(table)
             self._wire_refresh(table)
@@ -1225,6 +1224,10 @@ class ClusterWorkspace(QMainWindow):
         if self._closed:
             return
         fetch, scoped, sink = self.loaders[key]
+        widget = self.views[key][0]
+        api_options = widget.api_filter_options() if isinstance(widget, ResourceTable) else {}
+        if api_options:
+            fetch = lambda ns, f=fetch, options=api_options: f(ns, **options)
         ns = self.namespace()
         namespace = None if (not scoped or ns == ALL_NS) else ns
         previous = self._loads.get(key, namespace)
@@ -1239,7 +1242,6 @@ class ClusterWorkspace(QMainWindow):
         serial = self._load_serial[key] = self._load_serial.get(key, 0) + 1
         self._loading.add(key)
         title = self.views[key][1]
-        widget = self.views[key][0]
         table = widget if isinstance(widget, (ResourceTable, OverviewView)) else None  # both show loading and errors
         if table is not None:
             table.set_loading()
@@ -2876,7 +2878,7 @@ class ClusterWorkspace(QMainWindow):
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
-            self.loaders[key] = (lambda _: self.service.list_node_pods(node, **table.api_filter_options()), False,
+            self.loaders[key] = (lambda _, **options: self.service.list_node_pods(node, **options), False,
                                  lambda rows, t=table, b=bar: (t.set_rows(rows), b.set_pods(rows)))
             self._wire_api_filter(table)
             self._wire_refresh(table)
