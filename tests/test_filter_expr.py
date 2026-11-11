@@ -92,10 +92,10 @@ def test_safe_server_selectors_keep_label_value_matching_client_side():
 
 
 def test_supported_field_selectors_use_kubernetes_field_names_and_values():
-    assert server_selectors(parse("Name = api-1"), "Deployment") == ("", "metadata.name=api-1")
-    assert server_selectors(parse("status.phase = running"), "Pod") == ("", "status.phase=Running")
-    assert server_selectors(parse("spec.nodeName = worker-1"), "Pod") == ("", "spec.nodeName=worker-1")
-    assert server_selectors(parse("status.phase = active"), "Namespace") == ("", "status.phase=Active")
+    assert server_selectors(parse("Name = 'api-1'"), "Deployment") == ("", "metadata.name=api-1")
+    assert server_selectors(parse("status.phase = 'running'"), "Pod") == ("", "status.phase=Running")
+    assert server_selectors(parse("spec.nodeName = 'worker-1'"), "Pod") == ("", "spec.nodeName=worker-1")
+    assert server_selectors(parse("status.phase = 'active'"), "Namespace") == ("", "status.phase=Active")
 
 
 def test_server_selectors_skip_unsafe_or_unsupported_terms():
