@@ -338,8 +338,6 @@ def server_selectors(expression, kind):
         field = None
         if lowered in ("name", "metadata.name"):
             field = "metadata.name"
-        elif lowered in ("namespace", "metadata.namespace"):
-            field = "metadata.namespace"
         elif kind == "Pod":
             field = {"status.phase": "status.phase", "spec.nodename": "spec.nodeName",
                      "spec.restartpolicy": "spec.restartPolicy", "spec.schedulername": "spec.schedulerName",
