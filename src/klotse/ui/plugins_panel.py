@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxL
 from . import theme
 
 WARNING = ("Plugins are code that runs with your permissions and can see everything Klotse shows. "
-           "Enable only plugins you trust. Changes on this page take effect immediately.")
+           "Enable only plugins you trust. Plugin changes are saved automatically, including when you close or cancel Preferences.")
 
 
 class PluginsPanel(QWidget):
@@ -41,8 +41,15 @@ class PluginsPanel(QWidget):
         details = QWidget()
         side = QVBoxLayout(details)
         side.setContentsMargins(8, 0, 0, 0)
-        for widget in (self.title, self.description, self.source, self.provides, self.error, self.settings_box):
-            side.addWidget(widget)
+        summary = QGroupBox("Plugin summary")
+        summary_layout = QVBoxLayout(summary)
+        for widget in (self.title, self.description, self.source, self.provides):
+            summary_layout.addWidget(widget)
+        side.addWidget(summary)
+        side.addWidget(self.settings_box)
+        self.section_boxes = {}
+        self.section_layout = QVBoxLayout()
+        side.addLayout(self.section_layout)
         side.addStretch(1)
         self.empty = QLabel("")
         self.empty.setWordWrap(True)
@@ -64,6 +71,7 @@ class PluginsPanel(QWidget):
         buttons.addStretch(1)
         layout = QVBoxLayout(self)
         layout.addWidget(warning)
+        layout.addWidget(self.error)  # status remains visible while settings scroll
         layout.addLayout(body, 1)
         layout.addWidget(self.empty)
         layout.addLayout(buttons)
@@ -164,6 +172,10 @@ class PluginsPanel(QWidget):
         while self.settings_form.rowCount():
             self.settings_form.removeRow(0)
         self.settings_box.setVisible(False)
+        for box, _form in self.section_boxes.values():
+            self.section_layout.removeWidget(box)
+            box.deleteLater()
+        self.section_boxes.clear()
         if found is None:
             for label in (self.title, self.description, self.source, self.provides, self.error):
                 label.clear()
@@ -177,13 +189,23 @@ class PluginsPanel(QWidget):
         if plugin is None:
             return
         values = self.manager.settings_for(plugin.id)
+        pending_notes = []
         for setting in plugin.settings:
+            if setting.section:
+                if setting.section not in self.section_boxes:
+                    box = QGroupBox(setting.section)
+                    form = QFormLayout(box)
+                    self.section_layout.addWidget(box)
+                    self.section_boxes[setting.section] = (box, form)
+                form = self.section_boxes[setting.section][1]
+            else:
+                form = self.settings_form
             if setting.kind == "note":  # a warning box that belongs to the settings below it; it holds no value
                 note = QLabel(setting.label)
                 note.setWordWrap(True)
                 note.setTextFormat(Qt.RichText)
                 note.setStyleSheet(theme.warning_style() + " padding:12px; font-size:14px;")
-                self.settings_form.addRow(note)
+                pending_notes.append((form, note))
                 continue
             if setting.kind == "bool":
                 box = QCheckBox(setting.label)
@@ -210,10 +232,19 @@ class PluginsPanel(QWidget):
             if setting.help:
                 widget.setToolTip(setting.help)
             if label:
-                self.settings_form.addRow(label, widget)
+                form.addRow(label, widget)
             else:
-                self.settings_form.addRow(widget)
-        self.settings_box.setVisible(bool(plugin.settings))
+                form.addRow(widget)
+            remaining = []
+            for note_form, note in pending_notes:
+                if note_form is form:
+                    note_form.addRow(note)
+                else:
+                    remaining.append((note_form, note))
+            pending_notes = remaining
+        for note_form, note in pending_notes:
+            note_form.addRow(note)
+        self.settings_box.setVisible(self.settings_form.rowCount() > 0)
 
     @staticmethod
     def _provides_text(plugin):

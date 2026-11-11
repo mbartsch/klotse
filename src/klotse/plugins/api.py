@@ -106,6 +106,7 @@ class Setting:
     kind: str = "text"
     help: str = ""
     pattern: str = ""  # cluster settings only: a regular expression a non-empty text value must match completely
+    section: str = ""  # optional heading in plugin preferences
 
 
 @dataclass

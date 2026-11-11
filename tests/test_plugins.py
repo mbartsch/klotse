@@ -545,3 +545,15 @@ def test_an_answer_with_warnings_is_asked_for_again_after_a_minute_not_after_ref
     clock[0] += 900
     host.rows_loaded("Node", [node("n1")])
     assert len(run.calls) == 1
+
+
+def test_plugins_page_explains_save_and_cancel(qtbot, tmp_path):
+    from PySide6.QtWidgets import QDialogButtonBox
+    manager = manager_with(tmp_path, Zone(), enabled=False)
+    dialog = PreferencesDialog(KubeconfigSettings(store(tmp_path)), tmp_path, plugins=manager)
+    qtbot.addWidget(dialog)
+    dialog.tabs.setCurrentWidget(dialog.plugins_panel)
+    assert dialog.buttons.button(QDialogButtonBox.Cancel).text() == "Cancel other changes"
+    dialog.plugins_panel.list.item(0).setCheckState(Qt.Checked)
+    dialog.reject()
+    assert manager.is_enabled("zone")

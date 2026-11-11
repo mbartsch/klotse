@@ -107,16 +107,16 @@ class AwsPlugin(Plugin):
                      "to skip EC2 metadata and Spot lookups; list-price lookup continues."),
         Setting("aws_profile", "AWS profile (default for all clusters)", "",
                 help="A profile from your AWS config. Empty uses the default credentials."),
-        Setting("profile_map", "AWS profile for each cluster", "", kind="multiline",
+        Setting("profile_map", "AWS profile for each cluster", "", kind="multiline", section="Per-cluster overrides",
                 help="Clusters in other accounts need their own profile. One per line, as context = profile; the context is "
                      "the cluster's name in your kubeconfig. A cluster that is not listed uses the default profile above."),
-        Setting("keys_warning", "<b style=\"font-size:16px\">Warning: a typed access key is stored unprotected</b><br>The key is saved as <b>plain text</b> in Klotse's settings file on this computer. Anyone who can read that file, this computer, or a backup or synced copy of it can use the key. <b>The Klotse authors accept no responsibility for any loss, cost or damage that results from using it</b>: this is your choice and your risk.<br>Prefer an AWS profile or IAM Identity Center (the AWS CLI keeps those safer). If you do use a key, make it a dedicated read-only one (EC2 describe and STS only), never a root or administrator key, and prefer temporary keys with a session token.", kind="note"),
-        Setting("access_key_id", "AWS access key ID (optional)", "",
+        Setting("keys_warning", "<b style=\"font-size:16px\">Warning: a typed access key is stored unprotected</b><br>The key is saved as <b>plain text</b> in Klotse's settings file on this computer. Anyone who can read that file, this computer, or a backup or synced copy of it can use the key. <b>The Klotse authors accept no responsibility for any loss, cost or damage that results from using it</b>: this is your choice and your risk.<br>Prefer an AWS profile or IAM Identity Center (the AWS CLI keeps those safer). If you do use a key, make it a dedicated read-only one (EC2 describe and STS only), never a root or administrator key, and prefer temporary keys with a session token.", kind="note", section="Credentials"),
+        Setting("access_key_id", "AWS access key ID (optional)", "", section="Credentials",
                 help="Instead of a profile. Needs the secret access key too. When both are filled in they are used for "
-                     "every cluster and replace all profiles. Read the warning above first."),
-        Setting("secret_access_key", "AWS secret access key", "", kind="password",
-                help="Saved as plain text in the settings file. Read the warning above first."),
-        Setting("session_token", "AWS session token (optional)", "", kind="password",
+                     "every cluster and replace all profiles. Read the storage warning below."),
+        Setting("secret_access_key", "AWS secret access key", "", kind="password", section="Credentials",
+                help="Saved as plain text in the settings file. See the access key storage warning."),
+        Setting("session_token", "AWS session token (optional)", "", kind="password", section="Credentials",
                 help="Only for temporary keys (access key IDs starting with ASIA). Leave empty for long-lived keys. "
                      "Temporary keys expire: paste new ones here when they do."),
         Setting("multi_account", "I use several AWS accounts in the console", False, kind="bool",
@@ -132,7 +132,7 @@ class AwsPlugin(Plugin):
                      "your browser, so there is no login page. The link is never shown, logged or kept. With several "
                      "accounts it assumes the role named above in the cluster's account. Not used with IAM Identity "
                      "Center, whose portal signs you in."),
-        Setting("account_map", "Account for each cluster", "", kind="multiline",
+        Setting("account_map", "Account for each cluster", "", kind="multiline", section="Per-cluster overrides",
                 help="Which account a cluster is in, one per line as context = 123456789012. Only needed when the "
                      "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
     )

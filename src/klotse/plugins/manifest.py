@@ -58,7 +58,7 @@ def read_manifest(path):
                     raise ValueError("manifest kinds must be a non-empty list of resource kinds")
                 entry["kinds"] = tuple(entry["kinds"])
             item = cls(**entry)
-            for key in ("key", "title", "label", "help", "pattern", "kind"):
+            for key in ("key", "title", "label", "help", "pattern", "kind", "section"):
                 if hasattr(item, key) and not isinstance(getattr(item, key), str):
                     raise ValueError(f"manifest declaration {key} must be text")
             for key in ("multi", "dangerous"):

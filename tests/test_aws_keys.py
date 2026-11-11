@@ -71,3 +71,16 @@ def test_the_settings_page_hides_the_secret_and_shows_a_big_warning(qtbot, tmp_p
     assert len(hidden) == 2  # the secret access key and the session token
     notes = [label for label in panel.findChildren(QLabel) if "accept no responsibility" in label.text()]
     assert len(notes) == 1 and "plain text" in notes[0].text() and "read-only" in notes[0].text()
+
+
+def test_credentials_and_cluster_settings_have_separate_sections(qtbot, tmp_path):
+    manager = manager_for(tmp_path)
+    manager.loaded = [Loaded("aws", "bundled", "aws", AwsPlugin())]
+    panel = PluginsPanel(manager)
+    qtbot.addWidget(panel)
+    assert set(panel.section_boxes) == {"Credentials", "Per-cluster overrides"}
+    from PySide6.QtWidgets import QFormLayout
+    form = panel.section_boxes["Credentials"][1]
+    assert "access key ID" in form.itemAt(0, QFormLayout.ItemRole.LabelRole).widget().text()
+    assert "stored unprotected" in form.itemAt(1, QFormLayout.ItemRole.SpanningRole).widget().text()
+    assert panel.layout().indexOf(panel.error) >= 0
