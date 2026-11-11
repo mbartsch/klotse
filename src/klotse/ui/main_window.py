@@ -538,9 +538,7 @@ class MainWindow(QMainWindow):
             return
         if not background:
             self._cancel_connection_retry(ctx)
-            prompt = self._connection_prompts.pop(ctx, None)
-            if prompt is not None:
-                prompt.close()
+            self._clear_connection_prompt(ctx)
         if ctx in self.workspaces:
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
@@ -1126,6 +1124,10 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Cannot save preferences", str(error))
             return False
+        for ctx in list(self._connection_retries):
+            self._cancel_connection_retry(ctx)
+        for ctx in list(self._connection_prompts):
+            self._clear_connection_prompt(ctx)
         for ctx in list(self.workspaces):
             self._discard(ctx)
         contexts, _ = self.new_service().load_contexts()
@@ -1231,6 +1233,12 @@ class MainWindow(QMainWindow):
             current[0].stop()
             current[0].deleteLater()
 
+    def _clear_connection_prompt(self, ctx):
+        box = self._connection_prompts.pop(ctx, None)
+        if box is not None:
+            box.close()
+            box.deleteLater()
+
     def _cancel_background_connection(self, ctx):
         self._cancel_connection_retry(ctx)
         if ctx in self.workspaces and not self.workspaces[ctx]._ready:
@@ -1293,9 +1301,8 @@ class MainWindow(QMainWindow):
         self._shutting_down = True
         for ctx in list(self._connection_retries):
             self._cancel_connection_retry(ctx)
-        for box in list(self._connection_prompts.values()):
-            box.close()
-        self._connection_prompts.clear()
+        for ctx in list(self._connection_prompts):
+            self._clear_connection_prompt(ctx)
         self.closing.emit()
         for ws in self.workspaces.values():
             ws.shutdown()

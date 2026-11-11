@@ -622,6 +622,45 @@ def test_cancelling_inflight_retry_drops_late_failure(qtbot):
     assert "bad" not in win._connection_prompts
 
 
+def test_kubeconfig_switch_cancels_pending_retries_and_prompts(qtbot, monkeypatch):
+    from PySide6.QtCore import QTimer
+
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    win.open_cluster("bad")
+    qtbot.waitUntil(lambda: "bad" in win._connection_prompts, timeout=5000)
+    box = win._connection_prompts["bad"]
+    timer = QTimer(win, singleShot=True)
+    win._connection_retries["b"] = (timer, 0)
+    win._schedule_connection_retry("b")
+    monkeypatch.setattr(win.kubeconfig_settings, "set_path", lambda path: None)
+    assert win.apply_kubeconfig("new-config")
+    assert win.contexts == ["a", "b", "bad"]
+    assert not win._connection_retries and not timer.isActive()
+    assert not win._connection_prompts and not box.isVisible()
+    assert not win.workspaces
+
+
+def test_failed_kubeconfig_switch_keeps_retry_and_prompt(qtbot, monkeypatch):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
+
+    win = MainWindow(MultiService)
+    qtbot.addWidget(win)
+    win.open_cluster("bad")
+    qtbot.waitUntil(lambda: "bad" in win._connection_prompts, timeout=5000)
+    timer = QTimer(win, singleShot=True)
+    win._connection_retries["b"] = (timer, 0)
+    win._schedule_connection_retry("b")
+    def fail(_path):
+        raise OSError("cannot save")
+    monkeypatch.setattr(win.kubeconfig_settings, "set_path", fail)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+    assert not win.apply_kubeconfig("new-config")
+    assert "bad" in win._connection_prompts and timer.isActive()
+    win._cancel_connection_retry("b")
+
+
 def _pod(name, status="Running", ready="1/1", issue="", deleting=False):
     return {"name": name, "status": status, "ready": ready, "restarts": 0, "issue": issue, "deleting": deleting}
 
