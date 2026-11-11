@@ -189,7 +189,7 @@ class PluginsPanel(QWidget):
         if plugin is None:
             return
         values = self.manager.settings_for(plugin.id)
-        pending_note = None
+        pending_notes = []
         for setting in plugin.settings:
             if setting.section:
                 if setting.section not in self.section_boxes:
@@ -205,7 +205,7 @@ class PluginsPanel(QWidget):
                 note.setWordWrap(True)
                 note.setTextFormat(Qt.RichText)
                 note.setStyleSheet(theme.warning_style() + " padding:12px; font-size:14px;")
-                pending_note = note
+                pending_notes.append((form, note))
                 continue
             if setting.kind == "bool":
                 box = QCheckBox(setting.label)
@@ -235,11 +235,15 @@ class PluginsPanel(QWidget):
                 form.addRow(label, widget)
             else:
                 form.addRow(widget)
-            if pending_note is not None:
-                form.addRow(pending_note)
-                pending_note = None
-        if pending_note is not None:
-            self.settings_form.addRow(pending_note)
+            remaining = []
+            for note_form, note in pending_notes:
+                if note_form is form:
+                    note_form.addRow(note)
+                else:
+                    remaining.append((note_form, note))
+            pending_notes = remaining
+        for note_form, note in pending_notes:
+            note_form.addRow(note)
         self.settings_box.setVisible(self.settings_form.rowCount() > 0)
 
     @staticmethod

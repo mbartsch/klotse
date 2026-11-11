@@ -96,3 +96,23 @@ def test_a_changed_setting_makes_the_open_lists_ask_the_plugin_again(qtbot, tmp_
     assert plugin.seen == ["a = 1", "prod = other-profile"]
     col = [c[1] for c in ws.node_table.model.columns].index("plugin:mapped:v")
     assert ws.node_table.model.index(0, col).data() == "prod = other-profile"
+
+
+def test_consecutive_and_final_notes_remain_in_their_declared_sections(qtbot, tmp_path):
+    class Notes(Plugin):
+        id = "notes"
+        name = "Notes"
+        settings = (Setting("a", "First note", kind="note", section="Credentials"),
+                    Setting("b", "Second note", kind="note", section="Credentials"),
+                    Setting("key", "Key", section="Credentials"),
+                    Setting("last", "Final note", kind="note", section="Overrides"))
+    manager = manager_for(tmp_path)
+    manager.loaded = [Loaded("notes", "bundled", "notes", Notes())]
+    panel = PluginsPanel(manager)
+    qtbot.addWidget(panel)
+    credentials = panel.section_boxes["Credentials"][1]
+    overrides = panel.section_boxes["Overrides"][1]
+    role = QFormLayout.ItemRole.SpanningRole
+    assert credentials.itemAt(1, role).widget().text() == "First note"
+    assert credentials.itemAt(2, role).widget().text() == "Second note"
+    assert overrides.itemAt(0, role).widget().text() == "Final note"

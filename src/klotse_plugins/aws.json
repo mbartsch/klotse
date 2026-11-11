@@ -234,7 +234,7 @@
       "label": "AWS secret access key",
       "default": "",
       "kind": "password",
-      "help": "Saved as plain text in the settings file. Read the storage warning below.",
+      "help": "Saved as plain text in the settings file. See the access key storage warning.",
       "pattern": "",
       "section": "Credentials"
     },

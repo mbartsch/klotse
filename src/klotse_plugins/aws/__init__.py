@@ -115,7 +115,7 @@ class AwsPlugin(Plugin):
                 help="Instead of a profile. Needs the secret access key too. When both are filled in they are used for "
                      "every cluster and replace all profiles. Read the storage warning below."),
         Setting("secret_access_key", "AWS secret access key", "", kind="password", section="Credentials",
-                help="Saved as plain text in the settings file. Read the storage warning below."),
+                help="Saved as plain text in the settings file. See the access key storage warning."),
         Setting("session_token", "AWS session token (optional)", "", kind="password", section="Credentials",
                 help="Only for temporary keys (access key IDs starting with ASIA). Leave empty for long-lived keys. "
                      "Temporary keys expire: paste new ones here when they do."),
