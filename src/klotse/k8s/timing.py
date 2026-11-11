@@ -6,7 +6,8 @@ nothing in normal use. The file is moved to `timings.log.1` when it passes 2 MB.
 
 Kinds written: `session` (start line: version, platform), `connect`, `phase` (steps inside one load, such as the overview's
 nodes / pods / events), `api-list` (one paged list call: pages, items, seconds spent in the Kubernetes client including its JSON
-decoding), `worker` (a background call as the GUI asked for it: `queued` = seconds waiting for a free thread, `seconds` = the call,
+decoding), `plugin` (enrichment, overview and bundled AWS phases, with plugin id, resource kind, count and outcome where applicable),
+`worker` (a background call as the GUI asked for it: `queued` = seconds waiting for a free thread, `seconds` = the call,
 `items` = size of the answer), `gui` (the GUI thread's work on an answer: filling a table) and `total` (asking to answer shown)."""
 import contextlib
 import json

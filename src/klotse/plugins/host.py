@@ -2,6 +2,7 @@ from time import monotonic
 
 from PySide6.QtCore import QObject, Signal
 
+from ..k8s.timing import timings
 from .api import EnrichRequest, OverviewRequest, ResourceInfo, column_attr
 
 RETRY_AFTER_S = 60  # a plugin whose enrich() failed is left alone for this long
@@ -82,7 +83,15 @@ class PluginHost(QObject):
             self._retry_at[slot] = self._clock() + RETRY_AFTER_S
             self.manager.record_error(plugin.id, str(message))
 
-        self._run(lambda: plugin.enrich(request), done, on_error=failed)
+        def work():
+            # Record identifiers and counts only: request data and warning/error text may contain secrets.
+            with timings.timed("plugin", "enrich", plugin=plugin.id, resource_kind=kind, resources=len(due)) as info:
+                info["outcome"] = "error"
+                result = plugin.enrich(request)
+                info["outcome"] = "invalid" if not isinstance(result, dict) else "warning" if request.warnings else "ok"
+                return result
+
+        self._run(work, done, on_error=failed)
 
     def _store(self, plugin, kind, request, result):
         if not isinstance(result, dict):
@@ -133,12 +142,20 @@ class PluginHost(QObject):
         caches = {p.id: self.manager.cache_dir(p.id) for p in due}
 
         def work():
-            nodes = [resource_info(row) for row in list_nodes()]
+            with timings.timed("plugin", "overview.nodes") as info:
+                info["outcome"] = "error"
+                nodes = [resource_info(row) for row in list_nodes()]
+                info["resources"] = len(nodes)
+                info["outcome"] = "ok"
             answers = {}
             for plugin in due:
                 request = OverviewRequest(plugin.id, self.context, nodes, settings[plugin.id], caches[plugin.id])
                 try:
-                    answers[plugin.id] = (plugin.overview(request), None, request.warnings)
+                    with timings.timed("plugin", "overview", plugin=plugin.id, resources=len(nodes)) as info:
+                        info["outcome"] = "error"
+                        result = plugin.overview(request)
+                        info["outcome"] = "invalid" if not isinstance(result, dict) else "warning" if request.warnings else "ok"
+                    answers[plugin.id] = (result, None, request.warnings)
                 except Exception as error:  # one plugin's bug must not hide the others' cards
                     answers[plugin.id] = (None, str(error) or type(error).__name__, [])
             return answers
