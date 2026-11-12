@@ -168,3 +168,27 @@ def test_a_window_opens_without_a_source_and_says_why(qtbot, tmp_path):
     dialog.run_query()
     qtbot.waitUntil(lambda: "No Prometheus or VictoriaMetrics source is set" in dialog.status.text(), timeout=10000)
     ws.shutdown()
+
+
+def test_a_range_answer_becomes_one_line_per_series():
+    text = json.dumps({"status": "success", "data": {"resultType": "matrix", "result": [
+        {"metric": {"pod": "web-1"}, "values": [[1700000000, "0.5"], [1700000060, "NaN"], [1700000120, "0.7"]]},
+        {"metric": {"pod": "web-2"}, "values": [[1700000000, "2"]]}]}})
+    lines = pm.parse_matrix_series(text)
+    assert lines == {'pod="web-1"': [(1700000000.0, 0.5), (1700000120.0, 0.7)], 'pod="web-2"': [(1700000000.0, 2.0)]}
+
+
+def test_the_graph_button_draws_each_series(qtbot):
+    drawn = []
+
+    def run_range(promql, seconds, ok, bad):
+        assert seconds == 3600
+        ok({'pod="web-1"': [(1.0, 0.5), (2.0, 0.7)], 'pod="web-2"': [(1.0, 2.0)]})
+
+    dialog = MetricsQueryDialog("Metrics", "src", [], lambda promql, ok, bad: ok([]), None, run_range=run_range)
+    qtbot.addWidget(dialog)
+    dialog.graph_range.setCurrentIndex(1)  # 1 hour
+    dialog.query.setText("sum(up)")
+    dialog.graph_query()
+    assert set(dialog.chart.series) == {'pod="web-1"', 'pod="web-2"'}
+    assert dialog.status.text().startswith("2 lines") and dialog.graph_button.isEnabled()

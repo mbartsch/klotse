@@ -208,6 +208,30 @@ def parse_vector(text):
     return found
 
 
+def parse_matrix_series(text):
+    """{series text: [(epoch seconds, value)]} from a `query_range` answer, one line per series (named by its labels; see `series_text`).
+    Raises PrometheusError for an error answer. NaN and missing samples are skipped."""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        raise PrometheusError("The answer was not JSON: is this a Prometheus or VictoriaMetrics address?") from None
+    if not isinstance(body, dict) or body.get("status") != "success":
+        raise PrometheusError(str((body or {}).get("error") or "the source returned an error") if isinstance(body, dict) else "unexpected answer")
+    lines = {}
+    for series in (body.get("data") or {}).get("result") or []:
+        points = []
+        for stamp, value in series.get("values") or []:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number == number:
+                points.append((float(stamp), number))
+        if points:
+            lines[series_text(series.get("metric") or {})] = points
+    return lines
+
+
 def series_text(labels):
     """`pod="web-1", container="app"` for a series' labels (the metric name left out), sorted."""
     return ", ".join(f'{k}="{v}"' for k, v in sorted(labels.items()) if k != "__name__") or "(no labels)"

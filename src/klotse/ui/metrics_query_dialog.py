@@ -7,16 +7,20 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QLin
 
 from ..k8s import prometheus
 from . import theme
+from .line_chart import LineChart
+
+GRAPH_RANGES = (("15 minutes", 900), ("1 hour", 3600), ("6 hours", 21600), ("24 hours", 86400))
 
 
 class MetricsQueryDialog(QWidget):
     source_requested = Signal()  # the Source… button: choose the Prometheus / VictoriaMetrics source for this window's queries
 
-    def __init__(self, title, source_text, presets, run, parent=None):
+    def __init__(self, title, source_text, presets, run, parent=None, run_range=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setAccessibleName("Metrics query")
         self._run = run
+        self._run_range = run_range  # run_range(promql, seconds, on_result, on_error): the graph's range query
         self._presets = list(presets)
         self.source = QLabel(f"Source: {source_text}")
         theme.muted(self.source)
@@ -38,10 +42,23 @@ class MetricsQueryDialog(QWidget):
         self.query.returnPressed.connect(self.run_query)
         self.run_button = QPushButton("Run")
         self.run_button.clicked.connect(self.run_query)
+        self.graph_range = QComboBox()
+        self.graph_range.setAccessibleName("Graph time range")
+        for label, seconds in GRAPH_RANGES:
+            self.graph_range.addItem(label, seconds)
+        self.graph_button = QPushButton("Graph")
+        self.graph_button.setToolTip("Draw the query over the chosen time range, one line per series")
+        self.graph_button.setEnabled(run_range is not None)
+        self.graph_button.clicked.connect(self.graph_query)
+        self.chart = LineChart("Graph", lambda value: f"{value:.6g}")
+        self.chart.setAccessibleName("Query graph")
+        self.chart.setMinimumHeight(180)
         top = QHBoxLayout()
         top.addWidget(self.preset_box)
         top.addWidget(self.query, 1)
         top.addWidget(self.run_button)
+        top.addWidget(self.graph_range)
+        top.addWidget(self.graph_button)
         self.table = QTableWidget(0, 2)
         self.table.setAccessibleName("Query results")
         self.table.setHorizontalHeaderLabels(["Series", "Latest value"])
@@ -56,7 +73,7 @@ class MetricsQueryDialog(QWidget):
         theme.muted(self.note)
         layout = QVBoxLayout(self)
         layout.addLayout(source_row)
-        for widget in (top, self.table, self.status, self.note):
+        for widget in (top, self.chart, self.table, self.status, self.note):
             if isinstance(widget, QHBoxLayout):
                 layout.addLayout(widget)
             else:
@@ -84,6 +101,30 @@ class MetricsQueryDialog(QWidget):
         self.run_button.setEnabled(False)
         self.status.setText("Running…")
         self._run(promql, self._show, self._fail)
+
+    def graph_query(self):
+        promql = self.query.text().strip()
+        if not promql or self._run_range is None:
+            self.status.setText("Write a query first.")
+            return
+        self.graph_button.setEnabled(False)
+        self.status.setText("Drawing…")
+        self._run_range(promql, self.graph_range.currentData(), self._draw, self._graph_failed)
+
+    def _draw(self, lines):
+        try:
+            self.graph_button.setEnabled(True)
+            self.chart.set_data(lines, placeholder="No samples in this time range for this query.")
+            self.status.setText(f"{len(lines)} lines over {self.graph_range.currentText()}.")
+        except RuntimeError:
+            pass
+
+    def _graph_failed(self, message):
+        try:
+            self.graph_button.setEnabled(True)
+            self.status.setText(f"The graph query failed: {message}")
+        except RuntimeError:
+            pass
 
     def _show(self, series):
         try:

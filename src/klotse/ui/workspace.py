@@ -1802,7 +1802,13 @@ class ClusterWorkspace(QMainWindow):
                 return
             self._run(self.service.prometheus_query, ok, holder["ref"], promql, on_error=bad)
 
-        dialog = MetricsQueryDialog(title, "none set", presets, run, self)
+        def run_range(promql, seconds, ok, bad):
+            if holder["ref"] is None:
+                bad("No Prometheus or VictoriaMetrics source is set. Use Source… to choose one.")
+                return
+            self._run(self.service.prometheus_query_range, ok, holder["ref"], promql, seconds, on_error=bad)
+
+        dialog = MetricsQueryDialog(title, "none set", presets, run, self, run_range=run_range)
         dialog.key = key
         dialog.setWindowFlag(Qt.Window, True)
         dialog.source_requested.connect(lambda: self._change_query_source(dialog, holder))
