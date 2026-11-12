@@ -131,8 +131,9 @@ def test_view_menu_groups_actions_by_task_and_preserves_action_objects(qtbot):
     assert groups["Settings"].menuAction().menuRole() == QAction.MenuRole.NoRole
     assert win.search_action.shortcut().toString() == "Ctrl+Shift+F"
     assert win.palette_action.shortcut().toString() == "Ctrl+K"
-    assert "Ctrl+Shift+F" in win.search_action.toolTip()
-    assert "Ctrl+K" in win.palette_action.toolTip()
-    assert "Ctrl+Shift+M" in win.multi_action.toolTip()
+    # the tooltip spells a shortcut the platform's way (macOS: ⇧⌘F)
+    for action in (win.search_action, win.palette_action, win.multi_action):
+        assert action.shortcut().toString(QKeySequence.NativeText) in action.toolTip()
+    assert win.multi_action.shortcut().toString() == "Ctrl+Shift+M"
     assert win.preferences_action.shortcut().toString(QKeySequence.NativeText) in win.preferences_action.toolTip()
     assert win.exit_action.shortcut().toString(QKeySequence.NativeText) in win.exit_action.toolTip()

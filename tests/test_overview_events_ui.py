@@ -1,3 +1,5 @@
+import sys
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPlainTextEdit
 
@@ -49,7 +51,10 @@ def test_activating_a_recent_event_opens_its_full_message(qtbot):
 
     index = view.events_table.proxy.index(0, 4)
     view.events_table.view.setCurrentIndex(index)
-    qtbot.keyClick(view.events_table.view, Qt.Key_Return)
+    if sys.platform == "darwin":  # Qt does not activate a row on Return there; the platform's key is Cmd+O (Qt calls it Ctrl)
+        qtbot.keyClick(view.events_table.view, Qt.Key_O, Qt.ControlModifier)
+    else:
+        qtbot.keyClick(view.events_table.view, Qt.Key_Return)
 
     assert len(view._event_dialogs) == 1
     dialog = next(iter(view._event_dialogs.values()))

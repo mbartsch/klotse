@@ -118,8 +118,8 @@ def test_macos_app_name_is_only_attempted_for_a_source_run_on_a_mac(monkeypatch)
 
 
 def test_macos_app_name_never_raises_when_the_objc_runtime_is_unavailable(monkeypatch):
+    import ctypes.util  # before sys.platform is faked: on Python 3.14 the module runs macOS-only code at import when it says darwin
     monkeypatch.setattr(branding.sys, "platform", "darwin")
     monkeypatch.delattr(branding.sys, "frozen", raising=False)
-    import ctypes.util
     monkeypatch.setattr(ctypes.util, "find_library", lambda name: None)
     assert branding.set_macos_app_name() is False
