@@ -201,22 +201,21 @@ def test_the_clock_remembers_its_angle_and_never_leaps_after_a_stall(qtbot):
 
 
 def test_the_hands_keep_their_place_when_the_clock_is_hidden_shown_or_the_text_changes(qtbot):
-    from klotse.ui.loading_pane import LoadingPane
-    pane = LoadingPane()
-    qtbot.addWidget(pane)
-    pane.show_busy("Loading… 0s")
-    pane.show()
-    pane.clock.advance(1000.0)
-    pane.clock.advance(1400.0)
-    before = pane.clock.angles()
+    from PySide6.QtGui import QHideEvent, QShowEvent
+    from klotse.ui.loading_pane import ClockSpinner
+
+    clock = ClockSpinner()
+    qtbot.addWidget(clock)
+    clock.advance(1000.0)
+    clock.advance(1400.0)
+    before = clock.angles()
     assert before[1] > 0
-    pane.hide()  # a tab switch, a redraw, a relayout...
-    pane.show()
-    pane.show_busy("Loading… 1s")  # the once-a-second tick
-    assert pane.clock.angles() == before  # nothing sent the hands back to 12
-    pane.clock.advance(5000.0)  # the first frame after re-showing only sets the reference time
-    pane.clock.advance(5200.0)
-    assert pane.clock.angles()[1] > before[1]
+    clock.hideEvent(QHideEvent())  # a tab switch, a redraw, a relayout...
+    clock.showEvent(QShowEvent())
+    assert clock.angles() == before  # nothing sent the hands back to 12
+    clock.advance(5000.0)  # the first frame after re-showing only sets the reference time
+    clock.advance(5200.0)
+    assert clock.angles()[1] > before[1]
 
 
 def test_the_clock_only_ticks_while_it_is_on_screen_and_draws(qtbot):
