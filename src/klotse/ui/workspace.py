@@ -39,6 +39,7 @@ from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
 from .metrics_sources import ForwardDefaults, MetricsSources
+from .metric_query_settings import QueryDefaults
 from .metrics_query_dialog import MetricsQueryDialog
 from .prometheus_source_dialog import FORWARD, PrometheusSourceDialog
 from .security_dialog import SecurityDialog
@@ -1828,6 +1829,7 @@ class ClusterWorkspace(QMainWindow):
                 dialog.set_source(prometheus.ref_text(ref) + (f" (port-forward on 127.0.0.1:{ref['local_port']})" if ref.get("local_port") else ""))
             except RuntimeError:  # the window was closed meanwhile
                 pass
+            self._load_metric_names(dialog, ref)
 
         def missing(reason):
             holder["ref"] = None
@@ -1873,6 +1875,14 @@ class ClusterWorkspace(QMainWindow):
                 found(ref)
 
         self._run(find_source, answered, on_error=lambda message: missing(message))
+
+    def _load_metric_names(self, dialog, ref):
+        """Autocomplete: once per window, when Preferences > Metrics query asks for it, the source's metric names are fetched for the
+        query box. Off by default, because a large source can have a very long list."""
+        if not QueryDefaults(self.label_settings.store).autocomplete or getattr(self.service, "prometheus_metric_names", None) is None:
+            return
+        self._run(self.service.prometheus_metric_names, lambda names: dialog.set_metric_names(names), ref,
+                  on_error=lambda message: self.message.emit(f"{self.context}: metric names for autocomplete: {message}"))
 
     def _change_query_source(self, dialog, holder):
         """Source… in the query window: the same choice as Usage history's, saved for this cluster, then the window reads from it."""

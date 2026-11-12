@@ -1163,6 +1163,11 @@ class KubeService:
         start, step = end - seconds, prometheus.step_for(seconds)
         return prometheus.parse_matrix_series(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60))
 
+    def prometheus_metric_names(self, ref):
+        """The metric names of the source for autocomplete, at most METRIC_NAMES_LIMIT. Asked once per query window, and only when the
+        Preferences setting is on. Looking only."""
+        return prometheus.parse_names(self._prometheus_get(ref, prometheus.metric_names_path(ref), 60))
+
     def prometheus_query(self, ref, promql):
         """[(labels, value)] of an instant PromQL query on the service `ref` (through the proxy, or a port-forward Klotse started). Looking only."""
         return prometheus.parse_vector(self._prometheus_get(ref, prometheus.instant_path(ref, promql), 30))

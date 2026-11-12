@@ -22,6 +22,7 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from ..k8s.timing import timings
 from .metrics_sources import ForwardDefaults
+from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .big_clusters import NOTICE_TEXT, BigClusters
 from .multi_cluster import MultiClusterDialog
@@ -1129,7 +1130,7 @@ class MainWindow(QMainWindow):
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
-                                   forward=ForwardDefaults(self.label_settings.store))
+                                   forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store))
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):

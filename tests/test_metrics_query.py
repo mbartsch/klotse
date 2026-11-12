@@ -246,3 +246,51 @@ def test_closing_the_window_stops_repeats_and_drops_a_running_answer(qtbot):
     dialog._repeat_due()
     assert len(calls) == 1  # no new query starts from a closed window
     assert not dialog._timer.isActive()
+
+
+def test_metric_names_are_parsed_sorted_and_limited_and_their_path_is_the_label_endpoint():
+    from klotse.k8s.prometheus import METRIC_NAMES_LIMIT, metric_names_path, parse_names
+    text = json.dumps({"status": "success", "data": ["up", "container_cpu_usage_seconds_total", "up", ""]})
+    assert parse_names(text) == ["container_cpu_usage_seconds_total", "up"]
+    assert len(parse_names(json.dumps({"status": "success", "data": [f"m{i}" for i in range(METRIC_NAMES_LIMIT + 5)]}))) == METRIC_NAMES_LIMIT
+    with pytest.raises(pm.PrometheusError, match="boom"):
+        parse_names(json.dumps({"status": "error", "error": "boom"}))
+    ref = {"namespace": "monitoring", "name": "prom", "port": 9090, "scheme": "", "prefix": ""}
+    assert metric_names_path(ref) == "/api/v1/namespaces/monitoring/services/prom:9090/proxy/api/v1/label/__name__/values"
+
+
+def test_autocomplete_is_off_by_default_and_the_dialog_completes_names_when_given(qtbot, tmp_path):
+    from PySide6.QtCore import QSettings
+    from klotse.ui.metric_query_settings import QueryDefaults
+    store = QSettings(str(tmp_path / "q.ini"), QSettings.IniFormat)
+    assert QueryDefaults(store).autocomplete is False
+    QueryDefaults(store).set(True)
+    assert QueryDefaults(store).autocomplete is True
+    dialog = MetricsQueryDialog("Metrics", "src", [], lambda promql, ok, bad: ok([]))
+    qtbot.addWidget(dialog)
+    dialog.set_metric_names(["up", "node_cpu_seconds_total"])
+    assert dialog.query.completer().completionModel().rowCount() == 2
+    assert dialog.status.text() == "2 metric names for autocomplete."
+
+
+def test_workspace_fetches_names_only_when_the_preference_is_on(qtbot, tmp_path):
+    from PySide6.QtCore import QSettings
+    from klotse.ui.metric_query_settings import QueryDefaults
+    fake = Fake([])
+    fake.names_asked = 0
+
+    def names(ref):
+        fake.names_asked += 1
+        return ["up", "kube_pod_info"]
+    fake.prometheus_metric_names = names
+    ws = workspace(qtbot, tmp_path, fake)
+    dialog = MetricsQueryDialog("Metrics", "src", [], lambda promql, ok, bad: ok([]))
+    qtbot.addWidget(dialog)
+    ref = {"namespace": "monitoring", "name": "prom", "port": 9090, "scheme": "", "prefix": ""}
+    ws._load_metric_names(dialog, ref)  # off: nothing is asked
+    assert fake.names_asked == 0
+    QueryDefaults(ws.label_settings.store).set(True)
+    ws._load_metric_names(dialog, ref)
+    qtbot.waitUntil(lambda: dialog.query.completer().completionModel().rowCount() == 2, timeout=8000)
+    assert fake.names_asked == 1
+    ws.shutdown()

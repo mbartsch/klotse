@@ -66,7 +66,7 @@ def open_folder(folder):
 class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
-    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None):
+    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None):
         super().__init__(parent)
         self.debug = debug
         self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
@@ -112,6 +112,13 @@ class PreferencesDialog(QDialog):
             column.addWidget(self.forward_tls_box)
             column.addWidget(self.forward_insecure_box)
             form.addRow("Usage history", holder)
+        self.query_autocomplete_box = None
+        if query is not None:
+            self.query_defaults = query
+            self.query_autocomplete_box = QCheckBox("Metrics query: suggest metric names while typing (asks the source for every name, once per window)")
+            self.query_autocomplete_box.setChecked(query.autocomplete)
+            self.query_autocomplete_box.setToolTip("Off by default. A large Prometheus or VictoriaMetrics can have a very long list of names.")
+            form.addRow("Metrics query", self.query_autocomplete_box)
         self.open_button = QPushButton("Open config folder")
         self.open_button.setToolTip("Show Klotse's settings file in Explorer / Finder / the file manager (debug)")
         self.open_button.clicked.connect(self._open_folder)
@@ -258,6 +265,12 @@ class PreferencesDialog(QDialog):
         if self.forward_tls_box is not None:
             try:
                 self.forward.set(self.forward_tls_box.isChecked(), self.forward_insecure_box.isChecked())
+            except OSError as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                return
+        if self.query_autocomplete_box is not None:
+            try:
+                self.query_defaults.set(self.query_autocomplete_box.isChecked())
             except OSError as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
                 return

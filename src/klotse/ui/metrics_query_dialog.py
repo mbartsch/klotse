@@ -5,7 +5,8 @@ labels, the latest value and the time of that sample), and a graph of the query 
 queries; Usage history covers it."""
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
+from PySide6.QtWidgets import QCompleter
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -54,6 +55,12 @@ class MetricsQueryDialog(QWidget):
         self.query.setAccessibleName("PromQL query")
         self.query.setPlaceholderText("PromQL, for example sum(rate(container_cpu_usage_seconds_total[5m]))")
         self.query.returnPressed.connect(self.run_query)
+        self._names = QStringListModel(self)
+        self._completer = QCompleter(self._names, self)  # filled with metric names only when autocomplete is on (Preferences)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchContains)
+        self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.query.setCompleter(self._completer)
         top = QHBoxLayout()
         top.addWidget(self.preset_box)
         top.addWidget(self.query, 1)
@@ -112,6 +119,14 @@ class MetricsQueryDialog(QWidget):
         if self._presets:
             self._preset_changed()
         self.resize(760, 560)
+
+    def set_metric_names(self, names):
+        """The metric names for autocomplete (the source's names, already limited)."""
+        try:
+            self._names.setStringList(list(names))
+            self.status.setText(f"{len(names)} metric names for autocomplete.")
+        except RuntimeError:
+            pass
 
     def set_source(self, text, reason=""):
         """Show the source the queries use (or that none is set, and why)."""

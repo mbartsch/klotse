@@ -185,6 +185,26 @@ def to_chart(cpu_lines, mem_lines):
     return dict(cpu_lines), mem
 
 
+METRIC_NAMES_LIMIT = 5000  # most metric names the query window keeps for autocomplete
+
+
+def metric_names_path(ref):
+    """The API path of every metric name the source knows (`/api/v1/label/__name__/values`), through the proxy or a forward."""
+    return reach_path(ref, "/api/v1/label/__name__/values")
+
+
+def parse_names(text, limit=METRIC_NAMES_LIMIT):
+    """Sorted metric names from a label-values answer, at most `limit`. Raises PrometheusError for an error answer."""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        raise PrometheusError("The answer was not JSON: is this a Prometheus or VictoriaMetrics address?") from None
+    if not isinstance(body, dict) or body.get("status") != "success":
+        raise PrometheusError(str((body or {}).get("error") or "the source returned an error") if isinstance(body, dict) else "unexpected answer")
+    names = sorted({str(name) for name in (body.get("data") or []) if isinstance(name, str) and name})
+    return names[:limit]
+
+
 def parse_vector(text):
     """[(labels, value, time)] from an instant `query` answer (`vector` results): every label of the series as the source gives it, the
     latest value and the epoch time of that sample. Series without a number are skipped. Raises PrometheusError for an error answer."""
