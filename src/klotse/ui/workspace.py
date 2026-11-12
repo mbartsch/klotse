@@ -2030,7 +2030,8 @@ class ClusterWorkspace(QMainWindow):
                 return
             try:
                 forward = self.port_forwards.start(self.context, ref["namespace"], "Service", ref["name"], ref["port"],
-                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history")
+                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history",
+                                                   scheme="https" if ref.get("scheme") == "https" else "http")
             except ValueError as error:
                 on_fail(f"port-forward not started: {error}")
                 return

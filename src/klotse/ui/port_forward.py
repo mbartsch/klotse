@@ -75,6 +75,7 @@ class Forward:
     message: str = ""
     connections: int = 0
     origin: str = ""  # who started it when it was not the user's own Port forward…, for example "Usage history"
+    scheme: str = "http"  # how "Open in browser" addresses it: https for a forward that reads an SSL service
     process: object = field(default=None, repr=False)
 
     @property
@@ -100,12 +101,12 @@ class PortForwards(QObject):
         self.items = []
         self._next = 1
 
-    def start(self, context, namespace, kind, name, remote, local=0, kubeconfig=None, origin=""):
+    def start(self, context, namespace, kind, name, remote, local=0, kubeconfig=None, origin="", scheme="http"):
         """Start `kubectl port-forward` and return its Forward. The state turns Active when kubectl reports the local port, or
         Failed with kubectl's own message (port in use, pod gone, no permission, kubectl missing)."""
         remote = valid_port(remote)
         local = valid_port(local, allow_empty=True) if local else 0  # 0 or empty: kubectl picks a free port
-        fw = Forward(self._next, context, namespace, kind, name, remote, local, origin=origin)
+        fw = Forward(self._next, context, namespace, kind, name, remote, local, origin=origin, scheme="https" if scheme == "https" else "http")
         self._next += 1
         base = self.base(context, kubeconfig)
         process = QProcess(self)
@@ -293,7 +294,7 @@ class PortForwardPanel(QWidget):
     def _open(self):
         fw = self._selected()
         if fw is not None and fw.state == "active":
-            webbrowser.open(f"http://{fw.address}/")
+            webbrowser.open(f"{fw.scheme}://{fw.address}/")
 
     def stop(self):
         """Called when the tab is closed or the cluster is: stop every forward."""
