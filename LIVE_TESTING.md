@@ -139,32 +139,58 @@ Service layer driven by scripts again; **no window was opened**. Nothing was run
 | Verified | **Pod security**: found kube-proxy privileged, kindnet NET_ADMIN/NET_RAW, static pods on the host network, and the debug container from the owner's own `kubectl debug` test (SYS_PTRACE) |
 | Verified | **Review changes before saving** (the dry run): a valid edit returned the object the server would store and the stored value did not change; an invalid edit and a stale resourceVersion returned the server's message; a create stored nothing; all with read-only on and an empty change log |
 | Not run live | **Trivy reports**: the operator could not be installed in the test cluster (blocked), so the column names, labels and report fields are from its documentation only. Install the operator (`helm install trivy-operator aqua/trivy-operator -n trivy-system --create-namespace`) and open View > Trivy reports… |
-| Not run live | **Command palette** (Ctrl+K), **filter expressions** in the real list windows, the **review window**, and every new window's appearance |
+| Verified by the owner (2026-11-13) | **Command palette** (Ctrl+K): tested on a real cluster and works; details not recorded |
+| Not run live | **Filter expressions** in the real list windows, the **review window**, and every new window's appearance |
+
+### Added since 2026-11-08: not yet run on a live cluster
+
+These were merged after the last live check (v0.4.0). Their tests are fake-service only; no row below has been verified against a real cluster.
+
+| Feature | What to check live |
+| --- | --- |
+| Usage history: Source… through a port-forward | With the API server proxy refused (or forced), choose port-forward in Source…; the chart fills from Prometheus/VictoriaMetrics; Stop/closing the last window stops the `kubectl port-forward` process |
+| Usage history: HTTPS, certificate options, Test | An https service (self-signed and CA-signed), the insecure option, and the Test button: the answer matches `curl` against the same service. HTTP to an https service is refused |
+| Metrics query… (workloads) | Right-click a Deployment, StatefulSet or DaemonSet > Metrics query…; presets (replicas, pod CPU, memory, network, restarts) match the same PromQL run by hand against the source |
+| Save a running port forward | Port forwards tab: save a running forward, restart Klotse, open it again from the saved list |
+| Details YAML in a narrow inspector | Shrink the window; the YAML view of Details stays reachable |
+
+### 2026-11-13, owner's live tests (details not recorded)
+
+Run by the owner on a real cluster; the results were reported, not written up in detail. Only the outcome is recorded here.
+
+| Result | What |
+| --- | --- |
+| Verified by the owner | **Command palette** (Ctrl+K) works |
+| Verified by the owner | All items of the docker-desktop checklist below (windows and tabs, multi-pod logs, diagnostics export, copy files, port forwards, edit forms, debug containers, drain and nsenter, pinned namespaces and saved filters, manual refresh and permission hints, connection errors, embedded terminal, and the features added after 2026-11-08) |
+| Verified by the owner | Basic test of the items that need something installed on the cluster (which items it covers is not recorded) |
+| Verified by the owner | Large-cluster timing of Search, Capacity, Health check, Right-sizing, Diagnostics and Logs of many pods (run elsewhere; no numbers recorded here) |
 
 ## Still pending (what to test next)
 
-- [ ] The new windows on a display: Unused objects, Upgrade preflight (change the Upgrade-to box), Pod security, Trivy reports, the review window (accept, refuse, back to editing), the command palette (Ctrl+K), and filter expressions typed into the Pods, Nodes and Events lists (`Restarts > 3`, `CPULim = 2*CPUReq`, `Age > 1h`).
+- [x] Command palette (Ctrl+K): tested by the owner on a real cluster and works (2026-11-13); details not recorded.
+- [ ] The new windows on a display: Unused objects, Upgrade preflight (change the Upgrade-to box), Pod security, Trivy reports, the review window (accept, refuse, back to editing), and filter expressions typed into the Pods, Nodes and Events lists (`Restarts > 3`, `CPULim = 2*CPUReq`, `Age > 1h`).
 - [ ] Review changes before saving with a real webhook that rejects, and with a form edit of a Deployment (the diff should show only the changed fields).
 - [ ] Preflight on a cluster with a removed API still served, a PodDisruptionBudget at zero, an old kubelet and cert-manager Certificates.
 
-Status as of 2026-11-07. Use the tables above for how. Nothing listed here has been tried on a real cluster.
+Status as of 2026-11-13. Use the tables above for how. Items marked [x] were tested by the owner (see the 2026-11-13 table); the rest have not been run on a real cluster.
 
-**Needs only the docker-desktop cluster (do next)**
+**Needs only the docker-desktop cluster (all tested live by the owner, 2026-11-13; details not recorded)**
 
-- [ ] The windows themselves: open each dialog and tab and check it loads and looks right (Health check, Capacity, Right-sizing, RBAC lookup, Compare, Search, Change log, Export diagnostics, Apply YAML, Logs of all pods, File browser, Copy as new).
-- [ ] Multi-pod log tab: scale a Deployment while it is open; regex filter; Save.
-- [ ] Export diagnostics from the window: unzip and look for Secret data and env values; cancel mid-way.
-- [ ] Copy files (upload and download, a folder, a path with spaces, Browse… in the dialog); Browse files… from the packaged/pythonw app (WinError 6 fix).
-- [ ] Port forward and saved forwards; Stop leaves no `kubectl` process.
-- [ ] Edit forms (Deployment, Service, Ingress, NetworkPolicy, ConfigMap, Secret, Role, bindings): saved object equals the form; conflict on concurrent edit.
-- [ ] Remove debug containers (recreate pod) and process sharing from the debug dialog (debug itself was tried by the owner).
-- [ ] Drain a worker for real (`desktop-worker`, then uncordon) and the nsenter node shell; look for leftovers with `kubectl get pods -A`.
-- [ ] Pinned namespaces, saved filters, reconnect with remembered namespace, Read-only mode in the UI, Change log contents after the above.
-- [ ] Manual refresh and permission hints with a limited account (`kubectl create sa viewer` + the `view` role).
-- [ ] Connection errors (#113): a kubeconfig with a failing exec helper (a script that prints to stderr and exits 1), a missing helper, an unreachable server, a `proxy-url` through a local proxy.
-- [ ] Embedded terminal with a real `kubectl exec` (`vim`, `top`, resize, copy/paste, dock and pop out).
+- [x] The windows themselves: open each dialog and tab and check it loads and looks right (Health check, Capacity, Right-sizing, RBAC lookup, Compare, Search, Change log, Export diagnostics, Apply YAML, Logs of all pods, File browser, Copy as new).
+- [x] Multi-pod log tab: scale a Deployment while it is open; regex filter; Save.
+- [x] Export diagnostics from the window: unzip and look for Secret data and env values; cancel mid-way.
+- [x] Copy files (upload and download, a folder, a path with spaces, Browse… in the dialog); Browse files… from the packaged/pythonw app (WinError 6 fix).
+- [x] Port forward and saved forwards; Stop leaves no `kubectl` process.
+- [x] Edit forms (Deployment, Service, Ingress, NetworkPolicy, ConfigMap, Secret, Role, bindings): saved object equals the form; conflict on concurrent edit.
+- [x] Remove debug containers (recreate pod) and process sharing from the debug dialog (debug itself was tried by the owner).
+- [x] Drain a worker for real (`desktop-worker`, then uncordon) and the nsenter node shell; look for leftovers with `kubectl get pods -A`.
+- [x] Pinned namespaces, saved filters, reconnect with remembered namespace, Read-only mode in the UI, Change log contents after the above.
+- [x] Manual refresh and permission hints with a limited account (`kubectl create sa viewer` + the `view` role).
+- [x] Connection errors (#113): a kubeconfig with a failing exec helper (a script that prints to stderr and exits 1), a missing helper, an unreachable server, a `proxy-url` through a local proxy.
+- [x] Embedded terminal with a real `kubectl exec` (`vim`, `top`, resize, copy/paste, dock and pop out).
+- [x] The features added after 2026-11-08 (see the table above): usage history through a port-forward, HTTPS and Test, Metrics query…, saved running forwards, Details YAML in a narrow window.
 
-**Needs something installed on the cluster**
+**Needs something installed on the cluster** (basic test completed by the owner, 2026-11-13; which items it covers is not recorded, so the boxes below are unchanged)
 
 - [x] metrics-server is installed on docker-desktop; usage, Capacity and Right-sizing checked at the service level. Still to look at: the windows and the node bars.
 - [ ] Helm release: listing and details checked at the service level (Traefik installed); still to do: Show values and the hidden keys in the dialog, Uninstall (use a throw-away release, not Traefik).
@@ -174,7 +200,7 @@ Status as of 2026-11-07. Use the tables above for how. Nothing listed here has b
 
 **Needs another machine or environment**
 
-- [ ] Large clusters (hundreds of nodes, thousands of pods): timing of Search, Capacity, Health check, Right-sizing, Diagnostics, Logs of many pods. The owner will do this elsewhere.
+- [x] Large clusters (hundreds of nodes, thousands of pods): timing of Search, Capacity, Health check, Right-sizing, Diagnostics, Logs of many pods. The owner will do this elsewhere.
 - [ ] Linux and macOS (POSIX terminal, Finder PATH, the Intel build), packaged releases on a clean machine.
 - [ ] EKS, GKE and AKS exec helpers (SSO login, MFA, `gke-gcloud-auth-plugin`, `kubelogin`); the AWS plugin against real AWS.
 - [ ] An old (1.25-1.27) and a recent Kubernetes version.
