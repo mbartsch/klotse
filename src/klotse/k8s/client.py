@@ -1,6 +1,7 @@
 import datetime
 import functools
 import http.client
+import ssl
 import itertools
 import inspect
 import json
@@ -1116,19 +1117,28 @@ class KubeService:
         return prometheus.parse_matrix(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60), label)
 
     def _prometheus_get(self, ref, path, timeout):
-        """The answer text for `path`: through the API server proxy, or, for a ref with `local_port` (a port-forward Klotse started), an HTTP GET to
-        127.0.0.1 on that port (no proxy settings are used). Raises PrometheusError saying which step failed."""
+        """The answer text for `path`: through the API server proxy, or, for a ref with `local_port` (a port-forward Klotse started), a GET to
+        127.0.0.1 on that port: plain HTTP, or https when `scheme` is "https" (certificate errors are ignored only when `insecure` is set).
+        Raises PrometheusError saying which step failed."""
         port = ref.get("local_port")
         if not port:
             return self._get_text(path, "application/json", timeout)
         if ref.get("scheme") == "https":
-            raise prometheus.PrometheusError("a port-forward to an https service is not supported; use the API server proxy for it")
-        connection = http.client.HTTPConnection("127.0.0.1", int(port), timeout=timeout)
+            context = ssl.create_default_context()
+            if ref.get("insecure"):
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE  # nosec B501 - the user chose to ignore certificate errors for this forward
+            connection = http.client.HTTPSConnection("127.0.0.1", int(port), timeout=timeout, context=context)
+        else:
+            connection = http.client.HTTPConnection("127.0.0.1", int(port), timeout=timeout)
         try:
             try:
                 connection.request("GET", path, headers={"Accept": "application/json"})
                 response = connection.getresponse()
                 body = response.read(MAX_PROMETHEUS_BODY + 1)
+            except ssl.SSLError as error:
+                raise prometheus.PrometheusError(f"the certificate of 127.0.0.1:{port} was refused ({error.reason or error}); "
+                                                 "tick Ignore certificate errors for this source to accept it") from error
             except OSError as error:
                 raise prometheus.PrometheusError(f"could not connect to the port-forward on 127.0.0.1:{port}: {error}") from error
             if response.status != 200:
