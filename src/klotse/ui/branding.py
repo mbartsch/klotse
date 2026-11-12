@@ -44,8 +44,12 @@ def set_macos_app_name(name="Klotse"):
     try:
         import ctypes
         import ctypes.util
-        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
-        ctypes.cdll.LoadLibrary(ctypes.util.find_library("Foundation"))  # makes NSBundle and NSString available
+        objc_path = ctypes.util.find_library("objc")
+        foundation_path = ctypes.util.find_library("Foundation")
+        if not objc_path or not foundation_path:  # LoadLibrary(None) would load this process, not the runtime
+            return False
+        objc = ctypes.cdll.LoadLibrary(objc_path)
+        ctypes.cdll.LoadLibrary(foundation_path)  # makes NSBundle and NSString available
         objc.objc_getClass.restype = objc.sel_registerName.restype = ctypes.c_void_p
         objc.objc_getClass.argtypes = objc.sel_registerName.argtypes = [ctypes.c_char_p]
 

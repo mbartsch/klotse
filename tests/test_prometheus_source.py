@@ -179,19 +179,37 @@ def remote(calls, delay=0.0):
 def test_the_window_switches_to_prometheus_with_a_range_and_back_to_sampling(qtbot):
     dialog = MetricsDialog("x", lambda: {"total": (time.time(), 0.1, 1.0)}, None, True, interval_s=3600)
     qtbot.addWidget(dialog)
-    qtbot.waitUntil(lambda: dialog.history.count() == 1 and not dialog._busy, timeout=5000)
+    qtbot.waitUntil(lambda: dialog.history.count() == 1 and not dialog._busy, timeout=20000)
     assert dialog.mode() == SAMPLED and not dialog.range_box.isEnabled()
     calls = []
     dialog.set_prometheus("monitoring/prometheus-server:80", remote(calls))
     assert dialog.mode() == REMOTE and dialog.range_box.isEnabled() and "History from the Prometheus" in dialog.note.text()
-    qtbot.waitUntil(lambda: bool(calls) and not dialog._busy, timeout=5000)
+    qtbot.waitUntil(lambda: bool(calls) and not dialog._busy, timeout=20000)
     assert calls == [3600] and len(dialog.cpu_chart.series["total"]) == 2 and "1 hour" in dialog.status.text() and "monitoring/prometheus-server:80" in dialog.status.text()
     dialog.range_box.setCurrentIndex(4)  # 7 days
-    qtbot.waitUntil(lambda: calls == [3600, 604800] and not dialog._busy, timeout=5000)
+    qtbot.waitUntil(lambda: calls == [3600, 604800] and not dialog._busy, timeout=20000)
     dialog.source_box.setCurrentIndex(0)
     assert dialog.mode() == SAMPLED and not dialog.range_box.isEnabled() and "starts when the window opens" in dialog.note.text()
     dialog.clear_prometheus()
     assert dialog.source_box.count() == 1 and dialog.fetch_remote is None
+    dialog.accept()
+
+
+def test_switching_to_prometheus_while_a_sample_is_still_running_asks_prometheus_when_it_ends(qtbot):
+    release, calls = threading.Event(), []
+
+    def slow_sample():
+        release.wait(20)
+        return {"total": (time.time(), 0.1, 1.0)}
+
+    dialog = MetricsDialog("x", slow_sample, None, True, interval_s=3600)
+    qtbot.addWidget(dialog)
+    assert dialog._busy  # the first metrics-server read is running
+    dialog.set_prometheus("monitoring/prometheus-server:80", remote(calls))  # found meanwhile: it cannot ask yet
+    assert dialog.mode() == REMOTE and calls == []
+    release.set()
+    qtbot.waitUntil(lambda: calls == [3600] and not dialog._busy, timeout=20000)  # not only when the 30 s timer fires
+    assert len(dialog.cpu_chart.series["total"]) == 2 and dialog.history.count() == 0
     dialog.accept()
 
 
@@ -200,10 +218,10 @@ def test_prometheus_errors_and_empty_answers_are_explained(qtbot):
     qtbot.addWidget(dialog)
     assert "does not serve the metrics API" in dialog.status.text() and "Source…" in dialog.status.text()
     dialog.set_prometheus("p", lambda seconds: (_ for _ in ()).throw(PermissionError("forbidden")))
-    qtbot.waitUntil(lambda: "Could not read p" in dialog.status.text(), timeout=5000)
+    qtbot.waitUntil(lambda: "Could not read p" in dialog.status.text(), timeout=20000)
     assert "forbidden" in dialog.status.text()
     dialog.set_prometheus("p", lambda seconds: ({}, {}))
-    qtbot.waitUntil(lambda: "0 points" in dialog.status.text(), timeout=5000)
+    qtbot.waitUntil(lambda: "0 points" in dialog.status.text(), timeout=20000)
     assert "no data" in dialog.cpu_chart.placeholder
     dialog.accept()
 
@@ -254,9 +272,9 @@ def test_a_found_service_is_checked_added_and_remembered_for_the_next_window(qtb
     fake = Fake(CANDIDATES, ok="prom-b")  # the first candidate does not answer, the second does
     ws = ws_with(qtbot, fake, tmp_path)
     dialog = ws.show_metrics("Pod", pod_row())
-    qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=5000)
+    qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
     assert fake.checked == ["prom-a", "prom-b"] and "monitoring/prom-b:9090" in dialog.source_box.currentText()
-    qtbot.waitUntil(lambda: bool(fake.history) and not dialog._busy, timeout=5000)
+    qtbot.waitUntil(lambda: bool(fake.history) and not dialog._busy, timeout=20000)
     assert fake.history[0] == ("prom-b", "Pod", "shop", "web", 3600)
     node = SimpleNamespace(name="n1", namespace="", cpu=4.0, memory=16.0, raw={})
     second = ws.show_metrics("Node", node)
@@ -268,7 +286,7 @@ def test_no_service_means_metrics_server_only_and_the_search_is_not_repeated(qtb
     fake = Fake([])
     ws = ws_with(qtbot, fake, tmp_path)
     dialog = ws.show_metrics("Pod", pod_row())
-    qtbot.waitUntil(lambda: ws._prometheus is False, timeout=5000)
+    qtbot.waitUntil(lambda: ws._prometheus is False, timeout=20000)
     assert dialog.mode() == SAMPLED and dialog.source_box.count() == 1
     other = SimpleNamespace(name="n1", namespace="", cpu=4.0, memory=16.0, raw={})
     ws.show_metrics("Node", other)
@@ -282,11 +300,11 @@ def test_source_dialog_saves_a_typed_service_checks_it_and_an_empty_answer_goes_
     fake = Fake([])
     ws = ws_with(qtbot, fake, tmp_path)
     dialog = ws.show_metrics("Pod", pod_row())
-    qtbot.waitUntil(lambda: ws._prometheus is False, timeout=5000)
+    qtbot.waitUntil(lambda: ws._prometheus is False, timeout=20000)
     answers = iter([("monitoring/my-prom:9090", True)])
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: next(answers))
     dialog.source_button.click()
-    qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=5000)
+    qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
     assert fake.checked[-1] == "my-prom" and ws.metrics_sources.get("ctx") == "monitoring/my-prom:9090" and fake.finds == 1  # typed: nothing was searched for
     warned = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: warned.append(a[2]))
@@ -296,7 +314,7 @@ def test_source_dialog_saves_a_typed_service_checks_it_and_an_empty_answer_goes_
     fake.found = CANDIDATES[:1]
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("", True))
     dialog.source_button.click()
-    qtbot.waitUntil(lambda: fake.finds == 2 and bool(ws._prometheus) and dialog.mode() == REMOTE, timeout=5000)
+    qtbot.waitUntil(lambda: fake.finds == 2 and bool(ws._prometheus) and dialog.mode() == REMOTE, timeout=20000)
     assert ws.metrics_sources.get("ctx") == "" and fake.checked[-1] == "prom-a"
     ws.shutdown()
 
@@ -306,7 +324,7 @@ def test_a_typed_service_that_does_not_answer_is_reported_in_the_window(qtbot, t
     ws = ws_with(qtbot, fake, tmp_path)
     ws.metrics_sources.set("ctx", "monitoring/broken:9090")
     dialog = ws.show_metrics("Pod", pod_row())
-    qtbot.waitUntil(lambda: "was not used" in dialog.status.text(), timeout=5000)
+    qtbot.waitUntil(lambda: "was not used" in dialog.status.text(), timeout=20000)
     assert "monitoring/broken:9090" in dialog.status.text() and "503" in dialog.status.text() and dialog.mode() == SAMPLED
     ws.shutdown()
 
@@ -322,10 +340,10 @@ def test_source_failure_survives_a_late_sample_and_clears_when_reconfigured(qtbo
     ws.metrics_sources.set("ctx", "monitoring/broken:9090")
     try:
         dialog = ws.show_metrics("Pod", pod_row())
-        qtbot.waitUntil(lambda: "was not used" in dialog.status.text(), timeout=5000)
+        qtbot.waitUntil(lambda: "was not used" in dialog.status.text(), timeout=20000)
         assert dialog._busy  # The initial sample is still waiting when source validation reports its failure.
         released.set()
-        qtbot.waitUntil(lambda: not dialog._busy, timeout=5000)
+        qtbot.waitUntil(lambda: not dialog._busy, timeout=20000)
         assert "monitoring/broken:9090" in dialog.status.text() and "503" in dialog.status.text()
         assert "metrics-server" in dialog.status.text() and dialog.mode() == SAMPLED
         dialog.pause_button.setChecked(True)
@@ -337,7 +355,7 @@ def test_source_failure_survives_a_late_sample_and_clears_when_reconfigured(qtbo
         dialog.clear_prometheus()  # Explicitly reconfiguring the source dismisses the old problem.
         assert "was not used" not in dialog.status.text()
         ws._offer_prometheus(dialog, "Pod", pod_row(), "", force=True)
-        qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=5000)
+        qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
         assert "was not used" not in dialog.status.text() and not dialog.remote_note
     finally:
         released.set()

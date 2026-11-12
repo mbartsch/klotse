@@ -95,8 +95,7 @@ class LoadingPane(QWidget):
         self.label.setStyleSheet("font-size: 22px; font-weight: 600;")
         self.actions = QHBoxLayout()
         self.buttons = {}
-        self.copy_button = self._button("Copy error", self._copy_error)
-        self.actions.addWidget(self.copy_button)
+        self.copy_button = self._button("Copy error", self._copy_error)  # _button already puts it in the row
         self.actions.addStretch(1)
         layout = QVBoxLayout(self)
         layout.addStretch(1)

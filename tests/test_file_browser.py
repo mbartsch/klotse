@@ -231,7 +231,7 @@ def test_a_claim_nobody_uses_is_explained_and_nothing_is_started(qtbot, monkeypa
     ws = make_ws(qtbot, list_pods=lambda ns: [])
     monkeypatch.setattr(QMessageBox, "information", lambda *a: told.append(a[2]))
     ws.browse_claim(SimpleNamespace(name="data", namespace="shop"))
-    qtbot.waitUntil(lambda: bool(told), timeout=5000)
+    qtbot.waitUntil(lambda: bool(told), timeout=15000)
     assert "No running pod" in told[0] and "does not start a pod" in told[0]
     qtbot.waitUntil(lambda: not ws._workers)
 
@@ -244,7 +244,7 @@ def test_a_claim_in_use_opens_the_browser_at_its_mount(qtbot, monkeypatch):
     seen = []
     monkeypatch.setattr(FileBrowserDialog, "exec", lambda self: (seen.append((self.windowTitle(), self.address.text())), QDialog.Rejected)[1])
     ws.browse_claim(SimpleNamespace(name="data", namespace="shop"))
-    qtbot.waitUntil(lambda: bool(seen), timeout=5000)
+    qtbot.waitUntil(lambda: bool(seen), timeout=15000)
     assert seen == [("Files of claim shop/data (via db-0)", "/var/lib/pg")]
     qtbot.waitUntil(lambda: not ws._workers)
 

@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPlainTextEdit
 
 from klotse.k8s.resources import Row
+from klotse.ui import overview as overview_module
 from klotse.ui.overview import CLUSTER_CARDS, OverviewView
 
 
@@ -49,7 +50,7 @@ def test_activating_a_recent_event_opens_its_full_message(qtbot):
 
     index = view.events_table.proxy.index(0, 4)
     view.events_table.view.setCurrentIndex(index)
-    qtbot.keyClick(view.events_table.view, Qt.Key_Return)
+    qtbot.keyClick(view.events_table.view, Qt.Key_Return)  # also on macOS, where Qt alone would not activate the row
 
     assert len(view._event_dialogs) == 1
     dialog = next(iter(view._event_dialogs.values()))
@@ -57,6 +58,22 @@ def test_activating_a_recent_event_opens_its_full_message(qtbot):
     assert dialog.windowTitle() == "Event details"
     assert dialog.findChild(QPlainTextEdit, "eventFullMessage").toPlainText() == message
     dialog.close()
+
+
+def test_return_opens_the_event_on_macos_even_when_qt_would_not_activate_the_row(qtbot, monkeypatch):
+    monkeypatch.setattr(overview_module.sys, "platform", "darwin")  # the filter is installed only there
+    view = OverviewView(CLUSTER_CARDS, context="test")
+    qtbot.addWidget(view)
+    view.show()
+    view.set_data({"counts": {}, "events": [event_row("Mac message")], "lists": {}})
+    table = view.events_table.view
+    table.activated.disconnect()  # what Qt does on macOS: Return never reaches `activated`
+    table.setCurrentIndex(view.events_table.proxy.index(0, 4))
+
+    qtbot.keyClick(table, Qt.Key_Return)
+
+    assert len(view._event_dialogs) == 1
+    next(iter(view._event_dialogs.values())).close()
 
 
 def test_double_clicking_a_recent_event_opens_its_full_message(qtbot):

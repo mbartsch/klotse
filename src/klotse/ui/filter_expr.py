@@ -330,6 +330,9 @@ def server_selectors(expression, kind, known_name=None):
             # Kubernetes label keys are qualified names. Avoid sending malformed selectors.
             part = r"[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?"
             prefix, separator, key_name = label_key.partition("/")
+            if not separator:
+                key_name = prefix
+                prefix = ""
             prefix_ok = (not separator or (len(prefix) <= 253 and prefix == prefix.lower()
                                            and all(len(part_name) <= 63 and re.fullmatch(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?", part_name)
                                                    for part_name in prefix.split("."))))

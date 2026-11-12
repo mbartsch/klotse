@@ -48,7 +48,7 @@ def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path)
     assert win.edit_actions.actions["copy"].shortcut().toString(QKeySequence.NativeText) in win.edit_actions.actions["copy"].toolTip()
     from PySide6.QtGui import QAction
     assert win.preferences_action.menuRole() == QAction.MenuRole.PreferencesRole
-    if sys.platform == "darwin":
+    if sys.platform == "darwin" and QGuiApplication.platformName() == "cocoa":  # the offscreen platform has no native menu bar
         assert win.menuBar().isNativeMenuBar()
 
 

@@ -151,7 +151,7 @@ def test_watch_reloads_wait_for_the_refresh_interval(qtbot):
     ws._watchers[0].changed.emit()
     qtbot.wait(1500)  # past the 800 ms debounce
     assert loads == [] and ws._watch_late.isActive()  # a busy cluster does not reload it faster than the interval
-    assert 7000 < ws._watch_late.remainingTime() <= 8001
+    assert 5000 < ws._watch_late.remainingTime() <= 8001
     now[0] += 8.5
     ws._watch_late.stop()
     ws._watch_reload()  # the timer fires

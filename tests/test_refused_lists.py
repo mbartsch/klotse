@@ -20,6 +20,20 @@ def test_a_401_says_not_signed_in():
     assert text.startswith("Not signed in") and "kubeconfig" in text
 
 
+def test_a_failed_first_load_is_not_called_an_empty_list_when_the_status_line_is_rewritten(qtbot):
+    ws = ClusterWorkspace(SimpleNamespace(), "ctx")
+    qtbot.addWidget(ws)
+    table = ws.pod_table
+    table.set_error("ApiException: (500)")
+    assert table.status.text() == "Load failed: ApiException: (500)"
+    table._apply_filter()  # what the filter box does 200 ms after typing
+    assert table.status.text() == "Load failed: ApiException: (500)"
+    table.set_paging("", False)
+    assert table.status.text() == "Load failed: ApiException: (500)"
+    table.set_rows([])  # a later load that works clears it
+    assert table.status.text() == "No resources found"
+
+
 def test_other_errors_pass_through_unchanged():
     for message in ("ReadTimeoutError", "ApiException: (500)\nReason: Internal Server Error", "MaxRetryError: connection refused"):
         assert explain(message, "Pods") == message

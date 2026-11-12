@@ -10,6 +10,7 @@ from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QSize, QThreadPool, 
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
                                QStyle, QTabWidget, QToolBar, QSizePolicy, QWidget)
+from shiboken6 import isValid
 
 from ..k8s.api_index import ApiIndex
 from ..k8s.permissions import Permissions
@@ -1427,6 +1428,8 @@ class ClusterWorkspace(QMainWindow):
         w.submitted = asked = time.perf_counter()
 
         def done(cb, *a):
+            if not isValid(self):
+                return
             self._workers.discard(w)
             if not self._closed:  # disconnected while this call was in flight: drop the result
                 if timings.enabled:
