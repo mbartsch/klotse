@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klotse User Guide</title>
+<meta name="description" content="A friendly guide to Klotse, the native Kubernetes desktop manager.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Static site: plain HTML and CSS, no scripts.
+   Direction: a terminal-style manual (prompt headings, numbered steps) in the Klotse palette. */
+/* Klotse palette: slate neutrals with the teal of the app badge, amber for warnings only.
+   Tokens keep their old names; --phosphor is the accent, --dim the rules.
+   Three modes: Auto (follows the system, the default), Daylight and Dark. The switch is a set of
+   radio buttons at the top of the page, so the choice needs no script. */
+:root{
+  --bg:#f5f7f8;
+  --panel:#ffffff;
+  --ink:#1c2327;
+  --mute:#56616a;
+  --phosphor:#0f6e6c;
+  --dim:#9aa6ae;
+  --line:#d8dee3;
+  --code:#eef2f4;
+  --amber:#7a4c00;
+  --amber-bg:#fff3dc;
+  --glow:none;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not(:has(#t-light:checked)){
+    --bg:#12171a;--panel:#1a2125;--ink:#e4e9ec;--mute:#9aa7b0;--phosphor:#41b8b4;--dim:#4a5a64;--line:#33404a;--code:#202a2f;--amber:#f0b45a;--amber-bg:#32270e;color-scheme:dark;
+  }
+}
+:root:has(#t-dark:checked){--bg:#12171a;--panel:#1a2125;--ink:#e4e9ec;--mute:#9aa7b0;--phosphor:#41b8b4;--dim:#4a5a64;--line:#33404a;--code:#202a2f;--amber:#f0b45a;--amber-bg:#32270e;color-scheme:dark}
+:root:has(#t-light:checked){--bg:#f5f7f8;--panel:#ffffff;--ink:#1c2327;--mute:#56616a;--phosphor:#0f6e6c;--dim:#9aa6ae;--line:#d8dee3;--code:#eef2f4;--amber:#7a4c00;--amber-bg:#fff3dc;color-scheme:light}
+
+/* Screenshots: each image has a Daylight twin. The dark one is the default; the light one shows
+   when the page is in light mode. */
+.shot-light{display:none}
+@media (prefers-color-scheme: light){
+  :root:not(:has(#t-dark:checked)) .shot-dark{display:none}
+  :root:not(:has(#t-dark:checked)) .shot-light{display:block}
+}
+:root:has(#t-light:checked) .shot-dark{display:none}
+:root:has(#t-light:checked) .shot-light{display:block}
+
+/* The theme switch: visually hidden radio buttons, styled labels. */
+.switch{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;font-size:12px;flex:none;background:var(--panel)}
+.switch input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.switch label{padding:5px 11px;cursor:pointer;color:var(--mute);white-space:nowrap}
+.switch label+input+label{border-left:1px solid var(--line)}
+.switch label:hover{color:var(--phosphor)}
+.switch input:checked+label{background:var(--phosphor);color:var(--bg)}
+.switch input:focus-visible+label{outline:2px solid var(--amber);outline-offset:-2px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font:15px/1.65 "JetBrains Mono",ui-monospace,Consolas,Menlo,monospace;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  min-height:100vh;
+}
+::selection{background:var(--phosphor);color:var(--bg)}
+a{color:var(--phosphor);text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{background:var(--phosphor);color:var(--bg);text-decoration:none}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+h1,h2,h3{font-weight:700;color:var(--phosphor);text-shadow:var(--glow);letter-spacing:.01em}
+p{margin:0 0 14px}
+strong{color:var(--ink);font-weight:700}
+em{color:var(--ink);font-style:normal;text-decoration:underline dotted var(--dim);text-underline-offset:3px}
+code{font:13px/1.4 "JetBrains Mono",ui-monospace,Consolas,monospace;background:var(--code);color:var(--phosphor);padding:1px 6px;border:1px solid var(--line);border-radius:2px}
+kbd{font:13px/1.4 "JetBrains Mono",ui-monospace,Consolas,monospace;background:var(--code);color:var(--phosphor);border:1px solid var(--dim);border-bottom-width:3px;border-radius:3px;padding:0 6px;white-space:nowrap}
+
+/* ---------- top bar: a terminal title bar ---------- */
+.top{border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:40}
+.top-inner{max-width:1080px;margin:0 auto;padding:10px 0;display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}
+.brand{font-weight:700;font-size:17px;color:var(--phosphor);text-shadow:var(--glow);text-decoration:none;white-space:nowrap}
+.brand::before{content:"> ";color:var(--dim)}
+.brand:hover{background:none;color:var(--ink)}
+.top nav{display:flex;gap:4px 14px;flex-wrap:wrap;font-size:13px}
+.top nav a{color:var(--mute);text-decoration:none;padding:2px 0}
+.top nav a:hover,.top nav a:focus-visible{background:none;color:var(--phosphor);text-shadow:var(--glow)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1080px;margin:0 auto;padding:36px 0 56px}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:36px;align-items:center;margin-bottom:44px}
+.hero h1{font-size:clamp(26px,3.4vw,38px);line-height:1.18;margin:0 0 16px;text-wrap:balance}
+.hero h1::after{content:"_";color:var(--phosphor);margin-left:4px;animation:blink 1.05s steps(1) infinite}
+.hero p{color:var(--ink);max-width:56ch}
+.hero p.lede{color:var(--mute)}
+.banner{margin:0 0 18px;color:var(--phosphor);font-size:clamp(9px,1.25vw,12px);line-height:1.15;overflow-x:auto;white-space:pre;max-width:100%}
+.prompt{color:var(--mute);margin:0 0 6px;font-size:13px}
+.prompt b{color:var(--phosphor);font-weight:500}
+
+.buttons{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+.btn{display:inline-block;padding:8px 14px;border:1px solid var(--phosphor);color:var(--phosphor);background:transparent;text-decoration:none;font-size:14px;font-weight:500;letter-spacing:.02em;transition:background-color .15s,color .15s}
+.btn::before{content:"[ ";}
+.btn::after{content:" ]";}
+.btn:hover{background:var(--phosphor);color:var(--bg);text-decoration:none}
+.btn.primary{background:var(--phosphor);color:var(--bg);text-shadow:none}
+.btn.primary:hover{background:var(--ink)}
+
+/* CRT bezel around every screenshot */
+figure{margin:0}
+figure img{
+  display:block;width:100%;height:auto;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--panel);
+  padding:6px;
+  box-shadow:0 1px 3px rgba(20,30,36,.12);
+}
+figcaption{font-size:12.5px;color:var(--mute);margin-top:10px;padding-left:10px;border-left:2px solid var(--dim)}
+figcaption::before{content:"fig: ";color:var(--dim)}
+
+/* Sections are shell sessions */
+section{padding:34px 0 8px;border-top:1px dashed var(--dim);margin-top:10px}
+section h2{font-size:clamp(20px,2.6vw,26px);margin:0 0 10px;text-wrap:balance;line-height:1.3}
+section h2::before{content:"klotse@desk:~$ ";color:var(--mute);font-weight:400;text-shadow:none;font-size:.7em;display:block;margin-bottom:4px;letter-spacing:0}
+section h2 .cursor{display:inline-block;width:.6em;height:1em;background:var(--phosphor);vertical-align:-.12em;margin-left:6px;box-shadow:var(--glow);animation:blink 1.05s steps(1) infinite}
+section > p{max-width:70ch;color:var(--mute);margin:0 0 18px}
+section h3{font-size:16px;margin:0 0 8px}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:28px;align-items:start}
+.split.flip{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}
+.split.flip > figure{order:-1}
+.hero > *,.split > *,.cards > *,main,section{min-width:0}
+
+ul.clean{margin:0;padding-left:0;list-style:none}
+ul.clean li{position:relative;padding-left:22px;margin:0 0 8px}
+ul.clean li::before{content:">";position:absolute;left:0;top:0;color:var(--phosphor);text-shadow:var(--glow)}
+
+/* Numbered steps read like a log: [01] [02] */
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:step;display:grid;gap:10px}
+ol.steps li{counter-increment:step;background:var(--panel);border:1px solid var(--line);padding:12px 16px 12px 70px;position:relative;border-radius:2px}
+ol.steps li::before{content:"[" counter(step,decimal-leading-zero) "]";position:absolute;left:14px;top:12px;color:var(--phosphor);font-weight:700;text-shadow:var(--glow);font-size:14px}
+ol.steps li:hover{border-color:var(--dim)}
+
+/* Notes are boxed log lines */
+.note{border:1px dashed var(--dim);background:var(--panel);padding:12px 16px;margin:18px 0;max-width:72ch;color:var(--ink);border-radius:2px}
+.note strong{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:4px;color:var(--phosphor)}
+.note strong::before{content:"[ "}
+.note strong::after{content:" ]"}
+.note.warn{border-style:solid;border-color:var(--amber);background:var(--amber-bg)}
+.note.warn strong{color:var(--amber)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:8px}
+.card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;position:relative;transition:border-color .15s}
+.card:hover{border-color:var(--phosphor)}
+.card h3{color:var(--phosphor);text-shadow:var(--glow)}
+.card h3::before{content:"> ";color:var(--dim);text-shadow:none}
+.card p{margin:0;color:var(--mute);font-size:14px}
+
+details{background:var(--panel);border:1px solid var(--line);padding:12px 16px;margin-top:10px}
+details summary{cursor:pointer;font-weight:700;color:var(--phosphor);list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"\25B8  ";color:var(--dim)}
+details[open] summary::before{content:"\25BE  "}
+details p{color:var(--mute);margin:8px 0 0 18px}
+
+footer{border-top:1px dashed var(--dim);padding:24px 0 40px;color:var(--mute);font-size:13px}
+footer p{max-width:80ch;margin:0 0 8px}
+
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .hero h1::after,section h2 .cursor{animation:none}
+}
+@media (hover:hover){
+  .btn:active{transform:translateY(1px)}
+}
+@media (max-width:860px){
+  .hero,.split,.split.flip{grid-template-columns:minmax(0,1fr);gap:22px}
+  .split.flip > figure{order:0}
+  .hero h1{font-size:26px}
+  section h2{font-size:21px}
+  body::before{opacity:.4}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#top">KLOTSE</a>
+    <nav aria-label="Guide sections">
+      <a href="#start">Start</a>
+      <a href="#clusters">Clusters</a>
+      <a href="#views">Views</a>
+      <a href="#details">Details</a>
+      <a href="#changes">Changes</a>
+      <a href="#usage">Usage &amp; metrics</a>
+      <a href="#palette">Shortcuts</a>
+      <a href="#help">Help</a>
+    </nav>
+    <div class="switch" role="radiogroup" aria-label="Colour theme">
+      <input type="radio" name="theme" id="t-auto" checked>
+      <label for="t-auto">Auto</label>
+      <input type="radio" name="theme" id="t-light">
+      <label for="t-light">Daylight</label>
+      <input type="radio" name="theme" id="t-dark">
+      <label for="t-dark">Dark</label>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="top">
+
+  <div class="hero">
+    <div>
+      <pre class="banner" aria-hidden="true">
+ _  ___      _       _
+| |/ / | ___| |_ ___| | ___
+| ' /| |/ _ \ __/ __| |/ _ \
+| . \| | (_) | |_\__ \ |  __/
+|_|\_\_|\___/ \__|___/_|\___|
+      </pre>
+      <h1>Klotse, a calmer way to read your clusters</h1>
+      <p>Klotse is a desktop manager for Kubernetes. It uses the kubeconfig you already have, shows each cluster you open in its own tab, and checks every change with the cluster before it is saved.</p>
+      <p class="lede">This guide walks through the main windows, with pictures. The data in the screenshots is invented.</p>
+      <div class="buttons">
+        <a class="btn primary" href="#start">Start the tour</a>
+        <a class="btn" href="#help">Troubleshooting</a>
+      </div>
+    </div>
+    <figure>
+      <img class="shot shot-dark" src="screenshots/main-window.png" alt="The Klotse main window: a cluster list on the left, the cluster overview in the middle and the details pane on the right." width="1280" height="800"><img class="shot shot-light" src="screenshots/daylight/main-window.png" alt="" width="1280" height="800" aria-hidden="true">
+      <figcaption>The main window. Clusters are on the left, the open cluster is in the tabs, and the Details pane is on the right.</figcaption>
+    </figure>
+  </div>
+
+  <section id="start">
+    <h2>1. Start and connect<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Nothing connects when Klotse starts. You choose which clusters to open.</p>
+    <div class="split">
+      <ol class="steps">
+        <li><strong>Start Klotse.</strong> It reads your kubeconfig (the <code>KUBECONFIG</code> variable, or <code>~/.kube/config</code>).</li>
+        <li><strong>Right-click a cluster</strong> in the list and choose <em>Connect</em>, or double-click it.</li>
+        <li><strong>Work in the tab.</strong> Each open cluster has its own tab and its own connection.</li>
+        <li><strong>Quit normally.</strong> Answer <em>Yes</em> to remember the open clusters for next time.</li>
+      </ol>
+      <div>
+        <div class="note"><strong>Before you start</strong>kubectl must be on your PATH for drain, shells, attach and port forwards. Klotse uses the same authentication helpers as kubectl.</div>
+        <p>Using a different kubeconfig? Open <em>Edit &gt; Preferences &gt; General</em> and choose it there. Klotse closes open clusters after you confirm.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="clusters">
+    <h2>2. Clusters and the navigator<span class="cursor" aria-hidden="true"></span></h2>
+    <p>The cluster list on the left keeps connected clusters at the top. Use it to find, group and rename clusters.</p>
+    <div class="cards">
+      <div class="card"><h3>Switch fast</h3><p>The drop-down above the list switches between open clusters. It shows each cluster's alias.</p></div>
+      <div class="card"><h3>Search</h3><p>The search box filters the list. The button beside it shows or hides the box.</p></div>
+      <div class="card"><h3>Group</h3><p>Right-click the list to make groups and move clusters into them. <em>Suggest groups…</em> does it by name.</p></div>
+      <div class="card"><h3>Alias</h3><p><em>Rename alias…</em> gives a cluster a friendly name. The real context name stays the same.</p></div>
+    </div>
+    <div class="note"><strong>Tip</strong>The cluster menu appears on the cluster's own row. Connect, Disconnect, Rename, Move to group, plugin settings and Metrics source all live there.</div>
+  </section>
+
+  <section id="views">
+    <h2>3. Views, tables and filters<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Every kind of object has a view: pods, deployments, nodes, services, secrets, events and more. Tables are built to be scanned.</p>
+    <div class="split flip">
+      <figure>
+        <img class="shot shot-dark" src="screenshots/08-pods-filter-expression.png" alt="Pod table filtered with an expression." width="1180" height="270" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/08-pods-filter-expression.png" alt="" width="1180" height="270" loading="lazy" aria-hidden="true">
+        <figcaption>A filter expression such as <code>Restarts &gt; 3 and kind = pod*</code>. A bad expression filters nothing and says why.</figcaption>
+      </figure>
+      <ul class="clean">
+        <li><strong>Sort</strong> by any heading. Age sorts by real time, so <code>1d</code> comes before <code>8h</code>.</li>
+        <li><strong>Select several rows</strong> with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>. Bulk actions apply to the selection, after one confirmation.</li>
+        <li><strong>Right-click a cell</strong> to copy it or to filter by it.</li>
+        <li><strong>Double-click</strong> a pod to open it, a container for its logs, or a node for its pods.</li>
+        <li><strong>Columns…</strong> shows, hides and reorders columns, and adds label columns. Your choice is saved.</li>
+        <li><strong>Refresh</strong> is automatic for workloads and nodes. Other lists reload on <em>Refresh</em>, or when you switch refresh on for them.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="details">
+    <h2>4. The Details pane<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Select an object and its details open on the right. You can switch between four views, and every kind has the YAML view, even kinds with no summary.</p>
+    <div class="split">
+      <figure>
+        <img class="shot shot-dark" src="screenshots/details-yaml.png" alt="Details pane showing a Deployment as YAML." width="620" height="560" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/details-yaml.png" alt="" width="620" height="560" loading="lazy" aria-hidden="true">
+        <figcaption>The YAML view of a Deployment. Search it, copy it or wrap its lines.</figcaption>
+      </figure>
+      <div>
+        <div class="cards">
+          <div class="card"><h3>Summary</h3><p>A readable view for workloads, networking, RBAC and more.</p></div>
+          <div class="card"><h3>YAML</h3><p>The full object. Secrets stay masked until you choose to decode a key.</p></div>
+          <div class="card"><h3>Events</h3><p>What the cluster recorded about the object. These are kept for about an hour.</p></div>
+          <div class="card"><h3>Related</h3><p>Owners, what the object owns, and what it uses. Click one to go there.</p></div>
+        </div>
+        <p style="margin-top:14px;color:var(--mute)">In a narrow pane the buttons scroll sideways, so every view stays reachable.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="changes">
+    <h2>5. Changing things safely<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Klotse asks before it changes anything, and it checks each change with the cluster first.</p>
+    <div class="cards">
+      <div class="card"><h3>Review before saving</h3><p>Edit as a form or as YAML. <em>Review changes</em> shows the diff, after a server dry run.</p></div>
+      <div class="card"><h3>Apply YAML</h3><p>Paste or open manifests and check them with the server. Klotse never forces a conflicting field.</p></div>
+      <div class="card"><h3>Scale and restart</h3><p>Type a number, or <code>*2</code>, <code>+1</code>. Restarts roll the workload after you confirm.</p></div>
+      <div class="card"><h3>Nodes</h3><p>Cordon, drain and delete a node object. Deleting a node does not remove its machine. Drain asks before it bypasses disruption budgets.</p></div>
+      <div class="card"><h3>Change log</h3><p><em>View &gt; Operations &gt; Change log…</em> lists what you changed from Klotse. It stores identity only, never content or Secret values.</p></div>
+    </div>
+    <div class="note warn"><strong>Read-only mode</strong>Turn it on per cluster with <em>View &gt; Read-only mode</em>. Klotse then refuses every change it would make, while looking stays allowed. It guards the Klotse window; it does not limit a terminal you open yourself.</div>
+  </section>
+
+  <section id="pods">
+    <h2>6. Pods, logs and terminals<span class="cursor" aria-hidden="true"></span></h2>
+    <ul class="clean">
+      <li><strong>Logs</strong> for a container, with wrap, timestamps and the previous instance.</li>
+      <li><strong>Logs of all pods…</strong> follows every pod of a workload in one tab (up to 40 streams).</li>
+      <li><strong>Shell and Attach</strong> open a terminal in the container. Windows, macOS and Linux each use their own terminal. An embedded terminal is in Preferences, off by default.</li>
+      <li><strong>Debug</strong> adds an ephemeral container. It stays on the pod until the pod is deleted.</li>
+      <li><strong>Terminate</strong> and <strong>Force terminate</strong> (zero grace period, which can remove the object early).</li>
+    </ul>
+  </section>
+
+  <section id="usage">
+    <h2>7. Usage history and metrics<span class="cursor" aria-hidden="true"></span></h2>
+    <p>See CPU and memory for a pod, node or workload, and ask Prometheus or VictoriaMetrics questions, without opening a graph tool.</p>
+    <div class="split">
+      <figure>
+        <img class="shot shot-dark" src="screenshots/09-usage-history.png" alt="Usage history chart of CPU and memory with request and limit lines." width="1000" height="660" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/09-usage-history.png" alt="" width="1000" height="660" loading="lazy" aria-hidden="true">
+        <figcaption>Usage history. With only metrics-server, the chart starts when the window opens and is not kept after you close it.</figcaption>
+      </figure>
+      <div>
+        <h3 style="margin-top:0">Usage history</h3>
+        <ul class="clean">
+          <li>Right-click an object and choose <em>Usage history…</em>.</li>
+          <li><strong>Source…</strong> picks Prometheus or VictoriaMetrics, through the API server or a port-forward.</li>
+          <li><strong>Test</strong> checks the source before you press OK. OK keeps the connection Test started. Cancel closes it.</li>
+        </ul>
+        <h3 style="margin-top:18px">Metrics query</h3>
+        <ul class="clean">
+          <li>Right-click an object and choose <em>Metrics query…</em>. The presets fill in CPU, memory, network, restarts and replica counts.</li>
+          <li><strong>Run</strong> adds rows below the earlier ones, each with the time it was sampled. <strong>Clear</strong> empties the table.</li>
+          <li><strong>Repeat</strong> runs the query every 5 seconds to 5 minutes. <strong>Graph</strong> draws it over 15 minutes to 24 hours.</li>
+        </ul>
+      </div>
+    </div>
+    <figure style="margin-top:28px">
+      <img class="shot shot-dark" src="screenshots/metrics-query.png" alt="Metrics query window: presets, a results table with time, latest value and series, and a graph." width="900" height="760" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/metrics-query.png" alt="" width="900" height="760" loading="lazy" aria-hidden="true">
+      <figcaption>The Metrics query window. Each run adds rows; the graph draws the query over the range you choose.</figcaption>
+    </figure>
+    <div class="note"><strong>metrics-server is limited</strong>It gives current CPU and memory for pods and nodes. It cannot run queries, and it has no network or replica data. Those come from Prometheus or VictoriaMetrics.</div>
+  </section>
+
+  <section id="forwards">
+    <h2>8. Port forwards<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Port forwards open a pod or service on this computer. They listen on 127.0.0.1 only.</p>
+    <div class="split flip">
+      <figure>
+        <img class="shot shot-dark" src="screenshots/port-forwards.png" alt="Port forwards list with a running service forward, a running pod forward and a stopped forward." width="900" height="340" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/port-forwards.png" alt="" width="900" height="340" loading="lazy" aria-hidden="true">
+        <figcaption>The Port forwards tab: state, address, and who started each forward.</figcaption>
+      </figure>
+      <ul class="clean">
+        <li><strong>Port forward…</strong> on a pod or service starts a forward.</li>
+        <li><strong>Save forward</strong> keeps a forward so you can start it again with the same ports.</li>
+        <li><strong>Open in browser</strong> opens <code>http://127.0.0.1:&lt;port&gt;</code>.</li>
+        <li>Closing the tab or the cluster stops every forward.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="insights">
+    <h2>9. Insights<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Look, don't touch: these windows only read.</p>
+    <div class="split">
+      <figure>
+        <img class="shot shot-dark" src="screenshots/10-health-check.png" alt="Health check window listing findings by severity." width="1380" height="460" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/10-health-check.png" alt="" width="1380" height="460" loading="lazy" aria-hidden="true">
+        <figcaption>Health check: crash loops, missing limits, <code>latest</code> tags and more. Each finding is advice, not a verdict.</figcaption>
+      </figure>
+      <div class="cards">
+        <div class="card"><h3>RBAC lookup</h3><p>Who can do something, and what a user or service account can do.</p></div>
+        <div class="card"><h3>My permissions</h3><p>What you may do in a namespace, with a <em>Can I?</em> check.</p></div>
+        <div class="card"><h3>Right-sizing</h3><p>Requests and limits compared with current usage.</p></div>
+        <div class="card"><h3>Trivy and Helm</h3><p>Vulnerability reports from the Trivy Operator, and Helm releases.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="palette">
+    <h2>10. Command palette and shortcuts<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Press <kbd>Ctrl</kbd>+<kbd>K</kbd> (<kbd>Cmd</kbd>+<kbd>K</kbd> on a Mac) and type a few letters. The palette finds views, namespaces, clusters and every enabled menu action.</p>
+    <ul class="clean">
+      <li><kbd>Ctrl</kbd>+<kbd>K</kbd> opens the palette.</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches objects across the cluster.</li>
+      <li>The menu bar lists every other shortcut beside its item.</li>
+    </ul>
+  </section>
+
+  <section id="settings">
+    <h2>11. Preferences<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Open <em>Edit &gt; Preferences</em>. Settings are stored in your user settings folder, and <em>Open config folder</em> shows where.</p>
+    <div class="cards">
+      <div class="card"><h3>General</h3><p>Kubeconfig, usage-history SSL and certificate defaults, metrics-query autocomplete, and a timing log for slow loads.</p></div>
+      <div class="card"><h3>Terminal</h3><p>The macOS terminal (Terminal or iTerm2) and the embedded terminal.</p></div>
+      <div class="card"><h3>Plugins</h3><p>Optional plugins, such as the AWS plugin for node details. Off until you enable them.</p></div>
+    </div>
+  </section>
+
+  <section id="help">
+    <h2>Help and troubleshooting<span class="cursor" aria-hidden="true"></span></h2>
+    <details open>
+      <summary>A cluster will not connect</summary>
+      <p>Check that the kubeconfig context works in kubectl, and that the authentication helper it names is installed. The error says which step failed, and <em>Retry</em> tries again.</p>
+    </details>
+    <details>
+      <summary>A list says "forbidden"</summary>
+      <p>Your account has no permission for that kind. <em>View permissions</em> shows what you can do.</p>
+    </details>
+    <details>
+      <summary>Usage history shows only metrics-server</summary>
+      <p>No Prometheus or VictoriaMetrics source answered. The status line under the chart says which service failed and why. Choose a source with <em>Source…</em>.</p>
+    </details>
+    <details>
+      <summary>A port forward fails</summary>
+      <p>The Port forwards tab shows kubectl's own words. For "port in use", leave the local port empty so Klotse picks a free one.</p>
+    </details>
+    <details>
+      <summary>Something feels slow</summary>
+      <p>Turn on the timing log in Preferences and send the <code>timings.log</code> file. It holds names, counts and seconds only.</p>
+    </details>
+  </section>
+
+</main>
+
+<footer class="wrap" style="padding-top:0">
+  <p>Klotse is open source under the Apache-2.0 licence. Kubernetes is a trademark of The Linux Foundation; Klotse is not affiliated with it.</p>
+  <p>The screenshots use invented data and were rendered from the app's own windows. They may differ slightly from your build.</p>
+</footer>
+
+</body>
+</html>
