@@ -185,9 +185,29 @@ def to_chart(cpu_lines, mem_lines):
     return dict(cpu_lines), mem
 
 
+METRIC_NAMES_LIMIT = 5000  # most metric names the query window keeps for autocomplete
+
+
+def metric_names_path(ref):
+    """The API path of every metric name the source knows (`/api/v1/label/__name__/values`), through the proxy or a forward."""
+    return reach_path(ref, "/api/v1/label/__name__/values")
+
+
+def parse_names(text, limit=METRIC_NAMES_LIMIT):
+    """Sorted metric names from a label-values answer, at most `limit`. Raises PrometheusError for an error answer."""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        raise PrometheusError("The answer was not JSON: is this a Prometheus or VictoriaMetrics address?") from None
+    if not isinstance(body, dict) or body.get("status") != "success":
+        raise PrometheusError(str((body or {}).get("error") or "the source returned an error") if isinstance(body, dict) else "unexpected answer")
+    names = sorted({str(name) for name in (body.get("data") or []) if isinstance(name, str) and name})
+    return names[:limit]
+
+
 def parse_vector(text):
-    """[(labels, value)] from an instant `query` answer (`vector` results). Series without a number are skipped. Raises PrometheusError
-    for an error answer."""
+    """[(labels, value, time)] from an instant `query` answer (`vector` results): every label of the series as the source gives it, the
+    latest value and the epoch time of that sample. Series without a number are skipped. Raises PrometheusError for an error answer."""
     try:
         body = json.loads(text)
     except ValueError:
@@ -200,30 +220,61 @@ def parse_vector(text):
         if not isinstance(sample, list) or len(sample) != 2:
             continue
         try:
-            number = float(sample[1])
+            number, stamp = float(sample[1]), float(sample[0])
         except (TypeError, ValueError):
             continue
         if number == number:  # not NaN
-            found.append((dict(series.get("metric") or {}), number))
+            found.append((dict(series.get("metric") or {}), number, stamp))
     return found
 
 
+def parse_matrix_series(text):
+    """{series text: [(epoch seconds, value)]} from a `query_range` answer, one line per series (named by its labels; see `series_text`).
+    Raises PrometheusError for an error answer. NaN and missing samples are skipped."""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        raise PrometheusError("The answer was not JSON: is this a Prometheus or VictoriaMetrics address?") from None
+    if not isinstance(body, dict) or body.get("status") != "success":
+        raise PrometheusError(str((body or {}).get("error") or "the source returned an error") if isinstance(body, dict) else "unexpected answer")
+    lines = {}
+    for series in (body.get("data") or {}).get("result") or []:
+        points = []
+        for stamp, value in series.get("values") or []:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number == number:
+                points.append((float(stamp), number))
+        if points:
+            lines[series_text(series.get("metric") or {})] = points
+    return lines
+
+
 def series_text(labels):
-    """`pod="web-1", container="app"` for a series' labels (the metric name left out), sorted."""
-    return ", ".join(f'{k}="{v}"' for k, v in sorted(labels.items()) if k != "__name__") or "(no labels)"
+    """`__name__="x", pod="web-1", container="app"`: every label of a series, in the order the source gives them (nothing dropped or sorted)."""
+    return ", ".join(f'{k}="{v}"' for k, v in labels.items()) or "(no labels)"
 
 
 def workload_queries(kind, namespace, name):
     """Quick PromQL for a workload: [(title, query)]. Pod CPU, memory and network come from the kubelet's cAdvisor metrics; restarts and
     replica counts need kube-state-metrics (the title says so). Pod names follow the controller's naming: Deployment pods are
     `name-<hash>-<hash>`, StatefulSet `name-<n>`, DaemonSet `name-<hash>`."""
+    if kind == "Node":  # a node has no namespace: its CPU and memory are the root cgroup's, from the instance or node label
+        node = queries("Node", node_names=[name])
+        return [("CPU, cores", node["cpu"]), ("Memory, MiB", f"({node['mem']})/1048576")]
     ns, nm = quote_label(namespace), quote_label(name)
-    pattern = {"Deployment": r"[a-z0-9]+-[a-z0-9]+", "StatefulSet": r"[0-9]+", "DaemonSet": r"[a-z0-9]+"}.get(kind, r"[a-z0-9]+")
-    pods = f'pod=~"{escape_re(name)}-{pattern}"'
+    if kind == "Pod":  # one pod: its name is exact
+        pods = f'pod="{nm}"'
+        pattern = None
+    else:
+        pattern = {"Deployment": r"[a-z0-9]+-[a-z0-9]+", "StatefulSet": r"[0-9]+", "DaemonSet": r"[a-z0-9]+"}.get(kind, r"[a-z0-9]+")
+        pods = f'pod=~"{escape_re(name)}-{pattern}"'
     replicas = {"Deployment": ("Available replicas (kube-state-metrics)", f'kube_deployment_status_replicas_available{{namespace="{ns}",deployment="{nm}"}}'),
                 "StatefulSet": ("Ready replicas (kube-state-metrics)", f'kube_statefulset_status_replicas_ready{{namespace="{ns}",statefulset="{nm}"}}'),
                 "DaemonSet": ("Ready pods (kube-state-metrics)", f'kube_daemonset_status_number_ready{{namespace="{ns}",daemonset="{nm}"}}')}
-    queries = [
+    presets = [
         ("CPU, cores", f'sum(rate(container_cpu_usage_seconds_total{{namespace="{ns}",{pods},container!="",container!="POD"}}[5m]))'),
         ("Memory, MiB", f'sum(container_memory_working_set_bytes{{namespace="{ns}",{pods},container!="",container!="POD"}})/1048576'),
         ("Network in, bytes/s", f'sum(rate(container_network_receive_bytes_total{{namespace="{ns}",{pods}}}[5m]))'),
@@ -232,5 +283,5 @@ def workload_queries(kind, namespace, name):
          f'sum(increase(kube_pod_container_status_restarts_total{{namespace="{ns}",{pods}}}[1h]))'),
     ]
     if kind in replicas:
-        queries.insert(0, replicas[kind])
-    return queries
+        presets.insert(0, replicas[kind])
+    return presets

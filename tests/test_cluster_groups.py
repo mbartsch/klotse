@@ -261,3 +261,14 @@ def test_a_settings_file_that_cannot_be_written_warns_and_keeps_the_groups(qtbot
     monkeypatch.setattr(win.groups, "save", broken)
     win.nav.create_group("", "prod")
     assert warned == ["read-only"] and "prod" in win.groups.groups()
+
+
+def test_the_cluster_menu_belongs_to_the_cluster_row_not_to_the_views_under_it(qtbot):
+    from PySide6.QtWidgets import QTreeWidgetItem
+    nav, _ = make_nav(qtbot, assignments={"a": "prod"})
+    cluster = nav.cluster_item("a")
+    view = QTreeWidgetItem(cluster)
+    view.setData(0, nav.ROLE_KIND, "view")
+    view.setData(0, nav.ROLE_KEY, "overview")
+    assert nav.menu_for(view) is None  # Overview, Nodes and the other views under a cluster offer no cluster menu
+    assert nav.menu_for(cluster) is not None

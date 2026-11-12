@@ -132,3 +132,15 @@ def test_recent_navigation_targets_are_bounded_clearable_and_live_only(qtbot, tm
     clear.run()
     assert win._recent_palette_keys() == []
     assert not any(e.category == "Recent" for e in win.palette_entries())
+
+
+def test_port_forwards_and_metrics_query_are_in_the_palette_only_with_a_cluster_open(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    assert "Port forwards" not in labels(win.palette_entries()) and "Metrics query" not in labels(win.palette_entries())
+    open_active(win)
+    entries = labels(win.palette_entries())
+    assert "Port forwards" in entries and "Metrics query" in entries
+    entry = next(e for e in win.palette_entries() if e.label == "Port forwards")
+    entry.run()
+    ws = win.clusters.currentWidget()
+    assert any(getattr(ws.log_tabs.widget(i), "key", "") == "port-forwards" for i in range(ws.log_tabs.count()))

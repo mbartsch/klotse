@@ -17,6 +17,7 @@ from .table_model import TableModel, age_sort_value
 
 
 METRIC_KINDS = {"Pod", "Node", "Deployment", "StatefulSet", "DaemonSet"}  # have a usage history chart
+METRIC_QUERY_KINDS = {"Pod", "Node", "Deployment", "StatefulSet", "DaemonSet"}  # Metrics query… (PromQL about the object)
 LOG_SOURCES = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "Service", "CronJob"}  # selector or CronJob ownership
 SCALABLE = {"Deployment", "ReplicaSet", "StatefulSet"}
 RESTARTABLE = {"Deployment", "StatefulSet", "DaemonSet"}  # rollout restart: a ReplicaSet has no rollout of its own
@@ -964,7 +965,7 @@ class ResourceTable(QWidget):
             add("permissions", "Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
         if self.kind in METRIC_KINDS:
             add("usage-history", "Usage history…", lambda: self.metrics_requested.emit(self.kind, row))
-        if self.kind in ("Deployment", "StatefulSet", "DaemonSet"):
+        if self.kind in METRIC_QUERY_KINDS:
             add("metrics-query", "Metrics query…", lambda: self.metrics_query_requested.emit(self.kind, row))
         if self.kind == "Pod":
             add("logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True, permission="logs")
@@ -1121,7 +1122,7 @@ class ResourceTable(QWidget):
                 add_shared("permissions")
             if self.kind in METRIC_KINDS:
                 add_shared("usage-history")
-            if self.kind in ("Deployment", "StatefulSet", "DaemonSet"):
+            if self.kind in METRIC_QUERY_KINDS:
                 add_shared("metrics-query")
             if self.kind in LOG_SOURCES:
                 add_shared("multi-logs")

@@ -1157,6 +1157,17 @@ class KubeService:
             raise prometheus.PrometheusError(str(body.get("error") or "the source returned an error"))
         return True
 
+    def prometheus_query_range(self, ref, promql, seconds):
+        """{series: [(epoch seconds, value)]} of a PromQL query over the last `seconds`, one line per series, for a graph. Looking only."""
+        end = time.time()
+        start, step = end - seconds, prometheus.step_for(seconds)
+        return prometheus.parse_matrix_series(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60))
+
+    def prometheus_metric_names(self, ref):
+        """The metric names of the source for autocomplete, at most METRIC_NAMES_LIMIT. Asked once per query window, and only when the
+        Preferences setting is on. Looking only."""
+        return prometheus.parse_names(self._prometheus_get(ref, prometheus.metric_names_path(ref), 60))
+
     def prometheus_query(self, ref, promql):
         """[(labels, value)] of an instant PromQL query on the service `ref` (through the proxy, or a port-forward Klotse started). Looking only."""
         return prometheus.parse_vector(self._prometheus_get(ref, prometheus.instant_path(ref, promql), 30))

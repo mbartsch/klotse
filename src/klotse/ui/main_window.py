@@ -22,6 +22,7 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from ..k8s.timing import timings
 from .metrics_sources import ForwardDefaults
+from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .big_clusters import NOTICE_TEXT, BigClusters
 from .multi_cluster import MultiClusterDialog
@@ -191,6 +192,16 @@ class MainWindow(QMainWindow):
         self.rbac_action.triggered.connect(self.show_rbac)
         insights_menu.addAction(self.rbac_action)
         insights_menu.aboutToShow.connect(lambda: self.rbac_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.metrics_query_action = QAction("Metrics query…", self)
+        self.metrics_query_action.setToolTip("Quick PromQL against the Prometheus or VictoriaMetrics source of the cluster in front (read only)")
+        self.metrics_query_action.triggered.connect(self.show_cluster_metrics_query)
+        insights_menu.addAction(self.metrics_query_action)
+        insights_menu.aboutToShow.connect(lambda: self.metrics_query_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.port_forwards_action = QAction("Port forwards…", self)
+        self.port_forwards_action.setToolTip("The kubectl port-forwards of the cluster in front: state, address, save, stop")
+        self.port_forwards_action.triggered.connect(self.show_port_forwards)
+        operations_menu.addAction(self.port_forwards_action)
+        operations_menu.aboutToShow.connect(lambda: self.port_forwards_action.setEnabled(self.clusters.currentWidget() is not None))
         self.rightsizing_action = QAction("Right-sizing…", self)
         self.rightsizing_action.setToolTip("Requests and limits against current usage, per workload, with advice")
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
@@ -339,16 +350,13 @@ class MainWindow(QMainWindow):
         cluster_heading.setFont(heading_font)
         theme.muted(cluster_heading)
         nav_layout.addWidget(cluster_heading)
-        cluster_row = QHBoxLayout()
-        cluster_row.setSpacing(5)
-        cluster_row.addWidget(self.cluster_picker, 1)
+        nav_layout.addWidget(self.cluster_picker)
         search_clusters = QToolButton()
         search_clusters.setIcon(action_icon("search"))
         search_clusters.setAccessibleName("Search clusters")
         search_clusters.setToolTip("Show or hide cluster search")
         search_clusters.setCheckable(True)
-        cluster_row.addWidget(search_clusters)
-        nav_layout.addLayout(cluster_row)
+        self._cluster_search_button = search_clusters
         self.cluster_search = QLineEdit()
         self.cluster_search.setObjectName("clusterSearch")
         self.cluster_search.setAccessibleName("Search clusters")
@@ -363,7 +371,11 @@ class MainWindow(QMainWindow):
             else:
                 self.cluster_search.clear()
         search_clusters.toggled.connect(toggle_cluster_search)
-        nav_layout.addWidget(self.cluster_search)
+        search_row = QHBoxLayout()  # the search box, and its button on the right of it
+        search_row.setSpacing(5)
+        search_row.addWidget(self.cluster_search, 1)
+        search_row.addWidget(search_clusters)
+        nav_layout.addLayout(search_row)
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
@@ -381,6 +393,7 @@ class MainWindow(QMainWindow):
                                            for p in self.plugins.cluster_plugins()]
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
+        self.nav.metrics_source_requested.connect(self.open_metrics_source)
 
         self.status = self.statusBar()
         self.plugin_errors_button = QToolButton(self)
@@ -423,6 +436,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save cluster alias", str(error))
             return False
         self.nav.set_alias(context, self.aliases.display(context))
+        self._sync_cluster_picker()
         ws = self.workspaces.get(context)
         if ws is not None and context not in self._detached:
             self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(context))
@@ -446,14 +460,22 @@ class MainWindow(QMainWindow):
         contexts = list(self.workspaces)
         self.cluster_picker.blockSignals(True)
         self.cluster_picker.clear()
-        self.cluster_picker.addItems(contexts)
+        for context in contexts:  # shown by alias; the context name is the item's data, which is what selecting it uses
+            self.cluster_picker.addItem(self.aliases.display(context), context)
+        if not contexts:  # nothing connected: say so, and open the search so a cluster can be found and connected
+            self.cluster_picker.addItem("No Cluster", "")
+            self.cluster_picker.setEnabled(False)
+            self.cluster_search.setVisible(True)
+            self._cluster_search_button.setChecked(True)
+        else:
+            self.cluster_picker.setEnabled(True)
         current = preferred
         if current is None:
             active = QApplication.activeWindow()
             current = next((context for context, window in self._detached.items() if window is active), None)
         if current is None and self.clusters.currentWidget() is not None:
             current = self.clusters.currentWidget().context
-        index = self.cluster_picker.findText(current or "")
+        index = self.cluster_picker.findData(current or "")
         if index >= 0:
             self.cluster_picker.setCurrentIndex(index)
         self.cluster_picker.blockSignals(False)
@@ -473,7 +495,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(title)
 
     def _pick_cluster(self, index):
-        context = self.cluster_picker.itemText(index)
+        context = self.cluster_picker.itemData(index)
         workspace = self.workspaces.get(context)
         if workspace is not None and context not in self._detached:
             self.clusters.setCurrentWidget(workspace)
@@ -818,6 +840,22 @@ class MainWindow(QMainWindow):
         ws.show_rightsizing()
         return True
 
+    def show_port_forwards(self):
+        """View > Operations > Port forwards…: the Port forwards tab of the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_port_forwards()
+        return True
+
+    def show_cluster_metrics_query(self):
+        """View > Insights > Metrics query…: a query window for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_metrics_query()
+        return True
+
     # ---- command palette -------------------------------------------------------------------------------------
     def palette_entries(self):
         """Everything the palette can do right now: the views of the cluster in front, its namespaces, the clusters of the kubeconfig and
@@ -1057,6 +1095,15 @@ class MainWindow(QMainWindow):
         ws.show_permissions()
         return True
 
+    def open_metrics_source(self, context):
+        """Cluster list > Metrics source…: the Prometheus / VictoriaMetrics source of usage history for that cluster (the same dialog as
+        Usage history > Source…). False when the cluster is not open."""
+        ws = self.workspaces.get(context)
+        if ws is None:
+            return False
+        ws.configure_metrics_source()
+        return True
+
     def open_cluster_settings(self, plugin_id, context=None):
         """Edit a plugin's settings for `context` (default: the cluster in front); False when there is no such open
         cluster or the plugin is not enabled."""
@@ -1083,7 +1130,7 @@ class MainWindow(QMainWindow):
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
-                                   forward=ForwardDefaults(self.label_settings.store))
+                                   forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store))
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):

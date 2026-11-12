@@ -190,16 +190,23 @@ def workspace(qtbot, tmp_path):
                 fw.process.waitForFinished(3000)
 
 
+def start_by_window(ws, dialog):
+    """What a usage window does when it needs its source: start (or reuse) the port-forward and read through it."""
+    ws._offer_prometheus(dialog, "Pod", pod_row(), "", force=True)
+
+
 def choose(ws, answer):
     ws._ask_prometheus_source = lambda: answer if len(answer) == 5 else (*answer, "", "")
 
 
-def test_a_saved_forward_is_not_started_by_opening_a_window(qtbot, workspace):
+def test_a_saved_forward_is_started_when_a_window_needs_it_not_by_pressing_ok(qtbot, workspace):
     ws, fake = workspace()
     ws.metrics_sources.set("ctx", "monitoring/my-prom:9090", "forward")
     dialog = ws.show_metrics("Pod", pod_row())
-    qtbot.waitUntil(lambda: "port-forward" in dialog.status.text(), timeout=10000)
-    assert "Source…" in dialog.status.text() and ws.port_forwards.items == [] and fake.refs == [] and dialog.mode() == SAMPLED
+    qtbot.waitUntil(lambda: ws.port_forwards.items and ws.port_forwards.items[0].state == "active", timeout=10000)
+    assert ws.port_forwards.items[0].origin == "Usage history"
+    qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
+    assert fake.refs[-1]["local_port"] == 54321
 
 
 def test_choosing_the_forward_starts_it_shows_it_and_reads_through_it(qtbot, workspace):
@@ -207,6 +214,7 @@ def test_choosing_the_forward_starts_it_shows_it_and_reads_through_it(qtbot, wor
     dialog = ws.show_metrics("Pod", pod_row())
     choose(ws, ("monitoring/my-prom:9090/select/0/prometheus", "forward", 0))
     dialog.source_button.click()
+    start_by_window(ws, dialog)
     qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
     forward = ws.port_forwards.items[0]
     assert (forward.target, forward.namespace, forward.remote, forward.origin) == ("svc/my-prom", "monitoring", 9090, "Usage history")
@@ -220,6 +228,7 @@ def test_closing_the_window_stops_the_forward_but_another_window_keeps_it(qtbot,
     first = ws.show_metrics("Pod", pod_row())
     choose(ws, ("monitoring/my-prom:9090", "forward", 0))
     first.source_button.click()
+    start_by_window(ws, first)
     qtbot.waitUntil(lambda: first.mode() == REMOTE, timeout=20000)
     forward = ws.port_forwards.items[0]
     second = ws.show_metrics("Node", type("N", (), {"name": "n1", "namespace": "", "cpu": 4.0, "memory": 16.0, "raw": {}})())
@@ -237,6 +246,7 @@ def test_a_forward_that_fails_is_explained_in_the_window(qtbot, workspace):
     dialog = ws.show_metrics("Pod", pod_row())
     choose(ws, ("monitoring/my-prom:9090", "forward", 9090))
     dialog.source_button.click()
+    start_by_window(ws, dialog)
     qtbot.waitUntil(lambda: "through a port-forward" in dialog.status.text(), timeout=10000)
     assert "already in use" in dialog.status.text() and dialog.mode() == SAMPLED and fake.refs == []
 
@@ -246,10 +256,12 @@ def test_choosing_the_proxy_again_stops_the_forward(qtbot, workspace):
     dialog = ws.show_metrics("Pod", pod_row())
     choose(ws, ("monitoring/my-prom:9090", "forward", 0))
     dialog.source_button.click()
+    start_by_window(ws, dialog)
     qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
     forward = ws.port_forwards.items[0]
     choose(ws, ("monitoring/my-prom:9090", "proxy", 0))
     dialog.source_button.click()
+    start_by_window(ws, dialog)
     qtbot.waitUntil(lambda: forward.state == "stopped", timeout=8000)
     assert ws.metrics_sources.get_via("ctx") == "proxy"
 
@@ -260,3 +272,47 @@ def test_a_chosen_forward_can_be_kept_in_saved_forwards(qtbot, workspace):
     ws._remember_source_forward("monitoring/my-prom:9090", 15432)
     assert SavedForwards(ws.label_settings.store).for_context("ctx") == [
         {"ctx": "ctx", "kind": "Service", "ns": "monitoring", "name": "my-prom", "remote": 9090, "local": 15432}]
+
+
+def _dialog_that(ws, qtbot, press, test_first=True):
+    """A stand-in for Source…: fills in a forward to the service, presses Test (which starts the forward) and then `press`."""
+    from PySide6.QtWidgets import QDialog
+
+    def exec_(dialog):
+        dialog.service.setText("monitoring/my-prom:9090")
+        dialog.forward.setChecked(True)
+        if test_first:
+            dialog.test_requested.emit()
+            qtbot.waitUntil(lambda: ws._source_forward is not None and ws._source_forward.state == "active", timeout=8000)
+        return QDialog.Accepted if press == "ok" else QDialog.Rejected
+    return exec_
+
+
+def test_test_then_ok_keeps_the_connection_that_test_started(qtbot, workspace, monkeypatch):
+    from klotse.ui.prometheus_source_dialog import PrometheusSourceDialog
+    ws, _ = workspace()
+    monkeypatch.setattr(PrometheusSourceDialog, "exec", _dialog_that(ws, qtbot, "ok"))
+    answer = ws._ask_prometheus_source()
+    assert answer is not None and answer[1] == "forward"
+    forward = ws._source_forward
+    assert forward is not None and forward.state == "active"  # OK keeps the forward Test started
+
+
+def test_test_then_cancel_closes_the_connection_test_started(qtbot, workspace, monkeypatch):
+    from klotse.ui.prometheus_source_dialog import PrometheusSourceDialog
+    ws, _ = workspace()
+    monkeypatch.setattr(PrometheusSourceDialog, "exec", _dialog_that(ws, qtbot, "cancel"))
+    assert ws._ask_prometheus_source() is None
+    forward = ws.port_forwards.items[0]
+    qtbot.waitUntil(lambda: forward.state == "stopped", timeout=8000)  # Cancel closes the forward Test started
+    assert ws._source_forward is None
+
+
+def test_ok_without_test_starts_the_connection(qtbot, workspace, monkeypatch):
+    from klotse.ui.prometheus_source_dialog import PrometheusSourceDialog
+    ws, _ = workspace()
+    monkeypatch.setattr(PrometheusSourceDialog, "exec", _dialog_that(ws, qtbot, "ok", test_first=False))
+    dialog = ws.show_metrics("Pod", pod_row())
+    ws._configure_prometheus(dialog, "Pod", pod_row(), "")  # the Source… OK handler, with the dialog above answering OK
+    qtbot.waitUntil(lambda: ws.port_forwards.items and ws.port_forwards.items[0].state == "active", timeout=8000)
+    ws.shutdown()
