@@ -16,6 +16,11 @@ on:
         type: choice
         default: offscreen
         options: [offscreen, minimal, xcb]
+      python_version:
+        description: Python version for the full suite
+        type: choice
+        default: "3.12"
+        options: ["3.12", "3.13", "3.14"]
 
 permissions:
   contents: read
@@ -36,7 +41,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
-          python-version: "3.12"
+          python-version: ${{ inputs.python_version }}
       - name: Install Qt system libraries (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -84,9 +89,13 @@ jobs:
           pytest -q $selected
 
   macos-smoke:
-    name: macOS Qt smoke tests
+    name: macOS Qt smoke tests (Python ${{ matrix.python }})
     runs-on: macos-15-intel
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
     env:
       PYTHONPATH: src
       QT_QPA_PLATFORM: minimal
@@ -97,7 +106,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Install test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Check packaged Qt startup
