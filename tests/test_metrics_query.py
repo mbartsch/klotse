@@ -223,3 +223,26 @@ def test_repeat_runs_now_and_then_every_chosen_interval_and_stops_when_off(qtbot
     dialog.repeat_box.setCurrentIndex(1)
     dialog.close()
     assert not dialog._timer.isActive()
+
+
+def test_closing_the_window_stops_repeats_and_drops_a_running_answer(qtbot):
+    waiting = []
+    calls = []
+
+    def run(promql, ok, bad):
+        calls.append(promql)
+        waiting.append(ok)  # the answer arrives later, as it does from the worker
+
+    dialog = MetricsQueryDialog("Metrics", "src", [], run)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.query.setText("up")
+    dialog.repeat_box.setCurrentIndex(1)  # every 5 s: one query is now running
+    assert len(calls) == 1
+    dialog.close()
+    waiting[0]([({"pod": "web-1"}, 1.0, 1700000000.0)])  # the running query answers after the window closed
+    assert dialog.table.rowCount() == 0  # the answer is dropped, not shown
+    dialog.run_query()
+    dialog._repeat_due()
+    assert len(calls) == 1  # no new query starts from a closed window
+    assert not dialog._timer.isActive()

@@ -33,6 +33,7 @@ class MetricsQueryDialog(QWidget):
         self.setWindowTitle(title)
         self.setAccessibleName("Metrics query")
         self._run = run
+        self._closed = False  # set when the window closes: no new query starts and no result is shown after that
         self._run_range = run_range  # run_range(promql, seconds, on_result, on_error): the graph's range query
         self._presets = list(presets)
         self.source = QLabel(f"Source: {source_text}")
@@ -124,6 +125,8 @@ class MetricsQueryDialog(QWidget):
         self.query.setFocus()
 
     def run_query(self):
+        if self._closed:
+            return
         promql = self.query.text().strip()
         if not promql:
             self.status.setText("Write a query first.")
@@ -133,6 +136,8 @@ class MetricsQueryDialog(QWidget):
         self._run(promql, self._show, self._fail)
 
     def graph_query(self):
+        if self._closed:
+            return
         promql = self.query.text().strip()
         if not promql or self._run_range is None:
             self.status.setText("Write a query first.")
@@ -142,6 +147,8 @@ class MetricsQueryDialog(QWidget):
         self._run_range(promql, self.graph_range.currentData(), self._draw, self._graph_failed)
 
     def _draw(self, lines):
+        if self._closed:
+            return
         try:
             self.graph_button.setEnabled(True)
             self.chart.set_data(lines, placeholder="No samples in this time range for this query.")
@@ -150,6 +157,8 @@ class MetricsQueryDialog(QWidget):
             pass
 
     def _graph_failed(self, message):
+        if self._closed:
+            return
         try:
             self.graph_button.setEnabled(True)
             self.status.setText(f"The graph query failed: {message}")
@@ -176,6 +185,7 @@ class MetricsQueryDialog(QWidget):
         self._timer.stop()
 
     def closeEvent(self, event):
+        self._closed = True
         self.stop_repeat()
         super().closeEvent(event)
 
@@ -186,7 +196,9 @@ class MetricsQueryDialog(QWidget):
 
     def _show(self, series):
         """`series`: [(labels, value, time)] in the order the source answered; nothing is cleaned up or sorted. Each run adds its rows below
-        the rows of earlier runs, the time (first column) says when each value was sampled, until Clear."""
+        the rows of earlier runs, the time (first column) says when each value was sampled, until Clear. A window closed meanwhile drops it."""
+        if self._closed:
+            return
         try:
             self.run_button.setEnabled(True)
             start = self.table.rowCount()
@@ -204,6 +216,8 @@ class MetricsQueryDialog(QWidget):
             pass
 
     def _fail(self, message):
+        if self._closed:
+            return
         try:
             self.run_button.setEnabled(True)  # the rows of earlier runs stay until Clear
             self.status.setText(f"The query failed: {message}")
