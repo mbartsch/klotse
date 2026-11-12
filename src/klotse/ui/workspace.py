@@ -1814,6 +1814,7 @@ class ClusterWorkspace(QMainWindow):
         dialog.setWindowFlag(Qt.Window, True)
         dialog.source_requested.connect(lambda: self._change_query_source(dialog, holder))
         dialog.show()
+        dialog.raise_()
         self._metrics_dialogs.append(dialog)
         self._locate_query_source(dialog, holder)
         return dialog
@@ -1827,6 +1828,8 @@ class ClusterWorkspace(QMainWindow):
             holder["ref"] = ref
             try:
                 dialog.set_source(prometheus.ref_text(ref) + (f" (port-forward on 127.0.0.1:{ref['local_port']})" if ref.get("local_port") else ""))
+                dialog.raise_()  # starting a port-forward shows the Port forwards tab, which can take the focus: the window comes back
+                dialog.activateWindow()
             except RuntimeError:  # the window was closed meanwhile
                 pass
             self._load_metric_names(dialog, ref)
