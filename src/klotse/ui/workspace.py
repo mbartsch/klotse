@@ -38,8 +38,8 @@ from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
-from .metrics_sources import MetricsSources
-from .prometheus_source_dialog import PrometheusSourceDialog
+from .metrics_sources import ForwardDefaults, MetricsSources
+from .prometheus_source_dialog import FORWARD, PrometheusSourceDialog
 from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
@@ -162,6 +162,7 @@ class ClusterWorkspace(QMainWindow):
             service.audit = lambda action, target, result, detail='': audit_log.record(self.context, action, target, result, detail)
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
         self.terminal_settings = terminal_settings if terminal_settings is not None else TerminalSettings(parent=self)
+        self.forward_defaults = ForwardDefaults(self.label_settings.store)  # Preferences: SSL and certificates for port-forwards
         self.metrics_sources = MetricsSources(self.label_settings.store)  # the Prometheus / VictoriaMetrics service chosen for this cluster
         self._schemas = {}  # OpenAPI document path -> the document, for the YAML editor's schema help
         self._prometheus = None  # None = not looked for yet, False = none found, else the ref that answered
@@ -1919,16 +1920,26 @@ class ClusterWorkspace(QMainWindow):
 
         self._run(work, done, on_error=lambda _message: None)
 
+    def _forward_options(self, context=None):
+        """(tls, insecure) for the port-forward of a cluster: its own choice, else the Preferences setting."""
+        context = context or self.context
+        tls_choice, insecure_choice = self.metrics_sources.get_tls(context), self.metrics_sources.get_insecure(context)
+        return (self.forward_defaults.tls if tls_choice == "" else tls_choice == "on",
+                self.forward_defaults.insecure if insecure_choice == "" else insecure_choice == "on")
+
     def _ask_prometheus_source(self):
-        """The Source… dialog: (text, via, local) to keep for this cluster, or None when cancelled (text "" = look for one automatically)."""
-        sources = self.metrics_sources
-        dialog = PrometheusSourceDialog(sources.get(self.context), sources.get_via(self.context), sources.get_local(self.context), self)
+        """The Source… dialog: (text, via, local, tls, insecure) to keep for this cluster, or None when cancelled (text "" = look for one
+        automatically). Test checks the chosen settings; a forward it starts is stopped again when the dialog is cancelled."""
+        sources, defaults = self.metrics_sources, self.forward_defaults
+        dialog = PrometheusSourceDialog(sources.get(self.context), sources.get_via(self.context), sources.get_local(self.context),
+                                        sources.get_tls(self.context), sources.get_insecure(self.context), defaults.tls, defaults.insecure, self)
         asked = []
 
         def candidates():
             if asked:
                 return
             asked.append(True)
+
             def show(refs):
                 try:
                     dialog.set_candidates(refs)
@@ -1941,18 +1952,100 @@ class ClusterWorkspace(QMainWindow):
                 self._run(find, show, on_error=lambda _message: show([]))
 
         dialog.candidates_requested.connect(candidates)
+        dialog.test_requested.connect(lambda: self._test_source(dialog))
         accepted = dialog.exec() == QDialog.Accepted
-        answer = dialog.values() if accepted else None
+        answer = None
+        if accepted:
+            text, via, local = dialog.values()
+            tls, insecure = dialog.options()
+            answer = (text, via, local, tls, insecure)
         dialog.deleteLater()
+        if not accepted and self._source_forward is not None and not self._forward_users:
+            self.port_forwards.stop(self._source_forward)  # started by Test, not used by any window
+            self._source_forward = None
         return answer
 
+    def _test_source(self, dialog):
+        """Test in Source…: check the typed service with the chosen settings, before anything is saved. Through a port-forward this starts
+        (or reuses) the forward; the result is reported in the dialog, in the same words as a window's source problem."""
+        def tell(ok, message):
+            try:
+                dialog.set_test_result(ok, message)
+            except RuntimeError:  # the dialog was closed meanwhile
+                pass
+        try:
+            text, via, local = dialog.values()
+            tls_choice, insecure_choice = dialog.options()
+        except ValueError as error:
+            tell(False, str(error))
+            return
+        if not text:
+            tell(False, "Name the service first; Test checks one service.")
+            return
+        try:
+            ref = prometheus.parse_ref(text)
+        except ValueError as error:
+            tell(False, str(error))
+            return
+        name = prometheus.ref_text(ref)
+        if via != FORWARD:
+            self._run(self.service.prometheus_check, lambda _ok: tell(True, f"{name} answers the Prometheus API through the API server proxy."),
+                      ref, on_error=lambda message: tell(False, f"{name} through the API server proxy: {message}"))
+            return
+        defaults = self.forward_defaults
+        tls = defaults.tls if tls_choice == "" else tls_choice == "on"
+        insecure = defaults.insecure if insecure_choice == "" else insecure_choice == "on"
+        how = ("https" if tls else "plain HTTP") + (", certificate errors ignored" if insecure and tls else "")
+        probe = {**ref, "scheme": "https" if tls else "", "insecure": insecure}
+
+        def ready(forward):
+            self._run(self.service.prometheus_check,
+                      lambda _ok: tell(True, f"{name} answers through the port-forward on 127.0.0.1:{forward.local} ({how})."),
+                      {**probe, "local_port": forward.local},
+                      on_error=lambda message: tell(False, f"{name} through the port-forward on 127.0.0.1:{forward.local} ({how}): {message}"))
+
+        self._ensure_source_forward(ref, ready, lambda reason: tell(False, f"{name}: {reason}"))
+
+    def _ensure_source_forward(self, ref, on_ready, on_fail, start=True):
+        """The port-forward to the service `ref` (namespace, name, port): the running one when it is the same service, else a new one (only
+        when `start`). `on_ready(forward)` once it listens; `on_fail(reason)` with kubectl's words when it does not."""
+        forward = self._source_forward
+        same = forward is not None and forward.running and (forward.namespace, forward.name, forward.remote) == (ref["namespace"], ref["name"], ref["port"])
+        if forward is not None and not same:
+            self.port_forwards.stop(forward)  # another service was chosen, or the forward has stopped
+            forward = self._source_forward = None
+        if forward is None:
+            if not start:
+                on_fail("the source is set to a port-forward; choose Source… and press OK to start it")
+                return
+            try:
+                forward = self.port_forwards.start(self.context, ref["namespace"], "Service", ref["name"], ref["port"],
+                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history")
+            except ValueError as error:
+                on_fail(f"port-forward not started: {error}")
+                return
+            self._source_forward = forward
+            self.show_port_forwards()
+
+        def settle():
+            if getattr(self, "_closed", False) or forward.state == "starting":
+                return
+            self.port_forwards.changed.disconnect(settle)
+            if forward.state == "active" and forward.local:
+                on_ready(forward)
+            else:
+                on_fail("port-forward not started: " + explain_failure(forward.message))
+
+        self.port_forwards.changed.connect(settle)
+        if forward.state != "starting":
+            settle()
+
     def _configure_prometheus(self, dialog, kind, row, selector):
-        """Source… in a usage window: ask where to read from (automatic search, the API server proxy, or a port-forward), check it, remember it
-        for this cluster. A port-forward is started only here, after OK."""
+        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. A port-forward is started only here, after OK."""
         answer = self._ask_prometheus_source()
         if answer is None:
             return
-        text, via, local = answer
+        text, via, local, tls, insecure = answer
         if text:
             try:
                 prometheus.parse_ref(text)
@@ -1960,7 +2053,7 @@ class ClusterWorkspace(QMainWindow):
                 QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
                 return
         try:
-            self.metrics_sources.set(self.context, text, via, local)
+            self.metrics_sources.set(self.context, text, via, local, tls, insecure)
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
             return
@@ -1972,43 +2065,30 @@ class ClusterWorkspace(QMainWindow):
         self._offer_prometheus(dialog, kind, row, selector, force=True, start_forward=True)
 
     def _offer_forward(self, dialog, ref, kind, row, selector, start):
-        """The service is read through a port-forward: use the one already running for it, else (only when `start`, that is the user just chose
-        it) start `kubectl port-forward`, show it in the Port forwards tab and, once it listens, check the service through it."""
-        forward = self._source_forward
-        if forward is not None and not (forward.running and (forward.namespace, forward.name, forward.remote) == (ref["namespace"], ref["name"], ref["port"])):
-            self.port_forwards.stop(forward)  # stopped by the user, or another service was chosen
-            forward = self._source_forward = None
-        if forward is None:
-            if not start:
-                dialog.set_source_note("Prometheus is set to a port-forward. Choose Source… and press OK to start it.")
-                return
-            try:
-                forward = self.port_forwards.start(self.context, ref["namespace"], "Service", ref["name"], ref["port"],
-                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history")
-            except ValueError as error:
-                dialog.set_source_note(f"Port-forward not started: {error}")
-                return
-            self._source_forward = forward
-            self.show_port_forwards()
+        """The service is read through a port-forward, with the SSL and certificate options of this cluster. When it cannot be reached the
+        window says so in the same way as other source problems, and keeps showing metrics-server."""
+        tls, insecure = self._forward_options()
+        ref = {**ref, "scheme": "https" if tls else "", "insecure": insecure}
         if dialog not in self._forward_users:
             self._forward_users.add(dialog)
             dialog.finished.connect(lambda *_: self._release_forward(dialog))
+        name = prometheus.ref_text(ref)
 
-        def settle():
-            if self._closed or forward.state in ("starting",):
-                return
-            self.port_forwards.changed.disconnect(settle)
+        def ready(forward):
             try:
-                if forward.state == "active" and forward.local:
-                    self._offer_prometheus(dialog, kind, row, selector, force=True, forwarded={**ref, "local_port": forward.local})
-                else:
-                    dialog.set_source_note("Port-forward not started: " + explain_failure(forward.message))
+                self._offer_prometheus(dialog, kind, row, selector, force=True, forwarded={**ref, "local_port": forward.local})
             except RuntimeError:  # the window was closed meanwhile
                 pass
 
-        self.port_forwards.changed.connect(settle)
-        if forward.state != "starting":
-            settle()
+        def fail(reason):
+            message = f"Prometheus {name} through a port-forward: {reason}. Showing metrics-server instead."
+            try:
+                dialog.set_source_note(message)
+            except RuntimeError:
+                return
+            self.message.emit(f"{self.context}: {message}")
+
+        self._ensure_source_forward(ref, ready, fail, start=start)
 
     def _release_forward(self, dialog):
         """A usage window closed: the forward it read through stops when no other window still uses it."""

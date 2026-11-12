@@ -66,9 +66,10 @@ def open_folder(folder):
 class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
-    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None):
+    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None):
         super().__init__(parent)
         self.debug = debug
+        self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
         self.kubeconfig, self.config_folder = kubeconfig, Path(config_folder)
         self.theme_settings = themes
         self.setWindowTitle("Preferences")
@@ -98,6 +99,19 @@ class PreferencesDialog(QDialog):
 
         if themes is not None:
             self._theme_rows(form)
+        self.forward_tls_box = self.forward_insecure_box = None
+        if forward is not None:
+            self.forward_tls_box = QCheckBox("Use SSL (https) for usage history through a port-forward")
+            self.forward_tls_box.setChecked(forward.tls)
+            self.forward_insecure_box = QCheckBox("Ignore certificate errors for it (self-signed or internal certificates)")
+            self.forward_insecure_box.setChecked(forward.insecure)
+            self.forward_tls_box.setToolTip("The default for every cluster. A cluster can override it in its Source… dialog.")
+            holder = QWidget()
+            column = QVBoxLayout(holder)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.addWidget(self.forward_tls_box)
+            column.addWidget(self.forward_insecure_box)
+            form.addRow("Usage history", holder)
         self.open_button = QPushButton("Open config folder")
         self.open_button.setToolTip("Show Klotse's settings file in Explorer / Finder / the file manager (debug)")
         self.open_button.clicked.connect(self._open_folder)
@@ -238,6 +252,12 @@ class PreferencesDialog(QDialog):
         if self.timing_box is not None:
             try:
                 self.debug.set_timings(self.timing_box.isChecked())
+            except OSError as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                return
+        if self.forward_tls_box is not None:
+            try:
+                self.forward.set(self.forward_tls_box.isChecked(), self.forward_insecure_box.isChecked())
             except OSError as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
                 return
