@@ -420,7 +420,7 @@ def test_job_cronjob_and_pvc_mappers():
 
     meta = client.V1ObjectMeta(name="j", namespace="ns", creation_timestamp=NOW)
     job = client.V1Job(metadata=meta, spec=client.V1JobSpec(completions=3, template=client.V1PodTemplateSpec()),
-                       status=client.V1JobStatus(succeeded=1, active=1, start_time=NOW - timedelta(minutes=5)))
+                       status=client.V1JobStatus(succeeded=1, active=1, start_time=datetime.now(timezone.utc) - timedelta(minutes=5)))  # not NOW: that was taken at import, long before a slow runner gets here
     row = map_job(job)
     assert (row.completions, row.status, row.duration) == ("1/3", "Running", "5m")
     done = client.V1Job(metadata=meta, spec=client.V1JobSpec(template=client.V1PodTemplateSpec()),

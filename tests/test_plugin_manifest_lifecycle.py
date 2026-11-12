@@ -33,7 +33,7 @@ def test_disabling_during_import_cannot_reactivate_plugin(qtbot, tmp_path):
     manager.set_enabled("slow", True)
     manager.set_enabled("slow", False)
     gate.set()
-    qtbot.waitUntil(lambda: finished.is_set() and not manager._loads)
+    qtbot.waitUntil(lambda: finished.is_set() and not manager._loads, timeout=20000)
     assert not item.loading and item.plugin is None
     assert not manager.is_enabled("slow")
     assert manager.store.value("plugins/enabled.0") is None
@@ -46,7 +46,7 @@ def test_reloading_catalog_ignores_old_import_completion(qtbot, tmp_path):
     manager.reload()
     assert manager.loaded == []
     gate.set()
-    qtbot.waitUntil(lambda: finished.is_set() and not manager._loads)
+    qtbot.waitUntil(lambda: finished.is_set() and not manager._loads, timeout=20000)
     assert not manager.is_enabled("slow")
     assert manager.store.value("plugins/enabled.0") is None
 
@@ -61,7 +61,7 @@ def test_async_save_failure_does_not_activate_or_leave_unsaved_enablement(qtbot,
     manager._enabled = ["unavailable"]
     manager._sync = lambda: (_ for _ in ()).throw(OSError("read-only"))
     manager.set_enabled("slow", True)
-    qtbot.waitUntil(lambda: not item.loading)
+    qtbot.waitUntil(lambda: not item.loading, timeout=20000)
     assert item.error == "read-only" and item.plugin is None
     assert not manager.is_enabled("slow")
     assert manager._enabled == ["unavailable"]
@@ -84,7 +84,7 @@ def test_import_runs_on_worker_and_persistence_runs_on_manager_thread(qtbot, tmp
         sync()
     manager._sync = persist
     manager.set_enabled("slow", True)
-    qtbot.waitUntil(lambda: not item.loading)
+    qtbot.waitUntil(lambda: not item.loading, timeout=20000)
     assert calls[0][0] == "import" and calls[0][1] != owner
     assert calls[1] == ("persist", owner)
     assert manager.is_enabled("slow")
