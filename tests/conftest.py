@@ -1,4 +1,5 @@
 import faulthandler
+import os
 import tempfile
 import threading
 import time
@@ -148,3 +149,43 @@ def own_thread_pool(monkeypatch):
     # wait left their windows behind, and the first later test that did wait paid for destroying all of them inside its own wait:
     # the stack dump showed the GUI thread inside that event loop for the whole 5 s while the worker's answer sat in the queue.
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+# ---- progress for scripts/run_tests.py -------------------------------------------------------------------------------------
+# run_tests.py runs the suite in processes of its own, so that a test which kills the process (a segmentation fault) does not
+# stop the rest. These hooks write what started, failed and finished to KLOTSE_TEST_PROGRESS (and fsync it, so the last test
+# before a crash is known), and KLOTSE_TEST_ONLY / KLOTSE_TEST_SKIP name the tests to run or leave out (one node id per line).
+def _ids_from(variable):
+    path = os.environ.get(variable)
+    if not path:
+        return None
+    with open(path, encoding="utf-8") as handle:
+        return {line.strip() for line in handle if line.strip()}
+
+
+def pytest_collection_modifyitems(items):
+    only, skip = _ids_from("KLOTSE_TEST_ONLY"), _ids_from("KLOTSE_TEST_SKIP")
+    if only is not None:
+        items[:] = [item for item in items if item.nodeid in only]
+    if skip is not None:
+        items[:] = [item for item in items if item.nodeid not in skip]
+
+
+def _note(line):
+    path = os.environ.get("KLOTSE_TEST_PROGRESS")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _note(f"start\t{nodeid}")
+
+
+def pytest_runtest_logreport(report):
+    if report.failed and report.when in ("setup", "call", "teardown"):
+        _note(f"failed\t{report.nodeid}")
+    if report.when == "teardown":
+        _note(f"done\t{report.nodeid}")

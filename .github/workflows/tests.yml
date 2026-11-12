@@ -56,17 +56,7 @@ jobs:
         timeout-minutes: 30
         shell: bash
         run: |
-          # Tests that fail are run once more, by themselves, after all the others. Only a plain test failure (exit status 1) is
-          # retried: a crash or a collection error fails the job at once. A retry is reported as a warning, so it stays visible.
-          set +e
-          python -m pytest -q
-          status=$?
-          if [ "$status" -eq 1 ]; then
-            echo "::warning::Tests failed in the first pass and were run again by themselves; the first failures are in the log above"
-            python -m pytest -q --last-failed --last-failed-no-failures none
-            status=$?
-          fi
-          exit "$status"
+          python scripts/run_tests.py
 
   # Every pull request that is not a draft, and every push to master.
   pytest:
@@ -104,17 +94,7 @@ jobs:
         shell: bash
         run: |
           files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
-          # Tests that fail are run once more, by themselves, after all the others. Only a plain test failure (exit status 1) is
-          # retried: a crash or a collection error fails the job at once. A retry is reported as a warning, so it stays visible.
-          set +e
-          python -m pytest -q $files
-          status=$?
-          if [ "$status" -eq 1 ]; then
-            echo "::warning::Tests failed in the first pass and were run again by themselves; the first failures are in the log above"
-            python -m pytest -q --last-failed --last-failed-no-failures none $files
-            status=$?
-          fi
-          exit "$status"
+          python scripts/run_tests.py $files
 
   # Windows and macOS: only for release pull requests (branch release/vX.Y.Z), not drafts.
   pytest-release:
@@ -148,14 +128,4 @@ jobs:
         shell: bash
         run: |
           files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
-          # Tests that fail are run once more, by themselves, after all the others. Only a plain test failure (exit status 1) is
-          # retried: a crash or a collection error fails the job at once. A retry is reported as a warning, so it stays visible.
-          set +e
-          python -m pytest -q $files
-          status=$?
-          if [ "$status" -eq 1 ]; then
-            echo "::warning::Tests failed in the first pass and were run again by themselves; the first failures are in the log above"
-            python -m pytest -q --last-failed --last-failed-no-failures none $files
-            status=$?
-          fi
-          exit "$status"
+          python scripts/run_tests.py $files
