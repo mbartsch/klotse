@@ -29,6 +29,17 @@ def valid_port(text, allow_empty=False):
     return int(text)
 
 
+def explain_failure(message):
+    """kubectl's words for a forward that did not start, made plainer for the usual causes (no permission, the local port taken)."""
+    text = str(message or "").strip()
+    lowered = text.lower()
+    if "forbidden" in lowered or "unauthorized" in lowered:
+        return "you are not allowed to port-forward to this service (needs get on the service and pods, and create on pods/portforward)"
+    if "address already in use" in lowered or "unable to listen" in lowered:
+        return "the local port is already in use; leave Local port empty to pick a free one"
+    return text or "kubectl stopped without saying why"
+
+
 def forward_ports(kind, raw):
     """[(label, port)] a pod or service offers, for the dialog's list: a pod's container ports, a service's ports."""
     seen, found = set(), []
@@ -62,6 +73,7 @@ class Forward:
     state: str = "starting"  # starting | active | stopping | stopped | failed
     message: str = ""
     connections: int = 0
+    origin: str = ""  # who started it when it was not the user's own Port forward…, for example "Usage history"
     process: object = field(default=None, repr=False)
 
     @property
@@ -87,12 +99,12 @@ class PortForwards(QObject):
         self.items = []
         self._next = 1
 
-    def start(self, context, namespace, kind, name, remote, local=0, kubeconfig=None):
+    def start(self, context, namespace, kind, name, remote, local=0, kubeconfig=None, origin=""):
         """Start `kubectl port-forward` and return its Forward. The state turns Active when kubectl reports the local port, or
         Failed with kubectl's own message (port in use, pod gone, no permission, kubectl missing)."""
         remote = valid_port(remote)
         local = valid_port(local, allow_empty=True) if local else 0  # 0 or empty: kubectl picks a free port
-        fw = Forward(self._next, context, namespace, kind, name, remote, local)
+        fw = Forward(self._next, context, namespace, kind, name, remote, local, origin=origin)
         self._next += 1
         base = self.base(context, kubeconfig)
         process = QProcess(self)
@@ -159,7 +171,7 @@ class PortForwardPanel(QWidget):
     """The list of forwards (a tab in the Logs & activity dock). Closing the tab stops them all, so none is left running
     unseen."""
     key = "port-forwards"
-    HEADERS = ["Target", "Namespace", "Local address", "Remote port", "State", "Connections"]
+    HEADERS = ["Target", "Namespace", "Local address", "Remote port", "State", "Connections", "Started by"]
 
     def __init__(self, manager, parent=None, saved=None, context="", start=None):
         super().__init__(parent)
@@ -238,7 +250,7 @@ class PortForwardPanel(QWidget):
         self.table.setRowCount(len(self.manager.items))
         for r, fw in enumerate(self.manager.items):
             state = STATE_TEXT[fw.state] + (f": {fw.message}" if fw.state == "failed" and fw.message else "")
-            values = [fw.target, fw.namespace, fw.address or "(waiting)", str(fw.remote), state, str(fw.connections)]
+            values = [fw.target, fw.namespace, fw.address or "(waiting)", str(fw.remote), state, str(fw.connections), fw.origin or "You"]
             for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(value)

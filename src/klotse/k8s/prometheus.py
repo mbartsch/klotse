@@ -2,6 +2,8 @@
 answers. Both speak the Prometheus HTTP API (`/api/v1/query_range`, PromQL; VictoriaMetrics' MetricsQL accepts these queries), so one reader
 serves both. Klotse reaches the service through the **Kubernetes API server's service proxy** (`/api/v1/namespaces/NS/services/NAME:PORT/proxy/...`),
 so no port-forward, address or extra login is needed: the user's own kubeconfig credentials do the work and need `get` on `services/proxy`.
+When the proxy is not allowed, or the store is only reachable from this computer, the user can choose a **port-forward** instead: the workspace starts
+`kubectl port-forward` and gives the ref a `local_port`; the query is then a plain HTTP GET to 127.0.0.1 (`KubeService._prometheus_get`).
 
 Queries use the cAdvisor metrics every kubelet exposes (`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`), which any
 Prometheus that scrapes the kubelet has. A node is matched by the `instance` label (its name or internal IP), which is the setup of a
@@ -88,12 +90,20 @@ def proxy_path(ref, api_path):
     return f"/api/v1/namespaces/{quote(ref['namespace'])}/services/{quote(target, safe=':')}/proxy{ref.get('prefix', '')}{api_path}"
 
 
+def reach_path(ref, api_path):
+    """Where `api_path` is asked for: the API server proxy path, or, when `ref` carries `local_port` (a port-forward Klotse started), the
+    path on that local address (the service's own path prefix, no proxy)."""
+    if ref.get("local_port"):
+        return f"{ref.get('prefix', '')}{api_path}"
+    return proxy_path(ref, api_path)
+
+
 def range_path(ref, promql, start, end, step):
-    return proxy_path(ref, "/api/v1/query_range") + "?" + urlencode({"query": promql, "start": f"{start:.0f}", "end": f"{end:.0f}", "step": f"{step:.0f}"})
+    return reach_path(ref, "/api/v1/query_range") + "?" + urlencode({"query": promql, "start": f"{start:.0f}", "end": f"{end:.0f}", "step": f"{step:.0f}"})
 
 
 def instant_path(ref, promql):
-    return proxy_path(ref, "/api/v1/query") + "?" + urlencode({"query": promql})
+    return reach_path(ref, "/api/v1/query") + "?" + urlencode({"query": promql})
 
 
 def step_for(seconds):

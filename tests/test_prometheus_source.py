@@ -296,23 +296,22 @@ def test_no_service_means_metrics_server_only_and_the_search_is_not_repeated(qtb
 
 
 def test_source_dialog_saves_a_typed_service_checks_it_and_an_empty_answer_goes_back_to_searching(qtbot, tmp_path, monkeypatch):
-    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    from PySide6.QtWidgets import QMessageBox
     fake = Fake([])
     ws = ws_with(qtbot, fake, tmp_path)
     dialog = ws.show_metrics("Pod", pod_row())
     qtbot.waitUntil(lambda: ws._prometheus is False, timeout=20000)
-    answers = iter([("monitoring/my-prom:9090", True)])
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: next(answers))
+    monkeypatch.setattr(ws, "_ask_prometheus_source", lambda: ("monitoring/my-prom:9090", "proxy", 0))
     dialog.source_button.click()
     qtbot.waitUntil(lambda: dialog.mode() == REMOTE, timeout=20000)
     assert fake.checked[-1] == "my-prom" and ws.metrics_sources.get("ctx") == "monitoring/my-prom:9090" and fake.finds == 1  # typed: nothing was searched for
     warned = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: warned.append(a[2]))
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("not a service", True))
+    monkeypatch.setattr(ws, "_ask_prometheus_source", lambda: ("not a service", "proxy", 0))
     dialog.source_button.click()
     assert warned and "namespace/service:port" in warned[0] and ws.metrics_sources.get("ctx") == "monitoring/my-prom:9090"  # not saved
     fake.found = CANDIDATES[:1]
-    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("", True))
+    monkeypatch.setattr(ws, "_ask_prometheus_source", lambda: ("", "proxy", 0))
     dialog.source_button.click()
     qtbot.waitUntil(lambda: fake.finds == 2 and bool(ws._prometheus) and dialog.mode() == REMOTE, timeout=20000)
     assert ws.metrics_sources.get("ctx") == "" and fake.checked[-1] == "prom-a"

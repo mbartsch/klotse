@@ -1,5 +1,6 @@
 import datetime
 import functools
+import http.client
 import itertools
 import inspect
 import json
@@ -29,6 +30,7 @@ FAILING_STATES = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "Inval
 
 
 HUGE_PODS = 5000  # big-cluster mode: from this many pods the Overview counts by pod phase instead of reading every pod
+MAX_PROMETHEUS_BODY = 64 * 1024 * 1024  # most bytes read from a Prometheus answer through a port-forward
 OVERVIEW_LIST_CAP = 500  # most rows the overview keeps per drill-down list (pending pods, failed pods, warnings)
 
 
@@ -1111,12 +1113,36 @@ class KubeService:
 
     def _prometheus_lines(self, ref, promql, start, end, step, label):
         """One range query through the API server's service proxy: {line: [(t, value)]}."""
-        return prometheus.parse_matrix(self._get_text(prometheus.range_path(ref, promql, start, end, step), "application/json", 60), label)
+        return prometheus.parse_matrix(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60), label)
+
+    def _prometheus_get(self, ref, path, timeout):
+        """The answer text for `path`: through the API server proxy, or, for a ref with `local_port` (a port-forward Klotse started), an HTTP GET to
+        127.0.0.1 on that port (no proxy settings are used). Raises PrometheusError saying which step failed."""
+        port = ref.get("local_port")
+        if not port:
+            return self._get_text(path, "application/json", timeout)
+        if ref.get("scheme") == "https":
+            raise prometheus.PrometheusError("a port-forward to an https service is not supported; use the API server proxy for it")
+        connection = http.client.HTTPConnection("127.0.0.1", int(port), timeout=timeout)
+        try:
+            try:
+                connection.request("GET", path, headers={"Accept": "application/json"})
+                response = connection.getresponse()
+                body = response.read(MAX_PROMETHEUS_BODY + 1)
+            except OSError as error:
+                raise prometheus.PrometheusError(f"could not connect to the port-forward on 127.0.0.1:{port}: {error}") from error
+            if response.status != 200:
+                raise prometheus.PrometheusError(f"connected to 127.0.0.1:{port}, but the query was refused (HTTP {response.status}); check the path prefix")
+            if len(body) > MAX_PROMETHEUS_BODY:
+                raise prometheus.PrometheusError("the answer is too large")
+            return body.decode("utf-8", "replace")
+        finally:
+            connection.close()
 
     def prometheus_check(self, ref):
         """Raises when the service does not answer the Prometheus API through the API server proxy (no such service, no endpoints, no
         permission on services/proxy, not Prometheus); returns True when it does."""
-        body = json.loads(self._get_text(prometheus.instant_path(ref, "up"), "application/json", 30))
+        body = json.loads(self._prometheus_get(ref, prometheus.instant_path(ref, "up"), 30))
         if body.get("status") != "success":
             raise prometheus.PrometheusError(str(body.get("error") or "the source returned an error"))
         return True
