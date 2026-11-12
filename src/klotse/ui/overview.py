@@ -1,4 +1,6 @@
-from PySide6.QtCore import QElapsedTimer, QRectF, QSize, Qt, QTimer, Signal
+import sys
+
+from PySide6.QtCore import QElapsedTimer, QEvent, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QBoxLayout, QDialog, QDialogButtonBox, QFormLayout, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton,
@@ -208,6 +210,8 @@ class OverviewView(QWidget):
         self._recent_event_columns_sized = False
         self.events_table.view.activated.connect(self._open_event_details)
         self.events_table.view.doubleClicked.connect(self._open_event_details)
+        if sys.platform == "darwin":  # Qt activates a row with Cmd+O there and treats Return as "edit", so Return would do nothing
+            self.events_table.view.installEventFilter(self)
         if self.is_cluster_overview:
             self.events_table.fit_button.hide()
             self.events_table.layout().setContentsMargins(0, 0, 0, 0)
@@ -710,6 +714,16 @@ class OverviewView(QWidget):
             self._recent_event_columns_sized = True
         self.events_table.view.resizeRowsToContents()
         self.events_table.view.clearFocus()
+
+    def eventFilter(self, watched, event):
+        """macOS: Return or Enter on the recent-events list opens the selected event, as it does on Windows and Linux."""
+        if (watched is self.events_table.view and event.type() == QEvent.KeyPress
+                and event.key() in (Qt.Key_Return, Qt.Key_Enter) and not event.isAutoRepeat()):
+            index = self.events_table.view.currentIndex()
+            if index.isValid():
+                self._open_event_details(index)
+                return True
+        return super().eventFilter(watched, event)
 
     def _open_event_details(self, index):
         if not index.isValid():
