@@ -93,9 +93,9 @@ def test_a_forward_nobody_listens_on_is_reported():
         KubeService.prometheus_check(object.__new__(KubeService), {**REF, "local_port": 1})
 
 
-def test_an_https_service_is_not_sent_plain_text_through_a_forward():
-    with pytest.raises(pm.PrometheusError, match="https"):
-        KubeService.prometheus_check(object.__new__(KubeService), {**REF, "scheme": "https", "local_port": 54321})
+def test_an_https_forward_to_a_plain_server_is_reported_not_retried_as_plain_text():
+    with pytest.raises(pm.PrometheusError, match="could not connect|certificate"):
+        KubeService.prometheus_check(object.__new__(KubeService), {**REF, "scheme": "https", "local_port": 1})
 
 
 def test_kubectls_failures_are_made_plainer():
@@ -131,12 +131,9 @@ def test_the_dialog_refuses_what_cannot_be_used_and_stays_open(qtbot, monkeypatc
     dialog._accept()
     assert "not a port number" in warned[-1]
     dialog.local.setText("")
-    dialog.service.setText("https:monitoring/prom:9090")
+    dialog.service.setText("https:monitoring/prom:9090")  # https is allowed through a forward (SSL option)
     dialog._accept()
-    assert "https" in warned[-1] and len(warned) == 3
-    dialog.service.setText("monitoring/prom:9090")
-    dialog._accept()
-    assert len(warned) == 3 and dialog.result() == QDialog.Accepted
+    assert len(warned) == 2 and dialog.result() == QDialog.Accepted
 
 
 def test_choosing_a_candidate_fills_the_fields(qtbot):
@@ -194,7 +191,7 @@ def workspace(qtbot, tmp_path):
 
 
 def choose(ws, answer):
-    ws._ask_prometheus_source = lambda: answer
+    ws._ask_prometheus_source = lambda: answer if len(answer) == 5 else (*answer, "", "")
 
 
 def test_a_saved_forward_is_not_started_by_opening_a_window(qtbot, workspace):
@@ -240,7 +237,7 @@ def test_a_forward_that_fails_is_explained_in_the_window(qtbot, workspace):
     dialog = ws.show_metrics("Pod", pod_row())
     choose(ws, ("monitoring/my-prom:9090", "forward", 9090))
     dialog.source_button.click()
-    qtbot.waitUntil(lambda: "Port-forward not started" in dialog.status.text(), timeout=10000)
+    qtbot.waitUntil(lambda: "through a port-forward" in dialog.status.text(), timeout=10000)
     assert "already in use" in dialog.status.text() and dialog.mode() == SAMPLED and fake.refs == []
 
 
@@ -255,3 +252,11 @@ def test_choosing_the_proxy_again_stops_the_forward(qtbot, workspace):
     dialog.source_button.click()
     qtbot.waitUntil(lambda: forward.state == "stopped", timeout=8000)
     assert ws.metrics_sources.get_via("ctx") == "proxy"
+
+
+def test_a_chosen_forward_can_be_kept_in_saved_forwards(qtbot, workspace):
+    from klotse.ui.saved_forwards import SavedForwards
+    ws, _ = workspace()
+    ws._remember_source_forward("monitoring/my-prom:9090", 15432)
+    assert SavedForwards(ws.label_settings.store).for_context("ctx") == [
+        {"ctx": "ctx", "kind": "Service", "ns": "monitoring", "name": "my-prom", "remote": 9090, "local": 15432}]
