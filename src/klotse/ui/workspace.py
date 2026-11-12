@@ -1959,11 +1959,21 @@ class ClusterWorkspace(QMainWindow):
             text, via, local = dialog.values()
             tls, insecure = dialog.options()
             answer = (text, via, local, tls, insecure)
+            if via == FORWARD and dialog.remember.isChecked():
+                self._remember_source_forward(text, local)
         dialog.deleteLater()
         if not accepted and self._source_forward is not None and not self._forward_users:
             self.port_forwards.stop(self._source_forward)  # started by Test, not used by any window
             self._source_forward = None
         return answer
+
+    def _remember_source_forward(self, text, local):
+        """Keep the port-forward of a chosen source in Saved forwards (Port forwards tab), with the local port it asked for."""
+        try:
+            ref = prometheus.parse_ref(text)
+            SavedForwards(self.label_settings.store).add(SavedForwards.make(self.context, "Service", ref["namespace"], ref["name"], ref["port"], local))
+        except (ValueError, OSError) as error:
+            self.message.emit(f"{self.context}: the forward was not kept in Saved forwards: {error}")
 
     def _test_source(self, dialog):
         """Test in Source…: check the typed service with the chosen settings, before anything is saved. Through a port-forward this starts

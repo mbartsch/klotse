@@ -252,3 +252,11 @@ def test_choosing_the_proxy_again_stops_the_forward(qtbot, workspace):
     dialog.source_button.click()
     qtbot.waitUntil(lambda: forward.state == "stopped", timeout=8000)
     assert ws.metrics_sources.get_via("ctx") == "proxy"
+
+
+def test_a_chosen_forward_can_be_kept_in_saved_forwards(qtbot, workspace):
+    from klotse.ui.saved_forwards import SavedForwards
+    ws, _ = workspace()
+    ws._remember_source_forward("monitoring/my-prom:9090", 15432)
+    assert SavedForwards(ws.label_settings.store).for_context("ctx") == [
+        {"ctx": "ctx", "kind": "Service", "ns": "monitoring", "name": "my-prom", "remote": 9090, "local": 15432}]

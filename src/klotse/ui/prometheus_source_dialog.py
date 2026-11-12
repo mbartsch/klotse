@@ -3,7 +3,7 @@ reach a named service through the API server proxy, or through a `kubectl port-f
 store reachable only from this computer). For a port-forward, SSL and certificate checks can be set here or left to the Preferences default.
 Test checks the chosen settings before OK. The dialog only collects and checks the text; the workspace saves it and starts nothing until OK."""
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
                                QPushButton, QRadioButton, QToolButton, QVBoxLayout)
 
 from ..k8s import prometheus
@@ -74,6 +74,8 @@ class PrometheusSourceDialog(QDialog):
         self.hint = QLabel("")
         self.hint.setWordWrap(True)
         theme.muted(self.hint)
+        self.remember = QCheckBox("Also keep this forward in Saved forwards (Port forwards tab)")
+        self.remember.setToolTip("Saved forwards start again with the same ports from the Port forwards tab")
         self.test_button = QPushButton("Test")
         self.test_button.setToolTip("Check the service with these settings. Starts the port-forward if needed; nothing is saved.")
         self.test_button.clicked.connect(self.test_requested.emit)
@@ -90,6 +92,7 @@ class PrometheusSourceDialog(QDialog):
             button.toggled.connect(self._sync)
         layout.addLayout(form)
         layout.addWidget(self.hint)
+        layout.addWidget(self.remember)
         layout.addWidget(self.test_result)
         layout.addWidget(self.buttons)
         service, prefix = split_ref(text) if text else ("", "")
@@ -108,6 +111,7 @@ class PrometheusSourceDialog(QDialog):
         self.tls_box.setEnabled(forwarding)
         self.insecure_box.setEnabled(forwarding)
         self.test_button.setEnabled(named)
+        self.remember.setEnabled(forwarding)
         self.hint.setText("Nothing starts until you press OK. The choice is saved for this cluster; the forward is started again only when "
                           "you choose this source here." if forwarding else "")
 
