@@ -120,3 +120,24 @@ def test_workload_menu_query_runs_the_preset_against_the_found_source(qtbot, tmp
     ws.show_metrics_query("Deployment", deployment_row())  # asking again brings the same window forward, it does not open another
     assert len([d for d in ws._metrics_dialogs if getattr(d, "key", None)]) == 1
     ws.shutdown()
+
+
+def test_the_right_click_menu_offers_metrics_query_for_workloads_only(qtbot, tmp_path):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    from klotse.k8s.models import DeploymentRow
+    ws = workspace(qtbot, tmp_path, Fake([]))
+    ws.show()
+    table = ws.views["deployments"][0]
+    table.set_rows([DeploymentRow("web", "shop", "1/1", 1, 1, "1d", {"spec": {"replicas": 1}})])
+    texts = []
+
+    def grab():
+        popup = QApplication.activePopupWidget()
+        if popup is not None:
+            texts.extend(a.text() for a in popup.actions() if not a.isSeparator())
+            popup.close()
+    QTimer.singleShot(100, grab)
+    table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
+    assert "Metrics query…" in texts
+    ws.shutdown()

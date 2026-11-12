@@ -1121,6 +1121,8 @@ class ResourceTable(QWidget):
                 add_shared("permissions")
             if self.kind in METRIC_KINDS:
                 add_shared("usage-history")
+            if self.kind in ("Deployment", "StatefulSet", "DaemonSet"):
+                add_shared("metrics-query")
             if self.kind in LOG_SOURCES:
                 add_shared("multi-logs")
             if self.kind in SCALABLE or self.kind in RESTARTABLE or self.kind == "CronJob":
