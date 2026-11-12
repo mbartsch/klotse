@@ -62,7 +62,9 @@ def test_local_size_and_human_size(tmp_path):
 
 
 def test_arguments_name_the_local_side_relative_and_never_as_a_flag_or_drive():
-    up = Copy(1, "ctx", "shop", "web-1", "app", "upload", "C:\\data\\-rf", "/tmp/x")
+    # a drive letter is only a path part on Windows; elsewhere a backslash is an ordinary character of a file name
+    folder = "C:\\data" if os.name == "nt" else "/data"
+    up = Copy(1, "ctx", "shop", "web-1", "app", "upload", os.path.join(folder, "-rf"), "/tmp/x")
     assert build_args(["kubectl", "--context", "ctx"], up) == ["kubectl", "--context", "ctx", "-n", "shop", "cp", "-c", "app",
                                                               "./-rf", "web-1:/tmp/x"]
     down = Copy(2, "ctx", "shop", "web-1", "", "download", "/home/me/out.log", "/var/log/a.log")
