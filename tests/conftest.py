@@ -27,7 +27,15 @@ def no_blocking_exit_question(monkeypatch):
 # test, every runnable handed to the pool and how far each worker got, so a failure shows whether the worker never started, is
 # still inside its function, could not emit its signal (both worker classes swallow RuntimeError there), or emitted a signal
 # that never reached the GUI thread.
-_TRACE = {"began": 0.0, "queued": [], "runs": [], "status": []}
+_TRACE = {"began": 0.0, "queued": [], "runs": [], "status": [], "slow": None}
+
+
+def pytest_collection_modifyitems(items):
+    """Run the embedded terminal tests last: they are the only ones that start QtWebEngine (Chromium) in the test process. On the
+    macOS runners, tests that ran after them now and then waited 5 s for a worker's answer that had been emitted: the trace showed the
+    GUI thread (renamed CrBrowserMain by Chromium) delivering neither that queued signal nor a 1 s timer during the wait. The sort is
+    stable, so every other test keeps its place."""
+    items.sort(key=lambda item: item.path.name == "test_embedded_terminal.py")
 
 
 def _since():
@@ -109,6 +117,11 @@ def pytest_runtest_makereport(item, call):
     lines += [f"  {record}" for record in _TRACE["runs"]]
     lines.append(f"table status lines, last 30 of {len(_TRACE['status'])}: (seconds, kind, call, text after it)")
     lines += [f"  {entry}" for entry in _TRACE["status"][-30:]]
+    slow = _TRACE["slow"]
+    if slow is not None:
+        faulthandler.cancel_dump_traceback_later()
+        slow.seek(0)
+        lines.append("every thread, each 2 s while the test ran (the last 6000 characters):\n" + slow.read()[-6000:])
     with tempfile.TemporaryFile("w+") as dump:
         faulthandler.dump_traceback(dump, all_threads=True)
         dump.seek(0)
@@ -124,7 +137,9 @@ def own_thread_pool(monkeypatch):
     from klotse.ui.resource_table import ResourceTable
     from klotse.workers import Worker
 
-    _TRACE.update(began=time.monotonic(), queued=[], runs=[], status=[])
+    slow = tempfile.TemporaryFile("w+")
+    _TRACE.update(began=time.monotonic(), queued=[], runs=[], status=[], slow=slow)
+    faulthandler.dump_traceback_later(2, repeat=True, file=slow)  # where every thread is while a test takes long
     for kind in (Worker, _LoadPlugin):
         monkeypatch.setattr(kind, "run", _traced(kind.run))
     for name in ("set_loading", "set_error", "set_rows", "append_rows", "show_status", "_loading_tick"):
@@ -132,5 +147,8 @@ def own_thread_pool(monkeypatch):
     pool = _TracedPool()
     monkeypatch.setattr(QThreadPool, "globalInstance", staticmethod(lambda: pool))
     yield pool
+    faulthandler.cancel_dump_traceback_later()
+    _TRACE["slow"] = None
+    slow.close()
     pool.clear()
     pool.waitForDone(10000)
