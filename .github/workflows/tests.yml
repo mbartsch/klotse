@@ -29,10 +29,14 @@ permissions:
 
 jobs:
   full-suite:
-    name: full suite (${{ inputs.full_suite_runner }})
+    name: full suite (${{ inputs.full_suite_runner }}, shard ${{ matrix.shard }})
     if: github.event_name == 'workflow_dispatch' && inputs.full_suite_runner != 'none'
     runs-on: ${{ inputs.full_suite_runner }}
-    timeout-minutes: 35  # a passing run takes 9-12 minutes on Windows and arm64 macOS and 18-23 on Intel macOS
+    timeout-minutes: 20  # one of six shards: a passing shard takes a few minutes on any runner
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       PYTHONPATH: src
       QT_QPA_PLATFORM: ${{ inputs.qt_platform }}
@@ -52,11 +56,14 @@ jobs:
             libdbus-1-3 libfontconfig1 libglib2.0-0 xvfb
       - name: Install test dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Run the whole suite
-        timeout-minutes: 30
+      - name: Run test shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: ${{ strategy.job-total }}
         shell: bash
         run: |
-          python scripts/run_tests.py
+          files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
+          python scripts/run_tests.py $files
 
   # Every pull request that is not a draft, and every push to master.
   pytest:
