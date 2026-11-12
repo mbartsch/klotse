@@ -183,3 +183,54 @@ def to_chart(cpu_lines, mem_lines):
     """({line: [(t, cores)]}, {line: [(t, MiB)]}) ready for the chart (memory bytes become MiB)."""
     mem = {name: [(t, v / 2**20) for t, v in points] for name, points in mem_lines.items()}
     return dict(cpu_lines), mem
+
+
+def parse_vector(text):
+    """[(labels, value)] from an instant `query` answer (`vector` results). Series without a number are skipped. Raises PrometheusError
+    for an error answer."""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        raise PrometheusError("The answer was not JSON: is this a Prometheus or VictoriaMetrics address?") from None
+    if not isinstance(body, dict) or body.get("status") != "success":
+        raise PrometheusError(str((body or {}).get("error") or "the source returned an error") if isinstance(body, dict) else "unexpected answer")
+    found = []
+    for series in (body.get("data") or {}).get("result") or []:
+        sample = series.get("value") if isinstance(series, dict) else None
+        if not isinstance(sample, list) or len(sample) != 2:
+            continue
+        try:
+            number = float(sample[1])
+        except (TypeError, ValueError):
+            continue
+        if number == number:  # not NaN
+            found.append((dict(series.get("metric") or {}), number))
+    return found
+
+
+def series_text(labels):
+    """`pod="web-1", container="app"` for a series' labels (the metric name left out), sorted."""
+    return ", ".join(f'{k}="{v}"' for k, v in sorted(labels.items()) if k != "__name__") or "(no labels)"
+
+
+def workload_queries(kind, namespace, name):
+    """Quick PromQL for a workload: [(title, query)]. Pod CPU, memory and network come from the kubelet's cAdvisor metrics; restarts and
+    replica counts need kube-state-metrics (the title says so). Pod names follow the controller's naming: Deployment pods are
+    `name-<hash>-<hash>`, StatefulSet `name-<n>`, DaemonSet `name-<hash>`."""
+    ns, nm = quote_label(namespace), quote_label(name)
+    pattern = {"Deployment": r"[a-z0-9]+-[a-z0-9]+", "StatefulSet": r"[0-9]+", "DaemonSet": r"[a-z0-9]+"}.get(kind, r"[a-z0-9]+")
+    pods = f'pod=~"{escape_re(name)}-{pattern}"'
+    replicas = {"Deployment": ("Available replicas (kube-state-metrics)", f'kube_deployment_status_replicas_available{{namespace="{ns}",deployment="{nm}"}}'),
+                "StatefulSet": ("Ready replicas (kube-state-metrics)", f'kube_statefulset_status_replicas_ready{{namespace="{ns}",statefulset="{nm}"}}'),
+                "DaemonSet": ("Ready pods (kube-state-metrics)", f'kube_daemonset_status_number_ready{{namespace="{ns}",daemonset="{nm}"}}')}
+    queries = [
+        ("CPU, cores", f'sum(rate(container_cpu_usage_seconds_total{{namespace="{ns}",{pods},container!="",container!="POD"}}[5m]))'),
+        ("Memory, MiB", f'sum(container_memory_working_set_bytes{{namespace="{ns}",{pods},container!="",container!="POD"}})/1048576'),
+        ("Network in, bytes/s", f'sum(rate(container_network_receive_bytes_total{{namespace="{ns}",{pods}}}[5m]))'),
+        ("Network out, bytes/s", f'sum(rate(container_network_transmit_bytes_total{{namespace="{ns}",{pods}}}[5m]))'),
+        ("Restarts in the last hour (kube-state-metrics)",
+         f'sum(increase(kube_pod_container_status_restarts_total{{namespace="{ns}",{pods}}}[1h]))'),
+    ]
+    if kind in replicas:
+        queries.insert(0, replicas[kind])
+    return queries

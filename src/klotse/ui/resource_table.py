@@ -99,6 +99,7 @@ class ResourceTable(QWidget):
     multi_logs_requested = Signal(str, object)  # kind, a row (workload or Service) or a list of Pod rows
     duplicate_requested = Signal(str, object)  # kind, row: create a new object starting from this one
     metrics_requested = Signal(str, object)  # kind, row: show the usage history chart
+    metrics_query_requested = Signal(str, object)  # kind, row: run quick Prometheus / VictoriaMetrics queries about a workload
     metrics_many_requested = Signal(str, object)  # kind, rows picked together: one usage chart with a line per object
     compare_requested = Signal(str, list)  # kind, the two selected rows
     bulk_requested = Signal(str, str, list)  # kind, action name, selected row dataclasses (two or more)
@@ -963,6 +964,8 @@ class ResourceTable(QWidget):
             add("permissions", "Effective permissions…", lambda: self.rbac_requested.emit(self.kind, row))
         if self.kind in METRIC_KINDS:
             add("usage-history", "Usage history…", lambda: self.metrics_requested.emit(self.kind, row))
+        if self.kind in ("Deployment", "StatefulSet", "DaemonSet"):
+            add("metrics-query", "Metrics query…", lambda: self.metrics_query_requested.emit(self.kind, row))
         if self.kind == "Pod":
             add("logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True, permission="logs")
             add("shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row), permission="shell")
