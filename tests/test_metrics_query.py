@@ -94,9 +94,13 @@ def test_the_dialog_shows_the_latest_value_of_each_series(qtbot):
     qtbot.addWidget(dialog)
     dialog.run_query()
     assert answers == ["sum(up)"] and dialog.table.rowCount() == 2
-    assert dialog.table.item(0, 0).text() == 'pod="web-1", container="app"' and dialog.table.item(0, 1).text() == "0.5"
-    assert dialog.table.item(0, 2).text() != "" and dialog.table.horizontalHeaderItem(2).text() == "At"
-    assert dialog.status.text() == "2 series." and dialog.run_button.isEnabled()
+    assert dialog.table.horizontalHeaderItem(0).text() == "At" and dialog.table.item(0, 0).text() != ""  # the time comes first
+    assert dialog.table.item(0, 1).text() == 'pod="web-1", container="app"' and dialog.table.item(0, 2).text() == "0.5"
+    dialog.run_query()  # a second run adds its rows below the first
+    assert dialog.table.rowCount() == 4 and dialog.table.item(2, 2).text() == "0.5"
+    dialog.clear_results()
+    assert dialog.table.rowCount() == 0
+    assert dialog.status.text() == "Cleared." and dialog.run_button.isEnabled()
 
 
 def test_a_failed_or_empty_query_says_so_and_nothing_is_run_without_text(qtbot):
@@ -106,7 +110,7 @@ def test_a_failed_or_empty_query_says_so_and_nothing_is_run_without_text(qtbot):
     assert dialog.status.text() == "Write a query first."
     dialog.query.setText("sum(")
     dialog.run_query()
-    assert dialog.status.text() == "The query failed: parse error at char 3" and dialog.table.rowCount() == 0
+    assert dialog.status.text() == "The query failed: parse error at char 3"
 
 
 def test_workload_menu_query_runs_the_preset_against_the_found_source(qtbot, tmp_path):

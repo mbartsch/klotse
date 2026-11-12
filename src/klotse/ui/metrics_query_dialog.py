@@ -71,10 +71,14 @@ class MetricsQueryDialog(QWidget):
         actions.addWidget(self.graph_range)
         actions.addWidget(self.graph_button)
         actions.addStretch(1)
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.setToolTip("Remove the results of earlier runs from the table")
+        self.clear_button.clicked.connect(self.clear_results)
+        actions.addWidget(self.clear_button)
         self.table = QTableWidget(0, 3)
         self.table.setAccessibleName("Query results")
-        self.table.setHorizontalHeaderLabels(["Series", "Latest value", "At"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.setHorizontalHeaderLabels(["At", "Series", "Latest value"])
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.chart = LineChart("Graph", lambda value: f"{value:.6g}")
@@ -142,25 +146,33 @@ class MetricsQueryDialog(QWidget):
         except RuntimeError:
             pass
 
+    def clear_results(self):
+        """Clear: remove the rows of every earlier run."""
+        self.table.setRowCount(0)
+        self.status.setText("Cleared.")
+
     def _show(self, series):
-        """`series`: [(labels, value, time)] in the order the source answered; nothing is cleaned up or sorted."""
+        """`series`: [(labels, value, time)] in the order the source answered; nothing is cleaned up or sorted. Each run adds its rows below
+        the rows of earlier runs, the time (first column) says when each value was sampled, until Clear."""
         try:
             self.run_button.setEnabled(True)
-            self.table.setRowCount(len(series))
-            for row, (labels, value, stamp) in enumerate(series):
-                self.table.setItem(row, 0, QTableWidgetItem(prometheus.series_text(labels)))
+            start = self.table.rowCount()
+            self.table.setRowCount(start + len(series))
+            for offset, (labels, value, stamp) in enumerate(series):
+                row = start + offset
+                self.table.setItem(row, 0, QTableWidgetItem(_when(stamp)))
+                self.table.setItem(row, 1, QTableWidgetItem(prometheus.series_text(labels)))
                 item = QTableWidgetItem(f"{value:.6g}")
                 item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.table.setItem(row, 1, item)
-                self.table.setItem(row, 2, QTableWidgetItem(_when(stamp)))
-            self.status.setText(f"{len(series)} series." if series else "No series matched this query.")
+                self.table.setItem(row, 2, item)
+            self.table.scrollToBottom()
+            self.status.setText(f"{len(series)} series added; {self.table.rowCount()} rows." if series else "No series matched this query.")
         except RuntimeError:  # the window was closed while the query ran
             pass
 
     def _fail(self, message):
         try:
-            self.run_button.setEnabled(True)
-            self.table.setRowCount(0)
+            self.run_button.setEnabled(True)  # the rows of earlier runs stay until Clear
             self.status.setText(f"The query failed: {message}")
         except RuntimeError:
             pass
