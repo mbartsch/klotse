@@ -191,6 +191,16 @@ class MainWindow(QMainWindow):
         self.rbac_action.triggered.connect(self.show_rbac)
         insights_menu.addAction(self.rbac_action)
         insights_menu.aboutToShow.connect(lambda: self.rbac_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.metrics_query_action = QAction("Metrics query…", self)
+        self.metrics_query_action.setToolTip("Quick PromQL against the Prometheus or VictoriaMetrics source of the cluster in front (read only)")
+        self.metrics_query_action.triggered.connect(self.show_cluster_metrics_query)
+        insights_menu.addAction(self.metrics_query_action)
+        insights_menu.aboutToShow.connect(lambda: self.metrics_query_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.port_forwards_action = QAction("Port forwards…", self)
+        self.port_forwards_action.setToolTip("The kubectl port-forwards of the cluster in front: state, address, save, stop")
+        self.port_forwards_action.triggered.connect(self.show_port_forwards)
+        operations_menu.addAction(self.port_forwards_action)
+        operations_menu.aboutToShow.connect(lambda: self.port_forwards_action.setEnabled(self.clusters.currentWidget() is not None))
         self.rightsizing_action = QAction("Right-sizing…", self)
         self.rightsizing_action.setToolTip("Requests and limits against current usage, per workload, with advice")
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
@@ -817,6 +827,22 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_rightsizing()
+        return True
+
+    def show_port_forwards(self):
+        """View > Operations > Port forwards…: the Port forwards tab of the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_port_forwards()
+        return True
+
+    def show_cluster_metrics_query(self):
+        """View > Insights > Metrics query…: a query window for the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_metrics_query()
         return True
 
     # ---- command palette -------------------------------------------------------------------------------------
