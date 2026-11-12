@@ -381,6 +381,7 @@ class MainWindow(QMainWindow):
                                            for p in self.plugins.cluster_plugins()]
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
+        self.nav.metrics_source_requested.connect(self.open_metrics_source)
 
         self.status = self.statusBar()
         self.plugin_errors_button = QToolButton(self)
@@ -1055,6 +1056,15 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_permissions()
+        return True
+
+    def open_metrics_source(self, context):
+        """Cluster list > Metrics source…: the Prometheus / VictoriaMetrics source of usage history for that cluster (the same dialog as
+        Usage history > Source…). False when the cluster is not open."""
+        ws = self.workspaces.get(context)
+        if ws is None:
+            return False
+        ws.configure_metrics_source()
         return True
 
     def open_cluster_settings(self, plugin_id, context=None):

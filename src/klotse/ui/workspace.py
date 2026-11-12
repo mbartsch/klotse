@@ -2050,27 +2050,38 @@ class ClusterWorkspace(QMainWindow):
         if forward.state != "starting":
             settle()
 
-    def _configure_prometheus(self, dialog, kind, row, selector):
-        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. A port-forward is started only here, after OK."""
+    def configure_metrics_source(self):
+        """Cluster list > Metrics source…: the same source choice as a usage window's Source…, saved for this cluster. Nothing is started
+        unless the choice is a port-forward, and a window that is open keeps its own data until it is reopened."""
         answer = self._ask_prometheus_source()
-        if answer is None:
-            return
+        if answer is not None:
+            self._save_source(answer)
+
+    def _save_source(self, answer):
+        """Keep a Source… answer (text, via, local, tls, insecure) for this cluster. False when it was refused or could not be saved."""
         text, via, local, tls, insecure = answer
         if text:
             try:
                 prometheus.parse_ref(text)
             except ValueError as error:
                 QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
-                return
+                return False
         try:
             self.metrics_sources.set(self.context, text, via, local, tls, insecure)
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
-            return
+            return False
         self._prometheus = None
         if via != "forward" and self._source_forward is not None:
             self.port_forwards.stop(self._source_forward)  # the forward is no longer the chosen source
             self._source_forward = None
+        return True
+
+    def _configure_prometheus(self, dialog, kind, row, selector):
+        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. A port-forward is started only here, after OK."""
+        answer = self._ask_prometheus_source()
+        if answer is None or not self._save_source(answer):
+            return
         dialog.clear_prometheus()
         self._offer_prometheus(dialog, kind, row, selector, force=True, start_forward=True)
 

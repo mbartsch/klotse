@@ -63,6 +63,7 @@ class Navigator(QTreeWidget):
     cancel_retry_requested = Signal(str)
     reconnect_requested = Signal(str)
     plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
+    metrics_source_requested = Signal(str)  # context name: the Prometheus / VictoriaMetrics source for usage history
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
 
@@ -498,6 +499,9 @@ class Navigator(QTreeWidget):
                     menu.addAction(label, lambda sig=signal: sig.emit(name))
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
+            if self._states.get(name) in ACTIVE_STATES:
+                menu.addSeparator()
+                menu.addAction("Metrics source…", lambda c=name: self.metrics_source_requested.emit(c))
             if entries:
                 menu.addSeparator()
                 for plugin_id, text in entries:
