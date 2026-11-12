@@ -1157,6 +1157,10 @@ class KubeService:
             raise prometheus.PrometheusError(str(body.get("error") or "the source returned an error"))
         return True
 
+    def prometheus_query(self, ref, promql):
+        """[(labels, value)] of an instant PromQL query on the service `ref` (through the proxy, or a port-forward Klotse started). Looking only."""
+        return prometheus.parse_vector(self._prometheus_get(ref, prometheus.instant_path(ref, promql), 30))
+
     def prometheus_history(self, ref, kind, namespace="", name="", selector="", seconds=3600):
         """({line: [(t, cores)]}, {line: [(t, MiB)]}) of a Pod (a line per container, and a total), a workload (a total and a line per current
         pod) or a Node, from the last `seconds`, read from the Prometheus / VictoriaMetrics service `ref`. Looking only."""

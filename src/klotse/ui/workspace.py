@@ -39,6 +39,7 @@ from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
 from .metrics_sources import ForwardDefaults, MetricsSources
+from .metrics_query_dialog import MetricsQueryDialog
 from .prometheus_source_dialog import FORWARD, PrometheusSourceDialog
 from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
@@ -333,6 +334,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.history_requested.connect(self.show_rollout_history)
                 widget.compare_requested.connect(self.compare_objects)
                 widget.metrics_requested.connect(self.show_metrics)
+                widget.metrics_query_requested.connect(self.show_metrics_query)
                 widget.metrics_many_requested.connect(self.show_metrics_many)
                 widget.duplicate_requested.connect(self.copy_resource)
                 widget.multi_logs_requested.connect(self.multi_logs)
@@ -1768,6 +1770,52 @@ class ClusterWorkspace(QMainWindow):
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
 
+    def show_metrics_query(self, kind, row):
+        """Right-click a Deployment, StatefulSet or DaemonSet > Metrics query…: quick PromQL about the workload on the Prometheus /
+        VictoriaMetrics source (the one set in Usage history, else the first that answers). Looking only. Non-modal, one per object."""
+        if getattr(self.service, "prometheus_query", None) is None:
+            self.message.emit(f"{self.context}: this service cannot run metric queries")
+            return None
+        namespace, name = getattr(row, "namespace", ""), row.name
+        key = ("query", kind, namespace, name)
+        windows = [d for d in getattr(self, "_metrics_dialogs", []) if d.isVisible()]
+        self._metrics_dialogs = windows
+        for existing in windows:
+            if getattr(existing, "key", None) == key:
+                existing.raise_()
+                return existing
+        typed = self.metrics_sources.get(self.context)
+
+        def find_source():
+            """(ref, [what failed]) of the first source that answers the Prometheus API; runs on a worker."""
+            notes = []
+            candidates = [prometheus.parse_ref(typed)] if typed else (self.service.find_prometheus() or [])[:3]
+            for ref in candidates:
+                try:
+                    self.service.prometheus_check(ref)
+                    return ref, notes
+                except Exception as error:  # noqa: BLE001 - try the next candidate
+                    notes.append(f"{prometheus.ref_text(ref)}: {error}")
+            return None, notes
+
+        def opened(answer):
+            ref, notes = answer
+            if ref is None:
+                reason = "; ".join(notes[:2]) if notes else "none was found in the cluster"
+                QMessageBox.information(self, "Metrics query", f"No Prometheus or VictoriaMetrics source answers ({reason}). "
+                                        "Set one with Usage history > Source…. metrics-server cannot run queries.")
+                return
+            dialog = MetricsQueryDialog(f"Metrics: {kind} {namespace}/{name} ({self.context})", prometheus.ref_text(ref),
+                                        prometheus.workload_queries(kind, namespace, name),
+                                        lambda promql, ok, bad: self._run(self.service.prometheus_query, ok, ref, promql, on_error=bad), self)
+            dialog.key = key
+            dialog.setWindowFlag(Qt.Window, True)
+            dialog.show()
+            self._metrics_dialogs.append(dialog)
+
+        self._run(find_source, opened, on_error=lambda message: QMessageBox.warning(self, "Metrics query", message))
+        return None
+
     def show_metrics(self, kind, row):
         """Right-click a Pod, Node, Deployment, StatefulSet or DaemonSet > Usage history…: CPU and memory charts. With only metrics-server there
         is no history, so the window samples it every 15 s from the moment it opens (k8s/metrics_history.py). Looking only. Non-modal; one
@@ -2030,7 +2078,8 @@ class ClusterWorkspace(QMainWindow):
                 return
             try:
                 forward = self.port_forwards.start(self.context, ref["namespace"], "Service", ref["name"], ref["port"],
-                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history")
+                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history",
+                                                   scheme="https" if ref.get("scheme") == "https" else "http")
             except ValueError as error:
                 on_fail(f"port-forward not started: {error}")
                 return
