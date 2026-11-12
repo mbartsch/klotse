@@ -86,6 +86,8 @@ kbd{font:13px/1.4 "JetBrains Mono",ui-monospace,Consolas,monospace;background:va
 .brand::before{content:"> ";color:var(--dim)}
 .brand:hover{background:none;color:var(--ink)}
 .top nav{display:flex;gap:4px 14px;flex-wrap:wrap;font-size:13px}
+.top .gh{font-size:13px;color:var(--mute);text-decoration:none;white-space:nowrap}
+.top .gh:hover,.top .gh:focus-visible{background:none;color:var(--phosphor)}
 .top nav a{color:var(--mute);text-decoration:none;padding:2px 0}
 .top nav a:hover,.top nav a:focus-visible{background:none;color:var(--phosphor);text-shadow:var(--glow)}
 
@@ -200,8 +202,8 @@ footer p{max-width:80ch;margin:0 0 8px}
       <a href="#usage">Usage &amp; metrics</a>
       <a href="#palette">Shortcuts</a>
       <a href="#help">Help</a>
-      <a href="https://github.com/mbartsch/klotse" rel="noopener">GitHub</a>
     </nav>
+    <a class="gh" href="https://github.com/mbartsch/klotse" rel="noopener">GitHub</a>
     <div class="switch" role="radiogroup" aria-label="Colour theme">
       <input type="radio" name="theme" id="t-auto" checked>
       <label for="t-auto">Auto</label>
@@ -218,11 +220,11 @@ footer p{max-width:80ch;margin:0 0 8px}
   <div class="hero">
     <div>
       <pre class="banner" aria-hidden="true">
- _  ___      _       _
-| |/ / | ___| |_ ___| | ___
-| ' /| |/ _ \ __/ __| |/ _ \
-| . \| | (_) | |_\__ \ |  __/
-|_|\_\_|\___/ \__|___/_|\___|
+ _  __ _       ___   _____  ____   _____ 
+| |/ /| |     / _ \ |_   _|/ ___| | ____|
+| ' / | |    | | | |  | |  \___ \ |  _|  
+| . \ | |___ | |_| |  | |   ___) || |___ 
+|_|\_\|_____| \___/   |_|  |____/ |_____|
       </pre>
       <h1>Klotse, a calmer way to read your clusters</h1>
       <p>Klotse is a desktop manager for Kubernetes. It uses the kubeconfig you already have, shows each cluster you open in its own tab, and checks every change with the cluster before it is saved.</p>
