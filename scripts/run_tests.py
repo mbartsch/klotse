@@ -15,7 +15,9 @@ import os
 import subprocess  # nosec B404 - runs pytest with a fixed argument list
 import sys
 import tempfile
+import time
 
+LIMIT_S = float(os.environ.get("KLOTSE_TEST_LIMIT_S", 300))  # no test may run longer; checked from outside the test process
 MAX_PROCESSES = 8  # a suite that keeps dying is failed instead of being restarted for ever
 
 
@@ -45,7 +47,27 @@ def crashed(status):
     return status not in (0, 1, 5)
 
 
-def run_pytest(files, folder, number, skip=None, only=None, runner=subprocess.run):
+def run_watched(command, env, progress, limit=None, poll=1.0):
+    """Run `command` and end it when nothing has been written to `progress` for `limit` seconds (the test process writes a line
+    when each test starts and finishes; before the first line the time counts from the start, so a hang while the tests are
+    collected is caught too). Done from here, not from inside the test process, because a test that blocks in native code
+    can hold Python's global lock, and then no timer in that process can run. Returns the exit status, 124 when ended here."""
+    limit = LIMIT_S if limit is None else limit
+    process = subprocess.Popen(command, env=env)  # nosec B603 - the same fixed argument list as before
+    began = time.time()
+    while True:
+        try:
+            return process.wait(timeout=poll)
+        except subprocess.TimeoutExpired:
+            pass
+        quiet_since = os.path.getmtime(progress) if os.path.exists(progress) else began
+        if time.time() - quiet_since > limit:
+            process.kill()
+            process.wait()
+            return 124
+
+
+def run_pytest(files, folder, number, skip=None, only=None, runner=None):
     progress = os.path.join(folder, f"progress-{number}.txt")
     env = {**os.environ, "KLOTSE_TEST_PROGRESS": progress}
     for name, tests in (("KLOTSE_TEST_SKIP", skip), ("KLOTSE_TEST_ONLY", only)):
@@ -54,11 +76,15 @@ def run_pytest(files, folder, number, skip=None, only=None, runner=subprocess.ru
             env[name] = os.path.join(folder, f"{name.lower()}-{number}.txt")
             with open(env[name], "w", encoding="utf-8") as handle:
                 handle.write("\n".join(tests))
-    status = runner([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *files], env=env).returncode  # nosec B603
+    command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *files]
+    if runner is None:
+        status = run_watched(command, env, progress)
+    else:
+        status = runner(command, env=env).returncode
     return status, read_progress(progress)
 
 
-def run(files, runner=subprocess.run, say=print):
+def run(files, runner=None, say=print):
     """Returns the exit status for CI: 0 when every test passed, at the latest when it was run again."""
     with tempfile.TemporaryDirectory(prefix="klotse-tests-") as folder:
         seen, failed, died_in, notes, number = [], [], [], [], 0
