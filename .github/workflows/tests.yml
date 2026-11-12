@@ -32,6 +32,9 @@ jobs:
     name: full suite (${{ inputs.full_suite_runner }}, shard ${{ matrix.shard }})
     if: github.event_name == 'workflow_dispatch' && inputs.full_suite_runner != 'none'
     runs-on: ${{ inputs.full_suite_runner }}
+    permissions:
+      contents: read
+      issues: write  # opens or updates an issue per flaky test
     timeout-minutes: 20  # one of six shards: a passing shard takes a few minutes on any runner
     strategy:
       fail-fast: false
@@ -41,6 +44,7 @@ jobs:
       PYTHONPATH: src
       QT_QPA_PLATFORM: ${{ inputs.qt_platform }}
       PYTHONUNBUFFERED: "1"
+      FLAKY_REPORT: ${{ runner.temp }}/flaky.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -64,12 +68,21 @@ jobs:
         run: |
           files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
           python scripts/run_tests.py $files
+      - name: Record flaky tests as issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/record_flaky.py "$FLAKY_REPORT"
 
   # Every pull request that is not a draft, and every push to master.
   pytest:
     name: pytest (linux, shard ${{ matrix.shard }})
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write  # opens or updates an issue per flaky test
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -79,6 +92,7 @@ jobs:
       PYTHONPATH: src
       QT_QPA_PLATFORM: offscreen
       PYTHONUNBUFFERED: "1"
+      FLAKY_REPORT: ${{ runner.temp }}/flaky.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -102,12 +116,21 @@ jobs:
         run: |
           files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
           python scripts/run_tests.py $files
+      - name: Record flaky tests as issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/record_flaky.py "$FLAKY_REPORT"
 
   # Windows and macOS: only for release pull requests (branch release/vX.Y.Z), not drafts.
   pytest-release:
     name: pytest (${{ matrix.os }}, shard ${{ matrix.shard }})
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft && startsWith(github.head_ref, 'release/')
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      issues: write  # opens or updates an issue per flaky test
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -118,6 +141,7 @@ jobs:
       PYTHONPATH: src
       QT_QPA_PLATFORM: offscreen
       PYTHONUNBUFFERED: "1"
+      FLAKY_REPORT: ${{ runner.temp }}/flaky.txt
       SHARD_COUNT: "6"  # the length of the shard list above
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -136,3 +160,9 @@ jobs:
         run: |
           files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
           python scripts/run_tests.py $files
+      - name: Record flaky tests as issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/record_flaky.py "$FLAKY_REPORT"

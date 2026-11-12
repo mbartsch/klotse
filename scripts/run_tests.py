@@ -99,6 +99,16 @@ def run(files, runner=subprocess.run, say=print):
         say(f"{len(seen)} test(s) run in the main pass, {len(failed)} failed, the process died in {len(died_in)}")
         for test in flaky:
             say(f"::warning::flaky: {test} " + ("made the test process die" if test in died_in else "failed") + " and passed when run again")
+        report = os.environ.get("FLAKY_REPORT")
+        if report:  # read by scripts/record_flaky.py, which opens or updates an issue per test
+            with open(report, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(flaky) + ("\n" if flaky else ""))
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary and flaky:  # shown on the run's page, which the PR checks link to
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write("### Flaky tests (failed, then passed when run again)\n\n")
+                handle.writelines(f"- `{test}`\n" for test in flaky)
+                handle.write("\nAn issue per test is opened or updated by the workflow (label `flaky-test`).\n")
         for note in notes:
             say(f"::warning::{note}")
         for test in still_bad:
