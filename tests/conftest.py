@@ -1,5 +1,6 @@
 import faulthandler
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -180,8 +181,33 @@ def _note(line):
             os.fsync(handle.fileno())
 
 
+# A test still running after TEST_LIMIT_S is taken to be hung: every thread's stack goes to stderr (the CI log) and the process
+# ends with status 124. scripts/run_tests.py then reads the progress file, which names that test as the one it died in, and runs
+# it again on its own.
+TEST_LIMIT_S = float(os.environ.get("KLOTSE_TEST_LIMIT_S", 300))  # the variable is for checking the limit itself
+_limit = {}
+
+
+def _limit_expired(nodeid):
+    _note(f"timeout\t{nodeid}")
+    sys.stderr.write(f"\n==== {nodeid} ran longer than {TEST_LIMIT_S} s: every thread follows ====\n")
+    sys.stderr.flush()
+    faulthandler.dump_traceback(all_threads=True)
+    os._exit(124)
+
+
 def pytest_runtest_logstart(nodeid, location):
     _note(f"start\t{nodeid}")
+    timer = threading.Timer(TEST_LIMIT_S, _limit_expired, args=(nodeid,))
+    timer.daemon = True
+    _limit["timer"] = timer
+    timer.start()
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    timer = _limit.pop("timer", None)
+    if timer is not None:
+        timer.cancel()
 
 
 def pytest_runtest_logreport(report):
