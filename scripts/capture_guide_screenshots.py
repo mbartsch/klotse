@@ -1,9 +1,12 @@
 """Render the screenshots used by the user guide in web/ with invented data and no cluster.
 
-Run from the checkout with: PYTHONPATH=src python scripts/capture_guide_screenshots.py
+Run from the checkout with: PYTHONPATH=src python scripts/capture_guide_screenshots.py [--theme NAME]
+The default theme (Harbour, dark) writes to web/screenshots/. --theme Daylight writes to
+web/screenshots/daylight/, which the guide shows in its light mode.
 Qt renders offscreen; settings are kept in a temporary directory. The main window uses the
 fake service that the test suite uses (tests/test_app.py), so no cluster is needed.
 """
+import argparse
 import os
 import sys
 import tempfile
@@ -108,7 +111,15 @@ def details(app):
     return panel
 
 
-def main():
+def main(argv=None):
+    global OUTPUT
+    parser = argparse.ArgumentParser(description="Render the user guide screenshots.")
+    parser.add_argument("--theme", default=theme.DEFAULT.name, choices=[t.name for t in theme.BUILTIN],
+                        help="built-in theme to render with (default: %(default)s)")
+    args = parser.parse_args(argv)
+    chosen = next(t for t in theme.BUILTIN if t.name == args.theme)
+    if chosen is not theme.DEFAULT:
+        OUTPUT = OUTPUT / chosen.name.lower()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     app = QApplication.instance() or QApplication([])
     # The Windows offscreen plugin does not always discover system fonts (same setup as capture_screenshots.py).
@@ -117,8 +128,12 @@ def main():
         if font.exists():
             QFontDatabase.addApplicationFont(str(font))
     app.setFont(QFont("Segoe UI", 10))
-    theme.apply(app)
+    theme.apply(app, chosen)
     with tempfile.TemporaryDirectory() as folder:
+        # The main window reads the saved theme from the (temporary) settings store.
+        store = settings(folder)
+        store.setValue("appearance/theme", chosen.name)
+        store.sync()
         win = main_window(app, folder)
         capture(app, win, "main-window.png", 1280, 800)
         win.close()

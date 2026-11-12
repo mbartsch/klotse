@@ -52,3 +52,5 @@ klotse_plugins = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Keep the static guide out of test discovery. Web-specific tests still run when named on the command line.
+norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", "node_modules", "web"]

@@ -3,6 +3,7 @@
 Run from the checkout with: PYTHONPATH=src python scripts/capture_screenshots.py
 Qt renders offscreen; settings are kept in a temporary directory.
 """
+import argparse
 import math
 import os
 from pathlib import Path
@@ -104,7 +105,16 @@ def health_check():
     return dialog
 
 
-def main():
+def main(argv=None):
+    global OUTPUT
+    parser = argparse.ArgumentParser(description="Render the README and guide screenshots.")
+    parser.add_argument("--theme", default=theme.DEFAULT.name, choices=[t.name for t in theme.BUILTIN],
+                        help="built-in theme to render with (default: %(default)s)")
+    args = parser.parse_args(argv)
+    chosen = next(t for t in theme.BUILTIN if t.name == args.theme)
+    if chosen is not theme.DEFAULT:
+        # Light variants go to the guide's folder; the README screens stay in screens/.
+        OUTPUT = Path(__file__).resolve().parents[1] / "web" / "screenshots" / chosen.name.lower()
     app = QApplication([])
     # The Windows offscreen plugin does not always discover system fonts.
     for name in ("segoeui.ttf", "segoeuib.ttf", "seguisym.ttf"):
@@ -112,8 +122,8 @@ def main():
         if font.exists():
             QFontDatabase.addApplicationFont(str(font))
     app.setFont(QFont("Segoe UI", 10))
-    theme.apply(app)
-    OUTPUT.mkdir(exist_ok=True)
+    theme.apply(app, chosen)
+    OUTPUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="klotse-screenshots-") as folder:
         store = QSettings(str(Path(folder) / "settings.ini"), QSettings.IniFormat)
         QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, folder)
