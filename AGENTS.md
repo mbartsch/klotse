@@ -400,6 +400,7 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 - GitHub Actions action refs must be full 40-character SHAs. Official `actions/setup-python@v7` is `6d4fd22b20465ccc0f7354476588e8df7c9ca0e0` (note the `0` before the final `e0`).
 - Handoff proposal: a 4-shard × 3-OS matrix (Linux, `macos-latest` arm64, Windows) would create 12 jobs per run. Do not enable it until full-suite manual runs prove Linux and macOS stable: Linux has known Qt offscreen/Xvfb segfaults, and macOS has only passed focused smoke tests so far. macOS minutes cost about 10× Linux; validate first, then decide whether full macOS belongs on every PR or only nightly/manual.
 - Pending handoff: wait for the current PR’s final pytest shard/checks; run full Linux and macOS suites manually; decide whether macOS full tests are PR, nightly, or manual only; then implement the 4-shard matrix if stable. Add the release-only shard for `releases/*`, expose a manual OS selector defaulting to Linux, and make the release workflow require that shard. Configure the corresponding GitHub required status check/ruleset; workflow YAML alone cannot make a check mandatory. Recheck all CI after each workflow change and do not merge while any required check is pending or failing.
+- PR hygiene: whenever a PR is closed without merging, add a comment explaining why (for example, superseded, stale branch, duplicate, or intentionally abandoned) and link the replacement PR when one exists.
 
 ## Security checks
 
