@@ -22,3 +22,12 @@ def test_the_switcher_shows_the_alias_and_selecting_it_opens_the_cluster(qtbot, 
     assert win.cluster_picker.currentText() == "Production EU"
     win._pick_cluster(0)
     assert win.clusters.currentWidget().context == context
+
+
+def test_with_no_cluster_connected_the_switcher_says_so_and_the_search_is_open(qtbot, tmp_path):
+    win = window(qtbot, tmp_path)
+    win.show()
+    assert win.cluster_picker.itemText(0) == "No Cluster" and not win.cluster_picker.isEnabled()
+    assert win.cluster_search.isVisible() and win._cluster_search_button.isChecked()
+    open_active(win)
+    assert win.cluster_picker.isEnabled() and win.cluster_picker.itemData(0) != ""
