@@ -15,6 +15,8 @@ import sys
 
 LABEL = "flaky-test"
 PREFIX = "Flaky test: "
+PARENT = 385  # the "Flacky Test" tracker issue; new flaky-test issues become its sub-issues
+MILESTONE = "1.0.0"
 
 
 def title_for(test):
@@ -58,6 +60,18 @@ def gh(*args, body=None):
     return subprocess.run(["gh", *args], capture_output=True, text=True, input=body, check=True).stdout  # nosec B603 B607
 
 
+def attach_to_parent(number, say=print):
+    """Make issue NUMBER a sub-issue of PARENT. Best effort: a failure is reported, never raised."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repo or not number.isdigit():
+        return
+    try:
+        issue_id = gh("api", f"repos/{repo}/issues/{number}", "--jq", ".id").strip()
+        gh("api", "--method", "POST", f"repos/{repo}/issues/{PARENT}/sub_issues", "-F", f"sub_issue_id={issue_id}")
+    except subprocess.CalledProcessError as error:
+        say(f"could not add #{number} under #{PARENT}: {(error.stderr or '').strip()[:200]}")
+
+
 def record(path, say=print):
     if not os.path.exists(path):
         return 0
@@ -69,9 +83,14 @@ def record(path, say=print):
     issues = json.loads(gh("issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000", "--json", "number,title,state"))
     for action, test, number in plan(issues, tests):
         if action == "create":
-            url = gh("issue", "create", "--label", LABEL, "--title", title_for(test),
-                     "--body", note(test) + "\n\nThe test runner (scripts/run_tests.py) found this test flaky. Its cause is not known yet.")
+            body = note(test) + "\n\nThe test runner (scripts/run_tests.py) found this test flaky. Its cause is not known yet."
+            args = ["issue", "create", "--label", LABEL, "--title", title_for(test), "--body", body]
+            try:
+                url = gh(*args, "--milestone", MILESTONE)
+            except subprocess.CalledProcessError:  # no such milestone: still open the issue
+                url = gh(*args)
             say(f"opened {url.strip()} for {test}")
+            attach_to_parent(url.strip().rsplit("/", 1)[-1], say)
         else:
             if action == "reopen":
                 gh("issue", "reopen", str(number))
