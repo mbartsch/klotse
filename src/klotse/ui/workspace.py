@@ -39,6 +39,7 @@ from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
 from .metrics_sources import MetricsSources
+from .prometheus_source_dialog import PrometheusSourceDialog
 from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
@@ -63,7 +64,7 @@ from .file_browser import FileBrowserDialog
 from .file_copy import UPLOAD, FileCopies, FileCopyDialog, FileCopyPanel
 from ..k8s import remote_files
 from . import embedded_terminal
-from .port_forward import PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
+from .port_forward import explain_failure, PortForwardDialog, PortForwardPanel, PortForwards, forward_ports
 from .saved_filters import SavedFilters
 from .saved_forwards import SavedForwards
 from .pod_view import CONTAINER_COLUMNS, PodActionBar, container_rows, pod_containers
@@ -175,6 +176,8 @@ class ClusterWorkspace(QMainWindow):
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
         self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
+        self._source_forward = None  # the forward a usage history window reads Prometheus through, while it runs
+        self._forward_users = set()  # the usage windows using it; the forward stops when the last one closes
         self._terminal_hosts = []  # embedded terminal sessions: each in its own window, or docked in this one
         self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
@@ -1865,7 +1868,7 @@ class ClusterWorkspace(QMainWindow):
         namespace = getattr(row, "namespace", "")
         return lambda seconds: self.service.prometheus_history(ref, kind, namespace, row.name, selector, seconds)
 
-    def _offer_prometheus(self, dialog, kind, row, selector, force=False):
+    def _offer_prometheus(self, dialog, kind, row, selector, force=False, start_forward=False, forwarded=None):
         """Look for a Prometheus or VictoriaMetrics service in the background and, when one answers, add it to the window and switch to
         it. The service typed in Source… is used if there is one, else the Services of the cluster are searched (the best three candidates
         are tried through the API server proxy); the result is remembered for the next window. Nothing is shown if none is found."""
@@ -1874,9 +1877,12 @@ class ClusterWorkspace(QMainWindow):
             return
         manual = self.metrics_sources.get(self.context)
         try:
-            typed = prometheus.parse_ref(manual) if manual else None
+            typed = forwarded or (prometheus.parse_ref(manual) if manual else None)
         except ValueError as error:
             dialog.set_source_note(f"The saved Prometheus address is not valid: {error}")
+            return
+        if typed is not None and self.metrics_sources.get_via(self.context) == "forward" and not typed.get("local_port"):
+            self._offer_forward(dialog, typed, kind, row, selector, start_forward)
             return
         if typed is None and isinstance(self._prometheus, dict):
             dialog.set_prometheus(prometheus.ref_text(self._prometheus), self._prometheus_fetch(self._prometheus, kind, row, selector))
@@ -1913,15 +1919,40 @@ class ClusterWorkspace(QMainWindow):
 
         self._run(work, done, on_error=lambda _message: None)
 
+    def _ask_prometheus_source(self):
+        """The Source… dialog: (text, via, local) to keep for this cluster, or None when cancelled (text "" = look for one automatically)."""
+        sources = self.metrics_sources
+        dialog = PrometheusSourceDialog(sources.get(self.context), sources.get_via(self.context), sources.get_local(self.context), self)
+        asked = []
+
+        def candidates():
+            if asked:
+                return
+            asked.append(True)
+            def show(refs):
+                try:
+                    dialog.set_candidates(refs)
+                except RuntimeError:  # the dialog was closed while the services were being listed
+                    pass
+            find = getattr(self.service, "find_prometheus", None)
+            if find is None:
+                show([])
+            else:
+                self._run(find, show, on_error=lambda _message: show([]))
+
+        dialog.candidates_requested.connect(candidates)
+        accepted = dialog.exec() == QDialog.Accepted
+        answer = dialog.values() if accepted else None
+        dialog.deleteLater()
+        return answer
+
     def _configure_prometheus(self, dialog, kind, row, selector):
-        """Source… in a usage window: ask for the service (empty = look for one), check it, remember it for this cluster."""
-        text, ok = QInputDialog.getText(self, "Prometheus or VictoriaMetrics",
-                                        "Service to read history from, as namespace/service:port (a path prefix may follow,\n"
-                                        "for example /select/0/prometheus). Leave empty to look for one automatically.",
-                                        text=self.metrics_sources.get(self.context))
-        if not ok:
+        """Source… in a usage window: ask where to read from (automatic search, the API server proxy, or a port-forward), check it, remember it
+        for this cluster. A port-forward is started only here, after OK."""
+        answer = self._ask_prometheus_source()
+        if answer is None:
             return
-        text = text.strip()
+        text, via, local = answer
         if text:
             try:
                 prometheus.parse_ref(text)
@@ -1929,13 +1960,62 @@ class ClusterWorkspace(QMainWindow):
                 QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
                 return
         try:
-            self.metrics_sources.set(self.context, text)
+            self.metrics_sources.set(self.context, text, via, local)
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
             return
         self._prometheus = None
+        if via != "forward" and self._source_forward is not None:
+            self.port_forwards.stop(self._source_forward)  # the forward is no longer the chosen source
+            self._source_forward = None
         dialog.clear_prometheus()
-        self._offer_prometheus(dialog, kind, row, selector, force=True)
+        self._offer_prometheus(dialog, kind, row, selector, force=True, start_forward=True)
+
+    def _offer_forward(self, dialog, ref, kind, row, selector, start):
+        """The service is read through a port-forward: use the one already running for it, else (only when `start`, that is the user just chose
+        it) start `kubectl port-forward`, show it in the Port forwards tab and, once it listens, check the service through it."""
+        forward = self._source_forward
+        if forward is not None and not (forward.running and (forward.namespace, forward.name, forward.remote) == (ref["namespace"], ref["name"], ref["port"])):
+            self.port_forwards.stop(forward)  # stopped by the user, or another service was chosen
+            forward = self._source_forward = None
+        if forward is None:
+            if not start:
+                dialog.set_source_note("Prometheus is set to a port-forward. Choose Source… and press OK to start it.")
+                return
+            try:
+                forward = self.port_forwards.start(self.context, ref["namespace"], "Service", ref["name"], ref["port"],
+                                                   self.metrics_sources.get_local(self.context), kubeconfig=self.kubeconfig, origin="Usage history")
+            except ValueError as error:
+                dialog.set_source_note(f"Port-forward not started: {error}")
+                return
+            self._source_forward = forward
+            self.show_port_forwards()
+        if dialog not in self._forward_users:
+            self._forward_users.add(dialog)
+            dialog.finished.connect(lambda *_: self._release_forward(dialog))
+
+        def settle():
+            if self._closed or forward.state in ("starting",):
+                return
+            self.port_forwards.changed.disconnect(settle)
+            try:
+                if forward.state == "active" and forward.local:
+                    self._offer_prometheus(dialog, kind, row, selector, force=True, forwarded={**ref, "local_port": forward.local})
+                else:
+                    dialog.set_source_note("Port-forward not started: " + explain_failure(forward.message))
+            except RuntimeError:  # the window was closed meanwhile
+                pass
+
+        self.port_forwards.changed.connect(settle)
+        if forward.state != "starting":
+            settle()
+
+    def _release_forward(self, dialog):
+        """A usage window closed: the forward it read through stops when no other window still uses it."""
+        self._forward_users.discard(dialog)
+        if not self._forward_users and self._source_forward is not None:
+            self.port_forwards.stop(self._source_forward)
+            self._source_forward = None
 
     def show_trivy(self):
         """View > Trivy reports…: the Trivy Operator's vulnerability, config audit, exposed secret and RBAC reports, read on a worker

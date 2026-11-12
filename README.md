@@ -79,7 +79,7 @@ account was used. The charts contain generated samples, not a recording from met
 <img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/08-pods-filter-expression.png" alt="Pods table filtered by Restarts greater than 3, showing invented unhealthy and restarting pods">
 
 **Usage history.** CPU and memory charts show samples collected while the window is open, with request and limit
-reference lines. Real history can also come from Prometheus or VictoriaMetrics through the API server.
+reference lines. Real history can also come from Prometheus or VictoriaMetrics through the API server, or, when the API server cannot reach it, through a port-forward that Source… starts for you.
 
 <img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/09-usage-history.png" alt="Usage history window with generated CPU and memory samples and resource reference lines">
 
