@@ -186,8 +186,8 @@ def to_chart(cpu_lines, mem_lines):
 
 
 def parse_vector(text):
-    """[(labels, value)] from an instant `query` answer (`vector` results). Series without a number are skipped. Raises PrometheusError
-    for an error answer."""
+    """[(labels, value, time)] from an instant `query` answer (`vector` results): every label of the series as the source gives it, the
+    latest value and the epoch time of that sample. Series without a number are skipped. Raises PrometheusError for an error answer."""
     try:
         body = json.loads(text)
     except ValueError:
@@ -200,11 +200,11 @@ def parse_vector(text):
         if not isinstance(sample, list) or len(sample) != 2:
             continue
         try:
-            number = float(sample[1])
+            number, stamp = float(sample[1]), float(sample[0])
         except (TypeError, ValueError):
             continue
         if number == number:  # not NaN
-            found.append((dict(series.get("metric") or {}), number))
+            found.append((dict(series.get("metric") or {}), number, stamp))
     return found
 
 
@@ -233,8 +233,8 @@ def parse_matrix_series(text):
 
 
 def series_text(labels):
-    """`pod="web-1", container="app"` for a series' labels (the metric name left out), sorted."""
-    return ", ".join(f'{k}="{v}"' for k, v in sorted(labels.items()) if k != "__name__") or "(no labels)"
+    """`__name__="x", pod="web-1", container="app"`: every label of a series, in the order the source gives them (nothing dropped or sorted)."""
+    return ", ".join(f'{k}="{v}"' for k, v in labels.items()) or "(no labels)"
 
 
 def workload_queries(kind, namespace, name):

@@ -20,8 +20,9 @@ def vector(*series):
 
 def test_a_vector_answer_gives_labels_and_latest_numbers():
     found = pm.parse_vector(vector(({"pod": "web-1", "container": "app"}, "0.25"), ({"pod": "web-2"}, "NaN"), ({"pod": "web-3"}, "3")))
-    assert found == [({"pod": "web-1", "container": "app"}, 0.25), ({"pod": "web-3"}, 3.0)]
-    assert pm.series_text({"__name__": "x", "pod": "web-1", "container": "app"}) == 'container="app", pod="web-1"'
+    assert [(labels, value) for labels, value, _ in found] == [({"pod": "web-1", "container": "app"}, 0.25), ({"pod": "web-3"}, 3.0)]
+    assert found[0][2] == 1700000000.0  # the time of the sample is kept, for the table
+    assert pm.series_text({"__name__": "x", "pod": "web-1", "container": "app"}) == '__name__="x", pod="web-1", container="app"'
     assert pm.series_text({}) == "(no labels)"
 
 
@@ -87,13 +88,14 @@ def test_the_dialog_shows_the_latest_value_of_each_series(qtbot):
 
     def run(promql, ok, bad):
         answers.append(promql)
-        ok([({"pod": "web-1", "container": "app"}, 0.5), ({"pod": "web-2"}, 12.0)])
+        ok([({"pod": "web-1", "container": "app"}, 0.5, 1700000000.0), ({"pod": "web-2"}, 12.0, 1700000030.0)])
 
     dialog = MetricsQueryDialog("Metrics", "monitoring/prom:9090", [("CPU, cores", "sum(up)")], run)
     qtbot.addWidget(dialog)
     dialog.run_query()
     assert answers == ["sum(up)"] and dialog.table.rowCount() == 2
-    assert dialog.table.item(0, 0).text() == 'container="app", pod="web-1"' and dialog.table.item(0, 1).text() == "0.5"
+    assert dialog.table.item(0, 0).text() == 'pod="web-1", container="app"' and dialog.table.item(0, 1).text() == "0.5"
+    assert dialog.table.item(0, 2).text() != "" and dialog.table.horizontalHeaderItem(2).text() == "At"
     assert dialog.status.text() == "2 series." and dialog.run_button.isEnabled()
 
 
@@ -108,7 +110,7 @@ def test_a_failed_or_empty_query_says_so_and_nothing_is_run_without_text(qtbot):
 
 
 def test_workload_menu_query_runs_the_preset_against_the_found_source(qtbot, tmp_path):
-    fake = Fake([({"pod": "web-1"}, 0.2)])
+    fake = Fake([({"pod": "web-1"}, 0.2, 1700000000.0)])
     ws = workspace(qtbot, tmp_path, fake)
     ws.show_metrics_query("Deployment", deployment_row())
     qtbot.waitUntil(lambda: any(getattr(d, "key", None) for d in ws._metrics_dialogs), timeout=10000)
