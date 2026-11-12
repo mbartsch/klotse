@@ -1,21 +1,10 @@
 """Races and persistence around asynchronous plugin activation."""
 import threading
 
-import pytest
-from PySide6.QtCore import QSettings, QThreadPool
+from PySide6.QtCore import QSettings
 
 from klotse.plugins import Plugin
 from klotse.plugins.manager import Loaded, PluginManager
-
-
-@pytest.fixture(autouse=True)
-def own_thread_pool(monkeypatch):
-    """The manager loads plugins on Qt's global pool, which other tests may have left full (a macOS runner has 3-4 threads), so
-    these tests would wait for a free thread. Give them a pool of their own."""
-    pool = QThreadPool()
-    monkeypatch.setattr(QThreadPool, "globalInstance", staticmethod(lambda: pool))
-    yield pool
-    pool.waitForDone(10000)
 
 
 def manager_with_loader(tmp_path, loader):
