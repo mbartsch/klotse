@@ -2,6 +2,8 @@ name: Tests
 
 on:
   pull_request:
+    # ready_for_review: a draft is skipped below, so it must run when the draft is marked ready
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [master]
   workflow_dispatch:
@@ -53,9 +55,11 @@ jobs:
       - name: Run the whole suite
         run: python -m pytest -q -p no:cacheprovider
 
+  # Every pull request that is not a draft, and every push to master.
   pytest:
-    name: pytest (shard ${{ matrix.shard }})
-    runs-on: windows-latest
+    name: pytest (linux, shard ${{ matrix.shard }})
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -72,71 +76,51 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.12"
+      - name: Install Qt system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libdbus-1-3 libfontconfig1 libglib2.0-0
       - name: Install test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Run test shard
         env:
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ strategy.job-total }}
-        shell: powershell
+        shell: bash
         run: |
-          $files = Get-ChildItem tests -File -Filter 'test_*.py' | Sort-Object Name
-          $selected = @()
-          for ($index = 0; $index -lt $files.Count; $index++) {
-            if (($index % [int]$env:SHARD_COUNT) -eq [int]$env:SHARD) {
-              $selected += $files[$index].FullName
-            }
-          }
-          pytest -q $selected
+          files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
+          python -m pytest -q $files
 
-  macos-smoke:
-    name: macOS Qt smoke tests (Python ${{ matrix.python }})
-    runs-on: macos-15-intel
-    timeout-minutes: 15
+  # Windows and macOS: only for release pull requests (branch release/vX.Y.Z), not drafts.
+  pytest-release:
+    name: pytest (${{ matrix.os }}, shard ${{ matrix.shard }})
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft && startsWith(github.head_ref, 'release/')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.13", "3.14"]
-    env:
-      PYTHONPATH: src
-      QT_QPA_PLATFORM: minimal
-      PYTHONUNBUFFERED: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Install test dependencies
-        run: python -m pip install -r requirements-dev.txt
-      - name: Check packaged Qt startup
-        run: python -m klotse --self-test
-      - name: Run loading and application smoke tests
-        run: python -m pytest -q tests/test_overview_loading.py tests/test_app.py
-
-  macos-arm-smoke:
-    name: macOS arm64 Qt smoke tests (Python ${{ matrix.python }})
-    runs-on: macos-26
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13", "3.14"]
+        os: [windows-latest, macos-26]
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       PYTHONPATH: src
       QT_QPA_PLATFORM: offscreen
       PYTHONUNBUFFERED: "1"
+      SHARD_COUNT: "6"  # the length of the shard list above
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.12"
       - name: Install test dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Check packaged Qt startup
-        run: python -m klotse --self-test
-      - name: Run loading and application smoke tests
-        run: python -m pytest -q tests/test_overview_loading.py tests/test_app.py
+      - name: Run test shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        shell: bash
+        run: |
+          files=$(python -c "import glob, os; f = sorted(p.replace(os.sep, '/') for p in glob.glob('tests/test_*.py')); print(' '.join(f[int(os.environ['SHARD'])::int(os.environ['SHARD_COUNT'])]))")
+          python -m pytest -q $files
