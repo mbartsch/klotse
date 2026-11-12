@@ -47,7 +47,7 @@ jobs:
 
   macos-smoke:
     name: macOS Qt smoke tests
-    runs-on: macos-latest
+    runs-on: macos-13
     timeout-minutes: 15
     env:
       PYTHONPATH: src
