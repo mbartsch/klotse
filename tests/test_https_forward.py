@@ -31,7 +31,7 @@ def manager(qtbot):
             fw.process.waitForFinished(3000)
 
 
-def test_open_in_browser_uses_https_for_an_ssl_forward_and_http_otherwise(qtbot, manager, monkeypatch):
+def test_open_in_browser_is_always_http_even_for_an_ssl_source(qtbot, manager, monkeypatch):
     opened = []
     monkeypatch.setattr(pf.webbrowser, "open", lambda url: opened.append(url))
     panel = pf.PortForwardPanel(manager, context="ctx")
@@ -45,7 +45,7 @@ def test_open_in_browser_uses_https_for_an_ssl_forward_and_http_otherwise(qtbot,
     qtbot.waitUntil(lambda: plain_fw.state == "active", timeout=8000)
     panel.table.selectRow(manager.items.index(plain_fw))
     panel.open_button.click()
-    assert opened == [f"https://{ssl_fw.address}/", f"http://{plain_fw.address}/"]
+    assert opened == [f"http://{ssl_fw.address}/", f"http://{plain_fw.address}/"]  # the browser is always given http
 
 
 class FakeConnection:

@@ -1982,7 +1982,7 @@ class ClusterWorkspace(QMainWindow):
         namespace = getattr(row, "namespace", "")
         return lambda seconds: self.service.prometheus_history(ref, kind, namespace, row.name, selector, seconds)
 
-    def _offer_prometheus(self, dialog, kind, row, selector, force=False, start_forward=False, forwarded=None):
+    def _offer_prometheus(self, dialog, kind, row, selector, force=False, start_forward=True, forwarded=None):
         """Look for a Prometheus or VictoriaMetrics service in the background and, when one answers, add it to the window and switch to
         it. The service typed in Source… is used if there is one, else the Services of the cluster are searched (the best three candidates
         are tried through the API server proxy); the result is remembered for the next window. Nothing is shown if none is found."""
@@ -2139,7 +2139,7 @@ class ClusterWorkspace(QMainWindow):
             forward = self._source_forward = None
         if forward is None:
             if not start:
-                on_fail("the source is set to a port-forward; choose Source… and press OK to start it")
+                on_fail("the port-forward is not running yet; it starts when a window or query needs it")
                 return
             try:
                 forward = self.port_forwards.start(self.context, ref["namespace"], "Service", ref["name"], ref["port"],
@@ -2192,12 +2192,16 @@ class ClusterWorkspace(QMainWindow):
         return True
 
     def _configure_prometheus(self, dialog, kind, row, selector):
-        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. A port-forward is started only here, after OK."""
+        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. OK only saves: a port-forward is
+        started by the window that needs it (or when the cluster connects, if that is set), not by pressing OK."""
         answer = self._ask_prometheus_source()
         if answer is None or not self._save_source(answer):
             return
         dialog.clear_prometheus()
-        self._offer_prometheus(dialog, kind, row, selector, force=True, start_forward=True)
+        if answer[1] == FORWARD:
+            dialog.set_source_note("Saved. The port-forward starts when a window or query needs it.")
+            return
+        self._offer_prometheus(dialog, kind, row, selector, force=True)
 
     def _offer_forward(self, dialog, ref, kind, row, selector, start):
         """The service is read through a port-forward, with the SSL and certificate options of this cluster. When it cannot be reached the

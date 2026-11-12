@@ -294,7 +294,7 @@ class PortForwardPanel(QWidget):
     def _open(self):
         fw = self._selected()
         if fw is not None and fw.state == "active":
-            webbrowser.open(f"{fw.scheme}://{fw.address}/")
+            webbrowser.open(f"http://{fw.address}/")  # always http: the browser is not given https, even for an SSL source
 
     def stop(self):
         """Called when the tab is closed or the cluster is: stop every forward."""
