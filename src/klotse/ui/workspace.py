@@ -2192,16 +2192,13 @@ class ClusterWorkspace(QMainWindow):
         return True
 
     def _configure_prometheus(self, dialog, kind, row, selector):
-        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. OK only saves: a port-forward is
-        started by the window that needs it (or when the cluster connects, if that is set), not by pressing OK."""
+        """Source… in a usage window: ask where to read from, check it, remember it for this cluster. OK connects: a port-forward is started
+        here (or the one Test started is kept). Cancel closes a forward that only Test started."""
         answer = self._ask_prometheus_source()
         if answer is None or not self._save_source(answer):
             return
         dialog.clear_prometheus()
-        if answer[1] == FORWARD:
-            dialog.set_source_note("Saved. The port-forward starts when a window or query needs it.")
-            return
-        self._offer_prometheus(dialog, kind, row, selector, force=True)
+        self._offer_prometheus(dialog, kind, row, selector, force=True, start_forward=True)
 
     def _offer_forward(self, dialog, ref, kind, row, selector, start):
         """The service is read through a port-forward, with the SSL and certificate options of this cluster. When it cannot be reached the

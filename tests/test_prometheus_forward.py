@@ -272,3 +272,47 @@ def test_a_chosen_forward_can_be_kept_in_saved_forwards(qtbot, workspace):
     ws._remember_source_forward("monitoring/my-prom:9090", 15432)
     assert SavedForwards(ws.label_settings.store).for_context("ctx") == [
         {"ctx": "ctx", "kind": "Service", "ns": "monitoring", "name": "my-prom", "remote": 9090, "local": 15432}]
+
+
+def _dialog_that(ws, qtbot, press, test_first=True):
+    """A stand-in for Source…: fills in a forward to the service, presses Test (which starts the forward) and then `press`."""
+    from PySide6.QtWidgets import QDialog
+
+    def exec_(dialog):
+        dialog.service.setText("monitoring/my-prom:9090")
+        dialog.forward.setChecked(True)
+        if test_first:
+            dialog.test_requested.emit()
+            qtbot.waitUntil(lambda: ws._source_forward is not None and ws._source_forward.state == "active", timeout=8000)
+        return QDialog.Accepted if press == "ok" else QDialog.Rejected
+    return exec_
+
+
+def test_test_then_ok_keeps_the_connection_that_test_started(qtbot, workspace, monkeypatch):
+    from klotse.ui.prometheus_source_dialog import PrometheusSourceDialog
+    ws, _ = workspace()
+    monkeypatch.setattr(PrometheusSourceDialog, "exec", _dialog_that(ws, qtbot, "ok"))
+    answer = ws._ask_prometheus_source()
+    assert answer is not None and answer[1] == "forward"
+    forward = ws._source_forward
+    assert forward is not None and forward.state == "active"  # OK keeps the forward Test started
+
+
+def test_test_then_cancel_closes_the_connection_test_started(qtbot, workspace, monkeypatch):
+    from klotse.ui.prometheus_source_dialog import PrometheusSourceDialog
+    ws, _ = workspace()
+    monkeypatch.setattr(PrometheusSourceDialog, "exec", _dialog_that(ws, qtbot, "cancel"))
+    assert ws._ask_prometheus_source() is None
+    forward = ws.port_forwards.items[0]
+    qtbot.waitUntil(lambda: forward.state == "stopped", timeout=8000)  # Cancel closes the forward Test started
+    assert ws._source_forward is None
+
+
+def test_ok_without_test_starts_the_connection(qtbot, workspace, monkeypatch):
+    from klotse.ui.prometheus_source_dialog import PrometheusSourceDialog
+    ws, _ = workspace()
+    monkeypatch.setattr(PrometheusSourceDialog, "exec", _dialog_that(ws, qtbot, "ok", test_first=False))
+    dialog = ws.show_metrics("Pod", pod_row())
+    ws._configure_prometheus(dialog, "Pod", pod_row(), "")  # the Source… OK handler, with the dialog above answering OK
+    qtbot.waitUntil(lambda: ws.port_forwards.items and ws.port_forwards.items[0].state == "active", timeout=8000)
+    ws.shutdown()
