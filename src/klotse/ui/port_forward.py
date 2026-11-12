@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBox
                                QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
+from .saved_forwards import SavedForwards
 from .terminal import kubectl_base
 
 FORWARDING = re.compile(r"Forwarding from 127\.0\.0\.1:(\d+) -> (\d+)")
@@ -192,6 +193,9 @@ class PortForwardPanel(QWidget):
         self.open_button = QPushButton("Open in browser")
         self.open_button.setToolTip("Open http://127.0.0.1:<port> (only useful when the port speaks HTTP)")
         self.clear_button = QPushButton("Clear finished")
+        self.save_button = QPushButton("Save forward")
+        self.save_button.setToolTip("Keep this forward in Saved forwards, so it can be started again with the same ports")
+        self.save_button.clicked.connect(self._save)
         self.stop_button.clicked.connect(lambda: self._selected() and manager.stop(self._selected()))
         self.stop_all_button.clicked.connect(manager.stop_all)
         self.copy_button.clicked.connect(self._copy)
@@ -200,7 +204,7 @@ class PortForwardPanel(QWidget):
         self.note = QLabel("Forwards listen on 127.0.0.1 only. Closing this tab stops all of them.")
         theme.muted(self.note)
         buttons = QHBoxLayout()
-        for button in (self.stop_button, self.stop_all_button, self.copy_button, self.open_button, self.clear_button):
+        for button in (self.stop_button, self.stop_all_button, self.copy_button, self.open_button, self.save_button, self.clear_button):
             buttons.addWidget(button)
         self.saved_button = QToolButton()
         self.saved_button.setText("Saved forwards ▾")
@@ -267,6 +271,19 @@ class PortForwardPanel(QWidget):
         self.open_button.setEnabled(fw is not None and fw.state == "active")
         self.stop_all_button.setEnabled(bool(self.manager.active()))
         self.clear_button.setEnabled(any(not fw.running for fw in self.manager.items))
+        self.save_button.setEnabled(fw is not None and self.saved is not None)
+
+    def _save(self):
+        """Keep the selected forward in Saved forwards (same target and remote port replace an older entry), with the local port it asked for."""
+        fw = self._selected()
+        if fw is None or self.saved is None:
+            return
+        try:
+            self.saved.add(SavedForwards.make(self.context, fw.kind, fw.namespace, fw.name, fw.remote, fw.requested))
+        except OSError as error:
+            QMessageBox.warning(self, "Klotse", str(error))
+            return
+        self.note.setText(f"Saved {fw.target} port {fw.remote}. Start it again from Saved forwards.")
 
     def _copy(self):
         fw = self._selected()
