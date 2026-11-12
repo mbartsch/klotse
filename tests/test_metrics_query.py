@@ -198,3 +198,28 @@ def test_the_graph_button_draws_each_series(qtbot):
     dialog.graph_query()
     assert set(dialog.chart.series) == {'pod="web-1"', 'pod="web-2"'}
     assert dialog.status.text().startswith("2 lines") and dialog.graph_button.isEnabled()
+
+
+def test_repeat_runs_now_and_then_every_chosen_interval_and_stops_when_off(qtbot):
+    calls = []
+
+    def run(promql, ok, bad):
+        calls.append(promql)
+        ok([({"pod": "web-1"}, 1.0, 1700000000.0)])
+
+    dialog = MetricsQueryDialog("Metrics", "src", [], run)
+    qtbot.addWidget(dialog)
+    dialog.query.setText("up")
+    dialog.repeat_box.setCurrentIndex(2)  # every 15 s
+    assert dialog._timer.isActive() and dialog._timer.interval() == 15000 and calls == ["up"]
+    dialog._repeat_due()  # a tick runs the query again
+    assert calls == ["up", "up"] and dialog.table.rowCount() == 2
+    dialog.run_button.setEnabled(False)  # a run still in progress: the tick is skipped, nothing piles up
+    dialog._repeat_due()
+    assert calls == ["up", "up"]
+    dialog.run_button.setEnabled(True)
+    dialog.repeat_box.setCurrentIndex(0)
+    assert not dialog._timer.isActive()
+    dialog.repeat_box.setCurrentIndex(1)
+    dialog.close()
+    assert not dialog._timer.isActive()

@@ -5,7 +5,7 @@ labels, the latest value and the time of that sample), and a graph of the query 
 queries; Usage history covers it."""
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -14,6 +14,7 @@ from . import theme
 from .line_chart import LineChart
 
 GRAPH_RANGES = (("15 minutes", 900), ("1 hour", 3600), ("6 hours", 21600), ("24 hours", 86400))
+REPEAT_EVERY = (("Repeat: off", 0), ("every 5 s", 5), ("every 15 s", 15), ("every 30 s", 30), ("every 1 min", 60), ("every 5 min", 300))
 
 
 def _when(stamp):
@@ -68,6 +69,15 @@ class MetricsQueryDialog(QWidget):
         self.graph_button.clicked.connect(self.graph_query)
         actions = QHBoxLayout()
         actions.addWidget(self.run_button)
+        self.repeat_box = QComboBox()
+        self.repeat_box.setAccessibleName("Repeat the query")
+        self.repeat_box.setToolTip("Run the query again every few seconds or minutes, adding its rows below (until Clear)")
+        for label, seconds in REPEAT_EVERY:
+            self.repeat_box.addItem(label, seconds)
+        self.repeat_box.currentIndexChanged.connect(self._repeat_changed)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._repeat_due)
+        actions.addWidget(self.repeat_box)
         actions.addWidget(self.graph_range)
         actions.addWidget(self.graph_button)
         actions.addStretch(1)
@@ -145,6 +155,29 @@ class MetricsQueryDialog(QWidget):
             self.status.setText(f"The graph query failed: {message}")
         except RuntimeError:
             pass
+
+    def _repeat_changed(self, *_):
+        seconds = self.repeat_box.currentData() or 0
+        if seconds:
+            self._timer.start(seconds * 1000)
+            self.status.setText(f"Repeating {self.repeat_box.currentText()}.")
+            self.run_query()
+        else:
+            self._timer.stop()
+            self.status.setText("Repeat is off.")
+
+    def _repeat_due(self):
+        """A repeat is skipped while the previous run is still waiting for the source, so runs never pile up."""
+        if self.run_button.isEnabled() and self.query.text().strip():
+            self.run_query()
+
+    def stop_repeat(self):
+        """Called when the window closes: no repeats after it is gone."""
+        self._timer.stop()
+
+    def closeEvent(self, event):
+        self.stop_repeat()
+        super().closeEvent(event)
 
     def clear_results(self):
         """Clear: remove the rows of every earlier run."""
