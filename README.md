@@ -230,6 +230,12 @@ PYTHONPATH=src QT_QPA_PLATFORM=offscreen python -m pytest -q
 Tests run offscreen with fake services and synthetic Kubernetes objects; they never touch a real cluster or your
 real settings. `run_tests.sh` / `run_tests.bat` wrap the same command.
 
+On Linux, a real display server is optional. For a full Qt-backed run, install Xvfb and use
+`xvfb-run -a env PYTHONPATH=src python -m pytest -q`; otherwise keep `QT_QPA_PLATFORM=offscreen`.
+The loading-clock tests verify timer and hide/show state without calling `QWidget.grab()`: Qt 6.12 can
+segfault while rendering an offscreen widget under both the offscreen and Xvfb backends, even though the
+application's normal paint path remains unchanged.
+
 Recreate the four current demo screenshots without connecting to a cluster:
 
 ```sh
