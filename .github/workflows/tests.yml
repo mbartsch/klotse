@@ -63,7 +63,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Check packaged Qt startup
-        run: python -m klotse --check
+        run: python -m klotse --self-test
       - name: Run loading and application smoke tests
         run: python -m pytest -q tests/test_overview_loading.py tests/test_app.py
 
@@ -85,6 +85,6 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Check packaged Qt startup
-        run: python -m klotse --check
+        run: python -m klotse --self-test
       - name: Run loading and application smoke tests
         run: python -m pytest -q tests/test_overview_loading.py tests/test_app.py
