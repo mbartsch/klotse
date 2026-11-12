@@ -44,3 +44,25 @@ jobs:
             }
           }
           pytest -q $selected
+
+  macos-smoke:
+    name: macOS Qt smoke tests
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9cae0  # v7
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Check packaged Qt startup
+        run: python -m klotse --check
+      - name: Run loading and application smoke tests
+        run: python -m pytest -q tests/test_overview_loading.py tests/test_app.py
