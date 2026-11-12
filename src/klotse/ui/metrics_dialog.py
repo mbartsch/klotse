@@ -201,6 +201,7 @@ class MetricsDialog(QDialog):
     # ---- workers --------------------------------------------------------------------------------------------------
     def _start(self, fn, got, failed):
         self._busy = True
+        self._asked = self.mode()  # the source this read is for; the user or a found Prometheus may switch before it answers
         worker = Worker(fn)
         worker.setAutoDelete(False)  # keep its signals alive until the queued answer arrives
         self._worker = worker
@@ -222,9 +223,19 @@ class MetricsDialog(QDialog):
         self._set_status(f"Asking {self.remote_label}…")
         self._start(lambda: fetch(seconds), self._got_remote, lambda message: self._failed(self.remote_label, message))
 
+    def _stale(self):
+        """The answer that just came is for a source that is no longer chosen. The switch could not start its own read, because
+        this one was still running, so start it now instead of leaving the chart empty until the timer fires."""
+        if self._closed:
+            return True
+        if getattr(self, "_asked", self.mode()) == self.mode():
+            return False
+        self.refresh()
+        return True
+
     def _got(self, sample):
         self._busy = False
-        if self._closed or self.mode() != SAMPLED:
+        if self._stale():
             return
         self._errors = 0
         self.history.add(sample or {}, time.time())
@@ -232,7 +243,7 @@ class MetricsDialog(QDialog):
 
     def _got_remote(self, answer):
         self._busy = False
-        if self._closed or self.mode() != REMOTE:
+        if self._stale():
             return
         self._errors = 0
         cpu, mem = answer
@@ -246,7 +257,7 @@ class MetricsDialog(QDialog):
 
     def _failed(self, source, message):
         self._busy = False
-        if self._closed:
+        if self._stale():
             return
         self._errors += 1
         self._set_status(f"Could not read {source}: {message.splitlines()[0] if message else 'failed'}")

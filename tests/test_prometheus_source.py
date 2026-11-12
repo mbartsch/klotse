@@ -195,6 +195,24 @@ def test_the_window_switches_to_prometheus_with_a_range_and_back_to_sampling(qtb
     dialog.accept()
 
 
+def test_switching_to_prometheus_while_a_sample_is_still_running_asks_prometheus_when_it_ends(qtbot):
+    release, calls = threading.Event(), []
+
+    def slow_sample():
+        release.wait(20)
+        return {"total": (time.time(), 0.1, 1.0)}
+
+    dialog = MetricsDialog("x", slow_sample, None, True, interval_s=3600)
+    qtbot.addWidget(dialog)
+    assert dialog._busy  # the first metrics-server read is running
+    dialog.set_prometheus("monitoring/prometheus-server:80", remote(calls))  # found meanwhile: it cannot ask yet
+    assert dialog.mode() == REMOTE and calls == []
+    release.set()
+    qtbot.waitUntil(lambda: calls == [3600] and not dialog._busy, timeout=20000)  # not only when the 30 s timer fires
+    assert len(dialog.cpu_chart.series["total"]) == 2 and dialog.history.count() == 0
+    dialog.accept()
+
+
 def test_prometheus_errors_and_empty_answers_are_explained(qtbot):
     dialog = MetricsDialog("x", lambda: {}, None, False, interval_s=3600)
     qtbot.addWidget(dialog)
