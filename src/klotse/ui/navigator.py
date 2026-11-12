@@ -485,7 +485,8 @@ class Navigator(QTreeWidget):
             menu.addAction("New group…", lambda: self.create_group(""))
             menu.addAction("Suggest groups…", self.suggest_groups)
         else:
-            cluster = self._cluster_of(item)
+            # the cluster menu belongs to the cluster's own row only; the views under it (Overview, Nodes, …) offer nothing here
+            cluster = item if kind == "cluster" else None
             if cluster is None:
                 return None
             name = cluster.data(0, self.ROLE_KEY)
