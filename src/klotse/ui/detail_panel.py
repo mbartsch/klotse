@@ -180,8 +180,8 @@ class DetailPanel(QWidget):
         bar.addWidget(self.events_button)
         bar.addWidget(self.related_button)
         for button in (self.formatted_button, self.yaml_button, self.events_button, self.related_button):
-            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-            button.setMinimumWidth(0)
+            # Keep each label at its natural width (#317 squeezed them to zero in a narrow pane); the bar scrolls instead.
+            button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
             button.setObjectName("detailViewButton")
             button.clicked.connect(lambda _checked=False: setattr(self, "_summary_fallback", False))
         bar.addStretch(1)
@@ -212,7 +212,6 @@ class DetailPanel(QWidget):
         self.events.hide()
         self._events_ok = False  # the current row can have events (it has a UID and is not an event itself)
         self._events_row = None  # the row the Events view is waiting for or showing
-        self.view_bar.hide()
         self.metadata_area = QWidget()
         metadata_layout = QVBoxLayout(self.metadata_area)
         metadata_layout.setContentsMargins(0, 0, 0, 0)
@@ -261,7 +260,16 @@ class DetailPanel(QWidget):
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(8)
         layout.addWidget(self.identity_header)
-        layout.addWidget(self.view_bar)
+        self.view_scroll = QScrollArea()
+        self.view_scroll.setObjectName("detailViewScroll")
+        self.view_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.view_scroll.setWidgetResizable(True)
+        self.view_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view_scroll.setWidget(self.view_bar)
+        self.view_scroll.setFixedHeight(self.view_bar.sizeHint().height() + self.view_scroll.horizontalScrollBar().sizeHint().height())
+        layout.addWidget(self.view_scroll)
+        self.view_scroll.hide()
         layout.addWidget(self.yaml_tools)
         layout.addWidget(self.decode_button)
         layout.addWidget(self.hide_values_button)
@@ -360,7 +368,7 @@ class DetailPanel(QWidget):
         self.editor.clear()
         self.set_object_actions([])
         self.identity_header.hide()
-        self.view_bar.hide()
+        self.view_scroll.hide()
         self.metadata_area.hide()
         self.yaml_tools.hide()
         self.formatted.hide()
@@ -470,7 +478,7 @@ class DetailPanel(QWidget):
 
     def _sync_view_choices(self):
         """Keep the four detail destinations in one stable place and disable only unavailable views."""
-        self.view_bar.setVisible(self._secret_row is not None)
+        self.view_scroll.setVisible(self._secret_row is not None)
         self.formatted_button.setVisible(True)
         self.formatted_button.setEnabled(self._formatted_ok)
         self.formatted_button.setToolTip("A readable summary of the selected resource" if self._formatted_ok else
