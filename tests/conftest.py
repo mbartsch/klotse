@@ -4,7 +4,7 @@ import threading
 import time
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QSettings, Qt, QThreadPool
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, Qt, QThreadPool
 from PySide6.QtWidgets import QMessageBox
 
 # QtWebEngine (the embedded terminal) needs this set before the QApplication that pytest-qt creates
@@ -28,14 +28,6 @@ def no_blocking_exit_question(monkeypatch):
 # still inside its function, could not emit its signal (both worker classes swallow RuntimeError there), or emitted a signal
 # that never reached the GUI thread.
 _TRACE = {"began": 0.0, "queued": [], "runs": [], "status": [], "slow": None}
-
-
-def pytest_collection_modifyitems(items):
-    """Run the embedded terminal tests last: they are the only ones that start QtWebEngine (Chromium) in the test process. On the
-    macOS runners, tests that ran after them now and then waited 5 s for a worker's answer that had been emitted: the trace showed the
-    GUI thread (renamed CrBrowserMain by Chromium) delivering neither that queued signal nor a 1 s timer during the wait. The sort is
-    stable, so every other test keeps its place."""
-    items.sort(key=lambda item: item.path.name == "test_embedded_terminal.py")
 
 
 def _since():
@@ -152,3 +144,7 @@ def own_thread_pool(monkeypatch):
     slow.close()
     pool.clear()
     pool.waitForDone(10000)
+    # pytest-qt closes a test's widgets with deleteLater(), and Qt only carries that out inside a running event loop. Tests that never
+    # wait left their windows behind, and the first later test that did wait paid for destroying all of them inside its own wait:
+    # the stack dump showed the GUI thread inside that event loop for the whole 5 s while the worker's answer sat in the queue.
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
