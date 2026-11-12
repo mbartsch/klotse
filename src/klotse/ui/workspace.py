@@ -1770,14 +1770,23 @@ class ClusterWorkspace(QMainWindow):
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
 
-    def show_metrics_query(self, kind, row):
+    def show_metrics_query(self, kind=None, row=None):
         """Right-click a Deployment, StatefulSet or DaemonSet > Metrics query…: quick PromQL about the workload on the Prometheus /
-        VictoriaMetrics source (the one set in Usage history, else the first that answers). Looking only. Non-modal, one per object."""
+        VictoriaMetrics source (the one set in Usage history, else the first that answers). View > Insights > Metrics query… (no kind or row)
+        opens the same window for any query. Looking only. Non-modal, one per object."""
         if getattr(self.service, "prometheus_query", None) is None:
             self.message.emit(f"{self.context}: this service cannot run metric queries")
             return None
-        namespace, name = getattr(row, "namespace", ""), row.name
-        key = ("query", kind, namespace, name)
+        if kind is None or row is None:
+            kind, namespace, name = "Cluster", "", ""
+            presets = []
+            key = ("query", "cluster", self.context)
+            title = f"Metrics query ({self.context})"
+        else:
+            namespace, name = getattr(row, "namespace", ""), row.name
+            presets = prometheus.workload_queries(kind, namespace, name)
+            key = ("query", kind, namespace, name)
+            title = f"Metrics: {kind} {namespace}/{name} ({self.context})"
         windows = [d for d in getattr(self, "_metrics_dialogs", []) if d.isVisible()]
         self._metrics_dialogs = windows
         for existing in windows:
@@ -1805,8 +1814,7 @@ class ClusterWorkspace(QMainWindow):
                 QMessageBox.information(self, "Metrics query", f"No Prometheus or VictoriaMetrics source answers ({reason}). "
                                         "Set one with Usage history > Source…. metrics-server cannot run queries.")
                 return
-            dialog = MetricsQueryDialog(f"Metrics: {kind} {namespace}/{name} ({self.context})", prometheus.ref_text(ref),
-                                        prometheus.workload_queries(kind, namespace, name),
+            dialog = MetricsQueryDialog(title, prometheus.ref_text(ref), presets,
                                         lambda promql, ok, bad: self._run(self.service.prometheus_query, ok, ref, promql, on_error=bad), self)
             dialog.key = key
             dialog.setWindowFlag(Qt.Window, True)
