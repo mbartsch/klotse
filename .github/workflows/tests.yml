@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       PYTHONPATH: src
       QT_QPA_PLATFORM: offscreen
@@ -77,12 +77,13 @@ jobs:
       - name: Run test shard
         env:
           SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: ${{ strategy.job-total }}
         shell: powershell
         run: |
           $files = Get-ChildItem tests -File -Filter 'test_*.py' | Sort-Object Name
           $selected = @()
           for ($index = 0; $index -lt $files.Count; $index++) {
-            if (($index % 3) -eq [int]$env:SHARD) {
+            if (($index % [int]$env:SHARD_COUNT) -eq [int]$env:SHARD) {
               $selected += $files[$index].FullName
             }
           }

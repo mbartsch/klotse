@@ -394,7 +394,7 @@ Live checks against a real cluster were read-only (listing, a watch, metrics whe
 
 ## CI and Qt platform notes (2026-11-12)
 
-- PR #376 (`fix/pytest-qt-libs-v2`) validates Windows pytest in three shards; Intel macOS uses `macos-15-intel`, Apple Silicon uses `macos-26`, both with Python 3.12. The macOS jobs run `python -m klotse --self-test` (not `--check`, which starts the GUI) plus focused app/loading tests.
+- PR #376 (`fix/pytest-qt-libs-v2`) validates Windows pytest in six shards (`strategy.job-total` gives the modulo, so the matrix list is the only place to change); Intel macOS uses `macos-15-intel`, Apple Silicon uses `macos-26`, both with Python 3.12. The macOS jobs run `python -m klotse --self-test` (not `--check`, which starts the GUI) plus focused app/loading tests.
 - Intel macOS Qt 6.12 segfaulted with `QT_QPA_PLATFORM=offscreen` in `test_window_populates_tables`; `QT_QPA_PLATFORM=minimal` passes. Arm64 passes with offscreen. This is a Qt backend/runner issue, not a Python assertion failure. Keep PySide6; do not reintroduce `QWidget.grab()` in offscreen loading-clock tests.
 - Current PR run: Windows shards, macOS Intel/arm64 smoke, security, build and Python 3.10–3.14 checks pass; recheck all statuses before merge. Linux WSL full-suite runs can segfault in Qt rendering under offscreen/Xvfb; use focused tests or redesign native-rendering assertions when needed.
 - GitHub Actions action refs must be full 40-character SHAs. Official `actions/setup-python@v7` is `6d4fd22b20465ccc0f7354476588e8df7c9ca0e0` (note the `0` before the final `e0`).
