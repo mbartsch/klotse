@@ -49,15 +49,18 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
 - **Usage charts.** CPU and memory usage, requests and limits appear in resource columns. **Usage history…** charts
   Pods, Nodes and workloads: metrics-server is sampled every 15 seconds while the window is open, with no earlier
   history. **Source…** can read real history from a Prometheus or VictoriaMetrics service through the Kubernetes API
-  server. Select up to 12 objects of one kind to chart them together with metrics-server.
+  server, or through a port-forward that Klotse starts when the API server proxy is refused (plain HTTP or HTTPS,
+  with certificate options and a Test button). Select up to 12 objects of one kind to chart them together with
+  metrics-server. For Deployments, StatefulSets and DaemonSets, **Metrics query…** runs quick PromQL presets
+  (replicas, pod CPU and memory, network, restarts) against the same source; it is read-only.
 - **Cluster analysis.** **View** includes Capacity, Health check, Right-sizing, Unused objects, Upgrade preflight,
   Pod security, RBAC lookup and Trivy Operator reports. These views inspect data without changing the cluster.
   Right-sizing advice uses a single current usage sample; compare it with real history before changing requests.
 - **Permissions and change log.** Read-only mode is remembered per cluster. **My permissions…** lists your namespace
   permissions and answers "Can I…?"; action menus flag permissions your rules forbid. The local **Change log…** records
   changes made through Klotse, without resource bodies or Secret values. It does not record commands typed in shells.
-- **Port-forward and Helm.** Forward a Pod or Service port, manage active forwards and save forwards to start again
-  later. Helm releases show history and values (hidden until requested); uninstalling needs the `helm` command.
+- **Port-forward and Helm.** Forward a Pod or Service port, manage active forwards in the Port forwards tab, and save
+  a forward (including one that is running) to start again later. Helm releases show history and values (hidden until requested); uninstalling needs the `helm` command.
 - **Plugins.** Add columns, resource actions, Overview cards and settings. The bundled AWS plugin shows instance
   details, on-demand and spot prices, and cluster cost estimates. Plugins are off until enabled in
   **Preferences → Plugins**; discovery reads JSON manifests without importing their Python code. Per-cluster settings,
@@ -68,6 +71,9 @@ kubeconfig and authentication helpers, so there is nothing to sign in to and no 
   choose Terminal or iTerm2. Opt into **Terminal → Open shells in → Inside Klotse** for pod shells, attach and node
   shells in windows that can dock into Klotse. The embedded terminal uses bundled [xterm.js](https://xtermjs.org/)
   and QtWebEngine; an external terminal is used if it cannot start.
+
+A static user guide with screenshots is in [`web/`](https://github.com/mbartsch/klotse/blob/master/web/index.html):
+open `web/index.html` in a browser, or read the GitHub Pages site published from that folder.
 
 ## Screenshots
 
