@@ -434,6 +434,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save cluster alias", str(error))
             return False
         self.nav.set_alias(context, self.aliases.display(context))
+        self._sync_cluster_picker()
         ws = self.workspaces.get(context)
         if ws is not None and context not in self._detached:
             self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(context))
@@ -457,14 +458,15 @@ class MainWindow(QMainWindow):
         contexts = list(self.workspaces)
         self.cluster_picker.blockSignals(True)
         self.cluster_picker.clear()
-        self.cluster_picker.addItems(contexts)
+        for context in contexts:  # shown by alias; the context name is the item's data, which is what selecting it uses
+            self.cluster_picker.addItem(self.aliases.display(context), context)
         current = preferred
         if current is None:
             active = QApplication.activeWindow()
             current = next((context for context, window in self._detached.items() if window is active), None)
         if current is None and self.clusters.currentWidget() is not None:
             current = self.clusters.currentWidget().context
-        index = self.cluster_picker.findText(current or "")
+        index = self.cluster_picker.findData(current or "")
         if index >= 0:
             self.cluster_picker.setCurrentIndex(index)
         self.cluster_picker.blockSignals(False)
@@ -484,7 +486,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(title)
 
     def _pick_cluster(self, index):
-        context = self.cluster_picker.itemText(index)
+        context = self.cluster_picker.itemData(index)
         workspace = self.workspaces.get(context)
         if workspace is not None and context not in self._detached:
             self.clusters.setCurrentWidget(workspace)
