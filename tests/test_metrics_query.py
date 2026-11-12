@@ -113,7 +113,7 @@ def test_workload_menu_query_runs_the_preset_against_the_found_source(qtbot, tmp
     ws.show_metrics_query("Deployment", deployment_row())
     qtbot.waitUntil(lambda: any(getattr(d, "key", None) for d in ws._metrics_dialogs), timeout=10000)
     dialog = next(d for d in ws._metrics_dialogs if getattr(d, "key", None))
-    assert "monitoring/prom:9090" in dialog.source.text()
+    qtbot.waitUntil(lambda: "monitoring/prom:9090" in dialog.source.text(), timeout=10000)
     dialog.run_query()
     qtbot.waitUntil(lambda: dialog.table.rowCount() == 1, timeout=10000)
     assert "kube_deployment_status_replicas_available" in fake.queries[-1]  # the first preset for a Deployment is its replica count
@@ -140,4 +140,31 @@ def test_the_right_click_menu_offers_metrics_query_for_workloads_only(qtbot, tmp
     QTimer.singleShot(100, grab)
     table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
     assert "Metrics query…" in texts
+    ws.shutdown()
+
+
+def test_pod_and_node_presets_name_the_object_exactly():
+    pod = dict(pm.workload_queries("Pod", "shop", "web-1"))
+    assert 'pod="web-1"' in pod["Restarts in the last hour (kube-state-metrics)"] or "web-1" in " ".join(pod.values())
+    assert 'pod="web-1"' in pod["CPU, cores"] and "pod=~" not in pod["CPU, cores"]
+    node = pm.workload_queries("Node", "", "worker-1")
+    assert [title for title, _ in node] == ["CPU, cores", "Memory, MiB"]
+    assert "worker-1" in node[0][1] and node[1][1].endswith("/1048576")
+
+
+def test_a_window_opens_without_a_source_and_says_why(qtbot, tmp_path):
+    class NoSource(Fake):
+        def find_prometheus(self):
+            return []
+
+    fake = NoSource([])
+    ws = workspace(qtbot, tmp_path, fake)
+    ws.show_metrics_query("Deployment", deployment_row())
+    qtbot.waitUntil(lambda: any(getattr(d, "key", None) for d in ws._metrics_dialogs), timeout=10000)
+    dialog = next(d for d in ws._metrics_dialogs if getattr(d, "key", None))
+    qtbot.waitUntil(lambda: "No source" in dialog.status.text(), timeout=10000)
+    assert dialog.source_button.isEnabled() and fake.queries == []
+    dialog.query.setText("up")
+    dialog.run_query()
+    qtbot.waitUntil(lambda: "No Prometheus or VictoriaMetrics source is set" in dialog.status.text(), timeout=10000)
     ws.shutdown()

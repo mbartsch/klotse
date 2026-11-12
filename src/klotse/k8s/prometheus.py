@@ -217,13 +217,20 @@ def workload_queries(kind, namespace, name):
     """Quick PromQL for a workload: [(title, query)]. Pod CPU, memory and network come from the kubelet's cAdvisor metrics; restarts and
     replica counts need kube-state-metrics (the title says so). Pod names follow the controller's naming: Deployment pods are
     `name-<hash>-<hash>`, StatefulSet `name-<n>`, DaemonSet `name-<hash>`."""
+    if kind == "Node":  # a node has no namespace: its CPU and memory are the root cgroup's, from the instance or node label
+        node = queries("Node", node_names=[name])
+        return [("CPU, cores", node["cpu"]), ("Memory, MiB", f"({node['mem']})/1048576")]
     ns, nm = quote_label(namespace), quote_label(name)
-    pattern = {"Deployment": r"[a-z0-9]+-[a-z0-9]+", "StatefulSet": r"[0-9]+", "DaemonSet": r"[a-z0-9]+"}.get(kind, r"[a-z0-9]+")
-    pods = f'pod=~"{escape_re(name)}-{pattern}"'
+    if kind == "Pod":  # one pod: its name is exact
+        pods = f'pod="{nm}"'
+        pattern = None
+    else:
+        pattern = {"Deployment": r"[a-z0-9]+-[a-z0-9]+", "StatefulSet": r"[0-9]+", "DaemonSet": r"[a-z0-9]+"}.get(kind, r"[a-z0-9]+")
+        pods = f'pod=~"{escape_re(name)}-{pattern}"'
     replicas = {"Deployment": ("Available replicas (kube-state-metrics)", f'kube_deployment_status_replicas_available{{namespace="{ns}",deployment="{nm}"}}'),
                 "StatefulSet": ("Ready replicas (kube-state-metrics)", f'kube_statefulset_status_replicas_ready{{namespace="{ns}",statefulset="{nm}"}}'),
                 "DaemonSet": ("Ready pods (kube-state-metrics)", f'kube_daemonset_status_number_ready{{namespace="{ns}",daemonset="{nm}"}}')}
-    queries = [
+    presets = [
         ("CPU, cores", f'sum(rate(container_cpu_usage_seconds_total{{namespace="{ns}",{pods},container!="",container!="POD"}}[5m]))'),
         ("Memory, MiB", f'sum(container_memory_working_set_bytes{{namespace="{ns}",{pods},container!="",container!="POD"}})/1048576'),
         ("Network in, bytes/s", f'sum(rate(container_network_receive_bytes_total{{namespace="{ns}",{pods}}}[5m]))'),
@@ -232,5 +239,5 @@ def workload_queries(kind, namespace, name):
          f'sum(increase(kube_pod_container_status_restarts_total{{namespace="{ns}",{pods}}}[1h]))'),
     ]
     if kind in replicas:
-        queries.insert(0, replicas[kind])
-    return queries
+        presets.insert(0, replicas[kind])
+    return presets

@@ -1,7 +1,7 @@
 """Workload > Metrics query…: quick PromQL against the Prometheus / VictoriaMetrics source of the cluster, so the numbers can be read without a graph
 tool. The dialog shows a query box (pre-filled from the workload's presets), the latest value of every series, and says what failed. It runs
 nothing itself: `run(promql, on_result, on_error)` is the workspace's worker. metrics-server cannot run queries; Usage history covers it."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -10,6 +10,8 @@ from . import theme
 
 
 class MetricsQueryDialog(QWidget):
+    source_requested = Signal()  # the Source… button: choose the Prometheus / VictoriaMetrics source for this window's queries
+
     def __init__(self, title, source_text, presets, run, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -18,6 +20,12 @@ class MetricsQueryDialog(QWidget):
         self._presets = list(presets)
         self.source = QLabel(f"Source: {source_text}")
         theme.muted(self.source)
+        self.source_button = QPushButton("Source…")
+        self.source_button.setToolTip("Choose the Prometheus or VictoriaMetrics source for this cluster (the same as Usage history)")
+        self.source_button.clicked.connect(self.source_requested.emit)
+        source_row = QHBoxLayout()
+        source_row.addWidget(self.source, 1)
+        source_row.addWidget(self.source_button)
         self.preset_box = QComboBox()
         self.preset_box.setAccessibleName("Quick query")
         for label, query in self._presets:
@@ -47,7 +55,8 @@ class MetricsQueryDialog(QWidget):
         self.note.setWordWrap(True)
         theme.muted(self.note)
         layout = QVBoxLayout(self)
-        for widget in (self.source, top, self.table, self.status, self.note):
+        layout.addLayout(source_row)
+        for widget in (top, self.table, self.status, self.note):
             if isinstance(widget, QHBoxLayout):
                 layout.addLayout(widget)
             else:
@@ -55,6 +64,11 @@ class MetricsQueryDialog(QWidget):
         if self._presets:
             self._preset_changed()
         self.resize(760, 420)
+
+    def set_source(self, text, reason=""):
+        """Show the source the queries use (or that none is set, and why)."""
+        self.source.setText(f"Source: {text}")
+        self.status.setText(f"No source: {reason}. Choose one with Source…." if reason else "")
 
     def _preset_changed(self, *_):
         query = self.preset_box.currentData()

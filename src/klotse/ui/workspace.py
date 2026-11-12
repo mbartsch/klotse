@@ -1771,9 +1771,10 @@ class ClusterWorkspace(QMainWindow):
         self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
 
     def show_metrics_query(self, kind=None, row=None):
-        """Right-click a Deployment, StatefulSet or DaemonSet > Metrics query…: quick PromQL about the workload on the Prometheus /
-        VictoriaMetrics source (the one set in Usage history, else the first that answers). View > Insights > Metrics query… (no kind or row)
-        opens the same window for any query. Looking only. Non-modal, one per object."""
+        """Right-click a Pod, Node, Deployment, StatefulSet or DaemonSet > Metrics query…: quick PromQL about it on the Prometheus /
+        VictoriaMetrics source. View > Insights > Metrics query… (no kind or row) opens the same window for any query. The window opens even
+        when no source is set: its Source… button picks one (the same dialog as Usage history and the cluster menu). A source set to a
+        port-forward is reached through that forward (started here if needed). Looking only. Non-modal, one per object."""
         if getattr(self.service, "prometheus_query", None) is None:
             self.message.emit(f"{self.context}: this service cannot run metric queries")
             return None
@@ -1793,7 +1794,58 @@ class ClusterWorkspace(QMainWindow):
             if getattr(existing, "key", None) == key:
                 existing.raise_()
                 return existing
+        holder = {"ref": None}  # the source the window queries; replaced when the source is changed or a forward restarts
+
+        def run(promql, ok, bad):
+            if holder["ref"] is None:
+                bad("No Prometheus or VictoriaMetrics source is set. Use Source… to choose one.")
+                return
+            self._run(self.service.prometheus_query, ok, holder["ref"], promql, on_error=bad)
+
+        dialog = MetricsQueryDialog(title, "none set", presets, run, self)
+        dialog.key = key
+        dialog.setWindowFlag(Qt.Window, True)
+        dialog.source_requested.connect(lambda: self._change_query_source(dialog, holder))
+        dialog.show()
+        self._metrics_dialogs.append(dialog)
+        self._locate_query_source(dialog, holder)
+        return dialog
+
+    def _locate_query_source(self, dialog, holder):
+        """Find the source the query window reads: the one set for this cluster (through its port-forward when it is one), else the first
+        candidate that answers. The window shows what it found, or why nothing was found."""
         typed = self.metrics_sources.get(self.context)
+
+        def found(ref):
+            holder["ref"] = ref
+            try:
+                dialog.set_source(prometheus.ref_text(ref) + (f" (port-forward on 127.0.0.1:{ref['local_port']})" if ref.get("local_port") else ""))
+            except RuntimeError:  # the window was closed meanwhile
+                pass
+
+        def missing(reason):
+            holder["ref"] = None
+            try:
+                dialog.set_source("none set", reason)
+            except RuntimeError:
+                pass
+
+        if typed and self.metrics_sources.get_via(self.context) == "forward":
+            try:
+                ref = prometheus.parse_ref(typed)
+            except ValueError as error:
+                missing(str(error))
+                return
+            tls, insecure = self._forward_options()
+            probe = {**ref, "scheme": "https" if tls else "", "insecure": insecure}
+
+            def ready(forward):
+                ready_ref = {**probe, "local_port": forward.local}
+                self._run(self.service.prometheus_check, lambda _ok: found(ready_ref), ready_ref,
+                          on_error=lambda message: missing(f"{prometheus.ref_text(ref)} through the port-forward: {message}"))
+
+            self._ensure_source_forward(probe, ready, lambda reason: missing(f"{prometheus.ref_text(ref)}: {reason}"))
+            return
 
         def find_source():
             """(ref, [what failed]) of the first source that answers the Prometheus API; runs on a worker."""
@@ -1807,22 +1859,21 @@ class ClusterWorkspace(QMainWindow):
                     notes.append(f"{prometheus.ref_text(ref)}: {error}")
             return None, notes
 
-        def opened(answer):
+        def answered(answer):
             ref, notes = answer
             if ref is None:
-                reason = "; ".join(notes[:2]) if notes else "none was found in the cluster"
-                QMessageBox.information(self, "Metrics query", f"No Prometheus or VictoriaMetrics source answers ({reason}). "
-                                        "Set one with Usage history > Source…. metrics-server cannot run queries.")
-                return
-            dialog = MetricsQueryDialog(title, prometheus.ref_text(ref), presets,
-                                        lambda promql, ok, bad: self._run(self.service.prometheus_query, ok, ref, promql, on_error=bad), self)
-            dialog.key = key
-            dialog.setWindowFlag(Qt.Window, True)
-            dialog.show()
-            self._metrics_dialogs.append(dialog)
+                missing("none answered" + (f" ({'; '.join(notes[:2])})" if notes else " (none was found in the cluster)"))
+            else:
+                found(ref)
 
-        self._run(find_source, opened, on_error=lambda message: QMessageBox.warning(self, "Metrics query", message))
-        return None
+        self._run(find_source, answered, on_error=lambda message: missing(message))
+
+    def _change_query_source(self, dialog, holder):
+        """Source… in the query window: the same choice as Usage history's, saved for this cluster, then the window reads from it."""
+        answer = self._ask_prometheus_source()
+        if answer is None or not self._save_source(answer):
+            return
+        self._locate_query_source(dialog, holder)
 
     def show_metrics(self, kind, row):
         """Right-click a Pod, Node, Deployment, StatefulSet or DaemonSet > Usage history…: CPU and memory charts. With only metrics-server there
