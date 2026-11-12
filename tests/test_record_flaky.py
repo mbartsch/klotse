@@ -34,3 +34,49 @@ def test_only_the_exact_title_matches_so_similar_tests_do_not_share_an_issue():
 def test_the_first_issue_with_a_title_is_used_when_there_are_duplicates():
     issues = [issue(9, "tests/test_a.py::test_x", "OPEN"), issue(3, "tests/test_a.py::test_x", "CLOSED")]
     assert record_flaky.plan(issues, ["tests/test_a.py::test_x"]) == [("comment", "tests/test_a.py::test_x", 9)]
+
+
+def test_a_new_issue_gets_the_milestone_and_becomes_a_sub_issue(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_gh(*args, body=None):
+        calls.append(args)
+        if args[:2] == ("issue", "list"):
+            return "[]"
+        if args[:2] == ("issue", "create"):
+            return "https://github.com/o/r/issues/400\n"
+        if args[0] == "api" and args[-2:] == ("--jq", ".id"):
+            return "9000\n"
+        return ""
+
+    monkeypatch.setattr(record_flaky, "gh", fake_gh)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    report = tmp_path / "flaky.txt"
+    report.write_text("tests/test_a.py::test_x\n", encoding="utf-8")
+    record_flaky.record(str(report), say=lambda text: None)
+    create = next(c for c in calls if c[:2] == ("issue", "create"))
+    assert create[create.index("--milestone") + 1] == record_flaky.MILESTONE
+    link = next(c for c in calls if c[0] == "api" and "POST" in c)
+    assert f"issues/{record_flaky.PARENT}/sub_issues" in link[3]
+    assert "sub_issue_id=9000" in link
+
+
+def test_a_failing_sub_issue_link_does_not_fail_the_run(monkeypatch, tmp_path):
+    import subprocess
+
+    def fake_gh(*args, body=None):
+        if args[:2] == ("issue", "list"):
+            return "[]"
+        if args[:2] == ("issue", "create"):
+            return "https://github.com/o/r/issues/401\n"
+        if args[0] == "label":
+            return ""
+        raise subprocess.CalledProcessError(1, "gh", stderr="nope")
+
+    monkeypatch.setattr(record_flaky, "gh", fake_gh)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    report = tmp_path / "flaky.txt"
+    report.write_text("tests/test_a.py::test_x\n", encoding="utf-8")
+    said = []
+    assert record_flaky.record(str(report), say=said.append) == 0
+    assert any("could not add #401" in line for line in said)
