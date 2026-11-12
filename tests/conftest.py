@@ -27,7 +27,7 @@ def no_blocking_exit_question(monkeypatch):
 # test, every runnable handed to the pool and how far each worker got, so a failure shows whether the worker never started, is
 # still inside its function, could not emit its signal (both worker classes swallow RuntimeError there), or emitted a signal
 # that never reached the GUI thread.
-_TRACE = {"began": 0.0, "queued": [], "runs": []}
+_TRACE = {"began": 0.0, "queued": [], "runs": [], "status": []}
 
 
 def _since():
@@ -62,6 +62,11 @@ def _traced(original):
                   "started": _since()}
         _TRACE["runs"].append(record)
         signals = self.signals
+        for name in ("result", "error", "finished"):  # connected after the app's own slot, so it runs after it on the receiving thread
+            signal = getattr(signals, name, None)
+            if signal is not None:
+                signal.connect(lambda *_, name=name: record.__setitem__(
+                    f"delivered {name}", f"at {_since()} on thread {threading.get_ident()}"))
         self.signals = _SignalsProbe(signals, record)
         try:
             original(self)
@@ -72,6 +77,15 @@ def _traced(original):
             self.signals = signals
             record["ended"] = _since()
     return run
+
+
+def _status_traced(name, original):
+    def call(self, *args, **kwargs):
+        try:
+            return original(self, *args, **kwargs)
+        finally:
+            _TRACE["status"].append((_since(), self.kind, name, self.status.text()[:60]))
+    return call
 
 
 class _TracedPool(QThreadPool):
@@ -93,6 +107,8 @@ def pytest_runtest_makereport(item, call):
     lines.append(f"queued ({len(_TRACE['queued'])}): {_TRACE['queued']}")
     lines.append(f"runs ({len(_TRACE['runs'])}):")
     lines += [f"  {record}" for record in _TRACE["runs"]]
+    lines.append(f"table status lines, last 30 of {len(_TRACE['status'])}: (seconds, kind, call, text after it)")
+    lines += [f"  {entry}" for entry in _TRACE["status"][-30:]]
     with tempfile.TemporaryFile("w+") as dump:
         faulthandler.dump_traceback(dump, all_threads=True)
         dump.seek(0)
@@ -105,11 +121,14 @@ def own_thread_pool(monkeypatch):
     """The app runs its background work on Qt's global pool. Earlier tests can leave it full of workers that are still waiting
     (a macOS runner has only 3-4 threads), and the next test's worker then never gets a thread. Give every test a pool of its own."""
     from klotse.plugins.manager import _LoadPlugin
+    from klotse.ui.resource_table import ResourceTable
     from klotse.workers import Worker
 
-    _TRACE.update(began=time.monotonic(), queued=[], runs=[])
+    _TRACE.update(began=time.monotonic(), queued=[], runs=[], status=[])
     for kind in (Worker, _LoadPlugin):
         monkeypatch.setattr(kind, "run", _traced(kind.run))
+    for name in ("set_loading", "set_error", "set_rows", "append_rows", "show_status", "_loading_tick"):
+        monkeypatch.setattr(ResourceTable, name, _status_traced(name, getattr(ResourceTable, name)))
     pool = _TracedPool()
     monkeypatch.setattr(QThreadPool, "globalInstance", staticmethod(lambda: pool))
     yield pool

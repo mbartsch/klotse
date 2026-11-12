@@ -661,6 +661,9 @@ class ResourceTable(QWidget):
     def show_status(self):
         """The line under the list: the row count, and for a list that reloads only on request when it was loaded."""
         row_count = self._row_count_text()
+        if self._last_error and not self._has_loaded:  # the first load failed: this is not an empty list, so never say "No resources found"
+            self.status.setText(f"Load failed: {(self._last_error.splitlines() or [''])[0]}")
+            return
         if self._last_error and self._has_loaded:
             first = (self._last_error.splitlines() or [""])[0]
             text = f"Refresh failed · showing data from {self._loaded_at}: {first}"
