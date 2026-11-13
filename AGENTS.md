@@ -155,6 +155,8 @@ Resource kinds: Nodes, Namespaces, Pods, Deployments, ReplicaSets, StatefulSets 
 
 ## Tests and verification
 
+Pre-commit (`.pre-commit-config.yaml`): run `pre-commit install` once per clone; the hooks refuse commits on `master`, run bandit and zizmor (versions pinned to `security.yml`), and check whitespace. `pre-commit run --all-files` runs them on demand. The test suite is not a hook.
+
 ```sh
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q          # full suite, ~10 min: run in background
 PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_<area>.py
