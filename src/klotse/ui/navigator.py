@@ -66,6 +66,8 @@ class Navigator(QTreeWidget):
     metrics_source_requested = Signal(str)  # context name: the Prometheus / VictoriaMetrics source for usage history
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
+    auto_refresh_requested = Signal(str)  # "pause", "enable" or "restore": auto-refresh on all open clusters (CONNECTED header menu)
+    auto_refresh_clusters_requested = Signal(object, bool)  # [context names], enabled: the cluster menu's Enable/Disable entries
 
     ROLE_KIND = Qt.UserRole
     ROLE_KEY = Qt.UserRole + 1
@@ -491,7 +493,12 @@ class Navigator(QTreeWidget):
         """The context menu for a sidebar item, or None when there is nothing to offer."""
         kind = item.data(0, self.ROLE_KIND) if item is not None else None
         menu = QMenu(self)
-        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: fold or open every cluster
+        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: auto-refresh, fold or open clusters
+            if item is self._connected_hdr:
+                menu.addAction("Turn auto-refresh off on all connected clusters", lambda: self.auto_refresh_requested.emit("pause"))
+                menu.addAction("Turn auto-refresh on on all connected clusters", lambda: self.auto_refresh_requested.emit("enable"))
+                menu.addAction("Restore each cluster's previous auto-refresh", lambda: self.auto_refresh_requested.emit("restore"))
+                menu.addSeparator()
             menu.addAction("Collapse clusters (show only the cluster list)", self.collapse_clusters)
             menu.addAction("Expand clusters", self.expand_clusters)
             if item is self._idle_hdr and self.groups is not None:
@@ -520,6 +527,11 @@ class Navigator(QTreeWidget):
                 for label, signal in self.actions_for(name):
                     menu.addAction(label, lambda sig=signal: sig.emit(name))
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
+            if self._states.get(name) in ACTIVE_STATES:
+                targets = self._auto_refresh_targets(cluster, name)
+                suffix = f" ({len(targets)})" if len(targets) > 1 else ""
+                menu.addAction(f"Disable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
+                menu.addAction(f"Enable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if self._states.get(name) in ACTIVE_STATES:
                 menu.addSeparator()
@@ -539,6 +551,15 @@ class Navigator(QTreeWidget):
                 if self._group_of(name):
                     move.addAction("No group", lambda: self.move_cluster(name, ""))
         return menu
+
+    def _auto_refresh_targets(self, item, name):
+        """The connected clusters an auto-refresh menu entry acts on: the selected connected clusters when the clicked one is
+        among several selected, else just the clicked cluster."""
+        selected = [i.data(0, self.ROLE_KEY) for i in self.selectedItems()
+                    if i.data(0, self.ROLE_KIND) == "cluster" and self._states.get(i.data(0, self.ROLE_KEY)) in ACTIVE_STATES]
+        if item in self.selectedItems() and len(selected) > 1:
+            return selected
+        return [name]
 
     def _selected_disconnected_clusters(self):
         return [item for item in self.selectedItems()
