@@ -1,0 +1,40 @@
+name: Feature request
+description: Something Klotse should do or do better
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: What you would like
+      description: The behaviour you expect. A screen mock-up or a sketch is welcome.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where in the app
+      description: For example Overview, Related, or a menu name.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Effort (optional)
+      description: Leave blank if you are not sure.
+      options: ["", small, small-medium, medium, medium-large, large]
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues.
+          required: true
