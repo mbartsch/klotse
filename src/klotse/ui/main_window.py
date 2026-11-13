@@ -395,6 +395,7 @@ class MainWindow(QMainWindow):
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
+        self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
 
         self.status = self.statusBar()
         self.plugin_errors_button = QToolButton(self)
@@ -706,6 +707,15 @@ class MainWindow(QMainWindow):
         blocker = QSignalBlocker(self.pause_auto_refresh_all_action)
         self.pause_auto_refresh_all_action.setChecked(False)
         del blocker
+
+    def _navigator_auto_refresh(self, choice):
+        """The CONNECTED section's menu: the same actions as View > Settings > Auto-refresh across clusters."""
+        if choice == "pause":
+            self.pause_auto_refresh_all_action.setChecked(True)
+        elif choice == "enable":
+            self._enable_auto_refresh_all()
+        elif choice == "restore":
+            self._restore_global_auto_refresh()
 
     def _sync_global_auto_actions(self):
         available = bool(self.workspaces) or self._global_auto_snapshot is not None

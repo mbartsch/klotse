@@ -66,6 +66,7 @@ class Navigator(QTreeWidget):
     metrics_source_requested = Signal(str)  # context name: the Prometheus / VictoriaMetrics source for usage history
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
+    auto_refresh_requested = Signal(str)  # "pause", "enable" or "restore": auto-refresh on all open clusters (CONNECTED header menu)
 
     ROLE_KIND = Qt.UserRole
     ROLE_KEY = Qt.UserRole + 1
@@ -491,14 +492,18 @@ class Navigator(QTreeWidget):
         """The context menu for a sidebar item, or None when there is nothing to offer."""
         kind = item.data(0, self.ROLE_KIND) if item is not None else None
         menu = QMenu(self)
-        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: fold or open every cluster
+        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: auto-refresh, fold or open clusters
+            if item is self._connected_hdr:
+                menu.addAction("Turn auto-refresh off on all connected clusters", lambda: self.auto_refresh_requested.emit("pause"))
+                menu.addAction("Turn auto-refresh on on all connected clusters", lambda: self.auto_refresh_requested.emit("enable"))
+                menu.addAction("Restore each cluster's previous auto-refresh", lambda: self.auto_refresh_requested.emit("restore"))
+                menu.addSeparator()
             menu.addAction("Collapse clusters (show only the cluster list)", self.collapse_clusters)
             menu.addAction("Expand clusters", self.expand_clusters)
             if item is self._idle_hdr and self.groups is not None:
                 menu.addSeparator()
                 menu.addAction("New group…", lambda: self.create_group(""))
                 menu.addAction("Suggest groups…", self.suggest_groups)
-            return menu
         if kind == "group":
             path = item.data(0, self.ROLE_KEY)
             menu.addAction("Connect all", lambda: self.connect_all(path))
