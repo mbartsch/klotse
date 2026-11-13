@@ -166,6 +166,13 @@ class UsageBar(QWidget):
         p.drawRoundedRect(QRectF(0, 18, self.width() * fraction, 10), 5, 5)
 
 
+def switch_button_style():
+    """Dashboard / Workloads switch: both are framed buttons; the view in front is filled with the accent colour."""
+    return (f"QPushButton {{ border: 1px solid {theme.BORDER}; border-radius: 4px; background: {theme.BASE}; color: {theme.TEXT}; "
+            f"padding: 5px 10px; }} QPushButton:hover {{ background: {theme.HOVER}; }} "
+            f"QPushButton:checked {{ background: {theme.ACCENT}; border-color: {theme.ACCENT}; color: white; }}")
+
+
 class OverviewView(QWidget):
     """Cluster dashboard and the existing workload summary/drill-down view."""
 
@@ -305,7 +312,7 @@ class OverviewView(QWidget):
         switch_layout.setContentsMargins(3, 3, 3, 3)
         switch_layout.setSpacing(2)
         for button in (self.dashboard_button, self.workloads_button):
-            button.setStyleSheet(f"QPushButton {{ border: 0; background: transparent; color: {theme.MUTED}; padding: 6px 10px; }} QPushButton:checked {{ background: {theme.BORDER}; color: {theme.TEXT}; }}")
+            button.setStyleSheet(switch_button_style())
             switch_layout.addWidget(button)
         self.quick_actions_button = QToolButton()
         self.quick_actions_button.setText("More")
@@ -599,7 +606,7 @@ class OverviewView(QWidget):
             card._restyle()
             card.set_value(card.value.text())
         if self.is_cluster_overview:
-            switch_style = f"QPushButton {{ border: 0; background: transparent; color: {theme.MUTED}; padding: 6px 10px; }} QPushButton:checked {{ background: {theme.BORDER}; color: {theme.TEXT}; }}"
+            switch_style = switch_button_style()
             self.dashboard_button.setStyleSheet(switch_style)
             self.workloads_button.setStyleSheet(switch_style)
             self._style_overview_tables()
