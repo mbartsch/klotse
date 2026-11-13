@@ -1,0 +1,52 @@
+# Local checks before a commit: https://pre-commit.com
+#   one-time setup:   pre-commit install        (pipx/uv tool install pre-commit)
+#   run on demand:    pre-commit run --all-files
+#   update the pins:  pre-commit autoupdate --freeze
+# These are the quick, offline part of what CI checks. The test suite, pip-audit, CodeQL and dependency review stay in
+# CI. bandit and zizmor are pinned to the versions in .github/workflows/security.yml: change both together.
+# No hook rewrites files: each one only reports.
+minimum_pre_commit_version: "3.2.0"
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: no-commit-to-branch          # work lands on master only through pull requests
+        args: [--branch, master]
+      - id: check-merge-conflict
+      - id: check-case-conflict          # names that collide on Windows and macOS
+      #- id: check-added-large-files
+      #  args: [--maxkb=600]
+      - id: detect-private-key
+      - id: check-ast
+      - id: debug-statements
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08  # frozen: 1.9.4
+    hooks:
+      - id: bandit                       # same rule as CI: medium severity and above, or a justified "# nosec Bxxx"
+        args: [-ll]
+        files: ^(src|scripts)/
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 06a39750ec31860bb44f2acf67182c40016cd1e7  # frozen: v1.32.0
+    hooks:
+      - id: zizmor                       # workflow injection, unpinned actions, excess permissions
+
+  - repo: local
+    hooks:
+      - id: diff-check
+        name: whitespace errors in staged changes (git diff --check)
+        entry: git diff --cached --check
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: owner-local-files
+        name: files that stay out of the repository
+        entry: "This file is local to one machine and must not be committed:"
+        language: fail
+        files: (^|/)(windows\.zip|timing[^/]*\.log|kubeconfig[^/]*|[^/]*\.kubeconfig)$
