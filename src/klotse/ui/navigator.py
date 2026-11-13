@@ -67,6 +67,7 @@ class Navigator(QTreeWidget):
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
     auto_refresh_requested = Signal(str)  # "pause", "enable" or "restore": auto-refresh on all open clusters (CONNECTED header menu)
+    auto_refresh_clusters_requested = Signal(object, bool)  # [context names], enabled: the cluster menu's Enable/Disable entries
 
     ROLE_KIND = Qt.UserRole
     ROLE_KEY = Qt.UserRole + 1
@@ -525,6 +526,11 @@ class Navigator(QTreeWidget):
                 for label, signal in self.actions_for(name):
                     menu.addAction(label, lambda sig=signal: sig.emit(name))
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
+            if self._states.get(name) in ACTIVE_STATES:
+                targets = self._auto_refresh_targets(cluster, name)
+                suffix = f" ({len(targets)})" if len(targets) > 1 else ""
+                menu.addAction(f"Disable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
+                menu.addAction(f"Enable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if self._states.get(name) in ACTIVE_STATES:
                 menu.addSeparator()
@@ -544,6 +550,15 @@ class Navigator(QTreeWidget):
                 if self._group_of(name):
                     move.addAction("No group", lambda: self.move_cluster(name, ""))
         return menu
+
+    def _auto_refresh_targets(self, item, name):
+        """The connected clusters an auto-refresh menu entry acts on: the selected connected clusters when the clicked one is
+        among several selected, else just the clicked cluster."""
+        selected = [i.data(0, self.ROLE_KEY) for i in self.selectedItems()
+                    if i.data(0, self.ROLE_KIND) == "cluster" and self._states.get(i.data(0, self.ROLE_KEY)) in ACTIVE_STATES]
+        if item in self.selectedItems() and len(selected) > 1:
+            return selected
+        return [name]
 
     def _selected_disconnected_clusters(self):
         return [item for item in self.selectedItems()

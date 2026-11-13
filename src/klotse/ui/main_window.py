@@ -396,6 +396,7 @@ class MainWindow(QMainWindow):
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
         self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
+        self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
 
         self.status = self.statusBar()
         self.plugin_errors_button = QToolButton(self)
@@ -716,6 +717,13 @@ class MainWindow(QMainWindow):
             self._enable_auto_refresh_all()
         elif choice == "restore":
             self._restore_global_auto_refresh()
+
+    def _set_clusters_auto_refresh(self, contexts, enabled):
+        """The cluster menu: turn auto-refresh on or off for the given connected clusters, through their own toggle (so a global pause still wins)."""
+        for context in contexts:
+            workspace = self.workspaces.get(context)
+            if workspace is not None:
+                workspace.auto_action.setChecked(bool(enabled))
 
     def _sync_global_auto_actions(self):
         available = bool(self.workspaces) or self._global_auto_snapshot is not None
