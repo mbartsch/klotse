@@ -349,14 +349,19 @@ class MainWindow(QMainWindow):
         heading_font.setBold(True)
         cluster_heading.setFont(heading_font)
         theme.muted(cluster_heading)
-        nav_layout.addWidget(cluster_heading)
-        nav_layout.addWidget(self.cluster_picker)
-        search_clusters = QToolButton()
+        search_clusters = QToolButton()  # on the heading line, away from the switcher, so the pair is not read as one field
         search_clusters.setIcon(action_icon("search"))
         search_clusters.setAccessibleName("Search clusters")
         search_clusters.setToolTip("Show or hide cluster search")
         search_clusters.setCheckable(True)
         self._cluster_search_button = search_clusters
+        heading_row = QHBoxLayout()
+        heading_row.setSpacing(5)
+        heading_row.addWidget(cluster_heading)
+        heading_row.addStretch(1)
+        heading_row.addWidget(search_clusters)
+        nav_layout.addLayout(heading_row)
+        nav_layout.addWidget(self.cluster_picker)
         self.cluster_search = QLineEdit()
         self.cluster_search.setObjectName("clusterSearch")
         self.cluster_search.setAccessibleName("Search clusters")
@@ -371,11 +376,7 @@ class MainWindow(QMainWindow):
             else:
                 self.cluster_search.clear()
         search_clusters.toggled.connect(toggle_cluster_search)
-        search_row = QHBoxLayout()  # the search box, and its button on the right of it
-        search_row.setSpacing(5)
-        search_row.addWidget(self.cluster_search, 1)
-        search_row.addWidget(search_clusters)
-        nav_layout.addLayout(search_row)
+        nav_layout.addWidget(self.cluster_search)
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
@@ -471,10 +472,8 @@ class MainWindow(QMainWindow):
         for context in contexts:  # shown by alias; the context name is the item's data, which is what selecting it uses
             self.cluster_picker.addItem(self.aliases.display(context), context)
         if not contexts:  # nothing connected: say so, and open the search so a cluster can be found and connected
-            self.cluster_picker.addItem("No Cluster", "")
+            self.cluster_picker.addItem("No cluster connected", "")
             self.cluster_picker.setEnabled(False)
-            self.cluster_search.setVisible(True)
-            self._cluster_search_button.setChecked(True)
         else:
             self.cluster_picker.setEnabled(True)
         current = preferred
