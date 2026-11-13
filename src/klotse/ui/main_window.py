@@ -20,7 +20,11 @@ from .customizations import ANNOTATION_KINDS, LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
+from ..k8s.connect_help import auth_info
+from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
+from ..workers import Worker
+from .terminal import open_terminal
 from .metrics_sources import ForwardDefaults
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
@@ -395,6 +399,7 @@ class MainWindow(QMainWindow):
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
+        self.nav.sign_in_requested.connect(self.sign_in)
         self.nav.config_requested.connect(self.show_context_entry)
         self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
         self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
@@ -429,6 +434,22 @@ class MainWindow(QMainWindow):
         except OSError as error:
             QMessageBox.warning(self, "Cannot save the cluster groups", str(error))
 
+    def sign_in(self, context):
+        """Run the kubeconfig's sign-in helper in a terminal the user can answer (after a Yes); connect again afterwards."""
+        argv = sign_in_argv(auth_info(self.kubeconfig_settings.path, context))
+        if not argv:
+            QMessageBox.information(self, "Sign in", f"The kubeconfig entry for {context} names no sign-in helper.")
+            return
+        shown = " ".join(argv)
+        if QMessageBox.question(self, "Sign in", f"Klotse will open a terminal and run:\n\n{shown}\n\n"
+                                "Finish the sign-in there, then connect to this cluster again. Run it?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+            return
+        worker = Worker(open_terminal, argv, self.terminal_settings.mac_terminal)
+        worker.setAutoDelete(False)  # kept until the terminal has been asked to open
+        self._sign_in_workers = getattr(self, "_sign_in_workers", []) + [worker]
+        worker.signals.error.connect(lambda message: QMessageBox.warning(self, "Sign in", f"The terminal could not be opened.\n\n{message}"))
+        QThreadPool.globalInstance().start(worker)
     def show_context_entry(self, context):
         """Read-only: what the kubeconfig says about this context (names, server, sign-in kind; no secret values)."""
         from ..k8s.context_entry import entry_lines

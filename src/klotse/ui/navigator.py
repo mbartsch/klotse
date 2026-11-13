@@ -64,6 +64,7 @@ class Navigator(QTreeWidget):
     reconnect_requested = Signal(str)
     plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
     metrics_source_requested = Signal(str)  # context name: the Prometheus / VictoriaMetrics source for usage history
+    sign_in_requested = Signal(str)  # context name: run the kubeconfig's sign-in helper in a terminal, then connect again
     config_requested = Signal(str)  # context name: show what the kubeconfig says about it, read-only
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
@@ -528,6 +529,8 @@ class Navigator(QTreeWidget):
                 for label, signal in self.actions_for(name):
                     menu.addAction(label, lambda sig=signal: sig.emit(name))
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
+            if self._states.get(name) not in ACTIVE_STATES:
+                menu.addAction("Sign in with the helper…", lambda c=name: self.sign_in_requested.emit(c))
             menu.addAction("Show kubeconfig entry…", lambda c=name: self.config_requested.emit(c))  # works before connecting
             if self._states.get(name) in ACTIVE_STATES:
                 targets = self._auto_refresh_targets(cluster, name)
