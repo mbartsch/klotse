@@ -125,12 +125,23 @@ def bar_percent(used, total):
     return round(100 * used / total) if total > 0 else 0
 
 
-class UsageBar(QWidget):
-    """One compact bar showing observed use against allocatable cluster capacity."""
+def usage_color_key(fraction, base="ACCENT_HI"):
+    """The colour token for a usage bar that is `fraction` full: the base colour, amber above 75%, red above 90%
+    (the theme's warning and failing colours, so the thresholds read as status)."""
+    if fraction > 0.9:
+        return "BAD"
+    if fraction > 0.75:
+        return "WARN"
+    return base
 
-    def __init__(self, caption, color_key="ACCENT"):
+
+class UsageBar(QWidget):
+    """One compact bar showing observed use against allocatable cluster capacity. With `thresholds`, the colour follows how full it is."""
+
+    def __init__(self, caption, color_key="ACCENT", thresholds=False):
         super().__init__()
-        self.caption, self.color_key, self.used, self.total, self.text = caption, color_key, 0.0, 0.0, ""
+        self.caption, self.color_key, self.thresholds = caption, color_key, thresholds
+        self.used, self.total, self.text = 0.0, 0.0, ""
         self.setMinimumHeight(34)
 
     @property
@@ -150,8 +161,16 @@ class UsageBar(QWidget):
         p.setBrush(QColor(theme.BORDER))
         p.drawRoundedRect(QRectF(0, 18, self.width(), 10), 5, 5)
         fraction = self.fraction
-        p.setBrush(QColor(getattr(theme, self.color_key)))
+        key = usage_color_key(fraction, self.color_key) if self.thresholds else self.color_key
+        p.setBrush(QColor(getattr(theme, key)))
         p.drawRoundedRect(QRectF(0, 18, self.width() * fraction, 10), 5, 5)
+
+
+def switch_button_style():
+    """Dashboard / Workloads switch: both are framed buttons; the view in front is filled with the accent colour."""
+    return (f"QPushButton {{ border: 1px solid {theme.BORDER}; border-radius: 4px; background: {theme.BASE}; color: {theme.TEXT}; "
+            f"padding: 5px 10px; }} QPushButton:hover {{ background: {theme.HOVER}; }} "
+            f"QPushButton:checked {{ background: {theme.ACCENT}; border-color: {theme.ACCENT}; color: white; }}")
 
 
 class OverviewView(QWidget):
@@ -192,7 +211,8 @@ class OverviewView(QWidget):
             card.clicked.connect(self._on_card)
             self.cards[key] = card
 
-        self.cpu_bar, self.mem_bar = UsageBar("CPU in use", "ACCENT_HI"), UsageBar("Memory in use", "SELECTED_ROW")
+        self.cpu_bar = UsageBar("CPU in use", "ACCENT_HI", thresholds=True)
+        self.mem_bar = UsageBar("Memory in use", "ACCENT_HI", thresholds=True)
         self.pod_bar = UsageBar("Pods", "OK")
         self.usage = QWidget()
         usage = QHBoxLayout(self.usage)
@@ -292,7 +312,7 @@ class OverviewView(QWidget):
         switch_layout.setContentsMargins(3, 3, 3, 3)
         switch_layout.setSpacing(2)
         for button in (self.dashboard_button, self.workloads_button):
-            button.setStyleSheet(f"QPushButton {{ border: 0; background: transparent; color: {theme.MUTED}; padding: 6px 10px; }} QPushButton:checked {{ background: {theme.BORDER}; color: {theme.TEXT}; }}")
+            button.setStyleSheet(switch_button_style())
             switch_layout.addWidget(button)
         self.quick_actions_button = QToolButton()
         self.quick_actions_button.setText("More")
@@ -586,7 +606,7 @@ class OverviewView(QWidget):
             card._restyle()
             card.set_value(card.value.text())
         if self.is_cluster_overview:
-            switch_style = f"QPushButton {{ border: 0; background: transparent; color: {theme.MUTED}; padding: 6px 10px; }} QPushButton:checked {{ background: {theme.BORDER}; color: {theme.TEXT}; }}"
+            switch_style = switch_button_style()
             self.dashboard_button.setStyleSheet(switch_style)
             self.workloads_button.setStyleSheet(switch_style)
             self._style_overview_tables()
