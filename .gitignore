@@ -1,6 +1,9 @@
 .omc/
 .venv/
 .pytest_cache/
+.agents/
+.claude/
+.wsl-venv/
 __pycache__
 build/
 dist/
