@@ -505,6 +505,7 @@ class Navigator(QTreeWidget):
                 menu.addSeparator()
                 menu.addAction("New group…", lambda: self.create_group(""))
                 menu.addAction("Suggest groups…", self.suggest_groups)
+            return menu
         if kind == "group":
             path = item.data(0, self.ROLE_KEY)
             menu.addAction("Connect all", lambda: self.connect_all(path))

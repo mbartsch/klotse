@@ -8,9 +8,10 @@ def connected_menu(window):
 
 def test_the_connected_header_offers_pause_enable_and_restore(qtbot, tmp_path):
     window = make_window(qtbot, tmp_path)
-    labels = [action.text() for action in connected_menu(window).actions()]
+    labels = [action.text() for action in connected_menu(window).actions() if action.text()]
     assert labels == ["Turn auto-refresh off on all connected clusters", "Turn auto-refresh on on all connected clusters",
-                      "Restore each cluster's previous auto-refresh"]
+                      "Restore each cluster's previous auto-refresh",
+                      "Collapse clusters (show only the cluster list)", "Expand clusters"]
 
 
 def test_pause_then_restore_from_the_connected_header(qtbot, tmp_path):
