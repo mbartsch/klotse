@@ -100,6 +100,7 @@ class Navigator(QTreeWidget):
         self.retry_pending = lambda _ctx: False
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
+        self._collapsed_clusters = None  # cluster name -> expanded before collapse_clusters, while collapsed
         self._connected_hdr = self._idle_hdr = None
         self._filter_text = ""
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -273,6 +274,21 @@ class Navigator(QTreeWidget):
             self._insert_cluster(self._idle_parent(name), self._clusters[name])
         self._update_headers()
         self._apply_filter()
+
+    def collapse_clusters(self):
+        """Fold every cluster's views, namespaces and other children away, so only the cluster list shows. The
+        expansion of each cluster is remembered so expand_clusters can put it back (groups are left as they are)."""
+        if self._collapsed_clusters is None:
+            self._collapsed_clusters = {name: item.isExpanded() for name, item in self._clusters.items()}
+        for item in self._clusters.values():
+            item.setExpanded(False)
+
+    def expand_clusters(self):
+        """Undo collapse_clusters: each cluster goes back to its remembered state (open when not remembered)."""
+        remembered = self._collapsed_clusters or {}
+        for name, item in self._clusters.items():
+            item.setExpanded(remembered.get(name, True))
+        self._collapsed_clusters = None
 
     def _header(self, label):
         h = QTreeWidgetItem([label])
@@ -475,15 +491,20 @@ class Navigator(QTreeWidget):
         """The context menu for a sidebar item, or None when there is nothing to offer."""
         kind = item.data(0, self.ROLE_KIND) if item is not None else None
         menu = QMenu(self)
+        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: fold or open every cluster
+            menu.addAction("Collapse clusters (show only the cluster list)", self.collapse_clusters)
+            menu.addAction("Expand clusters", self.expand_clusters)
+            if item is self._idle_hdr and self.groups is not None:
+                menu.addSeparator()
+                menu.addAction("New group…", lambda: self.create_group(""))
+                menu.addAction("Suggest groups…", self.suggest_groups)
+            return menu
         if kind == "group":
             path = item.data(0, self.ROLE_KEY)
             menu.addAction("Connect all", lambda: self.connect_all(path))
             menu.addAction("New subgroup…", lambda: self.create_group(path))
             menu.addAction("Rename…", lambda: self.rename_group(path))
             menu.addAction("Delete group", lambda: self.delete_group(path))
-        elif item is not None and item is self._idle_hdr and self.groups is not None:
-            menu.addAction("New group…", lambda: self.create_group(""))
-            menu.addAction("Suggest groups…", self.suggest_groups)
         else:
             # the cluster menu belongs to the cluster's own row only; the views under it (Overview, Nodes, …) offer nothing here
             cluster = item if kind == "cluster" else None
