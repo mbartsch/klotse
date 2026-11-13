@@ -20,7 +20,7 @@ from . import connect_help, helm, metrics_history, preflight, prometheus, relate
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release, map_secret, map_secret_metadata
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 from .selectors import cronjob_job_uids, cronjob_pod_info
 
@@ -1604,10 +1604,34 @@ class KubeService:
         return self._list_apps(a.list_stateful_set_for_all_namespaces, a.list_namespaced_stateful_set, map_statefulset, namespace,
                                label_selector, field_selector)
 
+    SECRET_METADATA_ACCEPT = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+
+    def _secret_metadata(self, namespace, label_selector=None, field_selector=None):
+        """The Secrets' metadata (names, labels, annotations, owners, creation time) as plain dicts: requested as
+        PartialObjectMetadataList, so no Secret data or type is transferred. Paged like the other lists."""
+        core = self._core
+        fn, args = ((core.list_namespaced_secret, (namespace,)) if namespace else (core.list_secret_for_all_namespaces, ()))
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        items, token = [], None
+        while True:
+            reply = fn(*args, limit=500, _continue=token, _request_timeout=30, _preload_content=False,
+                       _headers={"Accept": self.SECRET_METADATA_ACCEPT}, **options)
+            page = json.loads(reply.data)
+            items += page.get("items") or []
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return items
+
+    def read_secret(self, namespace, name):
+        """One Secret in full (data and type), for Details, decode and edit. The list only has the metadata."""
+        return map_secret(self._core.read_namespaced_secret(name, namespace, _request_timeout=30))
+
     def list_resource(self, key, namespace=None, label_selector=None, field_selector=None):
         """Generic list for the specs in resources.py; events come back newest first."""
         spec = SPEC_BY_KEY[key]
         options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        if key == "secrets":  # the list reads metadata only; a Secret's data is read when it is opened (read_secret)
+            return [map_secret_metadata(item) for item in self._secret_metadata(namespace, **options)]
         rows = [spec.mapper(i) for i in self._resource_items(key, namespace, **options)]
         if key == "events":
             rows.sort(key=lambda r: r.ts, reverse=True)

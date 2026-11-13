@@ -85,6 +85,23 @@ def map_secret(s):
     row = _base(s, raw=raw, type=s.type or "", keys=len(s.data or {}), expires=expires, subject=subject)
     # Keep encoded values separate from the masked manifest and table columns.
     row.secret_data = dict(s.data or {})
+    row.secret_loaded = True
+    return row
+
+
+def map_secret_metadata(item):
+    """A Secret row from its metadata only (see KubeService._secret_metadata): name, namespace and age. Type, key count, expiry
+    and subject need the data, so they stay blank until the Secret is opened (secret_loaded False; the workspace then reads it)."""
+    md = item.get("metadata") or {}
+    created = md.get("creationTimestamp")
+    try:
+        created = datetime.fromisoformat(str(created).replace("Z", "+00:00")) if created else None
+    except ValueError:
+        created = None
+    row = Row(md.get("name") or "", md.get("namespace") or "", {"apiVersion": "v1", "kind": "Secret", "metadata": md},
+              age=format_age(created), type="", keys="", expires="", subject="")
+    row.secret_data = {}
+    row.secret_loaded = False
     return row
 
 
