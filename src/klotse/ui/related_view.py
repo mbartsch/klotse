@@ -49,8 +49,9 @@ def render(relations, name=""):
                 continue
             where = f" <span style='color:{theme.MUTED}'>{_e(r.namespace)}</span>" if r.namespace else ""
             tag = f" <span style='color:{theme.MUTED}'>({_e(r.note)})</span>" if r.note else ""
+            href = _e(r.url) if r.url else link(r.kind, r.namespace, r.name)
             rows.append(f"<tr><td>{indent}<span style='color:{theme.MUTED}'>{_e(r.kind)}</span> "
-                        f"<a href='{link(r.kind, r.namespace, r.name)}'>{_e(r.name)}</a>{where}{tag}</td></tr>")
+                        f"<a href='{href}'>{_e(r.name)}</a>{where}{tag}</td></tr>")
         parts.append(f"<h3 style='color:{theme.ACCENT_HI}; margin:12px 0 4px 0'>{_e(SECTION_TITLES.get(relation, relation))}</h3>"
                      f"<table cellspacing='0'>{''.join(rows)}</table>")
     return "".join(parts)

@@ -433,3 +433,53 @@ def test_select_when_loaded_waits_for_the_list_and_drops_the_wish_after_it(qtbot
     table.set_rows([pod_row("a"), pod_row("gone")])  # a later load must not suddenly jump
     assert getattr(table, "_goto", None) is None  # the wish is gone, so nothing was jumped to by the later load
     assert "gone" not in [r.name for r in table.selected_rows()]
+
+
+def _pv(spec, labels=None):
+    return {"metadata": {"name": "pv-ebs", "labels": labels or {}}, "spec": spec}
+
+
+def _csi(handle="vol-0abc123"):
+    return {"csi": {"driver": "ebs.csi.aws.com", "volumeHandle": handle}}
+
+
+def test_an_ebs_volume_behind_a_persistent_volume_links_to_its_console_page():
+    pv = _pv(_csi(), {"topology.kubernetes.io/zone": "eu-west-1b"})
+    aws = [r for r in rel.related("PersistentVolume", pv, CLUSTER) if r.kind == "AWS EBS volume"]
+    assert aws == [Relation("Backed by", "AWS EBS volume", "", "vol-0abc123", 0, "eu-west-1",
+                            "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123")]
+
+
+def test_the_region_comes_from_the_region_label_or_the_zone_in_node_affinity_or_the_legacy_source():
+    by_region_label = _pv(_csi(), {"topology.kubernetes.io/region": "us-east-2"})
+    by_affinity = _pv({**_csi(), "nodeAffinity": {"required": {"nodeSelectorTerms": [
+        {"matchExpressions": [{"key": "topology.ebs.csi.aws.com/zone", "operator": "In", "values": ["us-east-1c"]}]}]}}})
+    legacy = _pv({"awsElasticBlockStore": {"volumeID": "aws://us-west-2a/vol-0def456"}})
+    assert rel.ebs_volume(by_region_label) == ("us-east-2", "vol-0abc123")
+    assert rel.ebs_volume(by_affinity) == ("us-east-1", "vol-0abc123")
+    assert rel.ebs_volume(legacy) == ("us-west-2", "vol-0def456")
+
+
+def test_gov_and_china_regions_use_their_own_console_hosts():
+    assert rel.ebs_console_url("us-gov-west-1", "vol-1").startswith("https://console.amazonaws-us-gov.com/ec2/home?region=us-gov-west-1")
+    assert rel.ebs_console_url("cn-north-1", "vol-1").startswith("https://cn-north-1.console.amazonaws.cn/")
+
+
+@pytest.mark.parametrize("pv", [
+    _pv(_csi(), {}),  # no region known: no link rather than a guessed one
+    _pv(_csi("vol-zz; rm")),  # not a volume id
+    _pv({"csi": {"driver": "efs.csi.aws.com", "volumeHandle": "fs-0123"}}, {"topology.kubernetes.io/region": "us-east-1"}),
+    _pv({"hostPath": {"path": "/data"}}),
+])
+def test_no_aws_entry_for_other_or_unreadable_volumes(pv):
+    assert not [r for r in rel.related("PersistentVolume", pv, CLUSTER) if r.kind == "AWS EBS volume"]
+
+
+def test_the_aws_entry_renders_as_an_external_link_and_stays_escaped():
+    html = related_view.render([Relation("Backed by", "AWS EBS volume", "", "vol-0abc123", 0, "eu-west-1",
+                                         "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123"),
+                                Relation("Backed by", "AWS EBS volume", "", "<b>x</b>", 0, "", "https://evil.example/'><b>")])
+    assert "href='https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123'" in html
+    assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
+    assert "href='https://evil.example/&#x27;&gt;&lt;b&gt;'" in html or "evil.example" in html
+    assert related_view.parse_link("https://eu-west-1.console.aws.amazon.com/") is None

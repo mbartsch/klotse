@@ -5,6 +5,7 @@ no cluster access: everything that needs the cluster goes through a `fetch` obje
 `list(kind, namespace, label_selector=None, field_selector=None)` (the service builds one; tests use fakes).
 
 References are read from manifests only: a Secret's *data* is never fetched, only which pods mention its name."""
+import re
 from dataclasses import dataclass
 
 CLUSTER_KINDS = ("Node", "PersistentVolume", "StorageClass")  # no namespace
@@ -24,6 +25,43 @@ class Relation:
     name: str
     depth: int = 0  # indentation under the entry above (an owner's owner, a ReplicaSet's pods)
     note: str = ""
+    url: str = ""  # an outside link (the AWS console); empty for objects in the cluster
+
+
+EBS_DRIVER = "ebs.csi.aws.com"
+EBS_VOLUME = re.compile(r"(?:aws://[^/]+/)?(vol-[0-9a-f]+)")
+AWS_REGION = re.compile(r"([a-z]{2}(?:-gov)?-[a-z]+-\d+)[a-z]?")
+ZONE_KEYS = ("topology.kubernetes.io/zone", "failure-domain.beta.kubernetes.io/zone", "topology.ebs.csi.aws.com/zone")
+REGION_KEYS = ("topology.kubernetes.io/region", "failure-domain.beta.kubernetes.io/region")
+
+
+def ebs_volume(pv):
+    """(region, volume id) of an EBS volume behind a PersistentVolume (EBS CSI or the legacy in-tree source), read from the
+    manifest only; the region comes from the region or zone labels or the node affinity. None when either is not found."""
+    spec, labels = _spec(pv), _meta(pv).get("labels") or {}
+    csi, legacy = spec.get("csi") or {}, spec.get("awsElasticBlockStore") or {}
+    handle = csi.get("volumeHandle", "") if csi.get("driver") == EBS_DRIVER else legacy.get("volumeID", "")
+    match = EBS_VOLUME.fullmatch(str(handle or ""))
+    if not match:
+        return None
+    region = next((labels[k] for k in REGION_KEYS if labels.get(k)), "")
+    if not region:
+        zones = [labels[k] for k in ZONE_KEYS if labels.get(k)]
+        for term in ((spec.get("nodeAffinity") or {}).get("required") or {}).get("nodeSelectorTerms") or []:
+            for expr in term.get("matchExpressions") or []:
+                if expr.get("key") in ZONE_KEYS:
+                    zones += expr.get("values") or []
+        zones.append(str(handle))  # the legacy aws://<zone>/vol-… form carries the zone too
+        found = next((AWS_REGION.search(z) for z in zones if AWS_REGION.search(z)), None)
+        region = found.group(1) if found else ""
+    return (region, match.group(1)) if AWS_REGION.fullmatch(region) else None
+
+
+def ebs_console_url(region, volume_id):
+    """The EC2 console page of one volume in `region` (the account is whichever the browser is signed in to)."""
+    host = ("console.amazonaws-us-gov.com" if region.startswith("us-gov-") else
+            f"{region}.console.amazonaws.cn" if region.startswith("cn-") else f"{region}.console.aws.amazon.com")
+    return f"https://{host}/ec2/home?region={region}#Volumes:volumeId={volume_id}"
 
 
 def _meta(obj):
@@ -204,6 +242,10 @@ def related(kind, raw, fetch):
             out.append(Relation("Bound to", "PersistentVolumeClaim", claim.get("namespace", ""), claim["name"]))
         if _spec(raw).get("storageClassName"):
             out.append(Relation("Uses", "StorageClass", "", _spec(raw)["storageClassName"]))
+        volume = ebs_volume(raw)
+        if volume:
+            region, volume_id = volume
+            out.append(Relation("Backed by", "AWS EBS volume", "", volume_id, 0, region, ebs_console_url(region, volume_id)))
     elif kind == "Node":
         for pod in fetch.list("Pod", "", field_selector=f"spec.nodeName={name}"):
             add("Runs", "Pod", pod)
