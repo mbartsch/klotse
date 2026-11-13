@@ -29,7 +29,7 @@ def test_the_secret_list_asks_for_metadata_only_and_never_full_objects():
     assert "PartialObjectMetadataList" in kwargs["_headers"]["Accept"]
     assert len(rows) == 1 and rows[0].name == "db-pass" and rows[0].namespace == "payments"
     assert rows[0].secret_loaded is False and rows[0].secret_data == {}
-    assert "data" not in rows[0].raw and rows[0].type == "" and rows[0].keys == ""
+    assert "data" not in rows[0].raw and rows[0].type == "--" and rows[0].keys == "--"
 
 
 def test_a_metadata_row_has_name_namespace_and_age_and_no_data():

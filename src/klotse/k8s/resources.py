@@ -89,9 +89,12 @@ def map_secret(s):
     return row
 
 
+UNKNOWN = "--"  # a field that needs the Secret data: shown until the Secret is opened
+
+
 def map_secret_metadata(item):
     """A Secret row from its metadata only (see KubeService._secret_metadata): name, namespace and age. Type, key count, expiry
-    and subject need the data, so they stay blank until the Secret is opened (secret_loaded False; the workspace then reads it)."""
+    and subject need the data, so they show "--" until the Secret is opened (secret_loaded False; the workspace then reads it)."""
     md = item.get("metadata") or {}
     created = md.get("creationTimestamp")
     try:
@@ -99,7 +102,7 @@ def map_secret_metadata(item):
     except ValueError:
         created = None
     row = Row(md.get("name") or "", md.get("namespace") or "", {"apiVersion": "v1", "kind": "Secret", "metadata": md},
-              age=format_age(created), type="", keys="", expires="", subject="")
+              age=format_age(created), type=UNKNOWN, keys=UNKNOWN, expires=UNKNOWN, subject=UNKNOWN)
     row.secret_data = {}
     row.secret_loaded = False
     return row
