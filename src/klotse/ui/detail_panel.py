@@ -2,7 +2,7 @@ import base64
 import binascii
 from copy import deepcopy
 
-from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
+from PySide6.QtGui import QColor, QDesktopServices, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtCore import QRegularExpression, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
@@ -391,6 +391,8 @@ class DetailPanel(QWidget):
         target = related_view.parse_link(url.toString())
         if target is not None:
             self.goto_object.emit(*target)
+        elif url.scheme() == "https" and url.host().endswith((".console.aws.amazon.com", ".console.amazonaws.cn", "console.amazonaws-us-gov.com")):
+            QDesktopServices.openUrl(url)  # an AWS console link from the Related view (see k8s/related.ebs_console_url)
 
     @staticmethod
     def _has_events(row):
