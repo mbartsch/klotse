@@ -778,3 +778,19 @@ def test_one_namespace_is_read_directly_and_slim_or_full_is_kept():
     slim = service.list_pods_for_analysis("ns2")
     assert core.namespaced_calls == ["ns2"] and len(slim) == 3 and "managedFields" not in str(slim[0].raw)
     assert "managedFields" in str(service.list_pods_for_analysis("ns2", full=True)[0].raw)
+
+
+def test_the_big_cluster_notice_names_the_cluster_in_its_text_with_its_alias(qtbot, tmp_path, monkeypatch):
+    from test_app import open_active
+    win = window(qtbot, tmp_path)
+    open_active(win)
+    ws = win.clusters.currentWidget()
+    monkeypatch.setattr(type(win), "isVisible", lambda self: True)
+    win.aliases.set(ws.context, "Production EU")
+    ws.set_big(True)
+    win._maybe_big_notice(ws)
+    box = win._big_notices[ws.context]
+    assert box.windowTitle() == "Production EU: big cluster"
+    assert box.text().startswith(f"Production EU ({ws.context}) is big, so Klotse reads it in a lighter way.")
+    assert win._cluster_names(ws.context) == ("Production EU", f"Production EU ({ws.context})")
+    box.accept()
