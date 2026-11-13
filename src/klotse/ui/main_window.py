@@ -395,6 +395,7 @@ class MainWindow(QMainWindow):
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
+        self.nav.config_requested.connect(self.show_context_entry)
         self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
         self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
 
@@ -427,6 +428,13 @@ class MainWindow(QMainWindow):
             self.groups.save()
         except OSError as error:
             QMessageBox.warning(self, "Cannot save the cluster groups", str(error))
+
+    def show_context_entry(self, context):
+        """Read-only: what the kubeconfig says about this context (names, server, sign-in kind; no secret values)."""
+        from ..k8s.context_entry import entry_lines
+        from .context_dialog import ContextEntryDialog
+        dialog = ContextEntryDialog(context, entry_lines(self.kubeconfig_settings.path, context), self)
+        dialog.exec()
 
     def rename_cluster_alias(self, context):
         current = self.aliases.display(context)
