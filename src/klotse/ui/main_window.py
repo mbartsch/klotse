@@ -636,6 +636,11 @@ class MainWindow(QMainWindow):
         marks = (" 🔒" if ws.read_only else "") + (" (big)" if ws.big else "")
         self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(ws.context) + marks)
 
+    def _cluster_names(self, context):
+        """(short name, full name) of a cluster for messages: the alias, and the kubeconfig context in brackets when they differ."""
+        short = self.aliases.display(context)
+        return short, (short if short == context else f"{short} ({context})")
+
     def _found_big(self, ws, nodes, pods):
         """The Overview showed a big cluster. Unless the user chose before, remember it, switch the lighter mode on and say so."""
         try:
@@ -645,18 +650,22 @@ class MainWindow(QMainWindow):
         if news:
             ws.set_big(True)
             self._maybe_big_notice(ws)
-            self.status.showMessage(f"{ws.context}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
+            _short, full = self._cluster_names(ws.context)
+            self.status.showMessage(f"{full}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
                                     "The Overview now shows Warning events only and reloads less often.", 15000)
 
     def _maybe_big_notice(self, ws):
         """Tell the user, once per connection, that a big cluster is read in a lighter way and what that changes, unless they ticked
-        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown."""
+        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown.
+        The name of the cluster is in the text, not only in the title (some platforms do not show a dialog's title)."""
         if ws is None or not ws.big or not self.isVisible() or self.big_clusters.notice_hidden(ws.context):
             return
         shown = self.__dict__.setdefault("_big_notices", {})
         if ws.context in shown:
             return
-        box = QMessageBox(QMessageBox.Information, f"{ws.context}: big cluster", NOTICE_TEXT, QMessageBox.Ok, self)
+        short, full = self._cluster_names(ws.context)
+        text = NOTICE_TEXT.replace("This cluster is big", f"{full} is big", 1)
+        box = QMessageBox(QMessageBox.Information, f"{short}: big cluster", text, QMessageBox.Ok, self)
         again = QCheckBox("Don't show this again for this cluster")
         box.setCheckBox(again)
         box.setModal(False)
