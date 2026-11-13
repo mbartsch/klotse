@@ -20,7 +20,7 @@ from . import connect_help, helm, metrics_history, preflight, prometheus, relate
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata, NOT_APPLICABLE
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 from .selectors import cronjob_job_uids, cronjob_pod_info
 
@@ -1647,6 +1647,8 @@ class KubeService:
             row = map_secret_metadata({"metadata": entry["metadata"]})
             row.type = str(entry["type"] or "")
             row.keys = int(entry["keys"]) if str(entry["keys"]).isdigit() else UNKNOWN_CELL
+            if row.type != "kubernetes.io/tls":  # known from the type alone, so it stays n/a after the Secret is opened too
+                row.expires = row.subject = NOT_APPLICABLE
             rows.append(row)
         return rows
 

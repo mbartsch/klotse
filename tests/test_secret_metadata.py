@@ -80,7 +80,7 @@ def test_the_server_table_gives_type_and_key_count_without_any_data():
     assert seen["path"] == "/api/v1/namespaces/payments/secrets"
     assert rows[0].type == "kubernetes.io/basic-auth" and rows[0].keys == 3
     assert rows[0].secret_loaded is False and rows[0].secret_data == {}
-    assert rows[0].expires == "--" and rows[0].subject == "--"
+    assert rows[0].expires == "n/a" and rows[0].subject == "n/a"  # basic-auth has no certificate
 
 
 def test_without_a_server_table_the_metadata_list_shows_dashes(monkeypatch):
@@ -95,3 +95,21 @@ def test_without_a_server_table_the_metadata_list_shows_dashes(monkeypatch):
     rows = service.list_resource("secrets", "payments")
     assert rows[0].type == "--" and rows[0].keys == "--"
     assert "PartialObjectMetadataList" in core.calls[0][2]["_headers"]["Accept"]
+
+
+def test_a_tls_secret_keeps_dashes_until_opened_and_a_plain_one_is_n_a_even_when_opened():
+    service = KubeService()
+
+    def table_pages(path, params, limit, with_meta=False):
+        yield ["Name", "Type", "Data", "Age"], [
+            (["site", "kubernetes.io/tls", "2", "1d"], {"name": "site", "namespace": "payments"}),
+            (["token", "Opaque", "1", "1d"], {"name": "token", "namespace": "payments"}),
+        ]
+
+    service._table_pages = table_pages
+    tls, opaque = service.list_resource("secrets", "payments")
+    assert tls.expires == "--" and tls.subject == "--"
+    assert opaque.expires == "n/a" and opaque.subject == "n/a"
+    opened = map_secret(SimpleNamespace(metadata=SimpleNamespace(name="token", namespace="payments", creation_timestamp=None),
+                                        type="Opaque", data={"k": "djE="}, string_data=None))
+    assert opened.expires == "n/a" and opened.subject == "n/a"

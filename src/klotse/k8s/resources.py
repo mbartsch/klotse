@@ -79,7 +79,7 @@ def map_secret(s):
     ann = (raw.get("metadata") or {}).get("annotations") or {}
     if "kubectl.kubernetes.io/last-applied-configuration" in ann:
         ann["kubectl.kubernetes.io/last-applied-configuration"] = "<hidden>"
-    expires, subject = "", ""
+    expires, subject = NOT_APPLICABLE, NOT_APPLICABLE  # only a TLS Secret has a certificate
     if s.type == "kubernetes.io/tls":  # only the public certificate is read, never tls.key
         expires, subject = tls_summary((s.data or {}).get("tls.crt"))
     row = _base(s, raw=raw, type=s.type or "", keys=len(s.data or {}), expires=expires, subject=subject)
@@ -90,6 +90,7 @@ def map_secret(s):
 
 
 UNKNOWN = "--"  # a field that needs the Secret data: shown until the Secret is opened
+NOT_APPLICABLE = "n/a"  # a field that does not exist for this Secret type (expiry and subject are for TLS only)
 
 
 def map_secret_metadata(item):
