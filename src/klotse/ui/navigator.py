@@ -65,8 +65,11 @@ class Navigator(QTreeWidget):
     plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
     metrics_source_requested = Signal(str)  # context name: the Prometheus / VictoriaMetrics source for usage history
     sign_in_requested = Signal(str)  # context name: run the kubeconfig's sign-in helper in a terminal, then connect again
+    config_requested = Signal(str)  # context name: show what the kubeconfig says about it, read-only
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
+    auto_refresh_requested = Signal(str)  # "pause", "enable" or "restore": auto-refresh on all open clusters (CONNECTED header menu)
+    auto_refresh_clusters_requested = Signal(object, bool)  # [context names], enabled: the cluster menu's Enable/Disable entries
 
     ROLE_KIND = Qt.UserRole
     ROLE_KEY = Qt.UserRole + 1
@@ -101,6 +104,7 @@ class Navigator(QTreeWidget):
         self.retry_pending = lambda _ctx: False
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
+        self._collapsed_clusters = None  # cluster name -> expanded before collapse_clusters, while collapsed
         self._connected_hdr = self._idle_hdr = None
         self._filter_text = ""
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -274,6 +278,21 @@ class Navigator(QTreeWidget):
             self._insert_cluster(self._idle_parent(name), self._clusters[name])
         self._update_headers()
         self._apply_filter()
+
+    def collapse_clusters(self):
+        """Fold every cluster's views, namespaces and other children away, so only the cluster list shows. The
+        expansion of each cluster is remembered so expand_clusters can put it back (groups are left as they are)."""
+        if self._collapsed_clusters is None:
+            self._collapsed_clusters = {name: item.isExpanded() for name, item in self._clusters.items()}
+        for item in self._clusters.values():
+            item.setExpanded(False)
+
+    def expand_clusters(self):
+        """Undo collapse_clusters: each cluster goes back to its remembered state (open when not remembered)."""
+        remembered = self._collapsed_clusters or {}
+        for name, item in self._clusters.items():
+            item.setExpanded(remembered.get(name, True))
+        self._collapsed_clusters = None
 
     def _header(self, label):
         h = QTreeWidgetItem([label])
@@ -476,15 +495,25 @@ class Navigator(QTreeWidget):
         """The context menu for a sidebar item, or None when there is nothing to offer."""
         kind = item.data(0, self.ROLE_KIND) if item is not None else None
         menu = QMenu(self)
+        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: auto-refresh, fold or open clusters
+            if item is self._connected_hdr:
+                menu.addAction("Turn auto-refresh off on all connected clusters", lambda: self.auto_refresh_requested.emit("pause"))
+                menu.addAction("Turn auto-refresh on on all connected clusters", lambda: self.auto_refresh_requested.emit("enable"))
+                menu.addAction("Restore each cluster's previous auto-refresh", lambda: self.auto_refresh_requested.emit("restore"))
+                menu.addSeparator()
+            menu.addAction("Collapse clusters (show only the cluster list)", self.collapse_clusters)
+            menu.addAction("Expand clusters", self.expand_clusters)
+            if item is self._idle_hdr and self.groups is not None:
+                menu.addSeparator()
+                menu.addAction("New group…", lambda: self.create_group(""))
+                menu.addAction("Suggest groups…", self.suggest_groups)
+            return menu
         if kind == "group":
             path = item.data(0, self.ROLE_KEY)
             menu.addAction("Connect all", lambda: self.connect_all(path))
             menu.addAction("New subgroup…", lambda: self.create_group(path))
             menu.addAction("Rename…", lambda: self.rename_group(path))
             menu.addAction("Delete group", lambda: self.delete_group(path))
-        elif item is not None and item is self._idle_hdr and self.groups is not None:
-            menu.addAction("New group…", lambda: self.create_group(""))
-            menu.addAction("Suggest groups…", self.suggest_groups)
         else:
             # the cluster menu belongs to the cluster's own row only; the views under it (Overview, Nodes, …) offer nothing here
             cluster = item if kind == "cluster" else None
@@ -502,6 +531,12 @@ class Navigator(QTreeWidget):
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
             if self._states.get(name) not in ACTIVE_STATES:
                 menu.addAction("Sign in with the helper…", lambda c=name: self.sign_in_requested.emit(c))
+            menu.addAction("Show kubeconfig entry…", lambda c=name: self.config_requested.emit(c))  # works before connecting
+            if self._states.get(name) in ACTIVE_STATES:
+                targets = self._auto_refresh_targets(cluster, name)
+                suffix = f" ({len(targets)})" if len(targets) > 1 else ""
+                menu.addAction(f"Disable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
+                menu.addAction(f"Enable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if self._states.get(name) in ACTIVE_STATES:
                 menu.addSeparator()
@@ -521,6 +556,15 @@ class Navigator(QTreeWidget):
                 if self._group_of(name):
                     move.addAction("No group", lambda: self.move_cluster(name, ""))
         return menu
+
+    def _auto_refresh_targets(self, item, name):
+        """The connected clusters an auto-refresh menu entry acts on: the selected connected clusters when the clicked one is
+        among several selected, else just the clicked cluster."""
+        selected = [i.data(0, self.ROLE_KEY) for i in self.selectedItems()
+                    if i.data(0, self.ROLE_KIND) == "cluster" and self._states.get(i.data(0, self.ROLE_KEY)) in ACTIVE_STATES]
+        if item in self.selectedItems() and len(selected) > 1:
+            return selected
+        return [name]
 
     def _selected_disconnected_clusters(self):
         return [item for item in self.selectedItems()

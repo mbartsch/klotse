@@ -194,13 +194,16 @@ def test_context_menus_offer_the_group_actions(qtbot):
     nav, _ = make_nav(qtbot, assignments={"a": "prod"})
     idle = nav.topLevelItem(1)
     labels = lambda menu: [a.text() for a in menu.actions() if a.text()]  # noqa: E731
-    assert labels(nav.menu_for(idle)) == ["New group…", "Suggest groups…"]
+    collapse_expand = ["Collapse clusters (show only the cluster list)", "Expand clusters"]
+    assert labels(nav.menu_for(idle)) == collapse_expand + ["New group…", "Suggest groups…"]
     assert labels(nav.menu_for(idle.child(0))) == ["Connect all", "New subgroup…", "Rename…", "Delete group"]
     cluster_menu = nav.menu_for(nav.cluster_item("a"))
-    assert labels(cluster_menu) == ["Connect", "Rename alias…", "Sign in with the helper…", "Move to group"]
+    assert labels(cluster_menu) == ["Connect", "Rename alias…", "Sign in with the helper…", "Show kubeconfig entry…", "Move to group"]
     move = next(a for a in cluster_menu.actions() if a.text() == "Move to group").menu()
     assert labels(move) == ["prod", "New group…", "No group"]
-    assert nav.menu_for(nav.topLevelItem(0)) is None  # the Connected header has nothing to offer
+    assert labels(nav.menu_for(nav.topLevelItem(0))) == [  # the CONNECTED header: auto-refresh for all clusters, then fold or open
+        "Turn auto-refresh off on all connected clusters", "Turn auto-refresh on on all connected clusters",
+        "Restore each cluster's previous auto-refresh"] + collapse_expand
 
 
 def test_without_groups_the_list_is_the_plain_two_sections(qtbot):
@@ -210,7 +213,9 @@ def test_without_groups_the_list_is_the_plain_two_sections(qtbot):
     assert [nav.topLevelItem(1).child(i).data(0, nav.ROLE_KEY)
             for i in range(nav.topLevelItem(1).childCount())] == ["a", "b"] and nav.groups is None
     labels = [a.text() for a in nav.menu_for(nav.cluster_item("a")).actions() if a.text()]
-    assert labels == ["Connect", "Rename alias…", "Sign in with the helper…"] and nav.menu_for(nav.topLevelItem(1)) is None  # no groups: nothing to offer on the header
+    assert labels == ["Connect", "Rename alias…", "Sign in with the helper…", "Show kubeconfig entry…"]
+    header = [a.text() for a in nav.menu_for(nav.topLevelItem(1)).actions() if a.text()]
+    assert header == ["Collapse clusters (show only the cluster list)", "Expand clusters"]  # no groups: only collapse and expand
 
 
 def test_search_filters_both_sections_by_context_or_alias_without_changing_groups(qtbot):
