@@ -23,6 +23,7 @@ def test_the_secret_list_asks_for_metadata_only_and_never_full_objects():
     service = KubeService()
     core = FakeCore()
     service._core = core
+    service._table_pages = lambda *a, **k: (_ for _ in ()).throw(ValueError("no table"))  # force the metadata list
     rows = service.list_resource("secrets", "payments")
     [(kind, namespace, kwargs)] = core.calls
     assert kind == "list" and namespace == "payments"
@@ -64,3 +65,33 @@ def test_editing_a_metadata_secret_reads_it_first(monkeypatch):
     metadata_row = map_secret_metadata(ITEM)
     Window().edit_resource("Secret", metadata_row)
     assert calls == ["load", "edit"]
+
+
+def test_the_server_table_gives_type_and_key_count_without_any_data():
+    service = KubeService()
+    seen = {}
+
+    def table_pages(path, params, limit, with_meta=False):
+        seen["path"] = path
+        yield ["Name", "Type", "Data", "Age"], [(["db-pass", "kubernetes.io/basic-auth", "3", "2d"], ITEM["metadata"])]
+
+    service._table_pages = table_pages
+    rows = service.list_resource("secrets", "payments")
+    assert seen["path"] == "/api/v1/namespaces/payments/secrets"
+    assert rows[0].type == "kubernetes.io/basic-auth" and rows[0].keys == 3
+    assert rows[0].secret_loaded is False and rows[0].secret_data == {}
+    assert rows[0].expires == "--" and rows[0].subject == "--"
+
+
+def test_without_a_server_table_the_metadata_list_shows_dashes(monkeypatch):
+    service = KubeService()
+    core = FakeCore()
+    service._core = core
+
+    def no_table(*args, **kwargs):
+        raise ValueError("the server did not answer with a Table")
+
+    service._table_pages = no_table
+    rows = service.list_resource("secrets", "payments")
+    assert rows[0].type == "--" and rows[0].keys == "--"
+    assert "PartialObjectMetadataList" in core.calls[0][2]["_headers"]["Accept"]

@@ -93,8 +93,8 @@ UNKNOWN = "--"  # a field that needs the Secret data: shown until the Secret is 
 
 
 def map_secret_metadata(item):
-    """A Secret row from its metadata only (see KubeService._secret_metadata): name, namespace and age. Type, key count, expiry
-    and subject need the data, so they show "--" until the Secret is opened (secret_loaded False; the workspace then reads it)."""
+    """A Secret row from its metadata only (see KubeService._secret_metadata): name, namespace and age. Type and key count come from
+    the server's Table when it is read; expiry and subject need the certificate, so they show "--" until the Secret is opened (secret_loaded False)."""
     md = item.get("metadata") or {}
     created = md.get("creationTimestamp")
     try:
