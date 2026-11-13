@@ -7,6 +7,8 @@ import sys
 import tempfile
 import uuid
 
+from ..k8s.process_env import environment, proxy_variables
+
 
 NODE_SHELL_IMAGE = "docker.io/library/alpine"
 
@@ -140,8 +142,18 @@ def _mac_session_script(argv, mac_terminal):
         raise
 
 
+def _with_proxy(argv):
+    """A POSIX terminal starts its own shell, which does not inherit this process's environment, so the app's proxy goes in
+    front of the command as `env NAME=value`. Windows passes the environment to the console process instead."""
+    variables = proxy_variables()
+    if not variables or sys.platform == "win32":
+        return argv
+    return ["env", *[f"{key}={value}" for key, value in variables.items()], *argv]
+
+
 def open_terminal(argv, mac_terminal="Terminal"):
     """Open an interactive session; macOS sessions close after a successful command."""
+    argv = _with_proxy(argv)
     if sys.platform == "win32":
         path = _windows_session_file(argv)
         if getattr(sys, "frozen", False):
@@ -153,7 +165,7 @@ def open_terminal(argv, mac_terminal="Terminal"):
             runner = [str(executable), str(Path(__file__).with_name("terminal_session.py").resolve()), "Windows", path]
         try:
             # A pythonw/frozen parent may have invalid standard handles. The runner opens its own new console streams.
-            subprocess.Popen(runner, creationflags=subprocess.CREATE_NEW_CONSOLE,
+            subprocess.Popen(runner, creationflags=subprocess.CREATE_NEW_CONSOLE, env=environment(),
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             Path(path).unlink(missing_ok=True)

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDoc
 from shiboken6 import isValid
 
 from ..k8s.api_index import ApiIndex
+from ..k8s.process_env import environment
 from ..k8s.permissions import Permissions
 from ..k8s.helm import HelmError, helm_uninstall_args
 from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPEC_BY_KIND, SPECS, crd_groups,
@@ -1080,7 +1081,7 @@ class ClusterWorkspace(QMainWindow):
         def run():
             flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
             try:
-                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, **flags)  # no console: see remote_files
+                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=environment(), **flags)  # no console: see remote_files
             except FileNotFoundError:
                 raise RuntimeError("The helm command was not found. Install Helm and make sure it is on the PATH.") from None
             except subprocess.TimeoutExpired:
