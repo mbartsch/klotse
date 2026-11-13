@@ -204,6 +204,7 @@ class DetailPanel(QWidget):
         self.related.hide()
         self._related_ok = False  # the current row is of a kind that has a Related view
         self._related_row = None  # the row the Related view is waiting for or showing
+        self._related_relations, self._related_expanded = [], set()  # the answer shown, and the capped groups shown in full
         self.events = QTextBrowser()
         self.events.setObjectName("detailEvents")
         self.events.setAccessibleName("Events for the selected resource")
@@ -341,6 +342,7 @@ class DetailPanel(QWidget):
         self._events_row = None
         self._related_ok = getattr(row, "table_kind", None) in RELATED_KINDS and isinstance(getattr(row, "raw", None), dict)
         self._related_row = None
+        self._related_expanded = set()  # a new selection starts with every capped group folded
         self._render_formatted(row)
         def restore_scroll():
             if self._detail_key == key:
@@ -385,9 +387,16 @@ class DetailPanel(QWidget):
         if error:
             self.related.setHtml(f"<p style='color:{theme.BAD}'>Cannot read the related objects: {events_view._e(error)}</p>")
         else:
-            self.related.setHtml(related_view.render(relations or [], getattr(row, "name", "")))
+            self._related_relations = list(relations or [])
+            self.related.setHtml(related_view.render(self._related_relations, getattr(row, "name", ""), frozenset(self._related_expanded)))
 
     def _related_clicked(self, url):
+        more = related_view.parse_more(url.toString())
+        if more is not None:  # "... and N more": show every entry of that group, or fold it back
+            self._related_expanded ^= {more}
+            self.related.setHtml(related_view.render(self._related_relations, getattr(self._related_row, "name", ""),
+                                                     frozenset(self._related_expanded)))
+            return
         target = related_view.parse_link(url.toString())
         if target is not None:
             self.goto_object.emit(*target)

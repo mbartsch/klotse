@@ -31,8 +31,29 @@ def parse_link(href):
     return (kind, namespace, name) if all(isinstance(v, str) for v in (kind, namespace, name)) else None
 
 
-def render(relations, name=""):
-    """HTML for the relations of one object, grouped by relation in reading order."""
+MORE_SCHEME = "klotse-more:"
+
+
+def more_link(relation, kind, depth):
+    """The href of a '... and N more' note: it toggles showing every entry of that group."""
+    return MORE_SCHEME + quote(json.dumps([relation, kind, depth]))
+
+
+def parse_more(href):
+    """(relation, kind, depth) from a link made by more_link(), or None for any other link."""
+    text = str(href)
+    if not text.startswith(MORE_SCHEME):
+        return None
+    try:
+        relation, kind, depth = json.loads(unquote(text[len(MORE_SCHEME):]))
+    except (ValueError, TypeError):
+        return None
+    return (relation, kind, depth) if isinstance(relation, str) and isinstance(kind, str) and isinstance(depth, int) else None
+
+
+def render(relations, name="", expanded=frozenset()):
+    """HTML for the relations of one object, grouped by relation in reading order. A capped group ends with a link that shows
+    every entry of it (`expanded` holds the groups currently shown in full)."""
     if not relations:
         return (f"<p style='color:{theme.MUTED}'>No related objects found for {_e(name) or 'this object'}. Either it has none, or "
                 "they could not be read (no permission, or already gone).</p>")
@@ -43,14 +64,30 @@ def render(relations, name=""):
     for relation in [o for o in ORDER if o in groups] + [o for o in groups if o not in ORDER]:
         rows = []
         for r in groups[relation]:
-            indent = "&nbsp;" * 4 * r.depth + ("↳&nbsp;" if r.depth else "")
-            if r.note in ("more", "partial"):
+            if r.note == "more":
+                key = (relation, r.kind, r.depth)
+                if key not in expanded:
+                    indent = "&nbsp;" * 4 * r.depth + ("↳&nbsp;" if r.depth else "")
+                    rows.append(f"<tr><td>{indent}<a href='{more_link(relation, r.kind, r.depth)}' style='color:{theme.MUTED}'>"
+                                f"{_e(r.name)} (show all)</a></td></tr>")
+                    continue
+                for entry in r.more:
+                    rows.append(_entry_row(entry))
+                rows.append(f"<tr><td>{'&nbsp;' * 4 * r.depth}<a href='{more_link(relation, r.kind, r.depth)}'>show fewer</a></td></tr>")
+                continue
+            if r.note == "partial":
+                indent = "&nbsp;" * 4 * r.depth + ("↳&nbsp;" if r.depth else "")
                 rows.append(f"<tr><td style='color:{theme.MUTED}'>{indent}{_e(r.name)}</td><td></td></tr>")
                 continue
-            where = f" <span style='color:{theme.MUTED}'>{_e(r.namespace)}</span>" if r.namespace else ""
-            tag = f" <span style='color:{theme.MUTED}'>({_e(r.note)})</span>" if r.note else ""
-            rows.append(f"<tr><td>{indent}<span style='color:{theme.MUTED}'>{_e(r.kind)}</span> "
-                        f"<a href='{link(r.kind, r.namespace, r.name)}'>{_e(r.name)}</a>{where}{tag}</td></tr>")
+            rows.append(_entry_row(r))
         parts.append(f"<h3 style='color:{theme.ACCENT_HI}; margin:12px 0 4px 0'>{_e(SECTION_TITLES.get(relation, relation))}</h3>"
                      f"<table cellspacing='0'>{''.join(rows)}</table>")
     return "".join(parts)
+
+
+def _entry_row(r):
+    indent = "&nbsp;" * 4 * r.depth + ("↳&nbsp;" if r.depth else "")
+    where = f" <span style='color:{theme.MUTED}'>{_e(r.namespace)}</span>" if r.namespace else ""
+    tag = f" <span style='color:{theme.MUTED}'>({_e(r.note)})</span>" if r.note else ""
+    return (f"<tr><td>{indent}<span style='color:{theme.MUTED}'>{_e(r.kind)}</span> "
+            f"<a href='{link(r.kind, r.namespace, r.name)}'>{_e(r.name)}</a>{where}{tag}</td></tr>")
