@@ -1,11 +1,15 @@
+import base64
 import datetime
 import functools
 import http.client
+import os
 import ssl
 import itertools
 import inspect
 import json
 import threading
+import urllib.error
+import urllib.request
 from urllib.parse import urlencode
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -13,10 +17,11 @@ from heapq import heappush, heapreplace
 
 from kubernetes import client, config, watch
 from kubernetes.client.exceptions import ApiException
+from kubernetes.client.rest import should_bypass_proxies
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, metrics_history, preflight, prometheus, related, rollout, search, trivy
+from . import connect_help, helm, metrics_history, preflight, prometheus, process_env, related, rollout, search, trivy
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
@@ -1129,10 +1134,48 @@ class KubeService:
         """One range query through the API server's service proxy: {line: [(t, value)]}."""
         return prometheus.parse_matrix(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60), label)
 
+    def _direct_get(self, ref, path, timeout):
+        """A GET from this computer to a URL source (`origin` + path), with its authentication. The secret is read from the environment
+        variable the source names, when it is asked for; it is never stored, logged or shown. The app's HTTP(S) proxy is used unless the
+        address is on its bypass list. Raises PrometheusError saying which step failed."""
+        headers = {"Accept": "application/json"}
+        kind, variable = ref.get("auth", ""), ref.get("auth_env", "")
+        if kind:
+            secret = os.environ.get(variable, "") if variable else ""
+            if not secret:
+                raise prometheus.PrometheusError(f"the environment variable {variable or '(none named)'} is not set, so the source cannot be asked")
+            if kind == "bearer":
+                headers["Authorization"] = f"Bearer {secret}"
+            else:
+                pair = f"{ref.get('auth_user', '')}:{secret}".encode("utf-8")
+                headers["Authorization"] = "Basic " + base64.b64encode(pair).decode("ascii")
+        url = ref["origin"] + path
+        proxy, bypass = process_env.app_proxy()
+        if proxy and proxy.lower().startswith("socks"):
+            raise prometheus.PrometheusError("a SOCKS proxy is not used for URL sources (use an HTTP(S) proxy, or none)")
+        if proxy and not should_bypass_proxies(url, ",".join(bypass)):
+            handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+        else:
+            handler = urllib.request.ProxyHandler({}) if proxy else urllib.request.ProxyHandler()
+        opener = urllib.request.build_opener(handler)
+        try:
+            # nosec B310 - the address is the one the user typed for this source; only http and https are allowed (prometheus.parse_url)
+            with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
+                body = response.read(MAX_PROMETHEUS_BODY + 1)
+        except urllib.error.HTTPError as error:
+            raise prometheus.PrometheusError(f"{ref['origin']} refused the query (HTTP {error.code}); check the authentication and the path prefix") from error
+        except (urllib.error.URLError, OSError) as error:
+            raise prometheus.PrometheusError(f"could not reach {ref['origin']}: {getattr(error, 'reason', error)}") from error
+        if len(body) > MAX_PROMETHEUS_BODY:
+            raise prometheus.PrometheusError("the answer is too large")
+        return body.decode("utf-8", "replace")
+
     def _prometheus_get(self, ref, path, timeout):
         """The answer text for `path`: through the API server proxy, or, for a ref with `local_port` (a port-forward Klotse started), a GET to
         127.0.0.1 on that port: plain HTTP, or https when `scheme` is "https" (certificate errors are ignored only when `insecure` is set).
         Raises PrometheusError saying which step failed."""
+        if ref.get("url"):
+            return self._direct_get(ref, path, timeout)
         port = ref.get("local_port")
         if not port:
             return self._get_text(path, "application/json", timeout)

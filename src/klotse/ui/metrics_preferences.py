@@ -1,18 +1,22 @@
-"""Preferences > Metrics: the default usage-history source for every cluster, and each cluster's own source, which can be edited, tested
-or removed. The source is a Prometheus / VictoriaMetrics service, or metrics-server only (no Prometheus). A saved entry whose cluster is
-no longer in the kubeconfig is marked "Not in kubeconfig"; nothing is removed on its own (only "Remove unused entries", after Yes/No).
-If the kubeconfig cannot be read, nothing is marked. Test asks an open, connected cluster to check the source in the background; it
-saves nothing. Changes are staged here and written by `save()`, which the Preferences dialog calls when it is saved."""
+"""Preferences > Metrics: the default usage-history source for every cluster, and each cluster's own source, which can be added, edited, tested
+or removed. A source is a Prometheus / VictoriaMetrics service, a URL (called directly from this computer, optionally with a bearer token or a
+user name and password taken from an environment variable), or metrics-server only (no Prometheus). A saved entry whose cluster is no longer
+in the kubeconfig is marked "Not in kubeconfig"; nothing is removed on its own (only "Remove unused entries", after Yes/No). If the kubeconfig
+cannot be read, nothing is marked. Test asks an open, connected cluster to check the source in the background; a URL is checked from this
+computer; it saves nothing. Changes are staged here and written by `save()`, which the Preferences dialog calls when it is saved."""
 from functools import partial
 
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView,
-                               QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView, QLabel,
+                               QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..k8s import prometheus
 from .metrics_sources import METRICS_SERVER
 
-AUTOMATIC, PROMETHEUS, METRICS_ONLY = "Find it automatically", "Prometheus / VictoriaMetrics", "metrics-server only"
+AUTOMATIC, PROMETHEUS, METRICS_ONLY = "Find it automatically", "Prometheus / VictoriaMetrics or URL", "metrics-server only"
+AUTH_CHOICES = (("", "No authentication"),
+                ("bearer", "Bearer token from an environment variable"),
+                ("basic", "User name and password (password from an environment variable)"))
+NO_AUTH = ("", "", "")
 
 
 def kubeconfig_contexts(path):
@@ -25,28 +29,76 @@ def kubeconfig_contexts(path):
     return [str(item["name"]) for item in contexts]
 
 
-class AddSourceDialog(QDialog):
-    """Add a cluster's source. A connected cluster lists the services found on it (`discover(name, done)` calls done with the list, or
-    None when the cluster is not connected); the user can always type the address instead."""
+def valid_source(text):
+    """The source text as saved: metrics-server, a Prometheus address, or a URL. ValueError says what is wrong."""
+    text = str(text).strip()
+    if text.lower() == METRICS_SERVER:
+        return METRICS_SERVER
+    prometheus.parse_ref(text)
+    return text
 
-    def __init__(self, clusters, discover=None, parent=None):
+
+def auth_fields(auth_box, env_edit, user_edit):
+    """(kind, environment variable, user name) from the three auth widgets; the user name only for basic."""
+    kind = auth_box.currentData() or ""
+    return kind, env_edit.text().strip(), user_edit.text().strip() if kind == "basic" else ""
+
+
+def _auth_widgets(parent_form, auth):
+    """The authentication widgets (kind, variable, user) and the rows they sit in, set from `auth`."""
+    box = QComboBox()
+    for kind, label in AUTH_CHOICES:
+        box.addItem(label, kind)
+    box.setCurrentIndex(max(0, [kind for kind, _ in AUTH_CHOICES].index(auth[0] or "")))
+    box.setAccessibleName("Authentication for a URL source")
+    env_edit = QLineEdit(auth[1])
+    env_edit.setPlaceholderText("name of the variable, for example METRICS_TOKEN")
+    env_edit.setAccessibleName("Environment variable holding the token or password")
+    user_edit = QLineEdit(auth[2])
+    user_edit.setPlaceholderText("user name")
+    user_edit.setAccessibleName("User name")
+
+    def changed(*_):
+        kind = box.currentData() or ""
+        env_edit.setEnabled(bool(kind))
+        user_edit.setEnabled(kind == "basic")
+
+    box.currentIndexChanged.connect(changed)
+    changed()
+    parent_form.addRow("Authentication (URL only)", box)
+    parent_form.addRow("Environment variable", env_edit)
+    parent_form.addRow("User name", user_edit)
+    return box, env_edit, user_edit
+
+
+class AddSourceDialog(QDialog):
+    """Add or edit a cluster's source. A connected cluster lists the services found on it (`discover(name, done)` calls done with the list,
+    or None when the cluster is not connected); the user can always type the address instead, or a URL with authentication."""
+
+    def __init__(self, clusters, discover=None, parent=None, cluster="", service="", auth=NO_AUTH, fixed_cluster=False):
         super().__init__(parent)
-        self.setWindowTitle("Add a metrics source")
+        self.setWindowTitle("Metrics source" if fixed_cluster else "Add a metrics source")
         self.discover = discover
         self.cluster = QComboBox()
-        self.cluster.setEditable(True)
+        self.cluster.setEditable(not fixed_cluster)
         self.cluster.addItems(clusters)
-        self.cluster.lineEdit().setPlaceholderText("cluster name from the kubeconfig")
+        if fixed_cluster:
+            self.cluster.setEditText(cluster)
+            self.cluster.setEnabled(False)
+        else:
+            self.cluster.lineEdit().setPlaceholderText("cluster name from the kubeconfig")
         self.cluster.lineEdit().setAccessibleName("Cluster")
         self.service = QComboBox()
         self.service.setEditable(True)
-        self.service.lineEdit().setPlaceholderText("namespace/service:port[/prefix], or metrics-server")
-        self.service.lineEdit().setAccessibleName("Service")
+        self.service.setEditText(service)
+        self.service.lineEdit().setPlaceholderText("namespace/service:port[/prefix], https://host/prefix, or metrics-server")
+        self.service.lineEdit().setAccessibleName("Service or URL")
         self.status = QLabel("")
         self.status.setWordWrap(True)
         form = QFormLayout()
         form.addRow("Cluster", self.cluster)
-        form.addRow("Service", self.service)
+        form.addRow("Service or URL", self.service)
+        self.auth_box, self.auth_env, self.auth_user = _auth_widgets(form, auth)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -58,7 +110,9 @@ class AddSourceDialog(QDialog):
         self._cluster_changed(self.cluster.currentText())
 
     def _cluster_changed(self, name):
+        typed = self.service.currentText()  # keep what is typed while the services are looked for
         self.service.clear()
+        self.service.setEditText(typed)
         name = name.strip()
         if not name:
             self.status.setText("Choose or type the cluster.")
@@ -73,47 +127,44 @@ class AddSourceDialog(QDialog):
         try:
             if asked != self.cluster.currentText().strip():
                 return  # the cluster was changed meanwhile
+            typed = self.service.currentText()
             if result is None:
-                self.status.setText("This cluster is not connected: type the service, for example monitoring/prometheus-server:80. "
-                                    "Connect the cluster to pick one it has.")
+                self.status.setText("This cluster is not connected: type the service or URL, for example monitoring/prometheus-server:80 "
+                                    "or https://vm.example.com/select/0/prometheus. Connect the cluster to pick one it has.")
             elif not result:
                 self.status.setText("No Prometheus or VictoriaMetrics service found on this cluster. Type one.")
             else:
                 self.service.addItems(result)
                 self.status.setText(f"Found {len(result)} on this cluster: pick one, or type another.")
+            self.service.setEditText(typed)
         except RuntimeError:  # the dialog was closed while the services were being looked for
             pass
 
     def chosen(self):
         return self.cluster.currentText().strip(), self.service.currentText().strip()
 
-
-def valid_source(text):
-    """The source text as saved: metrics-server, or a Prometheus address. ValueError says what is wrong."""
-    text = str(text).strip()
-    if text.lower() == METRICS_SERVER:
-        return METRICS_SERVER
-    prometheus.parse_ref(text)
-    return text
+    def auth_choice(self):
+        return auth_fields(self.auth_box, self.auth_env, self.auth_user)
 
 
 class MetricsPanel(QWidget):
     def __init__(self, metrics, contexts, parent=None, tester=None, discoverer=None):
         super().__init__(parent)
         self.metrics = metrics
-        self.discoverer = discoverer  # discoverer(name, done): the services found on a connected cluster
         self.contexts = contexts  # None when the kubeconfig could not be read
-        self.tester = tester  # tester(context or None, text, done(message)); None = testing is not available
+        self.tester = tester  # tester(context or None, text, done(message), auth): None = testing is not available
+        self.discoverer = discoverer  # discoverer(name, done): the services found on a connected cluster
         self.default_ref, self.default_via, self.default_local = metrics.get_default()
+        self.default_auth = metrics.get_default_auth()
         self.changes = {}  # context -> entry to keep, or None to remove its own entry
         self.saved = dict(metrics.entries())
 
         self.mode = QComboBox()
         self.mode.addItems([AUTOMATIC, PROMETHEUS, METRICS_ONLY])
         self.mode.setCurrentIndex(2 if self.default_ref == METRICS_SERVER else 1 if self.default_ref else 0)
-        self.default_edit = QLineEdit(self.default_ref if self.default_ref != METRICS_SERVER else "")
-        self.default_edit.setPlaceholderText("namespace/service:port[/prefix], for example monitoring/prometheus-server:80")
-        self.default_edit.setAccessibleName("Default Prometheus or VictoriaMetrics service")
+        self.default_edit = QLineEdit("" if self.default_ref == METRICS_SERVER else self.default_ref)
+        self.default_edit.setPlaceholderText("namespace/service:port[/prefix], or https://host/prefix")
+        self.default_edit.setAccessibleName("Default Prometheus, VictoriaMetrics or URL")
         self.default_test = QPushButton("Test")
         self.default_test.clicked.connect(self._test_default)
         self.mode.currentIndexChanged.connect(self._mode_changed)
@@ -122,7 +173,8 @@ class MetricsPanel(QWidget):
         default_row.addWidget(self.default_test)
         defaults = QFormLayout()
         defaults.addRow("Default for all clusters", self.mode)
-        defaults.addRow("Service", default_row)
+        defaults.addRow("Service or URL", default_row)
+        self.default_auth_box, self.default_env, self.default_user = _auth_widgets(defaults, self.default_auth)
         self._mode_changed()
 
         self.table = QTableWidget(0, 4)
@@ -139,10 +191,10 @@ class MetricsPanel(QWidget):
         self.table.itemSelectionChanged.connect(self._update_buttons)
 
         self.add_button = QPushButton("Add…")
-        self.add_button.clicked.connect(self.add_source)
-        self.edit_button = QPushButton("Edit")
+        self.edit_button = QPushButton("Edit…")
         self.remove_button = QPushButton("Remove")
         self.unused_button = QPushButton()
+        self.add_button.clicked.connect(self.add_source)
         self.edit_button.clicked.connect(self.edit_selected)
         self.remove_button.clicked.connect(self.remove_selected)
         self.unused_button.clicked.connect(self.remove_unused)
@@ -153,8 +205,8 @@ class MetricsPanel(QWidget):
         self.result = QLabel("")
         self.result.setWordWrap(True)
         self.result.setAccessibleName("Test result")
-        note = QLabel("Test checks the source on a connected cluster and saves nothing. An empty source means: look for one automatically. "
-                      "Remove forgets the saved setting after a Yes/No.")
+        note = QLabel("Test checks the source on a connected cluster (a URL is checked from this computer) and saves nothing. "
+                      "An empty source means: look for one automatically. Remove forgets the saved setting after a Yes/No.")
         note.setWordWrap(True)
 
         layout = QVBoxLayout(self)
@@ -171,6 +223,7 @@ class MetricsPanel(QWidget):
     def _mode_changed(self, *_):
         self.default_edit.setEnabled(self.mode.currentIndex() == 1)
         self.default_test.setEnabled(self.mode.currentIndex() != 0)
+        self.default_auth_box.setEnabled(self.mode.currentIndex() == 1)
 
     def _names(self):
         return sorted(set(self.saved) | set(self.changes))
@@ -200,6 +253,8 @@ class MetricsPanel(QWidget):
             else:
                 status = "Not in kubeconfig" if self._is_stale(name) else "In kubeconfig"
             source = "metrics-server only" if entry["ref"] == METRICS_SERVER else entry["ref"]
+            if entry.get("auth"):
+                source += f"  ({entry['auth']})"
             for column, value in enumerate((name, source, status)):
                 self.table.setItem(row, column, QTableWidgetItem(value))
             test = QPushButton("Test")
@@ -221,6 +276,9 @@ class MetricsPanel(QWidget):
             return None
         return self.table.item(rows[0].row(), 0).text()
 
+    def _chosen_auth(self):
+        return auth_fields(self.default_auth_box, self.default_env, self.default_user)
+
     # --- test --------------------------------------------------------------------------------------------------------
 
     def _show_result(self, message):
@@ -229,12 +287,12 @@ class MetricsPanel(QWidget):
         except RuntimeError:  # the panel was closed while the check ran
             pass
 
-    def _run_test(self, context, text):
+    def _run_test(self, context, text, auth=NO_AUTH):
         if self.tester is None:
             self._show_result("Testing is not available here.")
             return
         self._show_result("Testing…")
-        self.tester(context, text, self._show_result)
+        self.tester(context, text, self._show_result, auth)
 
     def _test_default(self):
         index = self.mode.currentIndex()
@@ -249,12 +307,12 @@ class MetricsPanel(QWidget):
         if not text:
             self._show_result("Nothing to test: the default is to look for one automatically.")
             return
-        self._run_test(None, text)
+        self._run_test(None, text, self._chosen_auth())
 
     def _test_row(self, name):
         entry = self._entry(name)
         if entry:
-            self._run_test(name, entry["ref"])
+            self._run_test(name, entry["ref"], (entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")))
 
     # --- actions -----------------------------------------------------------------------------------------------------
 
@@ -264,6 +322,7 @@ class MetricsPanel(QWidget):
         dialog = AddSourceDialog(names, self.discoverer, self)
         accepted = dialog.exec() == QDialog.Accepted
         name, text = dialog.chosen()
+        kind, variable, user = dialog.auth_choice()
         dialog.deleteLater()
         if not accepted:
             return
@@ -271,37 +330,49 @@ class MetricsPanel(QWidget):
             QMessageBox.warning(self, "Metrics source", "Choose or type the cluster.")
             return
         if self._entry(name) is not None:
-            QMessageBox.warning(self, "Metrics source", f"{name} already has a source: use Edit to change it.")
+            QMessageBox.warning(self, "Metrics source", f"{name} already has a source: use Edit… to change it.")
             return
         try:
             text = valid_source(text)
         except ValueError as error:
             QMessageBox.warning(self, "Metrics source", str(error))
             return
-        self.changes[name] = {"ref": text, "via": "proxy", "local": 0, "tls": "", "insecure": ""}
+        self.changes[name] = self._entry_dict(text, "proxy", 0, kind, variable, user)
         self._refresh()
 
     def edit_selected(self):
+        """Edit the selected cluster's source: the same dialog as Add…, with the cluster fixed."""
         name = self._selected_name()
         if not name:
             return
         entry = self._entry(name)
-        text, ok = QInputDialog.getText(self, "Metrics source",
-                                        f"Source for {name}: namespace/service:port[/prefix], metrics-server, or empty to use the default",
-                                        text=entry["ref"])
-        if not ok:
+        dialog = AddSourceDialog([name], self.discoverer, self, cluster=name, service=entry["ref"],
+                                 auth=(entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")), fixed_cluster=True)
+        accepted = dialog.exec() == QDialog.Accepted
+        _name, text = dialog.chosen()
+        kind, variable, user = dialog.auth_choice()
+        dialog.deleteLater()
+        if not accepted:
             return
         text = text.strip()
-        if text:
+        if not text:
+            self.changes[name] = None  # empty: use the default again
+        else:
             try:
                 text = valid_source(text)
             except ValueError as error:
                 QMessageBox.warning(self, "Metrics source", str(error))
                 return
-            self.changes[name] = {**entry, "ref": text}
-        else:
-            self.changes[name] = None
+            self.changes[name] = self._entry_dict(text, entry.get("via", "proxy"), entry.get("local", 0), kind, variable, user,
+                                                  tls=entry.get("tls", ""), insecure=entry.get("insecure", ""))
         self._refresh()
+
+    @staticmethod
+    def _entry_dict(text, via, local, kind, variable, user, tls="", insecure=""):
+        url = text.lower().startswith(("http://", "https://"))
+        kind, variable, user = (kind, variable, user) if url else NO_AUTH
+        return {"ref": text, "via": via if not url else "proxy", "local": local, "tls": tls, "insecure": insecure,
+                "auth": kind, "auth_env": variable, "auth_user": user}
 
     def remove_selected(self):
         name = self._selected_name()
@@ -336,18 +407,21 @@ class MetricsPanel(QWidget):
             return METRICS_SERVER
         text = self.default_edit.text().strip()
         if not text:
-            raise ValueError("Type the service for the default, or choose Find it automatically.")
+            raise ValueError("Type the service or URL for the default, or choose Find it automatically.")
         return valid_source(text)  # ValueError says what is wrong
 
     def save(self):
         """Write the default and the staged per-cluster changes. Raises ValueError for a bad address, OSError when not written."""
         default = self._chosen_default()
-        if default != self.default_ref:
+        auth = self._chosen_auth() if default and default != METRICS_SERVER else NO_AUTH
+        if (default, auth) != (self.default_ref, self.default_auth):
             keep = bool(default) and default != METRICS_SERVER
-            self.metrics.set_default(default, via=self.default_via if keep else "proxy", local=self.default_local if keep else 0)
+            self.metrics.set_default(default, via=self.default_via if keep else "proxy", local=self.default_local if keep else 0,
+                                     auth=auth[0], auth_env=auth[1], auth_user=auth[2])
         for name, entry in self.changes.items():
             if entry is None:
                 self.metrics.set(name, "")
             else:
-                self.metrics.set(name, entry["ref"], via=entry["via"], local=entry["local"], tls=entry["tls"], insecure=entry["insecure"])
+                self.metrics.set(name, entry["ref"], via=entry["via"], local=entry["local"], tls=entry["tls"], insecure=entry["insecure"],
+                                 auth=entry.get("auth", ""), auth_env=entry.get("auth_env", ""), auth_user=entry.get("auth_user", ""))
         self.changes = {}

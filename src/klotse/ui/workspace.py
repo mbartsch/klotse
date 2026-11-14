@@ -1885,7 +1885,7 @@ class ClusterWorkspace(QMainWindow):
         def find_source():
             """(ref, [what failed]) of the first source that answers the Prometheus API; runs on a worker."""
             notes = []
-            candidates = [prometheus.parse_ref(typed)] if typed else (self.service.find_prometheus() or [])[:3]
+            candidates = [prometheus.with_auth(prometheus.parse_ref(typed), *self.metrics_sources.get_auth(self.context))] if typed else (self.service.find_prometheus() or [])[:3]
             for ref in candidates:
                 try:
                     self.service.prometheus_check(ref)
@@ -2031,7 +2031,8 @@ class ClusterWorkspace(QMainWindow):
             dialog.set_source_note("Prometheus is not used for this cluster (Preferences > Metrics chooses metrics-server only).")
             return
         try:
-            typed = forwarded or (prometheus.parse_ref(manual) if manual else None)
+            typed = forwarded or (prometheus.with_auth(prometheus.parse_ref(manual), *self.metrics_sources.get_auth(self.context))
+                                  if manual else None)
         except ValueError as error:
             dialog.set_source_note(f"The saved Prometheus address is not valid: {error}")
             return
@@ -2081,7 +2082,7 @@ class ClusterWorkspace(QMainWindow):
 
         self._run(work, done, on_error=lambda _message: done([]))
 
-    def check_metrics_source(self, text, done):
+    def check_metrics_source(self, text, done, auth=("", "", "")):
         """Preferences > Metrics Test: check `text` (a Prometheus / VictoriaMetrics address, or metrics-server) on this cluster in the
         background, then call done(message). Nothing is saved."""
         def work():
@@ -2089,7 +2090,7 @@ class ClusterWorkspace(QMainWindow):
                 if self.service.metrics_available():
                     return "metrics-server answered: the metrics.k8s.io API is served here."
                 raise RuntimeError("metrics-server is not installed on this cluster (metrics.k8s.io is not served).")
-            ref = prometheus.parse_ref(text)
+            ref = prometheus.with_auth(prometheus.parse_ref(text), *auth)
             self.service.prometheus_check(ref)
             return f"{prometheus.ref_text(ref)} answered the Prometheus API."
 
@@ -2244,7 +2245,9 @@ class ClusterWorkspace(QMainWindow):
                 QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
                 return False
         try:
-            self.metrics_sources.set(self.context, text, via, local, tls, insecure)
+            own = self.metrics_sources.own(self.context) or {}  # the Source… dialog keeps the URL authentication already saved
+            self.metrics_sources.set(self.context, text, via, local, tls, insecure, own.get("auth", ""), own.get("auth_env", ""),
+                                     own.get("auth_user", ""))
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
             return False

@@ -64,6 +64,9 @@ def test_add_saves_the_chosen_source_for_a_cluster_without_one(qapp, tmp_path, m
         def chosen(self):
             return "prod", "monitoring/vmsingle:8428"
 
+        def auth_choice(self):
+            return ("", "", "")
+
         def deleteLater(self):
             pass
 
@@ -92,6 +95,9 @@ def test_add_refuses_a_cluster_that_already_has_a_source(qapp, tmp_path, monkeyp
         def chosen(self):
             return "prod", "monitoring/vmsingle:8428"
 
+        def auth_choice(self):
+            return ("", "", "")
+
         def deleteLater(self):
             pass
 
@@ -115,6 +121,9 @@ def test_add_refuses_a_bad_address_and_stages_nothing(qapp, tmp_path, monkeypatc
 
         def chosen(self):
             return "prod", "not an address"
+
+        def auth_choice(self):
+            return ("", "", "")
 
         def deleteLater(self):
             pass

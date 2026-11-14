@@ -47,7 +47,7 @@ def test_test_on_a_row_asks_the_tester_for_that_cluster_and_shows_the_answer(qap
     s.set("prod", "obs/prometheus:80")
     asked = []
 
-    def tester(context, text, done):
+    def tester(context, text, done, auth):
         asked.append((context, text))
         done("obs/prometheus:80 answered the Prometheus API.")
 
@@ -61,7 +61,7 @@ def test_test_on_a_row_asks_the_tester_for_that_cluster_and_shows_the_answer(qap
 def test_default_test_uses_the_chosen_default_text_without_saving(qapp, tmp_path):
     s = sources(tmp_path)
     asked = []
-    panel = MetricsPanel(s, [], tester=lambda context, text, done: asked.append((context, text)))
+    panel = MetricsPanel(s, [], tester=lambda context, text, done, auth: asked.append((context, text)))
     panel.mode.setCurrentIndex(1)
     panel.default_edit.setText("monitoring/vmsingle:8428")
     panel._test_default()
@@ -71,7 +71,7 @@ def test_default_test_uses_the_chosen_default_text_without_saving(qapp, tmp_path
 
 def test_default_test_with_metrics_server_asks_for_metrics_server(qapp, tmp_path):
     asked = []
-    panel = MetricsPanel(sources(tmp_path), [], tester=lambda context, text, done: asked.append(text))
+    panel = MetricsPanel(sources(tmp_path), [], tester=lambda context, text, done, auth: asked.append(text))
     panel.mode.setCurrentIndex(2)
     panel._test_default()
     assert asked == [METRICS_SERVER]

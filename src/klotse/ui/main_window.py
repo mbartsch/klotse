@@ -1191,14 +1191,14 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
-    def _test_metrics_source(self, context, text, done):
+    def _test_metrics_source(self, context, text, done, auth=("", "", "")):
         """Preferences > Metrics Test: runs on a connected cluster (the default uses the first connected one), else says to connect."""
         ws = self.workspaces.get(context) if context else next(
             (w for w in self.workspaces.values() if w.service.is_connected()), None)
         if ws is None or not ws.service.is_connected():
             done("Connect the cluster first, then Test again.")
             return
-        ws.check_metrics_source(text, done)
+        ws.check_metrics_source(text, done, auth)
 
     def _discover_metrics_sources(self, context, done):
         """Preferences > Metrics Add: done(list of services found) for a connected cluster, done(None) when it is not connected."""

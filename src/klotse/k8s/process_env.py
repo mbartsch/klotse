@@ -13,6 +13,11 @@ def set_app_proxy(url, no_proxy_items=()):
     _PROXY["no_proxy"] = ",".join(str(item) for item in no_proxy_items if str(item).strip())
 
 
+def app_proxy():
+    """(proxy URL, [bypass items]) of the app proxy; (None, []) when none is set."""
+    return _PROXY["url"], [item for item in _PROXY["no_proxy"].split(",") if item]
+
+
 def proxy_variables():
     """The proxy variables to add to a process's environment, {} when no app proxy is set."""
     url = _PROXY["url"]
