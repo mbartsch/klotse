@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Qt, Signal
+
+from ..k8s.process_env import qt_environment
 from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -123,6 +125,7 @@ class FileCopies(QObject):
         copy = Copy(self._next, context, namespace, pod, container or "", direction, local, remote)
         self._next += 1
         process = QProcess(self)
+        process.setProcessEnvironment(qt_environment())  # the app proxy, for kubectl (see k8s/process_env)
         base = self.base(context, kubeconfig)
         process.setProgram(base[0])
         process.setArguments(build_args(base, copy)[1:])

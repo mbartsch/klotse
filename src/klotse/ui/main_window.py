@@ -20,6 +20,8 @@ from .customizations import ANNOTATION_KINDS, LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
+from ..k8s.process_env import set_app_proxy
+from ..k8s.proxy_settings import ProxySettings
 from ..k8s.connect_help import auth_info
 from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
@@ -113,6 +115,8 @@ class MainWindow(QMainWindow):
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
             QTimer.singleShot(1500, embedded_terminal.warm_up)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
+        self.proxy_settings = ProxySettings(self.label_settings.store)  # Preferences > Network: used when a kubeconfig names no proxy-url
+        self.apply_app_proxy()
         self.big_clusters = BigClusters(self.label_settings.store)  # clusters read in the lighter big-cluster way
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
         self.debug_settings = DebugSettings(self.label_settings.store)  # Preferences > Debug: the timing log
@@ -476,11 +480,16 @@ class MainWindow(QMainWindow):
             self._update_scope_title(ws)
         return True
 
+    def apply_app_proxy(self):
+        """Hand the Preferences > Network proxy to the kubectl, helm and terminal processes started from now on."""
+        set_app_proxy(self.proxy_settings.url, self.proxy_settings.no_proxy)
+
     def new_service(self):
         """A fresh service for one cluster, reading the custom kubeconfig when one is selected in Preferences."""
         service = self.factory()
         if self.kubeconfig_settings.path:
             service.kubeconfig = self.kubeconfig_settings.path
+        service.proxy, service.no_proxy = self.proxy_settings.url, list(self.proxy_settings.no_proxy)
         return service
 
     def _no_contexts_message(self):
@@ -1168,6 +1177,8 @@ class MainWindow(QMainWindow):
             return False
         dialog = ClusterSettingsDialog(self.plugins, plugin, ws.context, self)
         accepted = dialog.exec() == QDialog.Accepted
+        if accepted:
+            self.apply_app_proxy()
         dialog.deleteLater()
         return accepted
 
@@ -1185,7 +1196,8 @@ class MainWindow(QMainWindow):
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
-                                   forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store))
+                                   forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
+                                   proxy=self.proxy_settings)
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):

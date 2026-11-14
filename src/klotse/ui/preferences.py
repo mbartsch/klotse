@@ -66,7 +66,8 @@ def open_folder(folder):
 class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
-    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None):
+    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
+                 proxy=None):
         super().__init__(parent)
         self.debug = debug
         self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
@@ -96,6 +97,28 @@ class PreferencesDialog(QDialog):
         if kubeconfig.missing:
             self.note.setText(f"Saved kubeconfig not found, using the default: {kubeconfig.missing}\n" + self.note.text())
         form.addRow(self.note)
+
+        self.proxy_settings = proxy
+        if proxy is not None:
+            self.proxy_url = QLineEdit(proxy.url or "")
+            self.proxy_url.setPlaceholderText("None: use the kubeconfig or environment, for example http://proxy.corp:3128 or socks5://proxy.corp:1080")
+            self.proxy_url.setAccessibleName("HTTP proxy address")
+            self.no_proxy_edit = QLineEdit(proxy.no_proxy_text())
+            self.no_proxy_edit.setPlaceholderText("localhost, 10.0.0.0/8")
+            self.no_proxy_edit.setAccessibleName("Hosts that bypass the proxy")
+            form.addRow("HTTP proxy", self.proxy_url)
+            form.addRow("Bypass proxy for", self.no_proxy_edit)
+            proxy_note = QLabel("Used for clusters whose kubeconfig names no proxy-url. Clusters already open keep the proxy "
+                                "they connected with; reconnect to use a new one.")
+            proxy_note.setWordWrap(True)
+            form.addRow(proxy_note)
+            spdy_note = QLabel("Kubernetes versions before 1.31 stream exec, attach, cp and port-forward over SPDY, which "
+                               "a proxy may not carry reliably. "
+                               '<a href="https://kubernetes.io/blog/2024/08/20/websockets-transition/">'
+                               "Kubernetes: transition from SPDY to WebSockets</a>")
+            spdy_note.setWordWrap(True)
+            spdy_note.setOpenExternalLinks(True)
+            form.addRow(spdy_note)
 
         if themes is not None:
             self._theme_rows(form)
@@ -254,6 +277,12 @@ class PreferencesDialog(QDialog):
             try:
                 self.terminal_panel.save()
             except (ValueError, OSError) as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                return
+        if self.proxy_settings is not None:
+            try:
+                self.proxy_settings.set(self.proxy_url.text(), self.no_proxy_edit.text())
+            except ValueError as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
                 return
         if self.timing_box is not None:

@@ -288,6 +288,7 @@ class KubeService:
         self.page_size = PAGE_SIZE
         self.audit = None  # set by the workspace: fn(action, target, result, detail) writes the local change log
         self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
+        self.proxy, self.no_proxy = None, []  # the app's proxy (Preferences > Network), used when the kubeconfig names none
         self._core = None
         self._apps = None
         self._custom = None
@@ -408,9 +409,17 @@ class KubeService:
                 raise
             raise ConnectionError(text) from error
 
+    def apply_proxy(self, cfg, context):
+        """Use the app's proxy for this context, unless its kubeconfig cluster names a proxy-url of its own (that one wins)."""
+        if not self.proxy or connect_help.auth_info(self.kubeconfig, context).get("proxy"):
+            return
+        cfg.proxy = self.proxy
+        cfg.no_proxy = ",".join(self.no_proxy or []) or None
+
     def _connect(self, context):
         cfg = client.Configuration()
         config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
+        self.apply_proxy(cfg, context)
         cfg.retries = 1  # the default (3 retries with backoff) makes a dead cluster take ~9s to report
         api = client.ApiClient(cfg)
         # Pod manifests (especially managedFields) can make list responses huge.

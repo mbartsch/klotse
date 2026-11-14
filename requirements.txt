@@ -9,3 +9,5 @@ PyYAML>=6
 PySide6-Addons>=6.6
 PySide6-WebEngine>=6.6
 pywinpty>=2.0.1; platform_system == "Windows"
+# SOCKS proxies for the Kubernetes client (urllib3 SOCKS support).
+PySocks>=1.7

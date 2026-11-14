@@ -8,6 +8,8 @@ import posixpath
 import subprocess
 import sys
 
+from .process_env import environment
+
 LIMIT = 5000  # entries shown at most; a bigger directory says so
 TIMEOUT_S = 30
 DIR, LINK, FILE = "dir", "link", "file"
@@ -89,7 +91,7 @@ def list_directory(base, namespace, pod, container, path, run=subprocess.run):
     try:
         # stdin must be given: the Windows launcher has no console (pythonw), so the inherited standard input is an invalid
         # handle and subprocess.run fails with "WinError 6: The handle is invalid" without it
-        done = run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, errors="replace", stdin=subprocess.DEVNULL, **flags)
+        done = run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, errors="replace", stdin=subprocess.DEVNULL, env=environment(), **flags)
     except FileNotFoundError:
         raise RemoteError("kubectl was not found. Install kubectl and make sure it is on the PATH.") from None
     except subprocess.TimeoutExpired:
