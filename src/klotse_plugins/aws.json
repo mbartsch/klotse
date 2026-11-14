@@ -193,6 +193,16 @@
       "multi": true,
       "confirm": null,
       "dangerous": false
+    },
+    {
+      "key": "sign-in",
+      "title": "Sign in to AWS for this cluster…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
     }
   ],
   "overview_cards": [

@@ -513,7 +513,7 @@ def test_actions_are_only_offered_for_ec2_nodes():
     plugin = AwsPlugin()
     assert plugin.applies(plugin.actions[0], node("n1")) and not plugin.applies(plugin.actions[0], node("n", provider=False))
     assert [(a.key, a.multi) for a in plugin.actions] == [
-        ("resource-details", False), ("resource-console", False), ("copy-id", True), ("console", False), ("cost", True)]
+        ("resource-details", False), ("resource-console", False), ("copy-id", True), ("console", False), ("cost", True), ("sign-in", False)]
 
 
 def request_for(action, resources, **kwargs):
@@ -558,7 +558,7 @@ def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(qtbot, tmp_p
     qtbot.waitUntil(lambda: manager.is_enabled("aws"), timeout=20000)
     assert [c[0] for c in manager.columns_for("Node")] == [
         "Instance ID", "Instance type", "Capacity", "AMI", "On-demand price/h", "Price/h", "Price/month", "Launched"]
-    assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost"]
+    assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost", "sign-in"]
     assert manager.settings_for("aws") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
                                                  "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": "", "profile_map": "", "keys_warning": "", "access_key_id": "", "secret_access_key": "", "session_token": ""}
 

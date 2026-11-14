@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-from .safe import ParseError, parse_xml, require_https, valid_region
+from .safe import ParseError, endpoint_override, parse_xml, require_endpoint, valid_region
 from .sigv4 import sign
 
 API_VERSION = "2016-11-15"
@@ -23,12 +23,15 @@ class AwsHttpError(Exception):
 def endpoint(region):
     if not valid_region(region):
         raise AwsHttpError("", "not a valid AWS region name")
+    override = endpoint_override()  # AWS_ENDPOINT_URL: a local emulator, http is fine there (require_endpoint)
+    if override:
+        return override
     return f"https://ec2.{region}.amazonaws.com{'.cn' if region.startswith('cn-') else ''}/"
 
 
 def post(url, headers, body, timeout=30):
     """POST and return (status, body bytes). Only AWS's own error text is ever reported, never the request."""
-    request = urllib.request.Request(require_https(url), data=body, method="POST", headers=headers)
+    request = urllib.request.Request(require_endpoint(url), data=body, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - https only, checked above
             return response.status, response.read(20_000_000)
