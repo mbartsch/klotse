@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "id": "oci",
+  "name": "Oracle Cloud (OKE) Plugin",
+  "version": "0.1",
+  "requires_api": 10,
+  "description": "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal.",
+  "columns": [],
+  "actions": [
+    {
+      "key": "sign-in",
+      "title": "Sign in to Oracle Cloud for this cluster (oci session authenticate)…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    }
+  ],
+  "overview_cards": [],
+  "settings": [
+    {
+      "key": "oci_profile",
+      "label": "OCI config profile",
+      "default": "DEFAULT",
+      "kind": "text",
+      "help": "The profile in ~/.oci/config that the cluster's kubeconfig helper uses. The sign-in refreshes this profile's session token.",
+      "pattern": ""
+    }
+  ],
+  "cluster_settings": []
+}

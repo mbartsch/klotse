@@ -15,7 +15,7 @@ from .manifest import declarations, read_manifest
 
 ENTRY_POINT_GROUP = "klotse.plugins"
 MANIFEST_ENTRY_POINT_GROUP = "klotse.plugin_manifests"
-BUNDLED_MODULES = ("klotse_plugins.aws", "klotse_plugins.gcp")  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
+BUNDLED_MODULES = ("klotse_plugins.aws", "klotse_plugins.gcp", "klotse_plugins.oci")  # shipped inside Klotse; loaded like any other plugin, disabled until enabled
 
 
 @dataclass
