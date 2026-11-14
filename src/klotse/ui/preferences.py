@@ -16,6 +16,9 @@ class KubeconfigSettings(QObject):
     """The kubeconfig Klotse reads contexts from: a custom file, or None for KUBECONFIG / ~/.kube/config.
 
     Saved as `kubeconfig/path` in the shared settings store. A saved file that no longer exists is ignored.
+    `extra_paths()` is the rest of the kubeconfig list (`kubeconfig/extra.N`): files whose contexts are also shown, such as the
+    file that "Add clusters from the cloud" writes. `write_main` (`kubeconfig/write_main`, off by default) makes that dialog write
+    into the main kubeconfig instead of a separate file.
     """
 
     def __init__(self, settings=None, parent=None):
@@ -24,6 +27,50 @@ class KubeconfigSettings(QObject):
         saved = str(self.store.value("kubeconfig/path", "") or "")
         self.path = saved if saved and Path(saved).is_file() else None
         self.missing = saved if saved and self.path is None else None  # remembered so the UI can say why it is ignored
+        self.write_main = str(self.store.value("kubeconfig/write_main", "false")).lower() in ("true", "1")
+
+    def extra_paths(self):
+        """The saved extra kubeconfig files that still exist, in order."""
+        found, index = [], 0
+        while True:
+            value = str(self.store.value(f"kubeconfig/extra.{index}", "") or "")
+            if not value:
+                return found
+            if Path(value).is_file() and value not in found:
+                found.append(value)
+            index += 1
+
+    def add_extra(self, path):
+        """Add a file to the kubeconfig list (no duplicates). Raises ValueError for a missing file, OSError if not saved."""
+        path = str(path or "").strip()
+        if not path or not Path(path).is_file():
+            raise ValueError(f"Kubeconfig file not found: {path}")
+        paths = self.extra_paths()
+        if path not in paths:
+            paths.append(path)
+        self._save_extra(paths)
+
+    def remove_extra(self, path):
+        self._save_extra([p for p in self.extra_paths() if p != path])
+
+    def _save_extra(self, paths):
+        index = 0
+        while self.store.value(f"kubeconfig/extra.{index}", None) is not None:  # clear the old numbered list first
+            self.store.remove(f"kubeconfig/extra.{index}")
+            index += 1
+        for index, path in enumerate(paths):
+            self.store.setValue(f"kubeconfig/extra.{index}", path)
+        self._sync()
+
+    def set_write_main(self, on):
+        self.store.setValue("kubeconfig/write_main", bool(on))
+        self._sync()
+        self.write_main = bool(on)
+
+    def _sync(self):
+        self.store.sync()
+        if self.store.status() != QSettings.NoError:
+            raise OSError(f"Could not save preferences to {self.store.fileName()}")
 
     def set_path(self, path):
         path = str(path or "").strip() or None
@@ -97,6 +144,11 @@ class PreferencesDialog(QDialog):
         if kubeconfig.missing:
             self.note.setText(f"Saved kubeconfig not found, using the default: {kubeconfig.missing}\n" + self.note.text())
         form.addRow(self.note)
+        self.write_main_box = QCheckBox("Add clusters from the cloud to the main kubeconfig instead of a separate file")
+        self.write_main_box.setChecked(bool(getattr(kubeconfig, "write_main", False)))
+        self.write_main_box.setToolTip("Off: they go to ~/.kube/klotse-cloud.klotse, which is added to the kubeconfig list. "
+                                       "On: they are merged into the main kubeconfig, and a .bak copy of it is kept first.")
+        form.addRow(self.write_main_box)
 
         self.proxy_settings = proxy
         if proxy is not None:
@@ -273,6 +325,10 @@ class PreferencesDialog(QDialog):
     def chosen_kubeconfig(self):
         """The kubeconfig path picked in the dialog (None = default)."""
         return self.path.text().strip() or None
+
+    def chosen_write_main(self):
+        """Whether clusters from the cloud go into the main kubeconfig (off unless ticked)."""
+        return self.write_main_box.isChecked()
 
     def _save(self):
         chosen = self.chosen_kubeconfig()
