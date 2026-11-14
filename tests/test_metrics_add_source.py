@@ -54,7 +54,7 @@ def test_add_saves_the_chosen_source_for_a_cluster_without_one(qapp, tmp_path, m
     offered = []
 
     class FakeDialog:
-        def __init__(self, clusters, discover, parent=None):
+        def __init__(self, clusters, discover, parent=None, **kwargs):
             offered.append(clusters)
             self.discover = discover
 
@@ -140,3 +140,38 @@ def test_the_edit_dialog_with_a_fixed_cluster_opens_with_its_source_and_auth(qap
     assert dialog.chosen() == ("lab-kind", "https://vm.example.com/select/0/prometheus")
     assert dialog.auth_choice() == ("basic", "VM_PASSWORD", "reader")
     assert not dialog.cluster.isEnabled()  # the cluster is shown but cannot be changed
+
+
+def test_add_opens_for_the_preselected_cluster(qapp, tmp_path, monkeypatch):
+    panel = MetricsPanel(sources(tmp_path), ["prod", "lab-kind"])
+    seen = []
+
+    class FakeDialog:
+        def __init__(self, clusters, discover=None, parent=None, cluster="", **kwargs):
+            seen.append((clusters, cluster))
+
+        def exec(self):
+            return QDialog.Rejected
+
+        def chosen(self):
+            return "", ""
+
+        def auth_choice(self):
+            return ("", "", "")
+
+        def deleteLater(self):
+            pass
+
+    monkeypatch.setattr(metrics_preferences, "AddSourceDialog", FakeDialog)
+    panel.add_source("lab-kind")
+    assert seen == [(["prod", "lab-kind"], "lab-kind")]
+
+
+def test_add_for_a_cluster_with_a_source_opens_its_edit_instead(qapp, tmp_path, monkeypatch):
+    s = sources(tmp_path)
+    s.set("prod", "obs/prometheus:80")
+    panel = MetricsPanel(s, ["prod"])
+    edited = []
+    monkeypatch.setattr(panel, "_edit", lambda name: edited.append(name))
+    panel.add_source("prod")
+    assert edited == ["prod"]

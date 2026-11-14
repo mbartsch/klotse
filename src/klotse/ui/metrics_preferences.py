@@ -105,6 +105,8 @@ class AddSourceDialog(QDialog):
             self.cluster.setEnabled(False)
         else:
             self.cluster.lineEdit().setPlaceholderText("cluster name from the kubeconfig")
+            if cluster:
+                self.cluster.setEditText(cluster)
         self.cluster.setAccessibleName("Cluster")
         self.service = QComboBox()
         self.service.setEditable(True)
@@ -186,12 +188,16 @@ class MetricsPanel(QWidget):
         self.default_test = QPushButton("Test")
         self.default_test.clicked.connect(self._test_default)
         self.mode.currentIndexChanged.connect(self._mode_changed)
+        self.metrics_only_note = QLabel("metrics-server only: each cluster's own metrics-server is used, the one of the connected cluster, "
+                                        "not a central one. A cluster that is not connected has no metrics.")
+        self.metrics_only_note.setWordWrap(True)
         default_row = QHBoxLayout()
         default_row.addWidget(self.default_edit, 1)
         default_row.addWidget(self.default_test)
         defaults = QFormLayout()
         defaults.addRow("Default for all clusters", self.mode)
         defaults.addRow("Service or URL", default_row)
+        defaults.addRow(self.metrics_only_note)
         self.default_auth_box, self.default_env, self.default_user = _auth_widgets(defaults, self.default_auth)
         self._mode_changed()
 
@@ -242,6 +248,7 @@ class MetricsPanel(QWidget):
         self.default_edit.setEnabled(self.mode.currentIndex() == 1)
         self.default_test.setEnabled(self.mode.currentIndex() != 0)
         self.default_auth_box.setEnabled(self.mode.currentIndex() == 1)
+        self.metrics_only_note.setVisible(self.mode.currentIndex() == 2)
 
     def _names(self):
         return sorted(set(self.saved) | set(self.changes))
@@ -334,10 +341,14 @@ class MetricsPanel(QWidget):
 
     # --- actions -----------------------------------------------------------------------------------------------------
 
-    def add_source(self):
-        """Add a source for a cluster that has none: a connected cluster offers the services found on it, others take a typed address."""
+    def add_source(self, preselect=None):
+        """Add a source for a cluster that has none: a connected cluster offers the services found on it, others take a typed address.
+        `preselect` is the cluster to start with; when it already has a source, its Edit… dialog opens instead."""
+        if preselect and self._entry(preselect) is not None:
+            self._edit(preselect)
+            return
         names = [name for name in (self.contexts or []) if self._entry(name) is None]
-        dialog = AddSourceDialog(names, self.discoverer, self)
+        dialog = AddSourceDialog(names, self.discoverer, self, cluster=preselect or "")
         accepted = dialog.exec() == QDialog.Accepted
         name, text = dialog.chosen()
         kind, variable, user = dialog.auth_choice()
@@ -361,8 +372,10 @@ class MetricsPanel(QWidget):
     def edit_selected(self):
         """Edit the selected cluster's source: the same dialog as Add…, with the cluster fixed."""
         name = self._selected_name()
-        if not name:
-            return
+        if name:
+            self._edit(name)
+
+    def _edit(self, name):
         entry = self._entry(name)
         dialog = AddSourceDialog([name], self.discoverer, self, cluster=name, service=entry["ref"],
                                  auth=(entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")), fixed_cluster=True)
