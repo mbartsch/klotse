@@ -5,6 +5,7 @@ Klotse creates; the merge then copies the new entries into the target file (the 
 kubeconfig when the user chose that in Preferences). The main kubeconfig is never a CLI target. Arguments are passed as argv
 lists; nothing goes through a shell, and values from a cloud (names, ids) are checked before use.
 """
+import configparser
 import json
 import os
 import re
@@ -80,6 +81,36 @@ def clean_scope(provider, scope):
         if field.required and not out[field.key]:
             raise CloudError(f"{field.label} is required for {spec.title}")
     return out
+
+
+def oci_defaults(env=None):
+    """Region, compartment and profile for OCI, from the environment and the OCI config file the CLI reads: OCI_CLI_CONFIG_FILE
+    (default ~/.oci/config) and OCI_CLI_PROFILE (default DEFAULT). The region is the profile's `region`; the compartment
+    defaults to its `tenancy` (the root compartment). Nothing found, or an unreadable file, gives {}. The dialog shows these
+    values, which the user can change. The endpoint is not read here: the OCI CLI itself honours OCI_CLI_ENDPOINT."""
+    env = os.environ if env is None else env
+    path = os.path.expanduser(env.get("OCI_CLI_CONFIG_FILE") or "~/.oci/config")
+    profile = (env.get("OCI_CLI_PROFILE") or "DEFAULT").strip()
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, UnicodeDecodeError, configparser.Error):
+        return {}
+    if profile == "DEFAULT":
+        values = dict(parser.defaults())
+    elif parser.has_section(profile):
+        values = dict(parser[profile])
+    else:
+        return {}
+    found = {}
+    if values.get("region", "").strip():
+        found["region"] = values["region"].strip()
+    if values.get("tenancy", "").strip():
+        found["compartment"] = values["tenancy"].strip()
+    if env.get("OCI_CLI_PROFILE", "").strip():
+        found["profile"] = profile
+    return found
 
 
 def list_argv(provider, scope):
@@ -167,10 +198,18 @@ def run(argv, env=None, timeout=CLI_TIMEOUT_S):
     except OSError as error:
         raise CloudError(f"could not run {argv[0]} ({type(error).__name__})") from None
     if done.returncode != 0:
-        lines = (done.stderr or "").strip().splitlines()
-        reason = lines[-1][:240] if lines else f"exit status {done.returncode}"
-        raise CloudError(f"{argv[0]} failed: {reason}")
+        raise CloudError(f"{argv[0]} failed: {failure_reason(done.stderr or '', done.returncode)}")
     return done.stdout
+
+
+def failure_reason(stderr, returncode):
+    """A short reason from a failed CLI's stderr. OCI ends its error with a JSON block, so the last line is only "}": the
+    "code" and "message" inside that block are used when present."""
+    fields = re.findall(r'^\s*"(code|message)":\s*"([^"]*)"', stderr, re.MULTILINE)
+    if fields:
+        return ": ".join(value for _, value in fields[:2])[:240]
+    lines = stderr.strip().splitlines()
+    return lines[-1][:240] if lines else f"exit status {returncode}"
 
 
 def resolve_location(provider, cluster, scope):

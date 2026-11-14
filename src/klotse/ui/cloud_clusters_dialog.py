@@ -89,10 +89,18 @@ class CloudClustersDialog(QDialog):
             edit.setVisible(field is not None)
             if field is not None:
                 self.labels[key].setText(field.label + (" *" if field.required else ""))
+        if spec.key == "oci":
+            self._fill_oci_defaults()
         self.table.setRowCount(0)
         self._clusters = []
         self.add_button.setEnabled(False)
         self.status.setText("Fill in the fields (* required), then List clusters.")
+
+    def _fill_oci_defaults(self):
+        """Fill the empty OCI fields from the environment and the OCI config file; typed values are kept."""
+        for key, value in cloud.oci_defaults().items():
+            if key in self.edits and not self.edits[key].text().strip():
+                self.edits[key].setText(value)
 
     def _values(self):
         return {key: edit.text() for key, edit in self.edits.items()}

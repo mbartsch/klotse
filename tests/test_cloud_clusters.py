@@ -151,3 +151,23 @@ def test_gcp_credentials_refuse_an_unknown_location_instead_of_running_without_o
 def test_gcp_listing_reads_the_region_key_too():
     text = json.dumps([{"name": "demo-gke", "region": "europe-west1"}])
     assert cloud.parse_clusters("gcp", text)[0].location == "europe-west1"
+
+
+def test_an_oci_error_block_gives_its_code_and_message_not_the_closing_brace():
+    stderr = ('ServiceError:\n{\n    "client_version": "3.95.1",\n    "code": "NotAuthorizedOrNotFound",\n'
+              '    "message": "Authorization failed or requested resource not found: compartment ocid1.c",\n    "status": 404\n}\n')
+    assert cloud.failure_reason(stderr, 1) == ("NotAuthorizedOrNotFound: Authorization failed or requested resource not found: "
+                                               "compartment ocid1.c")
+    assert cloud.failure_reason("plain failure\nlast line\n", 2) == "last line"
+    assert cloud.failure_reason("", 3) == "exit status 3"
+
+
+def test_oci_defaults_come_from_the_config_file_the_cli_reads(tmp_path):
+    config = tmp_path / "config"
+    config.write_text("[DEFAULT]\nuser=ocid1.user.x\nregion=us-ashburn-1\ntenancy=ocid1.tenancy.oc1..t\n"
+                      "[OKE]\nregion=us-phoenix-1\ntenancy=ocid1.tenancy.oc1..other\n", encoding="utf-8")
+    assert cloud.oci_defaults({"OCI_CLI_CONFIG_FILE": str(config)}) == {"region": "us-ashburn-1", "compartment": "ocid1.tenancy.oc1..t"}
+    assert cloud.oci_defaults({"OCI_CLI_CONFIG_FILE": str(config), "OCI_CLI_PROFILE": "OKE"}) == {
+        "region": "us-phoenix-1", "compartment": "ocid1.tenancy.oc1..other", "profile": "OKE"}
+    assert cloud.oci_defaults({"OCI_CLI_CONFIG_FILE": str(config), "OCI_CLI_PROFILE": "MISSING"}) == {}
+    assert cloud.oci_defaults({"OCI_CLI_CONFIG_FILE": str(tmp_path / "absent")}) == {}
