@@ -133,3 +133,40 @@ def test_the_tick_column_keeps_a_usable_width_after_listing(qtbot, tmp_path, mon
     dlg._list()
     wait_for(qtbot, lambda: dlg.table.rowCount() == 2)
     assert dlg.table.columnWidth(0) >= 56
+
+
+def test_show_kubeconfig_entry_finds_a_context_from_the_kubeconfig_list(qtbot, tmp_path, monkeypatch):
+    from klotse.ui import context_dialog
+
+    shown = []
+
+    class FakeDialog:
+        def __init__(self, context, lines, parent=None):
+            shown.append((context, lines))
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr(context_dialog, "ContextEntryDialog", FakeDialog)
+
+    class ListingService:
+        def __init__(self):
+            self.kubeconfig = None
+            self.proxy, self.no_proxy = "", []
+
+        def load_contexts(self):
+            if self.kubeconfig and "klotse-cloud" in str(self.kubeconfig):
+                return ["demo-cloud"], None
+            return ["demo-default"], None
+
+    win = MainWindow(ListingService, LabelSettings(store(tmp_path)))
+    qtbot.addWidget(win)
+    generated = tmp_path / "klotse-cloud.klotse"
+    kubeconfig(generated, ["demo-cloud"])
+    win.kubeconfig_settings.add_extra(str(generated))
+    win._load_contexts()
+    win.show_context_entry("demo-cloud")
+    context, lines = shown[0]
+    assert context == "demo-cloud"
+    assert "Server: https://demo-cloud.example.test" in lines
+    assert not any("not found" in line for line in lines)
