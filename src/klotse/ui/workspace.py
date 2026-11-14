@@ -708,10 +708,26 @@ class ClusterWorkspace(QMainWindow):
 
     def _show_detail_row(self, table, row):
         if row is None:
+            self._detail_row = None
             self.detail.clear_row()
             return
+        self._detail_row = row
         self.detail.show_row(row)
         self.detail.set_object_actions(table.row_actions(row))
+        if table.kind == "Secret" and not getattr(row, "secret_loaded", True):
+            # the list only had its metadata: show what is known, then the whole Secret once it is read (if still selected)
+            self._load_secret(row, lambda loaded, t=table: self._show_detail_row(t, loaded) if self._detail_row is loaded else None)
+
+    def _load_secret(self, row, then):
+        """A Secret from the list has only its metadata: read the whole object in the background, copy it into `row`, then call
+        `then(row)`. A failed read is shown in the status line and `then` is not called."""
+        def loaded(full, r=row):
+            r.raw, r.type, r.keys = full.raw, full.type, full.keys
+            r.expires, r.subject, r.secret_data, r.secret_loaded = full.expires, full.subject, full.secret_data, True
+            then(r)
+        self._run(self.service.read_secret, loaded, row.namespace, row.name,
+                  on_error=lambda msg: self.message.emit(f"Could not read the Secret {row.name}: {msg}"))
+
 
     def _sync_details_to_tab(self, widget):
         """Show the active resource tab's current selection, or its clear empty state."""
@@ -2615,6 +2631,10 @@ class ClusterWorkspace(QMainWindow):
         return [self.ns_combo.itemText(i) for i in range(self.ns_combo.count()) if self.ns_combo.itemText(i) != ALL_NS]
 
     def edit_resource(self, kind, row):
+        if kind == "Secret" and not getattr(row, "secret_loaded", True):
+            # never edit from metadata alone: the data must be read first (or the edit would drop it)
+            self._load_secret(row, lambda loaded: self.edit_resource(kind, loaded))
+            return
         self._edit_flow(kind, row.raw, row.name, getattr(row, "namespace", ""),
                         secret_data=getattr(row, "secret_data", None))
 

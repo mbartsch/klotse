@@ -211,6 +211,7 @@ class PluginManager(QObject):
         item.loading = True
         item.generation += 1
         worker = _LoadPlugin(item)
+        worker.setAutoDelete(False)  # keep its signals alive until the queued answer arrives (see _loaded)
         self._loads[(id(item), item.generation)] = worker
         worker.signals.finished.connect(self._loaded)
         self.changed.emit()

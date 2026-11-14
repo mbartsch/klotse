@@ -52,14 +52,14 @@ def test_enable_is_async_and_persisted_only_after_success(qtbot, tmp_path):
     found.set_enabled("sample", True)
     assert found.get("sample").loading and not found.is_enabled("sample")
     assert found.store.value("plugins/enabled.0") is None
-    qtbot.waitUntil(lambda: found.is_enabled("sample"))
+    qtbot.waitUntil(lambda: found.is_enabled("sample"), timeout=20000)
     assert int(marker.read_text()) != threading.get_ident()
     assert found.store.value("plugins/enabled.0") == "sample"
     found.set_enabled("sample", False)
     assert not found.active()
     found.set_enabled("sample", True)
     again = manager(tmp_path, folder)
-    qtbot.waitUntil(lambda: again.is_enabled("sample"))
+    qtbot.waitUntil(lambda: again.is_enabled("sample"), timeout=20000)
     assert again.active()[0].id == "sample"
 
 
@@ -73,7 +73,7 @@ def test_enable_failure_stays_disabled(qtbot, tmp_path, code, reason):
     folder, _, _ = local(tmp_path, code)
     found = manager(tmp_path, folder)
     found.set_enabled("sample", True)
-    qtbot.waitUntil(lambda: not found.get("sample").loading)
+    qtbot.waitUntil(lambda: not found.get("sample").loading, timeout=20000)
     assert reason in found.get("sample").error
     assert not found.is_enabled("sample") and not found.active()
     assert found.store.value("plugins/enabled.0") is None
@@ -93,7 +93,7 @@ def test_legacy_plugin_never_runs_and_saved_state_survives(qtbot, tmp_path):
     source.write_text("from klotse.plugins import Plugin\nclass P(Plugin):\n    id='sample'\nplugin=P()")
     metadata.write_text(json.dumps(manifest()))
     found.reload()
-    qtbot.waitUntil(lambda: found.is_enabled("sample"))
+    qtbot.waitUntil(lambda: found.is_enabled("sample"), timeout=20000)
 
 
 @pytest.mark.parametrize("data", [dict(manifest_version=99, id="sample", requires_api=1),

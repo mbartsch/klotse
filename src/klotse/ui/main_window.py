@@ -22,7 +22,11 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from ..k8s.process_env import set_app_proxy
 from ..k8s.proxy_settings import ProxySettings
+from ..k8s.connect_help import auth_info
+from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
+from ..workers import Worker
+from .terminal import open_terminal
 from .metrics_sources import ForwardDefaults
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
@@ -353,14 +357,19 @@ class MainWindow(QMainWindow):
         heading_font.setBold(True)
         cluster_heading.setFont(heading_font)
         theme.muted(cluster_heading)
-        nav_layout.addWidget(cluster_heading)
-        nav_layout.addWidget(self.cluster_picker)
-        search_clusters = QToolButton()
+        search_clusters = QToolButton()  # on the heading line, away from the switcher, so the pair is not read as one field
         search_clusters.setIcon(action_icon("search"))
         search_clusters.setAccessibleName("Search clusters")
         search_clusters.setToolTip("Show or hide cluster search")
         search_clusters.setCheckable(True)
         self._cluster_search_button = search_clusters
+        heading_row = QHBoxLayout()
+        heading_row.setSpacing(5)
+        heading_row.addWidget(cluster_heading)
+        heading_row.addStretch(1)
+        heading_row.addWidget(search_clusters)
+        nav_layout.addLayout(heading_row)
+        nav_layout.addWidget(self.cluster_picker)
         self.cluster_search = QLineEdit()
         self.cluster_search.setObjectName("clusterSearch")
         self.cluster_search.setAccessibleName("Search clusters")
@@ -375,11 +384,7 @@ class MainWindow(QMainWindow):
             else:
                 self.cluster_search.clear()
         search_clusters.toggled.connect(toggle_cluster_search)
-        search_row = QHBoxLayout()  # the search box, and its button on the right of it
-        search_row.setSpacing(5)
-        search_row.addWidget(self.cluster_search, 1)
-        search_row.addWidget(search_clusters)
-        nav_layout.addLayout(search_row)
+        nav_layout.addWidget(self.cluster_search)
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
@@ -398,6 +403,10 @@ class MainWindow(QMainWindow):
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
+        self.nav.sign_in_requested.connect(self.sign_in)
+        self.nav.config_requested.connect(self.show_context_entry)
+        self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
+        self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
 
         self.status = self.statusBar()
         self.plugin_errors_button = QToolButton(self)
@@ -428,6 +437,29 @@ class MainWindow(QMainWindow):
             self.groups.save()
         except OSError as error:
             QMessageBox.warning(self, "Cannot save the cluster groups", str(error))
+
+    def sign_in(self, context):
+        """Run the kubeconfig's sign-in helper in a terminal the user can answer (after a Yes); connect again afterwards."""
+        argv = sign_in_argv(auth_info(self.kubeconfig_settings.path, context))
+        if not argv:
+            QMessageBox.information(self, "Sign in", f"The kubeconfig entry for {context} names no sign-in helper.")
+            return
+        shown = " ".join(argv)
+        if QMessageBox.question(self, "Sign in", f"Klotse will open a terminal and run:\n\n{shown}\n\n"
+                                "Finish the sign-in there, then connect to this cluster again. Run it?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+            return
+        worker = Worker(open_terminal, argv, self.terminal_settings.mac_terminal)
+        worker.setAutoDelete(False)  # kept until the terminal has been asked to open
+        self._sign_in_workers = getattr(self, "_sign_in_workers", []) + [worker]
+        worker.signals.error.connect(lambda message: QMessageBox.warning(self, "Sign in", f"The terminal could not be opened.\n\n{message}"))
+        QThreadPool.globalInstance().start(worker)
+    def show_context_entry(self, context):
+        """Read-only: what the kubeconfig says about this context (names, server, sign-in kind; no secret values)."""
+        from ..k8s.context_entry import entry_lines
+        from .context_dialog import ContextEntryDialog
+        dialog = ContextEntryDialog(context, entry_lines(self.kubeconfig_settings.path, context), self)
+        dialog.exec()
 
     def rename_cluster_alias(self, context):
         current = self.aliases.display(context)
@@ -472,10 +504,8 @@ class MainWindow(QMainWindow):
         for context in contexts:  # shown by alias; the context name is the item's data, which is what selecting it uses
             self.cluster_picker.addItem(self.aliases.display(context), context)
         if not contexts:  # nothing connected: say so, and open the search so a cluster can be found and connected
-            self.cluster_picker.addItem("No Cluster", "")
+            self.cluster_picker.addItem("No cluster connected", "")
             self.cluster_picker.setEnabled(False)
-            self.cluster_search.setVisible(True)
-            self._cluster_search_button.setChecked(True)
         else:
             self.cluster_picker.setEnabled(True)
         current = preferred
@@ -615,6 +645,11 @@ class MainWindow(QMainWindow):
         marks = (" 🔒" if ws.read_only else "") + (" (big)" if ws.big else "")
         self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(ws.context) + marks)
 
+    def _cluster_names(self, context):
+        """(short name, full name) of a cluster for messages: the alias, and the kubeconfig context in brackets when they differ."""
+        short = self.aliases.display(context)
+        return short, (short if short == context else f"{short} ({context})")
+
     def _found_big(self, ws, nodes, pods):
         """The Overview showed a big cluster. Unless the user chose before, remember it, switch the lighter mode on and say so."""
         try:
@@ -624,18 +659,22 @@ class MainWindow(QMainWindow):
         if news:
             ws.set_big(True)
             self._maybe_big_notice(ws)
-            self.status.showMessage(f"{ws.context}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
+            _short, full = self._cluster_names(ws.context)
+            self.status.showMessage(f"{full}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
                                     "The Overview now shows Warning events only and reloads less often.", 15000)
 
     def _maybe_big_notice(self, ws):
         """Tell the user, once per connection, that a big cluster is read in a lighter way and what that changes, unless they ticked
-        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown."""
+        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown.
+        The name of the cluster is in the text, not only in the title (some platforms do not show a dialog's title)."""
         if ws is None or not ws.big or not self.isVisible() or self.big_clusters.notice_hidden(ws.context):
             return
         shown = self.__dict__.setdefault("_big_notices", {})
         if ws.context in shown:
             return
-        box = QMessageBox(QMessageBox.Information, f"{ws.context}: big cluster", NOTICE_TEXT, QMessageBox.Ok, self)
+        short, full = self._cluster_names(ws.context)
+        text = NOTICE_TEXT.replace("This cluster is big", f"{full} is big", 1)
+        box = QMessageBox(QMessageBox.Information, f"{short}: big cluster", text, QMessageBox.Ok, self)
         again = QCheckBox("Don't show this again for this cluster")
         box.setCheckBox(again)
         box.setModal(False)
@@ -716,6 +755,22 @@ class MainWindow(QMainWindow):
         blocker = QSignalBlocker(self.pause_auto_refresh_all_action)
         self.pause_auto_refresh_all_action.setChecked(False)
         del blocker
+
+    def _navigator_auto_refresh(self, choice):
+        """The CONNECTED section's menu: the same actions as View > Settings > Auto-refresh across clusters."""
+        if choice == "pause":
+            self.pause_auto_refresh_all_action.setChecked(True)
+        elif choice == "enable":
+            self._enable_auto_refresh_all()
+        elif choice == "restore":
+            self._restore_global_auto_refresh()
+
+    def _set_clusters_auto_refresh(self, contexts, enabled):
+        """The cluster menu: turn auto-refresh on or off for the given connected clusters, through their own toggle (so a global pause still wins)."""
+        for context in contexts:
+            workspace = self.workspaces.get(context)
+            if workspace is not None:
+                workspace.auto_action.setChecked(bool(enabled))
 
     def _sync_global_auto_actions(self):
         available = bool(self.workspaces) or self._global_auto_snapshot is not None

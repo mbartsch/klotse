@@ -20,7 +20,7 @@ from . import connect_help, helm, metrics_history, preflight, prometheus, relate
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata, NOT_APPLICABLE
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 from .selectors import cronjob_job_uids, cronjob_pod_info
 
@@ -1613,10 +1613,64 @@ class KubeService:
         return self._list_apps(a.list_stateful_set_for_all_namespaces, a.list_namespaced_stateful_set, map_statefulset, namespace,
                                label_selector, field_selector)
 
+    SECRET_METADATA_ACCEPT = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+
+    def _secret_metadata(self, namespace, label_selector=None, field_selector=None):
+        """The Secrets' metadata (names, labels, annotations, owners, creation time) as plain dicts: requested as
+        PartialObjectMetadataList, so no Secret data or type is transferred. Paged like the other lists."""
+        core = self._core
+        fn, args = ((core.list_namespaced_secret, (namespace,)) if namespace else (core.list_secret_for_all_namespaces, ()))
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        items, token = [], None
+        while True:
+            reply = fn(*args, limit=500, _continue=token, _request_timeout=30, _preload_content=False,
+                       _headers={"Accept": self.SECRET_METADATA_ACCEPT}, **options)
+            page = json.loads(reply.data)
+            items += page.get("items") or []
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return items
+
+    def _secret_table(self, namespace, label_selector=None, field_selector=None):
+        """Secrets as the server's Table, the columns `kubectl get secrets` prints: name, type, data count, age. The API server
+        reads each object but sends only these cells, never the data. Returns [{"metadata", "type", "keys"}]; raises when the
+        Table cannot be read (the caller falls back to the metadata list)."""
+        path = f"/api/v1/namespaces/{namespace}/secrets" if namespace else "/api/v1/secrets"
+        params = {k: v for k, v in (("labelSelector", label_selector), ("fieldSelector", field_selector)) if v}
+        entries = []
+        for names, rows in self._table_pages(path, params, 500, with_meta=True):
+            column = {name: index for index, name in enumerate(names)}
+            for cells, metadata in rows:
+                entries.append({"metadata": metadata, "type": cells[column["Type"]], "keys": cells[column["Data"]]})
+        return entries
+
+    def _secret_rows(self, namespace, **options):
+        """The Secret rows of a list: type and key count from the server's Table when it can be read, else the metadata list
+        (where they show as --). The data itself is never transferred for the list."""
+        try:
+            entries = self._secret_table(namespace, **options)
+        except (ApiException, ValueError, KeyError):  # an old server, or a proxy that strips the Table Accept header: the metadata list
+            return [map_secret_metadata(item) for item in self._secret_metadata(namespace, **options)]
+        rows = []
+        for entry in entries:
+            row = map_secret_metadata({"metadata": entry["metadata"]})
+            row.type = str(entry["type"] or "")
+            row.keys = int(entry["keys"]) if str(entry["keys"]).isdigit() else UNKNOWN_CELL
+            if row.type != "kubernetes.io/tls":  # known from the type alone, so it stays n/a after the Secret is opened too
+                row.expires = row.subject = NOT_APPLICABLE
+            rows.append(row)
+        return rows
+
+    def read_secret(self, namespace, name):
+        """One Secret in full (data and type), for Details, decode and edit. The list only has the metadata."""
+        return map_secret(self._core.read_namespaced_secret(name, namespace, _request_timeout=30))
+
     def list_resource(self, key, namespace=None, label_selector=None, field_selector=None):
         """Generic list for the specs in resources.py; events come back newest first."""
         spec = SPEC_BY_KEY[key]
         options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        if key == "secrets":  # the list reads metadata only; a Secret's data is read when it is opened (read_secret)
+            return self._secret_rows(namespace, **options)
         rows = [spec.mapper(i) for i in self._resource_items(key, namespace, **options)]
         if key == "events":
             rows.sort(key=lambda r: r.ts, reverse=True)

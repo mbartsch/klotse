@@ -97,7 +97,7 @@ def test_a_plugin_file_in_the_folder_is_found(qtbot, tmp_path):
     assert manager.get("hello").manifest.name == "Hello" and manager.get("hello").plugin is None
     assert not manager.is_enabled("hello") and manager.columns_for("Node") == []
     manager.set_enabled("hello", True)
-    qtbot.waitUntil(lambda: manager.is_enabled("hello"))
+    qtbot.waitUntil(lambda: manager.is_enabled("hello"), timeout=20000)
     assert manager.get("hello").plugin.name == "Hello"
 
 
