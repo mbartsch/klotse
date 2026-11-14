@@ -87,7 +87,7 @@ class AddSourceDialog(QDialog):
             self.cluster.setEnabled(False)
         else:
             self.cluster.lineEdit().setPlaceholderText("cluster name from the kubeconfig")
-        self.cluster.lineEdit().setAccessibleName("Cluster")
+        self.cluster.setAccessibleName("Cluster")
         self.service = QComboBox()
         self.service.setEditable(True)
         self.service.setEditText(service)

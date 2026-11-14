@@ -131,3 +131,12 @@ def test_add_refuses_a_bad_address_and_stages_nothing(qapp, tmp_path, monkeypatc
     monkeypatch.setattr(metrics_preferences, "AddSourceDialog", FakeDialog)
     panel.add_source()
     assert warned and panel.changes == {}
+
+
+def test_the_edit_dialog_with_a_fixed_cluster_opens_with_its_source_and_auth(qapp):
+    dialog = AddSourceDialog(["lab-kind"], lambda name, done: done(None), cluster="lab-kind",
+                             service="https://vm.example.com/select/0/prometheus", auth=("basic", "VM_PASSWORD", "reader"),
+                             fixed_cluster=True)
+    assert dialog.chosen() == ("lab-kind", "https://vm.example.com/select/0/prometheus")
+    assert dialog.auth_choice() == ("basic", "VM_PASSWORD", "reader")
+    assert not dialog.cluster.isEnabled()  # the cluster is shown but cannot be changed
