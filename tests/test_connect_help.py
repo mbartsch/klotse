@@ -5,7 +5,7 @@ import pytest
 from kubernetes import client, config
 from kubernetes.config import exec_provider
 
-from klotse.k8s import connect_help
+from klotse.k8s import client as client_module, connect_help
 from klotse.k8s.client import KubeService
 
 KUBECONFIG = """apiVersion: v1
@@ -163,3 +163,35 @@ def test_a_missing_helper_without_an_installhint_keeps_the_generic_advice(tmp_pa
     assert info["install_hint"] == ""
     text = connect_help.explain(FileNotFoundError(2, "No such file or directory", "gke-gcloud-auth-plugin"), info)
     assert "Install it or put it on the PATH" in text
+
+
+def test_a_token_the_cluster_rejects_fails_the_connection_with_sign_in_advice(tmp_path, monkeypatch):
+    from kubernetes.client.exceptions import ApiException
+
+    path = tmp_path / "config"
+    path.write_text(GKE_KUBECONFIG, encoding="utf-8")
+    monkeypatch.setattr(client_module.config, "load_kube_config", lambda **kwargs: None)
+    monkeypatch.setattr(client_module.client.CoreV1Api, "get_api_resources", lambda self, **kwargs: None)
+
+    def rejected(self, body, **kwargs):
+        raise ApiException(status=401, reason="Unauthorized")
+
+    monkeypatch.setattr(client_module.client.AuthorizationV1Api, "create_self_subject_access_review", rejected)
+    service = KubeService(str(path))
+    with pytest.raises(ConnectionError, match="401 Unauthorized.*gke-gcloud-auth-plugin"):
+        service.connect("gke")
+
+
+def test_other_answers_to_the_access_review_do_not_fail_the_connection(tmp_path, monkeypatch):
+    from kubernetes.client.exceptions import ApiException
+
+    path = tmp_path / "config"
+    path.write_text(GKE_KUBECONFIG, encoding="utf-8")
+    monkeypatch.setattr(client_module.config, "load_kube_config", lambda **kwargs: None)
+    monkeypatch.setattr(client_module.client.CoreV1Api, "get_api_resources", lambda self, **kwargs: None)
+
+    def forbidden(self, body, **kwargs):
+        raise ApiException(status=403, reason="Forbidden")
+
+    monkeypatch.setattr(client_module.client.AuthorizationV1Api, "create_self_subject_access_review", forbidden)
+    KubeService(str(path)).connect("gke")
