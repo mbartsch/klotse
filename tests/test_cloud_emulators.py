@@ -94,7 +94,7 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
     try:
         data = json.loads(listed.stdout)
     except ValueError:
-        pytest.fail(f"oci ce cluster list printed no JSON: stdout {listed.stdout[:300]!r}; debug {listed.stderr[-1500:]!r}")
+        pytest.fail(f"oci ce cluster list printed no JSON: stdout tail {listed.stdout[-600:]!r}; stderr tail {listed.stderr[-300:]!r}")
     assert isinstance(data.get("data"), list)
 
 
