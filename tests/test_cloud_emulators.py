@@ -75,6 +75,7 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
         f"tenancy={tenancy}\n"
         "region=us-phoenix-1\n"
         f"key_file={key}\n", encoding="utf-8")
+    config.chmod(0o600)  # the OCI CLI refuses a config file that other users can read
     done = subprocess.run(["oci", "ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all"],
                           capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
                           env=dict(os.environ, OCI_CLI_CONFIG_FILE=str(config)))  # nosec B603 - fixed argv, no shell
