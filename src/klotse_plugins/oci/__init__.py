@@ -1,0 +1,50 @@
+"""Oracle Cloud (OKE) plugin: signs in to Oracle Cloud for an OKE cluster's nodes, in a terminal.
+
+An OKE kubeconfig runs `oci ce cluster generate-token`, which uses the OCI config profile (~/.oci/config). Klotse does not run
+the sign-in itself (a browser is needed): the action opens a terminal with `oci session authenticate` for that profile and
+the cluster's region, and the user connects again."""
+from klotse.plugins import Action, Message, Plugin, Setting, Terminal
+
+OCI_PROVIDER_PREFIXES = ("oci://", "ocid1.instance.")  # providerID of an OKE node
+REGION_LABEL = "topology.kubernetes.io/region"
+
+
+def oci_login_argv(region, profile):
+    """argv that starts a browser sign-in to OCI for `region` and the config `profile`, to run in a terminal."""
+    return ("oci", "session", "authenticate", "--region", region, "--profile-name", profile or "DEFAULT")
+
+
+def is_oke_node(raw):
+    """Whether a Node manifest is an OCI (OKE) node, from its providerID."""
+    provider = str(((raw or {}).get("spec") or {}).get("providerID") or "")
+    return provider.startswith(OCI_PROVIDER_PREFIXES)
+
+
+class OciPlugin(Plugin):
+    id = "oci"
+    name = "Oracle Cloud (OKE) Plugin"
+    version = "0.1"
+    requires_api = 10
+    description = "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal."
+    actions = (
+        Action("sign-in", "Sign in to Oracle Cloud for this cluster (oci session authenticate)…", kinds=("Node",)),
+    )
+    settings = (
+        Setting("oci_profile", "OCI config profile", "DEFAULT",
+                help="The profile in ~/.oci/config that the cluster's kubeconfig helper uses. The sign-in refreshes this profile's session token."),
+    )
+
+    def run(self, request):
+        if request.action != "sign-in":
+            return None
+        nodes = [resource for resource in request.resources if is_oke_node(resource.raw)]
+        if not nodes:
+            return Message("This node is not on Oracle Cloud: its providerID is not an OCI instance OCID.", "warning")
+        labels = ((nodes[0].raw or {}).get("metadata") or {}).get("labels") or {}
+        region = labels.get(REGION_LABEL, "")
+        if not region:
+            return Message("The node has no region label, so the OCI region for the sign-in is not known.", "warning")
+        return Terminal(oci_login_argv(region, str(request.settings.get("oci_profile") or "")))
+
+
+plugin = OciPlugin()
