@@ -5,6 +5,7 @@ not run the sign-in itself (a browser or a code prompt is needed): the action op
 connects again. MFA is answered there."""
 from klotse.plugins import Action, Message, Plugin, Setting, Terminal
 
+HELP_AZURE = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; azure accepts this cluster's nodes without it."
 AZURE_PROVIDER_PREFIX = "azure://"  # providerID of an AKS node: azure:///subscriptions/.../virtualMachines/...
 
 
@@ -24,6 +25,11 @@ def _flag(value):
     return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
+def cloud_forced(settings):
+    """True when this cluster's `cloud` setting names Azure (then the providerID is not checked)."""
+    return str((settings or {}).get("cloud") or "auto").strip().lower() == "azure"
+
+
 class AzurePlugin(Plugin):
     id = "azure"
     name = "Azure (AKS) Plugin"
@@ -32,6 +38,9 @@ class AzurePlugin(Plugin):
     description = "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal."
     actions = (
         Action("sign-in", "Sign in to Azure for this cluster (az login)…", kinds=("Node",)),
+    )
+    cluster_settings = (
+        Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|azure", help=HELP_AZURE),
     )
     settings = (
         Setting("azure_tenant", "Azure tenant (optional)", "",
@@ -43,7 +52,7 @@ class AzurePlugin(Plugin):
     def run(self, request):
         if request.action != "sign-in":
             return None
-        if not any(is_aks_node(resource.raw) for resource in request.resources):
+        if not cloud_forced(request.settings) and not any(is_aks_node(resource.raw) for resource in request.resources):
             return Message("This node is not on Azure: its providerID is not azure://.", "warning")
         tenant = str(request.settings.get("azure_tenant") or "").strip()
         if tenant and not all(c.isalnum() or c in ".-" for c in tenant):

@@ -29,5 +29,14 @@
       "pattern": ""
     }
   ],
-  "cluster_settings": []
+  "cluster_settings": [
+    {
+      "key": "cloud",
+      "label": "Cloud of this cluster",
+      "default": "auto",
+      "kind": "text",
+      "help": "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; oci accepts this cluster's nodes without it.",
+      "pattern": "auto|oci"
+    }
+  ]
 }
