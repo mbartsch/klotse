@@ -6,6 +6,8 @@ from PySide6.QtCore import QSettings
 
 from .settings_store import default_store
 
+METRICS_SERVER = "metrics-server"  # a source value meaning: no Prometheus for this cluster; metrics-server only
+
 
 def _on_off(value):
     """"on" / "off" for a saved override; "" (use the default) for anything else."""

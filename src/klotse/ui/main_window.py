@@ -1191,13 +1191,23 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
+    def _test_metrics_source(self, context, text, done):
+        """Preferences > Metrics Test: runs on a connected cluster (the default uses the first connected one), else says to connect."""
+        ws = self.workspaces.get(context) if context else next(
+            (w for w in self.workspaces.values() if w.service.is_connected()), None)
+        if ws is None or not ws.service.is_connected():
+            done("Connect the cluster first, then Test again.")
+            return
+        ws.check_metrics_source(text, done)
+
     def open_preferences(self, plugin_id=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
                                    forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
-                                   proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store))
+                                   proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store),
+                                   metrics_test=self._test_metrics_source)
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):

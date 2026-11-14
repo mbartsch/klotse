@@ -67,7 +67,7 @@ class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
     def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
-                 proxy=None, metrics=None):
+                 proxy=None, metrics=None, metrics_test=None):
         super().__init__(parent)
         self.debug = debug
         self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
@@ -164,7 +164,7 @@ class PreferencesDialog(QDialog):
         self.metrics_panel = None
         if metrics is not None:
             from .metrics_preferences import MetricsPanel, kubeconfig_contexts
-            self.metrics_panel = MetricsPanel(metrics, kubeconfig_contexts(kubeconfig.path))
+            self.metrics_panel = MetricsPanel(metrics, kubeconfig_contexts(kubeconfig.path), tester=metrics_test)
             self.tabs.addTab(self.metrics_panel, "Metrics")
         if self.terminal_panel is not None:
             self.tabs.addTab(self.terminal_panel, "Terminal")

@@ -39,7 +39,7 @@ from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
-from .metrics_sources import ForwardDefaults, MetricsSources
+from .metrics_sources import METRICS_SERVER, ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .metrics_query_dialog import MetricsQueryDialog
 from .prometheus_source_dialog import FORWARD, PrometheusSourceDialog
@@ -1840,6 +1840,13 @@ class ClusterWorkspace(QMainWindow):
         """Find the source the query window reads: the one set for this cluster (through its port-forward when it is one), else the first
         candidate that answers. The window shows what it found, or why nothing was found."""
         typed = self.metrics_sources.get(self.context)
+        if typed == METRICS_SERVER:
+            holder["ref"] = None
+            try:
+                dialog.set_source("metrics-server only", "Prometheus is not used for this cluster (Preferences > Metrics).")
+            except RuntimeError:
+                pass
+            return
 
         def found(ref):
             holder["ref"] = ref
@@ -2020,6 +2027,9 @@ class ClusterWorkspace(QMainWindow):
         if find is None or check is None:
             return
         manual = self.metrics_sources.get(self.context)
+        if manual == METRICS_SERVER:
+            dialog.set_source_note("Prometheus is not used for this cluster (Preferences > Metrics chooses metrics-server only).")
+            return
         try:
             typed = forwarded or (prometheus.parse_ref(manual) if manual else None)
         except ValueError as error:
@@ -2062,6 +2072,20 @@ class ClusterWorkspace(QMainWindow):
                 pass
 
         self._run(work, done, on_error=lambda _message: None)
+
+    def check_metrics_source(self, text, done):
+        """Preferences > Metrics Test: check `text` (a Prometheus / VictoriaMetrics address, or metrics-server) on this cluster in the
+        background, then call done(message). Nothing is saved."""
+        def work():
+            if text == METRICS_SERVER:
+                if self.service.metrics_available():
+                    return "metrics-server answered: the metrics.k8s.io API is served here."
+                raise RuntimeError("metrics-server is not installed on this cluster (metrics.k8s.io is not served).")
+            ref = prometheus.parse_ref(text)
+            self.service.prometheus_check(ref)
+            return f"{prometheus.ref_text(ref)} answered the Prometheus API."
+
+        self._run(work, done, on_error=done)
 
     def _forward_options(self, context=None):
         """(tls, insecure) for the port-forward of a cluster: its own choice, else the Preferences setting."""

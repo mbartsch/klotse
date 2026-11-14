@@ -396,6 +396,10 @@ class KubeService:
             return [], None
         return [c["name"] for c in contexts], (active or {}).get("name")
 
+    def is_connected(self):
+        """True once connect() has succeeded for this service."""
+        return self._core is not None
+
     def connect(self, context):
         """Connect to a context. A failure is put into plain words (`connect_help.explain`): a sign-in helper that needs a terminal,
         a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
