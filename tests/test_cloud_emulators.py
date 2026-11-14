@@ -75,9 +75,15 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
         f"tenancy={tenancy}\n"
         "region=us-phoenix-1\n"
         f"key_file={key}\n", encoding="utf-8")
-    out = cli("oci", "ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all",
-              env={"OCI_CLI_CONFIG_FILE": str(config)})
-    assert isinstance(json.loads(out).get("data"), list)
+    done = subprocess.run(["oci", "ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all"],
+                          capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+                          env=dict(os.environ, OCI_CLI_CONFIG_FILE=str(config)))  # nosec B603 - fixed argv, no shell
+    assert done.returncode == 0, f"oci exit {done.returncode}: {(done.stderr or done.stdout).strip()[-600:]}"
+    try:
+        data = json.loads(done.stdout)
+    except ValueError:
+        pytest.fail(f"oci printed no JSON (stdout {done.stdout[:200]!r}; stderr {done.stderr[-400:]!r})")
+    assert isinstance(data.get("data"), list)
 
 
 @pytest.mark.parametrize("port", [4588, 4577])
