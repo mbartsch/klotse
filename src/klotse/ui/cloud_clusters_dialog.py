@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QHe
                                QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from ..k8s import cloud_clusters as cloud
+from . import theme
 from ..workers import Worker
 
 
@@ -28,6 +29,7 @@ class CloudClustersDialog(QDialog):
         self.target_path, self.is_main = target()
         self._clusters = []
         self._busy = False
+        self._detected = {}  # field key -> the value Klotse filled in from the local configuration
 
         self.provider = QComboBox()
         for key, spec in cloud.PROVIDERS.items():
@@ -55,11 +57,19 @@ class CloudClustersDialog(QDialog):
         buttons.addWidget(self.list_button)
         buttons.addStretch(1)
         buttons.addWidget(self.add_button)
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.reject)
+        buttons.addWidget(self.close_button)
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Add", "Cluster", "Location", "Group or state"])
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # The tick box is the table's own indicator; the app theme leaves it small and faint, so it is drawn larger here.
+        self.table.setStyleSheet(
+            f"QTableView::indicator {{ width: 20px; height: 20px; border: 2px solid {theme.MUTED}; border-radius: 4px; "
+            f"background: {theme.BASE}; }}"
+            f"QTableView::indicator:checked {{ background: {theme.ACCENT}; border-color: {theme.ACCENT}; }}")
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)  # the tick box keeps its width
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -89,10 +99,23 @@ class CloudClustersDialog(QDialog):
             edit.setVisible(field is not None)
             if field is not None:
                 self.labels[key].setText(field.label + (" *" if field.required else ""))
+        self._fill_defaults(spec.key)
         self.table.setRowCount(0)
         self._clusters = []
         self.add_button.setEnabled(False)
         self.status.setText("Fill in the fields (* required), then List clusters.")
+
+    def _fill_defaults(self, provider_key):
+        """Fill the provider's detected defaults into empty fields. A field still holding an earlier detected value (for
+        example the region of another provider, since the fields are shared) is replaced; typed values are kept."""
+        for key, value in cloud.detect_defaults(provider_key).items():
+            edit = self.edits.get(key)
+            if edit is None:
+                continue
+            current = edit.text().strip()
+            if not current or current == self._detected.get(key):
+                edit.setText(value)
+                self._detected[key] = value
 
     def _values(self):
         return {key: edit.text() for key, edit in self.edits.items()}
