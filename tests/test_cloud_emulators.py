@@ -91,7 +91,11 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
     listed = oci("ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all", "--endpoint", OCI_ENDPOINT, "--debug")
     assert listed.returncode == 0 and listed.stdout.strip(), (
         f"oci ce cluster list: exit {listed.returncode}, stdout {listed.stdout[:200]!r}, stderr {listed.stderr[-400:]!r}")
-    assert isinstance(json.loads(listed.stdout).get("data"), list)
+    try:
+        data = json.loads(listed.stdout)
+    except ValueError:
+        pytest.fail(f"oci ce cluster list printed no JSON: stdout {listed.stdout[:300]!r}; debug {listed.stderr[-1500:]!r}")
+    assert isinstance(data.get("data"), list)
 
 
 @pytest.mark.parametrize("port", [4588, 4577])
