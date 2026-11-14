@@ -18,6 +18,9 @@ def proxy_variables():
     url = _PROXY["url"]
     if not url:
         return {}
+    # Go (kubectl, helm) reads only socks5:// from these variables, so socks5h:// is passed as socks5://.
+    if url.startswith("socks5h://"):
+        url = "socks5://" + url[len("socks5h://"):]
     variables = {"HTTPS_PROXY": url, "https_proxy": url, "HTTP_PROXY": url, "http_proxy": url}
     if _PROXY["no_proxy"]:
         variables.update(NO_PROXY=_PROXY["no_proxy"], no_proxy=_PROXY["no_proxy"])

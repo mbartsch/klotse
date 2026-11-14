@@ -6,7 +6,7 @@ Applies to the repository rooted here. It records the current implementation and
 
 - Klotse is a native Kubernetes desktop manager: Python + PySide6/Qt Widgets, the Kubernetes Python client and `kubectl`. No web frontend, database or server.
 - Package `klotse`, Python `>=3.10`, setuptools `src/` layout. The version is one line in `src/klotse/_version.py` and changes only in a release PR (see Packaging).
-- Runtime deps: `PySide6-Essentials>=6.6`, `PySide6-WebEngine>=6.6` (embedded terminal; about 300 MB, accepted by the owner), `kubernetes>=29`, `PyYAML>=6`, `pywinpty>=2.0.1` on Windows. Dev deps add `pytest`, `pytest-qt`. Keep `pyproject.toml` and `requirements.txt` consistent.
+- Runtime deps: `PySide6-Essentials>=6.6`, `PySide6-WebEngine>=6.6` (embedded terminal; about 300 MB, accepted by the owner), `kubernetes>=29`, `PyYAML>=6`, `pywinpty>=2.0.1` on Windows, `PySocks>=1.7` (SOCKS proxies for the Kubernetes client). Dev deps add `pytest`, `pytest-qt`. Keep `pyproject.toml` and `requirements.txt` consistent.
 - Work lands on `master` through squash-merged PRs (`mbartsch/klotse`). Branch from an up-to-date `master`; never commit to `master`. Use `gh` for PRs.
 - Preserve uncommitted work in the tree; do not reset or discard it, and do not assume it is committed or pushed.
 - License Apache-2.0 (`LICENSE`, pyproject `license`, `about.LICENSE`: keep in step). README and About carry the Linux Foundation trademark disclaimer. Do not use the Kubernetes logo or put the mark in the product name; the logo is a circle badge, teal/amber, no heptagon: keep it that way.

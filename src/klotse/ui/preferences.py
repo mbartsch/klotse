@@ -101,7 +101,7 @@ class PreferencesDialog(QDialog):
         self.proxy_settings = proxy
         if proxy is not None:
             self.proxy_url = QLineEdit(proxy.url or "")
-            self.proxy_url.setPlaceholderText("None: use the kubeconfig or environment, for example http://proxy.corp:3128")
+            self.proxy_url.setPlaceholderText("None: use the kubeconfig or environment, for example http://proxy.corp:3128 or socks5://proxy.corp:1080")
             self.proxy_url.setAccessibleName("HTTP proxy address")
             self.no_proxy_edit = QLineEdit(proxy.no_proxy_text())
             self.no_proxy_edit.setPlaceholderText("localhost, 10.0.0.0/8")

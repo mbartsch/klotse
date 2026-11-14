@@ -36,7 +36,7 @@ def test_clearing_removes_the_proxy(tmp_path):
     assert again.url is None and again.no_proxy == []
 
 
-@pytest.mark.parametrize("url", ["proxy.corp:3128", "socks5://proxy.corp:1080", "http://", "http://user:secret@proxy.corp:3128"])
+@pytest.mark.parametrize("url", ["proxy.corp:3128", "socks4://proxy.corp:1080", "ftp://proxy.corp:21", "http://", "http://user:secret@proxy.corp:3128", "socks5://user:secret@proxy.corp:1080"])
 def test_an_unusable_proxy_address_is_refused_and_nothing_is_saved(tmp_path, url):
     settings = ProxySettings(store(tmp_path))
     with pytest.raises(ValueError):
@@ -68,3 +68,23 @@ def test_without_an_app_proxy_nothing_changes(tmp_path):
     cfg = SimpleNamespace(proxy="env-proxy", no_proxy="env-bypass")
     service.apply_proxy(cfg, "plain")
     assert cfg.proxy == "env-proxy" and cfg.no_proxy == "env-bypass"
+
+
+@pytest.mark.parametrize("url", ["socks5://proxy.corp:1080", "socks5h://proxy.corp:1080"])
+def test_a_socks_proxy_is_saved_and_reread(tmp_path, url):
+    ProxySettings(store(tmp_path)).set(url, "localhost")
+    assert ProxySettings(store(tmp_path)).url == url
+
+
+@pytest.mark.parametrize("url", ["socks5://proxy.corp:1080", "socks5h://proxy.corp:1080"])
+def test_a_socks_app_proxy_gives_the_client_a_socks_pool(tmp_path, url):
+    kube = tmp_path / "config"
+    kube.write_text(CONFIG, encoding="utf-8")
+    service = KubeService(str(kube))
+    service.proxy = url
+    cfg = kube_client.Configuration()
+    kube_config.load_kube_config(config_file=str(kube), context="plain", client_configuration=cfg)
+    service.apply_proxy(cfg, "plain")
+    api = kube_client.ApiClient(cfg)
+    from urllib3.contrib.socks import SOCKSProxyManager
+    assert isinstance(api.rest_client.pool_manager, SOCKSProxyManager)

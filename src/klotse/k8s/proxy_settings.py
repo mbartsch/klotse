@@ -1,9 +1,11 @@
 """The application's HTTP(S) proxy for cluster connections, kept in the shared settings (pure: no Qt widgets).
 
 Used only for a cluster whose kubeconfig sets no `proxy-url` of its own; the kubeconfig value always wins. A proxy address
-must be http:// or https:// with a host name, and must not carry a user name or password (settings are plain text).
+must be http://, https://, socks5:// or socks5h:// with a host name, and must not carry a user name or password (settings are plain text).
 `network/no_proxy` is a list of host names or addresses that bypass the proxy."""
 from urllib.parse import urlsplit
+
+PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
 
 
 class ProxySettings:
@@ -18,8 +20,8 @@ class ProxySettings:
         bypass = [item.strip() for item in str(no_proxy or "").replace(";", ",").split(",") if item.strip()]
         if url:
             parts = urlsplit(url)
-            if parts.scheme not in ("http", "https") or not parts.hostname:
-                raise ValueError("The proxy must be an http:// or https:// address with a host name, for example http://proxy.corp:3128.")
+            if parts.scheme not in PROXY_SCHEMES or not parts.hostname:
+                raise ValueError("The proxy must be an http://, https://, socks5:// or socks5h:// address with a host name, for example http://proxy.corp:3128 or socks5://proxy.corp:1080.")
             if parts.username or parts.password or "@" in parts.netloc:
                 raise ValueError("Leave the user name and password out of the proxy address.")
             self.store.setValue("network/proxy", url)
