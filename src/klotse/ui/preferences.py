@@ -112,6 +112,13 @@ class PreferencesDialog(QDialog):
                                 "they connected with; reconnect to use a new one.")
             proxy_note.setWordWrap(True)
             form.addRow(proxy_note)
+            spdy_note = QLabel("Kubernetes versions before 1.31 stream exec, attach, cp and port-forward over SPDY, which "
+                               "a proxy may not carry reliably. "
+                               '<a href="https://kubernetes.io/blog/2024/08/20/websockets-transition/">'
+                               "Kubernetes: transition from SPDY to WebSockets</a>")
+            spdy_note.setWordWrap(True)
+            spdy_note.setOpenExternalLinks(True)
+            form.addRow(spdy_note)
 
         if themes is not None:
             self._theme_rows(form)
