@@ -5,11 +5,10 @@ the main file asks first (Yes/No, default No) and keeps a .bak copy. Commands ru
 import shutil
 
 from PySide6.QtCore import QThreadPool, Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+                               QScrollArea, QVBoxLayout, QWidget)
 
 from ..k8s import cloud_clusters as cloud
-from . import theme
 from ..workers import Worker
 
 
@@ -61,16 +60,14 @@ class CloudClustersDialog(QDialog):
         self.close_button.clicked.connect(self.reject)
         buttons.addWidget(self.close_button)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Add", "Cluster", "Location", "Group or state"])
-        self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        # The tick box is the table's own indicator; the app theme leaves it small and faint, so it is drawn larger here.
-        self.table.setStyleSheet(
-            f"QTableView::indicator {{ width: 20px; height: 20px; border: 2px solid {theme.MUTED}; border-radius: 4px; "
-            f"background: {theme.BASE}; }}"
-            f"QTableView::indicator:checked {{ background: {theme.ACCENT}; border-color: {theme.ACCENT}; }}")
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)  # the tick box keeps its width
+        # One large checkbox per cluster, named in full: a checkbox is far easier to see than a table's small indicator.
+        self.list_holder = QWidget()
+        self.list_layout = QVBoxLayout(self.list_holder)
+        self.list_layout.setAlignment(Qt.AlignTop)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setWidget(self.list_holder)
+        self.scroll.setMinimumHeight(180)
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.target_note = QLabel(self._target_text())
@@ -80,7 +77,7 @@ class CloudClustersDialog(QDialog):
         layout.addWidget(self.provider)
         layout.addLayout(self.form)
         layout.addLayout(buttons)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.scroll, 1)
         layout.addWidget(self.status)
         layout.addWidget(self.target_note)
         self._provider_changed()
@@ -100,7 +97,7 @@ class CloudClustersDialog(QDialog):
             if field is not None:
                 self.labels[key].setText(field.label + (" *" if field.required else ""))
         self._fill_defaults(spec.key)
-        self.table.setRowCount(0)
+        self._clear_list()
         self._clusters = []
         self.add_button.setEnabled(False)
         self.status.setText("Fill in the fields (* required), then List clusters.")
@@ -150,20 +147,24 @@ class CloudClustersDialog(QDialog):
         text = cloud.run(cloud.list_argv(provider, values))
         return cloud.parse_clusters(provider, text, values)
 
+    def _clear_list(self):
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self._boxes = []
+
     def _listed(self, clusters):
         self._set_busy(False)
         self._clusters = list(clusters)
-        self.table.setRowCount(len(self._clusters))
-        for row, cluster in enumerate(self._clusters):
-            check = QTableWidgetItem()
-            check.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-            check.setCheckState(Qt.Unchecked)
-            self.table.setItem(row, 0, check)
-            self.table.setItem(row, 1, QTableWidgetItem(cluster.name))
-            self.table.setItem(row, 2, QTableWidgetItem(cluster.location))
-            self.table.setItem(row, 3, QTableWidgetItem(cluster.group or cluster.state))
-        self.table.resizeColumnsToContents()
-        self.table.setColumnWidth(0, 64)  # the tick box must stay large enough to see; resizing to contents made it tiny
+        self._clear_list()
+        for cluster in self._clusters:
+            details = "  ·  ".join(part for part in (cluster.location, cluster.group or cluster.state) if part)
+            box = QCheckBox(f"{cluster.name}" + (f"    ({details})" if details else ""))
+            box.setStyleSheet("QCheckBox { font-size: 14px; padding: 6px; } "
+                              "QCheckBox::indicator { width: 22px; height: 22px; }")
+            self.list_layout.addWidget(box)
+            self._boxes.append(box)
         self.status.setText(f"{len(self._clusters)} cluster(s) found. Tick the ones to add." if self._clusters
                             else "No clusters found in this scope.")
         self.add_button.setEnabled(bool(self._clusters))
@@ -173,8 +174,7 @@ class CloudClustersDialog(QDialog):
 
     # ---- adding ----------------------------------------------------------
     def _ticked(self):
-        return [self._clusters[row] for row in range(self.table.rowCount())
-                if self.table.item(row, 0) is not None and self.table.item(row, 0).checkState() == Qt.Checked]
+        return [cluster for cluster, box in zip(self._clusters, self._boxes) if box.isChecked()]
 
     def _add(self):
         if self._busy:
