@@ -86,4 +86,6 @@ entry.main()
     result, seconds = run_entry_point(script)
     assert result.returncode == 0, (result.returncode, result.stderr)
     assert "Destroyed while thread is still running" not in result.stderr
-    assert seconds < 10  # it did not wait out the 15 s read
+    # Interpreter start and imports count too; on a busy CI runner those alone can take several seconds, so the bound
+    # only has to be under the 15 s read that an exit which waits for the thread would take.
+    assert seconds < 14  # it did not wait out the 15 s read

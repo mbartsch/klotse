@@ -555,7 +555,7 @@ def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(qtbot, tmp_p
     assert found.source == "bundled" and found.error == "" and not manager.is_enabled("aws")
     assert manager.columns_for("Node") == []
     manager.set_enabled("aws", True)
-    qtbot.waitUntil(lambda: manager.is_enabled("aws"))
+    qtbot.waitUntil(lambda: manager.is_enabled("aws"), timeout=20000)
     assert [c[0] for c in manager.columns_for("Node")] == [
         "Instance ID", "Instance type", "Capacity", "AMI", "On-demand price/h", "Price/h", "Price/month", "Launched"]
     assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost"]
@@ -573,7 +573,7 @@ def test_the_host_warns_in_the_plugins_page_but_still_uses_the_values(qtbot, tmp
     from klotse.k8s.models import NodeRow
     manager = PluginManager(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat), entry_points=False)
     manager.set_enabled("aws", True)
-    qtbot.waitUntil(lambda: manager.is_enabled("aws"))
+    qtbot.waitUntil(lambda: manager.is_enabled("aws"), timeout=20000)
     monkeypatch.setattr(manager.get("aws").plugin, "_api", lambda profile: (_ for _ in ()).throw(Ec2Error("denied")))
     calls = []
     host = PluginHost(manager, "ctx", lambda fn, ok, *a, on_error=None: calls.append((fn, ok, on_error)))

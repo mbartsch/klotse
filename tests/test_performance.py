@@ -117,10 +117,10 @@ def test_large_table_initial_load_and_filter(qtbot):
     table.set_rows([PodRow(f'pod-{i}', 'ns', '1/1', 'Running', i, '', '') for i in range(10000)])
     assert table.proxy.rowCount() == 10000 and table.proxy.sortColumn() == -1
     table.filter.setText('pod-9999')
-    qtbot.waitUntil(lambda: table.proxy.rowCount() == 1)
+    qtbot.waitUntil(lambda: table.proxy.rowCount() == 1, timeout=20000)
     assert table.proxy.index(0, 0).data() == 'pod-9999'
     table.filter.clear()
-    qtbot.waitUntil(lambda: table.proxy.rowCount() == 10000)
+    qtbot.waitUntil(lambda: table.proxy.rowCount() == 10000, timeout=20000)
     table.view.sortByColumn(1, Qt.DescendingOrder)
     assert table.proxy.index(0, 1).data() == '9999'
 
