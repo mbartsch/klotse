@@ -1,0 +1,24 @@
+{
+  "manifest_version": 1,
+  "id": "gcp",
+  "name": "Google Cloud (GKE) Plugin",
+  "version": "0.1",
+  "requires_api": 10,
+  "description": "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal.",
+  "columns": [],
+  "actions": [
+    {
+      "key": "sign-in",
+      "title": "Sign in to Google Cloud for this cluster (gcloud auth login)…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    }
+  ],
+  "overview_cards": [],
+  "settings": [],
+  "cluster_settings": []
+}
