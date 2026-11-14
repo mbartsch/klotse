@@ -293,6 +293,7 @@ class KubeService:
         self.page_size = PAGE_SIZE
         self.audit = None  # set by the workspace: fn(action, target, result, detail) writes the local change log
         self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
+        self._secrets = {}  # file path -> (modification time, value), see _secret
         self.proxy, self.no_proxy = None, []  # the app's proxy (Preferences > Network), used when the kubeconfig names none
         self._core = None
         self._apps = None
@@ -1134,16 +1135,40 @@ class KubeService:
         """One range query through the API server's service proxy: {line: [(t, value)]}."""
         return prometheus.parse_matrix(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60), label)
 
+    def _secret(self, source):
+        """The token or password a URL source names. `source` is an environment variable name, or `file:` + a path. An environment
+        variable is read on each request (an in-memory lookup). A file is read on first use and kept with its modification time; it is
+        read again only when that time changes. The value is never stored in the settings or logged."""
+        if source.startswith("file:"):
+            path = source[len("file:"):]
+            try:
+                stamp = os.stat(path).st_mtime_ns
+            except OSError as error:
+                raise prometheus.PrometheusError(f"the secret file {path} cannot be read ({error.strerror or error})") from error
+            kept = self._secrets.get(path)
+            if kept is not None and kept[0] == stamp:
+                return kept[1]
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    value = handle.read().strip()
+            except (OSError, UnicodeDecodeError) as error:
+                raise prometheus.PrometheusError(f"the secret file {path} cannot be read ({getattr(error, 'strerror', None) or error})") from error
+            self._secrets[path] = (stamp, value)
+            return value
+        return os.environ.get(source, "")
+
     def _direct_get(self, ref, path, timeout):
-        """A GET from this computer to a URL source (`origin` + path), with its authentication. The secret is read from the environment
-        variable the source names, when it is asked for; it is never stored, logged or shown. The app's HTTP(S) proxy is used unless the
-        address is on its bypass list. Raises PrometheusError saying which step failed."""
+        """A GET from this computer to a URL source (`origin` + path), with its authentication (see _secret). The app's HTTP(S) proxy is used
+        unless the address is on its bypass list. Raises PrometheusError saying which step failed."""
+        kind, source = ref.get("auth", ""), ref.get("auth_env", "")
         headers = {"Accept": "application/json"}
-        kind, variable = ref.get("auth", ""), ref.get("auth_env", "")
         if kind:
-            secret = os.environ.get(variable, "") if variable else ""
+            if not source:
+                raise prometheus.PrometheusError("no secret is named for this source's authentication")
+            secret = self._secret(source)
             if not secret:
-                raise prometheus.PrometheusError(f"the environment variable {variable or '(none named)'} is not set, so the source cannot be asked")
+                where = source[len("file:"):] if source.startswith("file:") else f"the environment variable {source}"
+                raise prometheus.PrometheusError(f"{where} is empty or not set, so the source cannot be asked")
             if kind == "bearer":
                 headers["Authorization"] = f"Bearer {secret}"
             else:

@@ -143,7 +143,7 @@ def test_a_missing_variable_is_reported_by_name_without_sending_anything(server,
     monkeypatch.delenv("KLOTSE_TEST_ABSENT", raising=False)
     service = KubeService(str(tmp_path / "missing-kubeconfig"))
     ref = _ref(server, auth="bearer", auth_env="KLOTSE_TEST_ABSENT")
-    with pytest.raises(prometheus.PrometheusError, match="KLOTSE_TEST_ABSENT is not set"):
+    with pytest.raises(prometheus.PrometheusError, match="KLOTSE_TEST_ABSENT is empty or not set"):
         service._direct_get(ref, "/select/0/prometheus/api/v1/query?query=up", 5)
     assert _Handler.seen == []
 
@@ -162,3 +162,38 @@ def test_a_socks_app_proxy_is_refused_for_a_url_source(server, tmp_path):
             service._direct_get(_ref(server), "/x", 5)
     finally:
         process_env.set_app_proxy(None)
+
+
+def test_a_secret_file_is_read_on_first_use_and_again_only_when_its_time_changes(server, tmp_path):
+    import os
+
+    token = tmp_path / "token"
+    token.write_text("first\n", encoding="utf-8")
+    stamp = os.stat(token).st_mtime_ns
+    service = KubeService(str(tmp_path / "missing-kubeconfig"))
+    ref = _ref(server, auth="bearer", auth_env=f"file:{token}")
+    service._direct_get(ref, "/select/0/prometheus/api/v1/query?query=up", 5)
+    assert _Handler.seen[-1] == "Bearer first"
+
+    token.write_text("second\n", encoding="utf-8")
+    os.utime(token, ns=(stamp, stamp))  # the modification time is back to the kept one: the kept value is used
+    service._direct_get(ref, "/select/0/prometheus/api/v1/query?query=up", 5)
+    assert _Handler.seen[-1] == "Bearer first"
+
+    os.utime(token, ns=(stamp + 2_000_000_000, stamp + 2_000_000_000))  # a new modification time: read again
+    service._direct_get(ref, "/select/0/prometheus/api/v1/query?query=up", 5)
+    assert _Handler.seen[-1] == "Bearer second"
+
+
+def test_an_unreadable_secret_file_is_reported_without_sending_anything(server, tmp_path):
+    service = KubeService(str(tmp_path / "missing-kubeconfig"))
+    ref = _ref(server, auth="bearer", auth_env=f"file:{tmp_path / 'absent'}")
+    with pytest.raises(prometheus.PrometheusError, match="cannot be read"):
+        service._direct_get(ref, "/select/0/prometheus/api/v1/query?query=up", 5)
+    assert _Handler.seen == []
+
+
+def test_a_source_saves_a_file_path_as_the_secret_source(tmp_path):
+    s = sources(tmp_path)
+    s.set("prod", "https://vm.example.com", auth="bearer", auth_env="file:/run/secrets/vm_token")
+    assert s.own("prod")["auth_env"] == "file:/run/secrets/vm_token"

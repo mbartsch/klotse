@@ -39,35 +39,53 @@ def valid_source(text):
 
 
 def auth_fields(auth_box, env_edit, user_edit):
-    """(kind, environment variable, user name) from the three auth widgets; the user name only for basic."""
+    """(kind, secret source, user name) from the auth widgets. The secret source is the environment variable name, or `file:` + the
+    path when the file choice is selected; the user name only for basic."""
     kind = auth_box.currentData() or ""
-    return kind, env_edit.text().strip(), user_edit.text().strip() if kind == "basic" else ""
+    value = env_edit.text().strip()
+    if kind and env_edit.source_box.currentData() == "file" and value:
+        value = "file:" + value
+    return kind, value, user_edit.text().strip() if kind == "basic" else ""
 
 
 def _auth_widgets(parent_form, auth):
-    """The authentication widgets (kind, variable, user) and the rows they sit in, set from `auth`."""
+    """The authentication widgets (kind, secret, user) set from `auth` = (kind, secret source, user). The secret source is an environment
+    variable name, or `file:` + a path (saved that way); the choice of where to read it is shown beside the field."""
     box = QComboBox()
     for kind, label in AUTH_CHOICES:
         box.addItem(label, kind)
     box.setCurrentIndex(max(0, [kind for kind, _ in AUTH_CHOICES].index(auth[0] or "")))
     box.setAccessibleName("Authentication for a URL source")
-    env_edit = QLineEdit(auth[1])
-    env_edit.setPlaceholderText("name of the variable, for example METRICS_TOKEN")
-    env_edit.setAccessibleName("Environment variable holding the token or password")
+    source_box = QComboBox()
+    source_box.addItem("Environment variable", "variable")
+    source_box.addItem("File", "file")
+    source_box.setAccessibleName("Where the token or password is read from")
+    saved = str(auth[1] or "")
+    is_file = saved.startswith("file:")
+    source_box.setCurrentIndex(1 if is_file else 0)
+    env_edit = QLineEdit(saved[len("file:"):] if is_file else saved)
+    env_edit.source_box = source_box
+    env_edit.setAccessibleName("Environment variable or file holding the token or password")
     user_edit = QLineEdit(auth[2])
     user_edit.setPlaceholderText("user name")
     user_edit.setAccessibleName("User name")
 
     def changed(*_):
         kind = box.currentData() or ""
+        source_box.setEnabled(bool(kind))
         env_edit.setEnabled(bool(kind))
         user_edit.setEnabled(kind == "basic")
+        env_edit.setPlaceholderText("/path/to/file, for example /run/secrets/metrics_token"
+                                    if source_box.currentData() == "file" else "name of the variable, for example METRICS_TOKEN")
 
     box.currentIndexChanged.connect(changed)
+    source_box.currentIndexChanged.connect(changed)
     changed()
     parent_form.addRow("Authentication (URL only)", box)
-    parent_form.addRow("Environment variable", env_edit)
+    parent_form.addRow("Read the secret from", source_box)
+    parent_form.addRow("Variable or file", env_edit)
     parent_form.addRow("User name", user_edit)
+    box.source_box = source_box
     return box, env_edit, user_edit
 
 
