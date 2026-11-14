@@ -88,7 +88,7 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
     namespace = oci("os", "ns", "get", "--endpoint", OCI_ENDPOINT)
     assert namespace.returncode == 0 and "data" in namespace.stdout, (
         f"oci os ns get: exit {namespace.returncode}, stdout {namespace.stdout[:200]!r}, stderr {namespace.stderr[-400:]!r}")
-    listed = oci("ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all", "--endpoint", OCI_ENDPOINT)
+    listed = oci("ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all", "--endpoint", OCI_ENDPOINT, "--debug")
     assert listed.returncode == 0 and listed.stdout.strip(), (
         f"oci ce cluster list: exit {listed.returncode}, stdout {listed.stdout[:200]!r}, stderr {listed.stderr[-400:]!r}")
     assert isinstance(json.loads(listed.stdout).get("data"), list)
