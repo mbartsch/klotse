@@ -410,6 +410,9 @@ class KubeService:
         """Connect to a context. A failure is put into plain words (`connect_help.explain`): a sign-in helper that needs a terminal,
         a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
         connect_help.guard_helper_stdin()
+        info = connect_help.auth_info(self.kubeconfig, context)
+        if connect_help.missing_helper(info):  # say what to install; do not send a request that the cluster would refuse with 401
+            raise ConnectionError(connect_help.explain(FileNotFoundError(2, "No such file or directory", info["exec"]), info))
         try:
             with timings.timed("connect", "connect"):
                 self._connect(context)
@@ -440,6 +443,20 @@ class KubeService:
             core.get_api_resources(_request_timeout=10)  # fail fast on bad creds/unreachable
         except MaxRetryError as e:
             raise ConnectionError(f"Cannot reach the API server at {cfg.host}") from e
+        try:
+            # Discovery can answer without a token on some clusters, so a rejected token would only show on the first list.
+            # An access review needs a valid token and no extra rights (every signed-in user may create one), so a 401 here
+            # fails the connection and the user sees the sign-in advice. Other answers are not treated as failures.
+            client.AuthorizationV1Api(api).create_self_subject_access_review(
+                {"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+                 "spec": {"resourceAttributes": {"verb": "list", "resource": "namespaces"}}}, _request_timeout=10)
+        except ApiException as e:
+            if e.status == 401:
+                helper = connect_help.auth_info(self.kubeconfig, context).get("exec") or ""
+                how = (f"Sign in to the cluster again with its sign-in helper (`{helper}`), then connect"
+                       if helper else "Sign in to the cluster again, then connect")
+                raise ConnectionError(f"The cluster did not accept the credentials (401 Unauthorized). {how}. "
+                                      "Klotse does not run the sign-in: run it in a terminal first.") from e
         self._api_client = api
         self._core = core
         self._apps = client.AppsV1Api(api)
