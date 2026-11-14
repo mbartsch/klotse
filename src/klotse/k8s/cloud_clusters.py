@@ -83,6 +83,86 @@ def clean_scope(provider, scope):
     return out
 
 
+def _ini(path):
+    """The parsed INI file, or None when it is missing or unreadable."""
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, UnicodeDecodeError, configparser.Error):
+        return None
+    return parser
+
+
+def _env_value(env, *names):
+    for name in names:
+        value = (env.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _aws_defaults(env):
+    """Profile and region from AWS_PROFILE / AWS_DEFAULT_REGION, else the profile's `region` in the AWS config file."""
+    profile = _env_value(env, "AWS_PROFILE", "AWS_DEFAULT_PROFILE")
+    found = {"profile": profile} if profile else {}
+    region = _env_value(env, "AWS_DEFAULT_REGION", "AWS_REGION")
+    if not region:
+        parser = _ini(os.path.expanduser(env.get("AWS_CONFIG_FILE") or "~/.aws/config"))
+        section = f"profile {profile}" if profile and profile != "default" else "default"
+        if parser is not None and parser.has_section(section):
+            region = parser[section].get("region", "").strip()
+    if region:
+        found["region"] = region
+    return found
+
+
+def _gcp_defaults(env):
+    """The project of the active gcloud configuration. Location is left empty: an empty location lists every cluster."""
+    config_dir = os.path.expanduser(env.get("CLOUDSDK_CONFIG") or "~/.config/gcloud")
+    name = _env_value(env, "CLOUDSDK_ACTIVE_CONFIG_NAME")
+    if not name:
+        try:
+            with open(os.path.join(config_dir, "active_config"), encoding="utf-8") as handle:
+                name = handle.read().strip()
+        except OSError:
+            name = ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name or ""):
+        name = "default"
+    project = _env_value(env, "CLOUDSDK_CORE_PROJECT")
+    if not project:
+        parser = _ini(os.path.join(config_dir, "configurations", f"config_{name}"))
+        if parser is not None and parser.has_section("core"):
+            project = parser["core"].get("project", "").strip()
+    return {"project": project} if project else {}
+
+
+def _azure_defaults(env):
+    """The default subscription of the Azure CLI (the one `az account set` chose). The resource group is left empty:
+    an empty group lists every cluster in the subscription."""
+    config_dir = os.path.expanduser(env.get("AZURE_CONFIG_DIR") or "~/.azure")
+    with open(os.path.join(config_dir, "azureProfile.json"), encoding="utf-8-sig") as handle:
+        data = json.load(handle)
+    for item in (data.get("subscriptions") or []) if isinstance(data, dict) else []:
+        if isinstance(item, dict) and item.get("isDefault") and item.get("id"):
+            return {"subscription": str(item["id"])}
+    return {}
+
+
+def detect_defaults(provider, env=None):
+    """The scope values a provider's CLI would use by default, from the environment and the CLI's local config files, so the
+    dialog can offer them. Missing or unreadable files give {}. The user can change every value."""
+    env = os.environ if env is None else env
+    detectors = {"aws": _aws_defaults, "gcp": _gcp_defaults, "azure": _azure_defaults, "oci": oci_defaults}
+    detector = detectors.get(provider)
+    if detector is None:
+        return {}
+    try:
+        return detector(env)
+    except (OSError, ValueError, configparser.Error):
+        return {}
+
+
 def oci_defaults(env=None):
     """Region, compartment and profile for OCI, from the environment and the OCI config file the CLI reads: OCI_CLI_CONFIG_FILE
     (default ~/.oci/config) and OCI_CLI_PROFILE (default DEFAULT). The region is the profile's `region`; the compartment
@@ -91,11 +171,8 @@ def oci_defaults(env=None):
     env = os.environ if env is None else env
     path = os.path.expanduser(env.get("OCI_CLI_CONFIG_FILE") or "~/.oci/config")
     profile = (env.get("OCI_CLI_PROFILE") or "DEFAULT").strip()
-    parser = configparser.ConfigParser(interpolation=None)
-    try:
-        with open(path, encoding="utf-8") as handle:
-            parser.read_file(handle)
-    except (OSError, UnicodeDecodeError, configparser.Error):
+    parser = _ini(path)
+    if parser is None:
         return {}
     if profile == "DEFAULT":
         values = dict(parser.defaults())

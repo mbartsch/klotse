@@ -171,3 +171,40 @@ def test_oci_defaults_come_from_the_config_file_the_cli_reads(tmp_path):
         "region": "us-phoenix-1", "compartment": "ocid1.tenancy.oc1..other", "profile": "OKE"}
     assert cloud.oci_defaults({"OCI_CLI_CONFIG_FILE": str(config), "OCI_CLI_PROFILE": "MISSING"}) == {}
     assert cloud.oci_defaults({"OCI_CLI_CONFIG_FILE": str(tmp_path / "absent")}) == {}
+
+
+def test_aws_defaults_take_the_profile_from_env_and_its_region_from_the_config(tmp_path):
+    config = tmp_path / "config"
+    config.write_text("[default]\nregion = eu-west-1\n[profile work]\nregion = us-east-2\n", encoding="utf-8")
+    base = {"AWS_CONFIG_FILE": str(config)}
+    assert cloud.detect_defaults("aws", base) == {"region": "eu-west-1"}
+    assert cloud.detect_defaults("aws", dict(base, AWS_PROFILE="work")) == {"profile": "work", "region": "us-east-2"}
+    assert cloud.detect_defaults("aws", dict(base, AWS_PROFILE="work", AWS_DEFAULT_REGION="ap-south-1")) == {
+        "profile": "work", "region": "ap-south-1"}
+
+
+def test_gcp_default_project_comes_from_the_active_configuration_and_no_location_is_filled(tmp_path):
+    (tmp_path / "configurations").mkdir()
+    (tmp_path / "active_config").write_text("work\n", encoding="utf-8")
+    (tmp_path / "configurations" / "config_work").write_text("[core]\nproject = demo-project\n[compute]\nregion = europe-west1\n",
+                                                             encoding="utf-8")
+    assert cloud.detect_defaults("gcp", {"CLOUDSDK_CONFIG": str(tmp_path)}) == {"project": "demo-project"}
+    assert cloud.detect_defaults("gcp", {"CLOUDSDK_CONFIG": str(tmp_path), "CLOUDSDK_CORE_PROJECT": "env-project"}) == {
+        "project": "env-project"}
+    assert cloud.detect_defaults("gcp", {"CLOUDSDK_CONFIG": str(tmp_path), "CLOUDSDK_ACTIVE_CONFIG_NAME": "../x"}) == {}
+
+
+def test_azure_default_subscription_is_the_one_marked_default_and_bom_is_accepted(tmp_path):
+    profile = {"subscriptions": [{"id": "11111111-aaaa", "isDefault": False}, {"id": "22222222-bbbb", "isDefault": True}]}
+    (tmp_path / "azureProfile.json").write_text(json.dumps(profile), encoding="utf-8-sig")
+    assert cloud.detect_defaults("azure", {"AZURE_CONFIG_DIR": str(tmp_path)}) == {"subscription": "22222222-bbbb"}
+
+
+def test_detected_defaults_are_empty_when_nothing_is_configured_or_the_file_is_broken(tmp_path):
+    empty = {"AWS_CONFIG_FILE": str(tmp_path / "none"), "CLOUDSDK_CONFIG": str(tmp_path), "AZURE_CONFIG_DIR": str(tmp_path),
+             "OCI_CLI_CONFIG_FILE": str(tmp_path / "none")}
+    for provider in ("aws", "gcp", "azure", "oci"):
+        assert cloud.detect_defaults(provider, empty) == {}
+    (tmp_path / "azureProfile.json").write_text("{not json", encoding="utf-8")
+    assert cloud.detect_defaults("azure", {"AZURE_CONFIG_DIR": str(tmp_path)}) == {}
+    assert cloud.detect_defaults("unknown", empty) == {}
