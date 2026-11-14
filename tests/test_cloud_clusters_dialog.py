@@ -40,15 +40,15 @@ def wait_for(qtbot, condition):
     qtbot.waitUntil(condition, timeout=5000)
 
 
-def test_listing_fills_the_table_with_the_clusters_found(qtbot, tmp_path, monkeypatch):
+def test_listing_fills_the_list_with_the_clusters_found(qtbot, tmp_path, monkeypatch):
     fake_cli(monkeypatch)
     target = tmp_path / ".kube" / "klotse-cloud.klotse"
     dlg = CloudClustersDialog(lambda: (str(target), False))
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     dlg._list()
-    wait_for(qtbot, lambda: dlg.table.rowCount() == 2)
-    assert [dlg.table.item(row, 1).text() for row in range(2)] == ["demo-prod", "demo-test"]
+    wait_for(qtbot, lambda: len(dlg._boxes) == 2)
+    assert [box.text().split()[0] for box in dlg._boxes] == ["demo-prod", "demo-test"]
     assert dlg.add_button.isEnabled()
 
 
@@ -62,8 +62,8 @@ def test_adding_writes_only_the_ticked_cluster_into_the_generated_file(qtbot, tm
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     dlg._list()
-    wait_for(qtbot, lambda: dlg.table.rowCount() == 2)
-    dlg.table.item(0, 0).setCheckState(dialog_module.Qt.Checked)
+    wait_for(qtbot, lambda: len(dlg._boxes) == 2)
+    dlg._boxes[0].setChecked(True)
     with qtbot.waitSignal(dlg.clusters_added, timeout=5000) as signal:
         dlg._add()
     assert signal.args == [str(target), False, ["demo-prod"]]
@@ -82,8 +82,8 @@ def test_writing_into_the_main_kubeconfig_asks_first_and_the_default_is_no(qtbot
     asked = []
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: asked.append(a[-1]) or QMessageBox.No))
     dlg._list()
-    wait_for(qtbot, lambda: dlg.table.rowCount() == 2)
-    dlg.table.item(0, 0).setCheckState(dialog_module.Qt.Checked)
+    wait_for(qtbot, lambda: len(dlg._boxes) == 2)
+    dlg._boxes[0].setChecked(True)
     count = len(calls)
     dlg._add()
     assert asked == [QMessageBox.No]  # the question's default answer
@@ -125,14 +125,14 @@ def test_the_main_window_reads_each_context_from_the_file_it_came_from(qtbot, tm
     assert Path(win.context_files["demo-cloud"]) == generated
 
 
-def test_the_tick_column_keeps_a_usable_width_after_listing(qtbot, tmp_path, monkeypatch):
+def test_each_cluster_has_a_large_named_checkbox_after_listing(qtbot, tmp_path, monkeypatch):
     fake_cli(monkeypatch)
     dlg = CloudClustersDialog(lambda: (str(tmp_path / "klotse-cloud.klotse"), False))
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     dlg._list()
-    wait_for(qtbot, lambda: dlg.table.rowCount() == 2)
-    assert dlg.table.columnWidth(0) >= 56
+    wait_for(qtbot, lambda: len(dlg._boxes) == 2)
+    assert dlg._boxes[0].minimumSizeHint().height() >= 22  # a large, readable checkbox
 
 
 def test_show_kubeconfig_entry_finds_a_context_from_the_kubeconfig_list(qtbot, tmp_path, monkeypatch):
