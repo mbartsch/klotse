@@ -5,8 +5,9 @@ If the kubeconfig cannot be read, nothing is marked. Test asks an open, connecte
 saves nothing. Changes are staged here and written by `save()`, which the Preferences dialog calls when it is saved."""
 from functools import partial
 
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView,
+                               QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from ..k8s import prometheus
 from .metrics_sources import METRICS_SERVER
@@ -24,6 +25,69 @@ def kubeconfig_contexts(path):
     return [str(item["name"]) for item in contexts]
 
 
+class AddSourceDialog(QDialog):
+    """Add a cluster's source. A connected cluster lists the services found on it (`discover(name, done)` calls done with the list, or
+    None when the cluster is not connected); the user can always type the address instead."""
+
+    def __init__(self, clusters, discover=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add a metrics source")
+        self.discover = discover
+        self.cluster = QComboBox()
+        self.cluster.setEditable(True)
+        self.cluster.addItems(clusters)
+        self.cluster.lineEdit().setPlaceholderText("cluster name from the kubeconfig")
+        self.cluster.lineEdit().setAccessibleName("Cluster")
+        self.service = QComboBox()
+        self.service.setEditable(True)
+        self.service.lineEdit().setPlaceholderText("namespace/service:port[/prefix], or metrics-server")
+        self.service.lineEdit().setAccessibleName("Service")
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        form = QFormLayout()
+        form.addRow("Cluster", self.cluster)
+        form.addRow("Service", self.service)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(self.status)
+        layout.addWidget(buttons)
+        self.cluster.currentTextChanged.connect(self._cluster_changed)
+        self._cluster_changed(self.cluster.currentText())
+
+    def _cluster_changed(self, name):
+        self.service.clear()
+        name = name.strip()
+        if not name:
+            self.status.setText("Choose or type the cluster.")
+            return
+        if self.discover is None:
+            self._found(None, name)
+            return
+        self.status.setText("Looking for services on the cluster…")
+        self.discover(name, lambda result, asked=name: self._found(result, asked))
+
+    def _found(self, result, asked):
+        try:
+            if asked != self.cluster.currentText().strip():
+                return  # the cluster was changed meanwhile
+            if result is None:
+                self.status.setText("This cluster is not connected: type the service, for example monitoring/prometheus-server:80. "
+                                    "Connect the cluster to pick one it has.")
+            elif not result:
+                self.status.setText("No Prometheus or VictoriaMetrics service found on this cluster. Type one.")
+            else:
+                self.service.addItems(result)
+                self.status.setText(f"Found {len(result)} on this cluster: pick one, or type another.")
+        except RuntimeError:  # the dialog was closed while the services were being looked for
+            pass
+
+    def chosen(self):
+        return self.cluster.currentText().strip(), self.service.currentText().strip()
+
+
 def valid_source(text):
     """The source text as saved: metrics-server, or a Prometheus address. ValueError says what is wrong."""
     text = str(text).strip()
@@ -34,9 +98,10 @@ def valid_source(text):
 
 
 class MetricsPanel(QWidget):
-    def __init__(self, metrics, contexts, parent=None, tester=None):
+    def __init__(self, metrics, contexts, parent=None, tester=None, discoverer=None):
         super().__init__(parent)
         self.metrics = metrics
+        self.discoverer = discoverer  # discoverer(name, done): the services found on a connected cluster
         self.contexts = contexts  # None when the kubeconfig could not be read
         self.tester = tester  # tester(context or None, text, done(message)); None = testing is not available
         self.default_ref, self.default_via, self.default_local = metrics.get_default()
@@ -73,6 +138,8 @@ class MetricsPanel(QWidget):
         self.table.doubleClicked.connect(lambda *_: self.edit_selected())
         self.table.itemSelectionChanged.connect(self._update_buttons)
 
+        self.add_button = QPushButton("Add…")
+        self.add_button.clicked.connect(self.add_source)
         self.edit_button = QPushButton("Edit")
         self.remove_button = QPushButton("Remove")
         self.unused_button = QPushButton()
@@ -80,7 +147,7 @@ class MetricsPanel(QWidget):
         self.remove_button.clicked.connect(self.remove_selected)
         self.unused_button.clicked.connect(self.remove_unused)
         actions = QHBoxLayout()
-        for button in (self.edit_button, self.remove_button, self.unused_button):
+        for button in (self.add_button, self.edit_button, self.remove_button, self.unused_button):
             actions.addWidget(button)
         actions.addStretch(1)
         self.result = QLabel("")
@@ -190,6 +257,29 @@ class MetricsPanel(QWidget):
             self._run_test(name, entry["ref"])
 
     # --- actions -----------------------------------------------------------------------------------------------------
+
+    def add_source(self):
+        """Add a source for a cluster that has none: a connected cluster offers the services found on it, others take a typed address."""
+        names = [name for name in (self.contexts or []) if self._entry(name) is None]
+        dialog = AddSourceDialog(names, self.discoverer, self)
+        accepted = dialog.exec() == QDialog.Accepted
+        name, text = dialog.chosen()
+        dialog.deleteLater()
+        if not accepted:
+            return
+        if not name:
+            QMessageBox.warning(self, "Metrics source", "Choose or type the cluster.")
+            return
+        if self._entry(name) is not None:
+            QMessageBox.warning(self, "Metrics source", f"{name} already has a source: use Edit to change it.")
+            return
+        try:
+            text = valid_source(text)
+        except ValueError as error:
+            QMessageBox.warning(self, "Metrics source", str(error))
+            return
+        self.changes[name] = {"ref": text, "via": "proxy", "local": 0, "tls": "", "insecure": ""}
+        self._refresh()
 
     def edit_selected(self):
         name = self._selected_name()

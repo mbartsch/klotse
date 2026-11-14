@@ -2073,6 +2073,14 @@ class ClusterWorkspace(QMainWindow):
 
         self._run(work, done, on_error=lambda _message: None)
 
+    def find_metrics_sources(self, done):
+        """Preferences > Metrics Add: the Prometheus / VictoriaMetrics services found on this cluster, as address texts, best first;
+        done([]) when none is found. Runs in the background and saves nothing."""
+        def work():
+            return [prometheus.ref_text(ref) for ref in self.service.find_prometheus()]
+
+        self._run(work, done, on_error=lambda _message: done([]))
+
     def check_metrics_source(self, text, done):
         """Preferences > Metrics Test: check `text` (a Prometheus / VictoriaMetrics address, or metrics-server) on this cluster in the
         background, then call done(message). Nothing is saved."""

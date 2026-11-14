@@ -1200,6 +1200,14 @@ class MainWindow(QMainWindow):
             return
         ws.check_metrics_source(text, done)
 
+    def _discover_metrics_sources(self, context, done):
+        """Preferences > Metrics Add: done(list of services found) for a connected cluster, done(None) when it is not connected."""
+        ws = self.workspaces.get(context)
+        if ws is None or not ws.service.is_connected():
+            done(None)
+            return
+        ws.find_metrics_sources(done)
+
     def open_preferences(self, plugin_id=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
@@ -1207,7 +1215,7 @@ class MainWindow(QMainWindow):
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
                                    forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
                                    proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store),
-                                   metrics_test=self._test_metrics_source)
+                                   metrics_test=self._test_metrics_source, metrics_discover=self._discover_metrics_sources)
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):
