@@ -1,0 +1,41 @@
+{
+  "manifest_version": 1,
+  "id": "azure",
+  "name": "Azure (AKS) Plugin",
+  "version": "0.1",
+  "requires_api": 10,
+  "description": "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal.",
+  "columns": [],
+  "actions": [
+    {
+      "key": "sign-in",
+      "title": "Sign in to Azure for this cluster (az login)…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    }
+  ],
+  "overview_cards": [],
+  "settings": [
+    {
+      "key": "azure_tenant",
+      "label": "Azure tenant (optional)",
+      "default": "",
+      "kind": "text",
+      "help": "A tenant id or domain for az login, when the account belongs to more than one tenant. Empty uses the default.",
+      "pattern": ""
+    },
+    {
+      "key": "azure_device_code",
+      "label": "Sign in with a device code",
+      "default": false,
+      "kind": "bool",
+      "help": "Shows a code to enter in a browser, for a terminal without a browser. Off opens the browser.",
+      "pattern": ""
+    }
+  ],
+  "cluster_settings": []
+}
