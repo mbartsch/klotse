@@ -56,6 +56,9 @@ class CloudClustersDialog(QDialog):
         buttons.addWidget(self.list_button)
         buttons.addStretch(1)
         buttons.addWidget(self.add_button)
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.reject)
+        buttons.addWidget(self.close_button)
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Add", "Cluster", "Location", "Group or state"])
