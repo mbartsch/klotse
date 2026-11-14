@@ -30,6 +30,8 @@ from .terminal import open_terminal
 from .metrics_sources import ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
+from .cloud_clusters_dialog import CloudClustersDialog
+from ..k8s.cloud_clusters import default_generated_path, main_kubeconfig_path
 from .big_clusters import NOTICE_TEXT, BigClusters
 from .multi_cluster import MultiClusterDialog
 from .palette import Entry
@@ -118,6 +120,7 @@ class MainWindow(QMainWindow):
         self.proxy_settings = ProxySettings(self.label_settings.store)  # Preferences > Network: used when a kubeconfig names no proxy-url
         self.apply_app_proxy()
         self.big_clusters = BigClusters(self.label_settings.store)  # clusters read in the lighter big-cluster way
+        self.context_files = {}  # context name -> kubeconfig file it came from (None = default); see _load_contexts
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
         self.debug_settings = DebugSettings(self.label_settings.store)  # Preferences > Debug: the timing log
         self.apply_timing_log()
@@ -144,6 +147,10 @@ class MainWindow(QMainWindow):
         self.apply_action.setToolTip("Paste or open manifests and apply them to the cluster in front")
         self.apply_action.triggered.connect(self.show_apply_yaml)
         file_menu.addAction(self.apply_action)
+        self.cloud_clusters_action = QAction("Add clusters from the cloud…", self)
+        self.cloud_clusters_action.setToolTip("List EKS, GKE, AKS or OKE clusters with the provider's CLI and add them to a kubeconfig file")
+        self.cloud_clusters_action.triggered.connect(self.add_clusters_from_cloud)
+        file_menu.addAction(self.cloud_clusters_action)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
         file_menu.aboutToShow.connect(lambda: self.apply_action.setEnabled(self.clusters.currentWidget() is not None))
@@ -420,7 +427,7 @@ class MainWindow(QMainWindow):
         self._sync_plugin_error_status()
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
-        self.contexts, _ = self.new_service().load_contexts()
+        self.contexts = self._load_contexts()
         self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
         self._sync_cluster_picker()
         self._update_plugins_menu()
@@ -484,13 +491,57 @@ class MainWindow(QMainWindow):
         """Hand the Preferences > Network proxy to the kubectl, helm and terminal processes started from now on."""
         set_app_proxy(self.proxy_settings.url, self.proxy_settings.no_proxy)
 
-    def new_service(self):
-        """A fresh service for one cluster, reading the custom kubeconfig when one is selected in Preferences."""
+    def new_service(self, context=None):
+        """A fresh service for one cluster. It reads the kubeconfig file the context came from (see _load_contexts), else the
+        main one: the custom kubeconfig selected in Preferences, or the default (None)."""
         service = self.factory()
-        if self.kubeconfig_settings.path:
-            service.kubeconfig = self.kubeconfig_settings.path
+        path = self.context_files[context] if context in self.context_files else self.kubeconfig_settings.path
+        if path:
+            service.kubeconfig = path
         service.proxy, service.no_proxy = self.proxy_settings.url, list(self.proxy_settings.no_proxy)
         return service
+
+    def _load_contexts(self):
+        """Context names from the main kubeconfig and then the kubeconfig list. A name in an earlier file wins; the file each
+        context came from is kept in `context_files` (None = the default kubeconfig)."""
+        sources, names = {}, []
+        for path in [self.kubeconfig_settings.path] + self.kubeconfig_settings.extra_paths():
+            service = self.factory()
+            if path:
+                service.kubeconfig = path
+            found, _active = service.load_contexts()
+            for name in found:
+                if name not in sources:
+                    sources[name] = path
+                    names.append(name)
+        self.context_files = sources
+        return names
+
+    # ---- clusters from a cloud account ---------------------------------
+    def add_clusters_from_cloud(self):
+        """File > Add clusters from the cloud…"""
+        dialog = CloudClustersDialog(self.cloud_target, self)
+        dialog.clusters_added.connect(self._cloud_clusters_added)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def cloud_target(self):
+        """(path, is_main) for clusters from the cloud: the main kubeconfig when Preferences says so (off by default), else the
+        generated klotse-cloud.klotse file."""
+        if self.kubeconfig_settings.write_main:
+            return self.kubeconfig_settings.path or str(main_kubeconfig_path()), True
+        return str(default_generated_path()), False
+
+    def _cloud_clusters_added(self, path, is_main, contexts):
+        if not is_main:
+            try:
+                self.kubeconfig_settings.add_extra(path)  # the generated file joins the kubeconfig list
+            except (ValueError, OSError) as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+        self.contexts = self._load_contexts()
+        self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
+        self._sync_cluster_picker()
+        self.status.showMessage(f"Added {len(contexts)} cluster(s) to {path}")
 
     def _no_contexts_message(self):
         path = self.kubeconfig_settings.path
@@ -613,7 +664,7 @@ class MainWindow(QMainWindow):
         if ctx in self.workspaces:
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
-        ws = ClusterWorkspace(self.new_service(), ctx, label_settings=self.label_settings,
+        ws = ClusterWorkspace(self.new_service(ctx), ctx, label_settings=self.label_settings,
                               terminal_settings=self.terminal_settings, plugins=self.plugins, audit_log=self.audit_log)
         self.workspaces[ctx] = ws
         self._apply_global_auto_pause(ws)
@@ -1228,6 +1279,11 @@ class MainWindow(QMainWindow):
         accepted = dialog.exec() == PreferencesDialog.Accepted
         self.apply_timing_log()
         chosen = dialog.chosen_kubeconfig()
+        if accepted and dialog.chosen_write_main() != self.kubeconfig_settings.write_main:
+            try:
+                self.kubeconfig_settings.set_write_main(dialog.chosen_write_main())
+            except OSError as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
         chosen_theme = dialog.chosen_theme()
         dialog.deleteLater()
         if accepted and self.terminal_settings.embedded:
@@ -1275,7 +1331,7 @@ class MainWindow(QMainWindow):
             self._clear_connection_prompt(ctx)
         for ctx in list(self.workspaces):
             self._discard(ctx)
-        contexts, _ = self.new_service().load_contexts()
+        contexts = self._load_contexts()
         self.contexts = contexts
         self.nav.set_contexts(contexts, self.groups, self.aliases.aliases)
         self.status.showMessage(

@@ -212,7 +212,7 @@ def test_the_file_menu_entry_needs_a_cluster_in_front(qtbot, tmp_path):
     win = MainWindow(FakeService, label_settings=LabelSettings(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat)))
     qtbot.addWidget(win)
     menu = win.apply_action.associatedObjects()[0]
-    assert [a.text() for a in menu.actions() if not a.isSeparator()] == ["Apply YAML…", "Exit"]
+    assert [a.text() for a in menu.actions() if not a.isSeparator()] == ["Apply YAML…", "Add clusters from the cloud…", "Exit"]
     menu.aboutToShow.emit()
     assert not win.apply_action.isEnabled() and win.show_apply_yaml() is False
     open_active(win)

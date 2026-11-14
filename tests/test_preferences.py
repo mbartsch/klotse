@@ -242,6 +242,9 @@ def test_preferences_action_applies_the_dialog_choice(qtbot, tmp_path, monkeypat
         def chosen_kubeconfig(self):
             return path
 
+        def chosen_write_main(self):
+            return False
+
         def deleteLater(self):
             pass
 
