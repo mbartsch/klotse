@@ -6,6 +6,7 @@ They check the environment Klotse's cloud features rely on (the CLIs reach the e
 files and answer JSON). Klotse's own code is tested against the emulators in the follow-up once its feature PRs are merged."""
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -98,6 +99,25 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
         except ValueError:
             pytest.fail(f"oci ce cluster list printed something that is not JSON: {listed.stdout[-400:]!r}")
         assert isinstance(data.get("data"), list)
+
+
+def test_floci_az_env_connection_string_drives_the_az_storage_commands():
+    """`eval $(floci az env)` exports AZURE_STORAGE_CONNECTION_STRING over plain http. The az CLI's storage commands use it;
+    the ARM and login paths (which floci az setup registers over https) are not part of this test."""
+    printed = cli("floci", "az", "env", "--endpoint", "http://127.0.0.1:4577", "--host", "127.0.0.1", "--shell", "bash",
+                  "--no-color", "--no-emoji")
+    line = next((ln for ln in printed.splitlines() if "AZURE_STORAGE_CONNECTION_STRING" in ln), "")
+    assert line, f"floci az env printed no AZURE_STORAGE_CONNECTION_STRING: {printed[:300]!r}"
+    connection = shlex.split(line.split("=", 1)[1])[0]
+    assert connection.startswith("DefaultEndpointsProtocol=http;")
+    env = {"AZURE_STORAGE_CONNECTION_STRING": connection}
+    container = "klotse-ci"
+    cli("az", "storage", "container", "create", "--name", container, env=env)
+    try:
+        names = json.loads(cli("az", "storage", "container", "list", "--output", "json", env=env))
+        assert any(item["name"] == container for item in names)
+    finally:
+        cli("az", "storage", "container", "delete", "--name", container, env=env, check=False)
 
 
 @pytest.mark.parametrize("port", [4588, 4577])

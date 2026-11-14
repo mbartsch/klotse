@@ -66,6 +66,16 @@ jobs:
       - name: Install the OCI CLI (pinned)
         timeout-minutes: 5
         run: python -m pip install "oci-cli==3.95.1"
+      - name: Install the floci CLI (pinned release, checksum checked)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download 0.4.0 -R floci-io/floci-cli -p floci-linux-amd64 -p sha256sums.txt
+          grep " floci-linux-amd64$" sha256sums.txt | sha256sum -c -
+          sudo install -m 0755 floci-linux-amd64 /usr/local/bin/floci
+          floci --version
       - name: Show the provider CLIs (AWS CLI, gcloud and Azure CLI come with the runner image)
         run: |
           set -x
