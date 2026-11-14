@@ -5,6 +5,7 @@ the sign-in itself (a browser is needed): the action opens a terminal with `oci 
 the cluster's region, and the user connects again."""
 from klotse.plugins import Action, Message, Plugin, Setting, Terminal
 
+HELP_OCI = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; oci accepts this cluster's nodes without it."
 OCI_PROVIDER_PREFIXES = ("oci://", "ocid1.instance.")  # providerID of an OKE node
 REGION_LABEL = "topology.kubernetes.io/region"
 
@@ -20,6 +21,11 @@ def is_oke_node(raw):
     return provider.startswith(OCI_PROVIDER_PREFIXES)
 
 
+def cloud_forced(settings):
+    """True when this cluster's `cloud` setting names Oracle Cloud (then the providerID is not checked)."""
+    return str((settings or {}).get("cloud") or "auto").strip().lower() == "oci"
+
+
 class OciPlugin(Plugin):
     id = "oci"
     name = "Oracle Cloud (OKE) Plugin"
@@ -29,6 +35,9 @@ class OciPlugin(Plugin):
     actions = (
         Action("sign-in", "Sign in to Oracle Cloud for this cluster (oci session authenticate)…", kinds=("Node",)),
     )
+    cluster_settings = (
+        Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|oci", help=HELP_OCI),
+    )
     settings = (
         Setting("oci_profile", "OCI config profile", "DEFAULT",
                 help="The profile in ~/.oci/config that the cluster's kubeconfig helper uses. The sign-in refreshes this profile's session token."),
@@ -37,7 +46,7 @@ class OciPlugin(Plugin):
     def run(self, request):
         if request.action != "sign-in":
             return None
-        nodes = [resource for resource in request.resources if is_oke_node(resource.raw)]
+        nodes = list(request.resources) if cloud_forced(request.settings) else [resource for resource in request.resources if is_oke_node(resource.raw)]
         if not nodes:
             return Message("This node is not on Oracle Cloud: its providerID is not an OCI instance OCID.", "warning")
         labels = ((nodes[0].raw or {}).get("metadata") or {}).get("labels") or {}
