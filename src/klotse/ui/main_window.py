@@ -447,7 +447,7 @@ class MainWindow(QMainWindow):
 
     def sign_in(self, context):
         """Run the kubeconfig's sign-in helper in a terminal the user can answer (after a Yes); connect again afterwards."""
-        argv = sign_in_argv(auth_info(self.kubeconfig_settings.path, context))
+        argv = sign_in_argv(auth_info(self.context_file(context), context))
         if not argv:
             QMessageBox.information(self, "Sign in", f"The kubeconfig entry for {context} names no sign-in helper.")
             return
@@ -465,8 +465,13 @@ class MainWindow(QMainWindow):
         """Read-only: what the kubeconfig says about this context (names, server, sign-in kind; no secret values)."""
         from ..k8s.context_entry import entry_lines
         from .context_dialog import ContextEntryDialog
-        dialog = ContextEntryDialog(context, entry_lines(self.kubeconfig_settings.path, context), self)
+        dialog = ContextEntryDialog(context, entry_lines(self.context_file(context), context), self)
         dialog.exec()
+
+    def context_file(self, context):
+        """The kubeconfig file a context was read from (None = the default one): a context from the kubeconfig list, such as the
+        one "Add clusters from the cloud" writes, is not in the main file."""
+        return self.context_files[context] if context in self.context_files else self.kubeconfig_settings.path
 
     def rename_cluster_alias(self, context):
         current = self.aliases.display(context)
