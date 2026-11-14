@@ -24,6 +24,7 @@ def test_connection_requests_compressed_responses(monkeypatch):
         return SimpleNamespace(get_api_resources=lambda **kw: None)
 
     monkeypatch.setattr(module.client, 'CoreV1Api', core)
+    monkeypatch.setattr(module.client, 'AuthorizationV1Api', lambda api: SimpleNamespace(create_self_subject_access_review=lambda *a, **k: None))
     svc = KubeService()
     svc.connect('test')
     assert clients[0].default_headers['Accept-Encoding'] == 'gzip'
