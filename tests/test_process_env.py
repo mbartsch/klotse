@@ -23,6 +23,6 @@ def test_the_app_proxy_and_bypass_list_are_added_for_child_processes():
     assert env["HTTP_PROXY"] == "http://proxy.corp:3128" and "PATH" in env
 
 
-def test_a_socks5h_proxy_reaches_go_processes_as_socks5(monkeypatch):
+def test_a_socks5h_proxy_is_passed_unchanged(monkeypatch):
     process_env.set_app_proxy("socks5h://proxy.corp:1080")
-    assert process_env.proxy_variables()["HTTPS_PROXY"] == "socks5://proxy.corp:1080"
+    assert process_env.proxy_variables()["HTTPS_PROXY"] == "socks5h://proxy.corp:1080"
