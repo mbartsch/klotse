@@ -113,3 +113,13 @@ def test_credential_failures_keep_actionable_reason_for_plugin_status(qapp):
     assert plugin.enrich(request) == {}
     assert len(request.warnings) == 1
     assert "CredentialsError: AWS CLI profile 'work' needs aws sso login" in request.warnings[0]
+
+
+def test_an_unknown_profile_falls_back_to_the_cli_instead_of_failing():
+    from klotse_plugins.aws.ec2 import Ec2Error
+
+    def unknown_profile(_profile):
+        raise Ec2Error("The config profile (missing) could not be found")
+
+    api = InfrastructureApi("missing", session_factory=unknown_profile)
+    assert api.session is None
