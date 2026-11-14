@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(os.environ.get("KLOTSE_EMULATORS") != "1",
                                 reason="needs the Floci emulators and provider CLIs (cloud-emulators workflow)")
 
 CLUSTER = "klotse-ci"
+OCI_ENDPOINT = "http://127.0.0.1:4599"  # floci-oci, as in its README
 
 
 def cli(name, *args, env=None, check=True):
@@ -76,15 +77,21 @@ def test_the_oci_cli_lists_clusters_through_floci_oci(tmp_path):
         "region=us-phoenix-1\n"
         f"key_file={key}\n", encoding="utf-8")
     config.chmod(0o600)  # the OCI CLI refuses a config file that other users can read
-    done = subprocess.run(["oci", "ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all"],
-                          capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
-                          env=dict(os.environ, OCI_CLI_CONFIG_FILE=str(config)))  # nosec B603 - fixed argv, no shell
-    assert done.returncode == 0, f"oci exit {done.returncode}: {(done.stderr or done.stdout).strip()[-600:]}"
-    try:
-        data = json.loads(done.stdout)
-    except ValueError:
-        pytest.fail(f"oci printed no JSON (stdout {done.stdout[:200]!r}; stderr {done.stderr[-400:]!r})")
-    assert isinstance(data.get("data"), list)
+    env = dict(os.environ, OCI_CLI_CONFIG_FILE=str(config), SUPPRESS_LABEL_WARNING="True")
+
+    def oci(*args):
+        done = subprocess.run(["oci", *args], capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+                              env=env)  # nosec B603 - fixed argv, no shell
+        return done
+
+    # The command the Floci documentation uses first, with its explicit endpoint: it proves the CLI and the emulator agree.
+    namespace = oci("os", "ns", "get", "--endpoint", OCI_ENDPOINT)
+    assert namespace.returncode == 0 and "data" in namespace.stdout, (
+        f"oci os ns get: exit {namespace.returncode}, stdout {namespace.stdout[:200]!r}, stderr {namespace.stderr[-400:]!r}")
+    listed = oci("ce", "cluster", "list", "--compartment-id", tenancy, "--region", "us-phoenix-1", "--all", "--endpoint", OCI_ENDPOINT)
+    assert listed.returncode == 0 and listed.stdout.strip(), (
+        f"oci ce cluster list: exit {listed.returncode}, stdout {listed.stdout[:200]!r}, stderr {listed.stderr[-400:]!r}")
+    assert isinstance(json.loads(listed.stdout).get("data"), list)
 
 
 @pytest.mark.parametrize("port", [4588, 4577])
