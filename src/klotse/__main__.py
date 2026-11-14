@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from . import cli
 from .k8s.client import KubeService
-from .ui import branding, environment, log_view, theme, watcher
+from .ui import branding, environment, log_view, theme, watcher, x11_icon
 from .ui.settings_store import default_store
 from .ui.main_window import MainWindow
 
@@ -80,6 +80,7 @@ def main(argv=None):
     # Also cover native application Quit, which may bypass the window close event.
     app.aboutToQuit.connect(win.shutdown)
     win.show()
+    x11_icon.set_wm_icon_hint(win.windowHandle(), branding.square_logo(64))  # MWM and others read WM_HINTS for a minimized window
     leave(app.exec())
 
 
