@@ -85,9 +85,10 @@ def test_the_client_honours_proxy_url(kubeconfig):
     assert cfg.proxy == "http://proxy.example.com:3128"
 
 
-def test_connect_reports_a_failed_helper_in_words(kubeconfig):
+def test_connect_reports_a_failed_helper_in_words(kubeconfig, monkeypatch):
     service = KubeService()
     service.kubeconfig = kubeconfig
+    monkeypatch.setattr(connect_help, "missing_helper", lambda info: "")  # the helper runs here; it is the helper's own failure under test
 
     def boom(context):
         raise config.ConfigException("exec: process returned 1. token expired")
@@ -165,11 +166,22 @@ def test_a_missing_helper_without_an_installhint_keeps_the_generic_advice(tmp_pa
     assert "Install it or put it on the PATH" in text
 
 
+def test_a_missing_helper_fails_before_any_request_with_its_installhint(tmp_path, monkeypatch):
+    path = tmp_path / "config"
+    path.write_text(GKE_KUBECONFIG.replace("command: gke-gcloud-auth-plugin", "command: klotse-no-such-helper-for-tests"), encoding="utf-8")
+    monkeypatch.setattr(client_module.config, "load_kube_config", lambda **kwargs: None)
+    monkeypatch.setattr(client_module.client.CoreV1Api, "get_api_resources", lambda self, **kwargs: pytest.fail("no request before the helper check"))
+    with pytest.raises(ConnectionError, match="klotse-no-such-helper-for-tests\` was not found") as error:
+        KubeService(str(path)).connect("gke")
+    assert "Install gke-gcloud-auth-plugin for use with kubectl" in str(error.value)  # the cluster's own installHint is shown
+
+
 def test_a_token_the_cluster_rejects_fails_the_connection_with_sign_in_advice(tmp_path, monkeypatch):
     from kubernetes.client.exceptions import ApiException
 
     path = tmp_path / "config"
     path.write_text(GKE_KUBECONFIG, encoding="utf-8")
+    monkeypatch.setattr(connect_help, "missing_helper", lambda info: "")  # the helper is installed where the test runs
     monkeypatch.setattr(client_module.config, "load_kube_config", lambda **kwargs: None)
     monkeypatch.setattr(client_module.client.CoreV1Api, "get_api_resources", lambda self, **kwargs: None)
 
@@ -187,6 +199,7 @@ def test_other_answers_to_the_access_review_do_not_fail_the_connection(tmp_path,
 
     path = tmp_path / "config"
     path.write_text(GKE_KUBECONFIG, encoding="utf-8")
+    monkeypatch.setattr(connect_help, "missing_helper", lambda info: "")
     monkeypatch.setattr(client_module.config, "load_kube_config", lambda **kwargs: None)
     monkeypatch.setattr(client_module.client.CoreV1Api, "get_api_resources", lambda self, **kwargs: None)
 

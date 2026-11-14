@@ -410,6 +410,9 @@ class KubeService:
         """Connect to a context. A failure is put into plain words (`connect_help.explain`): a sign-in helper that needs a terminal,
         a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
         connect_help.guard_helper_stdin()
+        info = connect_help.auth_info(self.kubeconfig, context)
+        if connect_help.missing_helper(info):  # say what to install; do not send a request that the cluster would refuse with 401
+            raise ConnectionError(connect_help.explain(FileNotFoundError(2, "No such file or directory", info["exec"]), info))
         try:
             with timings.timed("connect", "connect"):
                 self._connect(context)

@@ -5,6 +5,7 @@ without a terminal, so a helper that needs a browser, an MFA code or an expired 
 that into words and names the command to run in a terminal. Nothing here runs the helper."""
 import os
 import re
+import shutil
 
 import yaml
 
@@ -56,6 +57,15 @@ def auth_info(kubeconfig, context):
         info["args"] = [str(a) for a in helper.get("args") or []]
         info["install_hint"] = " ".join(str(helper.get("installHint") or "").split())  # the cluster's own install instructions
     return info
+
+
+def missing_helper(info):
+    """The exec helper the kubeconfig names when it cannot be found (not on the PATH, and not an existing file path); "" otherwise.
+    Checked before connecting: without the helper the client sends the request with no credentials, and the cluster answers 401."""
+    command = str((info or {}).get("exec") or "")
+    if not command or os.path.isfile(command) or shutil.which(command):
+        return ""
+    return command
 
 
 def explain(message, info=None):
