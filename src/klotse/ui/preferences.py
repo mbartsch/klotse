@@ -67,7 +67,7 @@ class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
     def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
-                 proxy=None):
+                 proxy=None, metrics=None, metrics_test=None, metrics_discover=None):
         super().__init__(parent)
         self.debug = debug
         self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
@@ -161,6 +161,12 @@ class PreferencesDialog(QDialog):
         self.plugins_panel = PluginsPanel(plugins) if plugins is not None else None
         self.tabs = QTabWidget()
         self.tabs.addTab(general, "General")
+        self.metrics_panel = None
+        if metrics is not None:
+            from .metrics_preferences import MetricsPanel, kubeconfig_contexts
+            self.metrics_panel = MetricsPanel(metrics, kubeconfig_contexts(kubeconfig.path), tester=metrics_test,
+                                              discoverer=metrics_discover)
+            self.tabs.addTab(self.metrics_panel, "Metrics")
         if self.terminal_panel is not None:
             self.tabs.addTab(self.terminal_panel, "Terminal")
         if self.plugins_panel is not None:
@@ -295,6 +301,12 @@ class PreferencesDialog(QDialog):
             try:
                 self.forward.set(self.forward_tls_box.isChecked(), self.forward_insecure_box.isChecked())
             except OSError as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                return
+        if self.metrics_panel is not None:
+            try:
+                self.metrics_panel.save()
+            except (ValueError, OSError) as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
                 return
         if self.query_autocomplete_box is not None:

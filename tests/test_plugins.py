@@ -462,7 +462,7 @@ def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path,
         Accepted = 1
 
         def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
-                     proxy=None):
+                     proxy=None, **kwargs):
             seen.update(terminal=terminal, plugins=plugins)
 
         def exec(self):

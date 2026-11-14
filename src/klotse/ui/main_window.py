@@ -27,7 +27,7 @@ from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
 from ..workers import Worker
 from .terminal import open_terminal
-from .metrics_sources import ForwardDefaults
+from .metrics_sources import ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .big_clusters import NOTICE_TEXT, BigClusters
@@ -1160,12 +1160,11 @@ class MainWindow(QMainWindow):
         return True
 
     def open_metrics_source(self, context):
-        """Cluster list > Metrics source…: the Prometheus / VictoriaMetrics source of usage history for that cluster (the same dialog as
-        Usage history > Source…). False when the cluster is not open."""
-        ws = self.workspaces.get(context)
-        if ws is None:
+        """Cluster list > Metrics source…: Preferences > Metrics with the Add dialog for that cluster (its Edit… dialog when it already
+        has a source). False when the cluster is not open."""
+        if self.workspaces.get(context) is None:
             return False
-        ws.configure_metrics_source()
+        self.open_preferences(metrics_add=context)
         return True
 
     def open_cluster_settings(self, plugin_id, context=None):
@@ -1191,13 +1190,31 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
-    def open_preferences(self, plugin_id=None):
+    def _test_metrics_source(self, context, text, done, auth=("", "", "")):
+        """Preferences > Metrics Test: runs on a connected cluster (the default uses the first connected one), else says to connect."""
+        ws = self.workspaces.get(context) if context else next(
+            (w for w in self.workspaces.values() if w.service.is_connected()), None)
+        if ws is None or not ws.service.is_connected():
+            done("Connect the cluster first, then Test again.")
+            return
+        ws.check_metrics_source(text, done, auth)
+
+    def _discover_metrics_sources(self, context, done):
+        """Preferences > Metrics Add: done(list of services found) for a connected cluster, done(None) when it is not connected."""
+        ws = self.workspaces.get(context)
+        if ws is None or not ws.service.is_connected():
+            done(None)
+            return
+        ws.find_metrics_sources(done)
+
+    def open_preferences(self, plugin_id=None, metrics_add=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
                                    forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
-                                   proxy=self.proxy_settings)
+                                   proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store),
+                                   metrics_test=self._test_metrics_source, metrics_discover=self._discover_metrics_sources)
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):
@@ -1205,6 +1222,9 @@ class MainWindow(QMainWindow):
                 if item.data(Qt.UserRole).id == plugin_id:
                     dialog.plugins_panel.list.setCurrentRow(index)
                     break
+        if metrics_add and dialog.metrics_panel is not None:
+            dialog.tabs.setCurrentWidget(dialog.metrics_panel)
+            QTimer.singleShot(0, lambda: dialog.metrics_panel.add_source(metrics_add))  # opens once the window is showing
         accepted = dialog.exec() == PreferencesDialog.Accepted
         self.apply_timing_log()
         chosen = dialog.chosen_kubeconfig()
