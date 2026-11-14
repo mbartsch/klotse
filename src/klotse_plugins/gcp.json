@@ -3,7 +3,7 @@
   "id": "gcp",
   "name": "Google Cloud (GKE) Plugin",
   "version": "0.1",
-  "requires_api": 10,
+  "requires_api": 11,
   "description": "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal.",
   "columns": [],
   "actions": [

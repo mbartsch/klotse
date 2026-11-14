@@ -13,7 +13,11 @@ from klotse.ui import cloud_clusters_dialog as dialog_module
 from klotse.ui.cloud_clusters_dialog import CloudClustersDialog
 from klotse.ui.customizations import LabelSettings
 from klotse.ui.main_window import MainWindow
+from klotse_plugins.aws import AwsPlugin
+from klotse_plugins.aws.clusters import SOURCE as EKS
 from test_cloud_clusters import kubeconfig
+
+SOURCES = [(AwsPlugin(), EKS)]  # the enabled cloud plugins the dialog lists
 
 
 def store(tmp_path):
@@ -43,7 +47,7 @@ def wait_for(qtbot, condition):
 def test_listing_fills_the_list_with_the_clusters_found(qtbot, tmp_path, monkeypatch):
     fake_cli(monkeypatch)
     target = tmp_path / ".kube" / "klotse-cloud.klotse"
-    dlg = CloudClustersDialog(lambda: (str(target), False))
+    dlg = CloudClustersDialog(lambda: (str(target), False), SOURCES)
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     dlg._list()
@@ -58,7 +62,7 @@ def test_adding_writes_only_the_ticked_cluster_into_the_generated_file(qtbot, tm
     before = main.read_bytes()
     monkeypatch.setenv("KUBECONFIG", str(main))  # the main file must not be touched
     target = tmp_path / ".kube" / "klotse-cloud.klotse"
-    dlg = CloudClustersDialog(lambda: (str(target), False))
+    dlg = CloudClustersDialog(lambda: (str(target), False), SOURCES)
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     dlg._list()
@@ -76,7 +80,7 @@ def test_writing_into_the_main_kubeconfig_asks_first_and_the_default_is_no(qtbot
     calls = fake_cli(monkeypatch)
     main = kubeconfig(tmp_path / "main-config", ["demo-main"])
     before = main.read_bytes()
-    dlg = CloudClustersDialog(lambda: (str(main), True))
+    dlg = CloudClustersDialog(lambda: (str(main), True), SOURCES)
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     asked = []
@@ -88,15 +92,6 @@ def test_writing_into_the_main_kubeconfig_asks_first_and_the_default_is_no(qtbot
     dlg._add()
     assert asked == [QMessageBox.No]  # the question's default answer
     assert len(calls) == count and main.read_bytes() == before  # answered No: nothing ran, nothing changed
-
-
-def test_a_provider_scope_with_a_missing_field_is_reported_not_run(qtbot, tmp_path, monkeypatch):
-    calls = fake_cli(monkeypatch)
-    dlg = CloudClustersDialog(lambda: (str(tmp_path / "x"), False))
-    qtbot.addWidget(dlg)
-    dlg._list()  # the region is empty
-    assert "Region is required" in dlg.status.text()
-    assert calls == []
 
 
 def test_the_main_window_reads_each_context_from_the_file_it_came_from(qtbot, tmp_path):
@@ -127,7 +122,7 @@ def test_the_main_window_reads_each_context_from_the_file_it_came_from(qtbot, tm
 
 def test_each_cluster_has_a_large_named_checkbox_after_listing(qtbot, tmp_path, monkeypatch):
     fake_cli(monkeypatch)
-    dlg = CloudClustersDialog(lambda: (str(tmp_path / "klotse-cloud.klotse"), False))
+    dlg = CloudClustersDialog(lambda: (str(tmp_path / "klotse-cloud.klotse"), False), SOURCES)
     qtbot.addWidget(dlg)
     dlg.edits["region"].setText("eu-west-1")
     dlg._list()

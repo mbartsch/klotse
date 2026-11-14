@@ -3,6 +3,7 @@
 A GKE kubeconfig runs `gke-gcloud-auth-plugin`, which uses the account `gcloud` is signed in with. Klotse does not run the
 sign-in itself (a browser is needed): the action opens a terminal with `gcloud auth login`, and the user connects again."""
 from klotse.plugins import Action, Message, Plugin, Setting, Terminal
+from . import clusters
 
 HELP_GCP = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; gcp accepts this cluster's nodes without it."
 GCE_PREFIX = "gce://"  # the providerID of a node that runs on Compute Engine (GKE nodes do)
@@ -28,7 +29,7 @@ class GcpPlugin(Plugin):
     id = "gcp"
     name = "Google Cloud (GKE) Plugin"
     version = "0.1"
-    requires_api = 10
+    requires_api = 11
     description = "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal."
     actions = (
         Action("sign-in", "Sign in to Google Cloud for this cluster (gcloud auth login)…", kinds=("Node",)),
@@ -36,6 +37,21 @@ class GcpPlugin(Plugin):
     cluster_settings = (
         Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|gcp", help=HELP_GCP),
     )
+
+    cluster_sources = (clusters.SOURCE,)
+
+    def cluster_defaults(self, source, env):
+        return clusters.defaults(env) if source.key == "gke" else {}
+
+    def list_clusters(self, source, scope, run):
+        if source.key != "gke":
+            return super().list_clusters(source, scope, run)
+        return clusters.list_clusters(scope, run)
+
+    def cluster_credentials(self, source, cluster, scope, target, run):
+        if source.key != "gke":
+            return super().cluster_credentials(source, cluster, scope, target, run)
+        clusters.cluster_credentials(cluster, scope, target, run)
 
     def run(self, request):
         if request.action != "sign-in":
