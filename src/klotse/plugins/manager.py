@@ -370,6 +370,10 @@ class PluginManager(QObject):
         """The enabled plugins that loaded fine."""
         return [item.plugin for item in self.loaded if item.plugin is not None and item.id in self._enabled]
 
+    def cluster_sources(self):
+        """[(plugin, ClusterSource)] for the enabled plugins that list clusters (Add clusters from the cloud)."""
+        return [(plugin, source) for plugin in self.active() for source in getattr(plugin, "cluster_sources", ())]
+
     def enabled_for(self, kind):
         return [plugin for plugin in self.active() if any(kind in col.kinds for col in plugin.columns)]
 

@@ -3,7 +3,7 @@
   "id": "oci",
   "name": "Oracle Cloud (OKE) Plugin",
   "version": "0.1",
-  "requires_api": 10,
+  "requires_api": 11,
   "description": "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal.",
   "columns": [],
   "actions": [

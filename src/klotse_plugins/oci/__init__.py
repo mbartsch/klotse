@@ -4,6 +4,7 @@ An OKE kubeconfig runs `oci ce cluster generate-token`, which uses the OCI confi
 the sign-in itself (a browser is needed): the action opens a terminal with `oci session authenticate` for that profile and
 the cluster's region, and the user connects again."""
 from klotse.plugins import Action, Message, Plugin, Setting, Terminal
+from . import clusters
 
 HELP_OCI = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; oci accepts this cluster's nodes without it."
 OCI_PROVIDER_PREFIXES = ("oci://", "ocid1.instance.")  # providerID of an OKE node
@@ -30,7 +31,7 @@ class OciPlugin(Plugin):
     id = "oci"
     name = "Oracle Cloud (OKE) Plugin"
     version = "0.1"
-    requires_api = 10
+    requires_api = 11
     description = "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal."
     actions = (
         Action("sign-in", "Sign in to Oracle Cloud for this cluster (oci session authenticate)…", kinds=("Node",)),
@@ -42,6 +43,21 @@ class OciPlugin(Plugin):
         Setting("oci_profile", "OCI config profile", "DEFAULT",
                 help="The profile in ~/.oci/config that the cluster's kubeconfig helper uses. The sign-in refreshes this profile's session token."),
     )
+
+    cluster_sources = (clusters.SOURCE,)
+
+    def cluster_defaults(self, source, env):
+        return clusters.defaults(env) if source.key == "oke" else {}
+
+    def list_clusters(self, source, scope, run):
+        if source.key != "oke":
+            return super().list_clusters(source, scope, run)
+        return clusters.list_clusters(scope, run)
+
+    def cluster_credentials(self, source, cluster, scope, target, run):
+        if source.key != "oke":
+            return super().cluster_credentials(source, cluster, scope, target, run)
+        clusters.cluster_credentials(cluster, scope, target, run)
 
     def run(self, request):
         if request.action != "sign-in":

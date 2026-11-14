@@ -1,7 +1,10 @@
-"""File > Add clusters from the cloud…: list a cloud account's clusters with the provider's CLI and add the ones ticked.
+"""File > Add clusters from the cloud…: list a cloud account's clusters and add the ones ticked.
 
-Credentials are written to a separate file (klotse-cloud.klotse) unless the main kubeconfig was chosen in Preferences. Writing to
-the main file asks first (Yes/No, default No) and keeps a .bak copy. Commands run on the thread pool, never on the GUI thread."""
+The clusters come from the enabled cloud plugins (each one lists its clusters and writes their credentials; see
+klotse.plugins.api.ClusterSource). Core only shows the dialog and merges the result. Credentials are written to a separate file
+(klotse-cloud.klotse) unless the main kubeconfig was chosen in Preferences. Writing to the main file asks first (Yes/No, default
+No) and keeps a .bak copy. Commands run on the thread pool, never on the GUI thread."""
+import os
 import shutil
 
 from PySide6.QtCore import QThreadPool, Qt, Signal
@@ -9,7 +12,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBox
                                QScrollArea, QVBoxLayout, QWidget)
 
 from ..k8s import cloud_clusters as cloud
+from ..plugins.api import CloudError
 from ..workers import Worker
+
+NO_PLUGIN_TEXT = ("No cloud plugin is enabled. Enable one in Plugins (for example Google Cloud (GKE) Plugin, AWS Plugin, "
+                  "Azure (AKS) Plugin or Oracle Cloud (OKE) Plugin), then open this dialog again.")
 
 
 def _short(message):
@@ -17,35 +24,37 @@ def _short(message):
 
 
 class CloudClustersDialog(QDialog):
-    """`target()` returns (path, is_main): where the credentials go, and whether that is the main kubeconfig."""
+    """`target()` returns (path, is_main): where the credentials go, and whether that is the main kubeconfig.
+    `sources` is a list of (plugin, ClusterSource) for the enabled plugins that list clusters."""
 
     clusters_added = Signal(str, bool, object)  # target path, is the main kubeconfig, context names added
 
-    def __init__(self, target, parent=None):
+    def __init__(self, target, sources, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add clusters from the cloud")
         self.resize(720, 560)
         self.target_path, self.is_main = target()
+        self.sources = list(sources)
         self._clusters = []
+        self._boxes = []
         self._busy = False
         self._detected = {}  # field key -> the value Klotse filled in from the local configuration
 
         self.provider = QComboBox()
-        for key, spec in cloud.PROVIDERS.items():
-            self.provider.addItem(spec.title, key)
+        for _plugin, source in self.sources:
+            self.provider.addItem(source.title)
         self.provider.currentIndexChanged.connect(self._provider_changed)
 
         self.edits = {}
+        self.labels = {}
         self.form = QFormLayout()
-        for spec in cloud.PROVIDERS.values():
-            for field in spec.fields:
+        for _plugin, source in self.sources:
+            for field in source.fields:
                 if field.key not in self.edits:
                     self.edits[field.key] = QLineEdit()
                     self.edits[field.key].setAccessibleName(field.label)
-        self.labels = {}
-        for key, edit in self.edits.items():
-            self.labels[key] = QLabel()
-            self.form.addRow(self.labels[key], edit)
+                    self.labels[field.key] = QLabel()
+                    self.form.addRow(self.labels[field.key], self.edits[field.key])
 
         self.list_button = QPushButton("List clusters")
         self.list_button.clicked.connect(self._list)
@@ -80,7 +89,17 @@ class CloudClustersDialog(QDialog):
         layout.addWidget(self.scroll, 1)
         layout.addWidget(self.status)
         layout.addWidget(self.target_note)
-        self._provider_changed()
+        if not self.sources:
+            self.status.setText(NO_PLUGIN_TEXT)
+            self.list_button.setEnabled(False)
+            self.provider.setEnabled(False)
+        else:
+            self._provider_changed()
+
+    def _current(self):
+        """(plugin, source) of the selected provider, or None when no plugin is enabled."""
+        index = self.provider.currentIndex()
+        return self.sources[index] if 0 <= index < len(self.sources) else None
 
     def _target_text(self):
         if self.is_main:
@@ -88,24 +107,31 @@ class CloudClustersDialog(QDialog):
         return f"Clusters will be written to {self.target_path}, which Klotse then reads with the other kubeconfig files."
 
     def _provider_changed(self):
-        spec = cloud.PROVIDERS[self.provider.currentData()]
-        wanted = {f.key: f for f in spec.fields}
+        current = self._current()
+        if current is None:
+            return
+        plugin, source = current
+        wanted = {f.key: f for f in source.fields}
         for key, edit in self.edits.items():
             field = wanted.get(key)
             self.labels[key].setVisible(field is not None)
             edit.setVisible(field is not None)
             if field is not None:
                 self.labels[key].setText(field.label + (" *" if field.required else ""))
-        self._fill_defaults(spec.key)
+        self._fill_defaults(plugin, source)
         self._clear_list()
         self._clusters = []
         self.add_button.setEnabled(False)
         self.status.setText("Fill in the fields (* required), then List clusters.")
 
-    def _fill_defaults(self, provider_key):
-        """Fill the provider's detected defaults into empty fields. A field still holding an earlier detected value (for
-        example the region of another provider, since the fields are shared) is replaced; typed values are kept."""
-        for key, value in cloud.detect_defaults(provider_key).items():
+    def _fill_defaults(self, plugin, source):
+        """Fill the plugin's detected defaults into empty fields. A field still holding an earlier detected value (for example
+        the region of another provider, since the fields are shared) is replaced; typed values are kept."""
+        try:
+            found = plugin.cluster_defaults(source, os.environ)
+        except (OSError, ValueError):
+            found = {}
+        for key, value in (found or {}).items():
             edit = self.edits.get(key)
             if edit is None:
                 continue
@@ -119,7 +145,7 @@ class CloudClustersDialog(QDialog):
 
     def _set_busy(self, busy, text=""):
         self._busy = busy
-        self.list_button.setEnabled(not busy)
+        self.list_button.setEnabled(not busy and bool(self.sources))
         self.add_button.setEnabled(not busy and bool(self._clusters))
         self.provider.setEnabled(not busy)
         if text:
@@ -127,25 +153,19 @@ class CloudClustersDialog(QDialog):
 
     # ---- listing ---------------------------------------------------------
     def _list(self):
-        if self._busy:
+        if self._busy or self._current() is None:
             return
-        provider = self.provider.currentData()
+        plugin, source = self._current()
         values = self._values()
-        try:
-            cloud.list_argv(provider, values)  # checks the fields before anything runs
-        except cloud.CloudError as error:
-            self.status.setText(str(error))
-            return
         self._set_busy(True, "Listing clusters…")
-        worker = Worker(self._list_worker, provider, values)
+        worker = Worker(self._list_worker, plugin, source, values)
         worker.signals.result.connect(self._listed)
         worker.signals.error.connect(self._failed)
         QThreadPool.globalInstance().start(worker)
 
     @staticmethod
-    def _list_worker(provider, values):
-        text = cloud.run(cloud.list_argv(provider, values))
-        return cloud.parse_clusters(provider, text, values)
+    def _list_worker(plugin, source, values):
+        return plugin.list_clusters(source, values, cloud.run)
 
     def _clear_list(self):
         while self.list_layout.count():
@@ -177,7 +197,7 @@ class CloudClustersDialog(QDialog):
         return [cluster for cluster, box in zip(self._clusters, self._boxes) if box.isChecked()]
 
     def _add(self):
-        if self._busy:
+        if self._busy or self._current() is None:
             return
         chosen = self._ticked()
         if not chosen:
@@ -188,16 +208,16 @@ class CloudClustersDialog(QDialog):
                 f"Merge {len(chosen)} cluster(s) into the main kubeconfig at\n{self.target_path}?\n\nA .bak copy is kept first.",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
-        provider = self.provider.currentData()
+        plugin, source = self._current()
         values = self._values()
         self._set_busy(True, f"Adding {len(chosen)} cluster(s)…")
-        worker = Worker(self._add_worker, provider, values, chosen, self.target_path)
+        worker = Worker(self._add_worker, plugin, source, values, chosen, self.target_path)
         worker.signals.result.connect(self._added)
         worker.signals.error.connect(self._failed)
         QThreadPool.globalInstance().start(worker)
 
     @staticmethod
-    def _add_worker(provider, values, chosen, target):
+    def _add_worker(plugin, source, values, chosen, target):
         """Each cluster's credentials go to a private temporary file first; only then are they merged into `target`."""
         workdir = cloud.scratch_dir()
         added, skipped, errors = [], [], []
@@ -205,16 +225,14 @@ class CloudClustersDialog(QDialog):
             for index, cluster in enumerate(chosen):
                 piece = workdir / f"{index}.yaml"
                 try:
-                    cluster = cloud.resolve_location(provider, cluster, values)
-                    argv, env = cloud.credentials_argv(provider, cluster, values, piece)
-                    cloud.run(argv, env=env)
+                    plugin.cluster_credentials(source, cluster, values, piece, cloud.run)
                     if not piece.exists():
                         errors.append(f"{cluster.name}: the CLI wrote no kubeconfig")
                         continue
                     new, existing = cloud.merge_into(target, piece)
                     added += new
                     skipped += existing
-                except cloud.CloudError as error:
+                except CloudError as error:
                     errors.append(f"{cluster.name}: {error}")
         finally:
             shutil.rmtree(workdir, ignore_errors=True)

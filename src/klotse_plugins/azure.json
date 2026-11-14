@@ -3,7 +3,7 @@
   "id": "azure",
   "name": "Azure (AKS) Plugin",
   "version": "0.1",
-  "requires_api": 10,
+  "requires_api": 11,
   "description": "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal.",
   "columns": [],
   "actions": [

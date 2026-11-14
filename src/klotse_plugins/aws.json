@@ -3,7 +3,7 @@
   "id": "aws",
   "name": "AWS Plugin",
   "version": "0.1",
-  "requires_api": 10,
+  "requires_api": 11,
   "description": "Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. China region prices use the AWS Price List API and need AWS credentials with pricing:GetProducts permission.",
   "columns": [
     {

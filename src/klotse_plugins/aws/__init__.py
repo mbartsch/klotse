@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from klotse.plugins import Action, Column, Copy, Message, OpenUrl, OverviewCard, Plugin, Setting, ShowText, Terminal
 from klotse.k8s.timing import timings
 
+from . import clusters
 from .console import account_for, console_results, profile_for
 from .ec2 import Ec2Error, Ec2Unavailable, boto3_session, default_ec2
 from .identity import caller_account
@@ -68,7 +69,8 @@ class AwsPlugin(Plugin):
     id = "aws"
     name = "AWS Plugin"
     version = "0.1"
-    requires_api = 10
+    requires_api = 11
+    cluster_sources = (clusters.SOURCE,)
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
                    "China region prices use the AWS Price List API and need AWS credentials with "
@@ -153,6 +155,19 @@ class AwsPlugin(Plugin):
     ec2_factory = staticmethod(default_ec2)  # boto3 if installed, else the built-in client; replaced in tests
     federation_fetch = staticmethod(fetch_json)  # replaced in tests
     account_lookup = staticmethod(caller_account)  # (profile, region) -> account id; replaced in tests
+
+    def cluster_defaults(self, source, env):
+        return clusters.defaults(env) if source.key == "eks" else {}
+
+    def list_clusters(self, source, scope, run):
+        if source.key != "eks":
+            return super().list_clusters(source, scope, run)
+        return clusters.list_clusters(scope, run)
+
+    def cluster_credentials(self, source, cluster, scope, target, run):
+        if source.key != "eks":
+            return super().cluster_credentials(source, cluster, scope, target, run)
+        clusters.cluster_credentials(cluster, scope, target, run)
 
     def __init__(self):
         self._instances = InstanceCache()  # what AWS said about each instance: asked once, kept for good
