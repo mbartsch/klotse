@@ -115,3 +115,51 @@ def test_helper_stdin_guard_gives_the_helper_an_empty_stdin():
     seen = exec_provider.subprocess.Popen([sys.executable, "-c", "import sys;print(repr(sys.stdin.read()))"],
                                           stdin=None, stdout=subprocess.PIPE, text=True)
     assert seen.communicate()[0].strip() == "''"
+
+
+GKE_KUBECONFIG = """apiVersion: v1
+kind: Config
+current-context: gke
+contexts:
+- name: gke
+  context: {cluster: gke, user: gke}
+clusters:
+- name: gke
+  cluster: {server: "https://localhost:6550"}
+users:
+- name: gke
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: gke-gcloud-auth-plugin
+      installHint: Install gke-gcloud-auth-plugin for use with kubectl by following
+        https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl#install_plugin
+      provideClusterInfo: true
+"""
+
+
+def test_auth_info_reads_the_installhint_of_the_exec_block(tmp_path):
+    path = tmp_path / "config"
+    path.write_text(GKE_KUBECONFIG, encoding="utf-8")
+    info = connect_help.auth_info(str(path), "gke")
+    assert info["exec"] == "gke-gcloud-auth-plugin"
+    assert info["install_hint"].startswith("Install gke-gcloud-auth-plugin for use with kubectl")
+    assert "https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl#install_plugin" in info["install_hint"]
+
+
+def test_a_missing_helper_shows_the_clusters_installhint(tmp_path):
+    path = tmp_path / "config"
+    path.write_text(GKE_KUBECONFIG, encoding="utf-8")
+    info = connect_help.auth_info(str(path), "gke")
+    text = connect_help.explain(FileNotFoundError(2, "No such file or directory", "gke-gcloud-auth-plugin"), info)
+    assert "was not found" in text and info["install_hint"] in text
+
+
+def test_a_missing_helper_without_an_installhint_keeps_the_generic_advice(tmp_path):
+    path = tmp_path / "config"
+    path.write_text(GKE_KUBECONFIG.replace("      installHint: Install", "      notHint: Install").replace(
+        "        https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl#install_plugin\n", ""), encoding="utf-8")
+    info = connect_help.auth_info(str(path), "gke")
+    assert info["install_hint"] == ""
+    text = connect_help.explain(FileNotFoundError(2, "No such file or directory", "gke-gcloud-auth-plugin"), info)
+    assert "Install it or put it on the PATH" in text

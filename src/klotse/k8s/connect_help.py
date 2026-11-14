@@ -29,7 +29,7 @@ def _helper_name(command):
 def auth_info(kubeconfig, context):
     """What the kubeconfig says about `context`: {"server", "exec" (the helper command or ""), "args", "proxy" (the cluster's `proxy-url` or "")}.
     Reads the file(s) again (cheap); returns empty values for anything it cannot find or read. Token values are never returned."""
-    info = {"server": "", "exec": "", "args": [], "proxy": ""}
+    info = {"server": "", "exec": "", "args": [], "proxy": "", "install_hint": ""}
     paths = [kubeconfig] if kubeconfig else [p for p in os.environ.get("KUBECONFIG", "").split(os.pathsep) if p] or \
         [os.path.join(os.path.expanduser("~"), ".kube", "config")]
     contexts, clusters, users = {}, {}, {}
@@ -54,6 +54,7 @@ def auth_info(kubeconfig, context):
     if isinstance(helper, dict):
         info["exec"] = str(helper.get("command") or "")
         info["args"] = [str(a) for a in helper.get("args") or []]
+        info["install_hint"] = " ".join(str(helper.get("installHint") or "").split())  # the cluster's own install instructions
     return info
 
 
@@ -81,8 +82,10 @@ def explain(message, info=None):
         return "\n".join(lines)
     if isinstance(message, FileNotFoundError) or "No such file or directory" in text or "WinError 2" in text or "cannot find the file" in text.lower():
         if helper:
-            return (f"The sign-in helper `{helper}` was not found. Install it or put it on the PATH (a program started from the desktop may "
-                    f"have a shorter PATH than your terminal), then connect again.\n{text.strip()[:300]}")
+            hint = str(info.get("install_hint") or "")  # installHint of the kubeconfig's exec block: the cluster's own instructions
+            how = hint[:500] if hint else ("Install it or put it on the PATH (a program started from the desktop may have a shorter PATH "
+                                           "than your terminal), then connect again.")
+            return f"The sign-in helper `{helper}` was not found. {how}\n{text.strip()[:300]}"
     if "Cannot reach the API server" in text or "MaxRetryError" in text or "ProxyError" in text:
         extra = []
         if info.get("proxy"):
