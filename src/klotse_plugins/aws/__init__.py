@@ -9,7 +9,7 @@ import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from klotse.plugins import Action, Column, Copy, Message, OpenUrl, OverviewCard, Plugin, Setting, ShowText
+from klotse.plugins import Action, Column, Copy, Message, OpenUrl, OverviewCard, Plugin, Setting, ShowText, Terminal
 from klotse.k8s.timing import timings
 
 from .console import account_for, console_results, profile_for
@@ -19,7 +19,7 @@ from .federation import FederationError, console_credentials, fetch_json, login_
 from .instances import InstanceCache
 from .nodeinfo import parse_node
 from .pricing import HOURS_PER_MONTH, Price, PriceError, currency_for_region, on_demand_prices
-from .awscreds import CredentialsError
+from .awscreds import CredentialsError, sign_in_argv, sso_login_argv  # noqa: F401 (re-exported)
 from .infrastructure import (KINDS as INFRA_KINDS, InfrastructureCache, default_region,
                              load_balancer_refs, volume_ref, report, console_url as infrastructure_console_url)
 
@@ -94,6 +94,7 @@ class AwsPlugin(Plugin):
         Action("copy-id", "Copy instance ID", multi=True),
         Action("console", "Open in the EC2 console"),
         Action("cost", "Estimate the cost of the selected nodes", multi=True),
+        Action("sign-in", "Sign in to AWS for this cluster…", kinds=("Node",)),
     )
     overview_cards = (
         OverviewCard("cost_hour", "Cost per hour"),
@@ -395,6 +396,8 @@ class AwsPlugin(Plugin):
             return results or Message("No matching AWS infrastructure was found for this resource. It may no longer exist, or its AWS identifier/region is unavailable.")
         infos = [(r, parse_node(r)) for r in request.resources]
         infos = [(r, info) for r, info in infos if info is not None]
+        if request.action == "sign-in":  # the AWS CLI signs in in a terminal (a browser or a code prompt is needed)
+            return Terminal(sign_in_argv(profile_for(request.context, request.settings)))
         if request.action == "copy-id":
             return Copy("\n".join(info.instance_id for _, info in infos))
         if request.action == "console":
