@@ -25,6 +25,11 @@ def _is_url(text):
     return bool(re.match(r"\s*https?://", str(text or ""), re.I))
 
 
+def plain_http_with_auth(text, kind):
+    """True when a URL source is plain http:// and carries authentication: the token or password would travel unencrypted."""
+    return bool(kind) and str(text or "").strip().lower().startswith("http://")
+
+
 def _auth(value, env, user):
     """(auth, env, user) as saved: the kind must be one of AUTH_KINDS (""= none); a name only when there is a kind."""
     kind = str(value or "").strip().lower()
@@ -79,7 +84,11 @@ class MetricsSources:
         return _auth(self.store.value(f"{self.DEFAULT_GROUP}/auth", ""), self.store.value(f"{self.DEFAULT_GROUP}/authenv", ""),
                      self.store.value(f"{self.DEFAULT_GROUP}/authuser", ""))
 
-    def set_default(self, text, via="proxy", local=0, auth="", auth_env="", auth_user=""):
+    def get_default_ack(self):
+        """True when the default's plain-http authentication was acknowledged in Preferences."""
+        return str(self.store.value(f"{self.DEFAULT_GROUP}/ackhttp", "")) == "on"
+
+    def set_default(self, text, via="proxy", local=0, auth="", auth_env="", auth_user="", ack_http=False):
         """Save the default for all clusters; "" means look for one automatically. A URL is always reached directly (not a forward).
         Raises OSError when it cannot be written."""
         text = str(text or "").strip()
@@ -93,6 +102,8 @@ class MetricsSources:
             if kind:
                 self.store.setValue(f"{self.DEFAULT_GROUP}/auth", kind)
                 self.store.setValue(f"{self.DEFAULT_GROUP}/authenv", env)
+                if ack_http and plain_http_with_auth(text, kind):
+                    self.store.setValue(f"{self.DEFAULT_GROUP}/ackhttp", "on")
                 if user:
                     self.store.setValue(f"{self.DEFAULT_GROUP}/authuser", user)
         self.store.sync()
@@ -139,6 +150,7 @@ class MetricsSources:
                     "tls": _on_off(self.store.value(f"tls.{n}", "")),
                     "insecure": _on_off(self.store.value(f"insecure.{n}", "")),
                     "auth": auth, "auth_env": env, "auth_user": user,
+                    "ack_http": str(self.store.value(f"ackhttp.{n}", "")) == "on",
                 }
             return found
         finally:
@@ -178,7 +190,7 @@ class MetricsSources:
         """"on", "off" or "" (use the Preferences setting) for ignoring certificate errors through the forward."""
         return self._get(context, "insecure", "")
 
-    def set(self, context, text, via="proxy", local=0, tls="", insecure="", auth="", auth_env="", auth_user=""):
+    def set(self, context, text, via="proxy", local=0, tls="", insecure="", auth="", auth_env="", auth_user="", ack_http=False):
         """Keep `text` for `context`; "" forgets it. A URL is always reached directly. Raises OSError when the settings file cannot be written."""
         entries = self._entries()
         text = str(text).strip()
@@ -186,7 +198,8 @@ class MetricsSources:
             url = _is_url(text)
             kind, env, user = _auth(auth, auth_env, auth_user) if url else ("", "", "")
             entries[context] = {"ref": text, "via": "forward" if via == "forward" and not url else "proxy", "local": int(local or 0),
-                                "tls": _on_off(tls), "insecure": _on_off(insecure), "auth": kind, "auth_env": env, "auth_user": user}
+                                "tls": _on_off(tls), "insecure": _on_off(insecure), "auth": kind, "auth_env": env, "auth_user": user,
+                                "ack_http": bool(ack_http) and plain_http_with_auth(text, kind)}
         else:
             entries.pop(context, None)
         self.store.remove(self.GROUP)
@@ -205,6 +218,8 @@ class MetricsSources:
                 self.store.setValue(f"{self.GROUP}/authenv.{number}", entry["auth_env"])
                 if entry["auth_user"]:
                     self.store.setValue(f"{self.GROUP}/authuser.{number}", entry["auth_user"])
+                if entry["ack_http"]:
+                    self.store.setValue(f"{self.GROUP}/ackhttp.{number}", "on")
         self.store.sync()
         if self.store.status() != QSettings.NoError:
             raise OSError(f"Could not save the setting to {self.store.fileName()}")

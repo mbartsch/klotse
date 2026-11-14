@@ -67,6 +67,9 @@ def test_add_saves_the_chosen_source_for_a_cluster_without_one(qapp, tmp_path, m
         def auth_choice(self):
             return ("", "", "")
 
+        def ack_choice(self):
+            return False
+
         def deleteLater(self):
             pass
 
@@ -98,6 +101,9 @@ def test_add_refuses_a_cluster_that_already_has_a_source(qapp, tmp_path, monkeyp
         def auth_choice(self):
             return ("", "", "")
 
+        def ack_choice(self):
+            return False
+
         def deleteLater(self):
             pass
 
@@ -124,6 +130,9 @@ def test_add_refuses_a_bad_address_and_stages_nothing(qapp, tmp_path, monkeypatc
 
         def auth_choice(self):
             return ("", "", "")
+
+        def ack_choice(self):
+            return False
 
         def deleteLater(self):
             pass
@@ -158,6 +167,9 @@ def test_add_opens_for_the_preselected_cluster(qapp, tmp_path, monkeypatch):
 
         def auth_choice(self):
             return ("", "", "")
+
+        def ack_choice(self):
+            return False
 
         def deleteLater(self):
             pass

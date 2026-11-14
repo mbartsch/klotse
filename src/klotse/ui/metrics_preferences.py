@@ -9,8 +9,14 @@ from functools import partial
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from PySide6.QtWidgets import QCheckBox
+
 from ..k8s import prometheus
-from .metrics_sources import METRICS_SERVER
+from .metrics_sources import METRICS_SERVER, plain_http_with_auth
+
+HTTP_WARNING = ("Plain http:// sends the token or password unencrypted: anyone on the network path can read it. "
+                "Use https:// where you can. Tick the box below to accept it for this source.")
+HTTP_ACK = "I understand the token or password is sent unencrypted over http://, and accept it"
 
 AUTOMATIC, PROMETHEUS, METRICS_ONLY = "Find it automatically", "Prometheus / VictoriaMetrics or URL", "metrics-server only"
 AUTH_CHOICES = (("", "No authentication"),
@@ -93,7 +99,7 @@ class AddSourceDialog(QDialog):
     """Add or edit a cluster's source. A connected cluster lists the services found on it (`discover(name, done)` calls done with the list,
     or None when the cluster is not connected); the user can always type the address instead, or a URL with authentication."""
 
-    def __init__(self, clusters, discover=None, parent=None, cluster="", service="", auth=NO_AUTH, fixed_cluster=False):
+    def __init__(self, clusters, discover=None, parent=None, cluster="", service="", auth=NO_AUTH, fixed_cluster=False, ack=False):
         super().__init__(parent)
         self.setWindowTitle("Metrics source" if fixed_cluster else "Add a metrics source")
         self.discover = discover
@@ -119,13 +125,23 @@ class AddSourceDialog(QDialog):
         form.addRow("Cluster", self.cluster)
         form.addRow("Service or URL", self.service)
         self.auth_box, self.auth_env, self.auth_user = _auth_widgets(form, auth)
+        self.ack_box = QCheckBox(HTTP_ACK)
+        self.ack_box.setChecked(ack)
+        self.http_warning = QLabel(HTTP_WARNING)
+        self.http_warning.setWordWrap(True)
+        self.http_warning.setAccessibleName("Plain http warning")
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(self.status)
+        layout.addWidget(self.http_warning)
+        layout.addWidget(self.ack_box)
         layout.addWidget(buttons)
+        self.service.currentTextChanged.connect(self._update_ack)
+        self.auth_box.currentIndexChanged.connect(self._update_ack)
+        self._update_ack()
         self.cluster.currentTextChanged.connect(self._cluster_changed)
         self._cluster_changed(self.cluster.currentText())
 
@@ -166,6 +182,25 @@ class AddSourceDialog(QDialog):
     def auth_choice(self):
         return auth_fields(self.auth_box, self.auth_env, self.auth_user)
 
+    def _needs_ack(self):
+        return plain_http_with_auth(self.service.currentText(), self.auth_box.currentData() or "")
+
+    def _update_ack(self, *_):
+        needed = self._needs_ack()
+        self.http_warning.setVisible(needed)
+        self.ack_box.setVisible(needed)
+
+    def ack_choice(self):
+        """True when the plain-http warning was accepted for the chosen source (only then is it kept)."""
+        return bool(self._needs_ack() and self.ack_box.isChecked())
+
+    def accept(self):
+        if self._needs_ack() and not self.ack_box.isChecked():
+            QMessageBox.warning(self, "Metrics source", "Tick the box to accept that the token or password is sent unencrypted over "
+                                "http://, or use https://.")
+            return
+        super().accept()
+
 
 class MetricsPanel(QWidget):
     def __init__(self, metrics, contexts, parent=None, tester=None, discoverer=None):
@@ -199,6 +234,16 @@ class MetricsPanel(QWidget):
         defaults.addRow("Service or URL", default_row)
         defaults.addRow(self.metrics_only_note)
         self.default_auth_box, self.default_env, self.default_user = _auth_widgets(defaults, self.default_auth)
+        self.default_ack = QCheckBox(HTTP_ACK)
+        self.default_ack.setChecked(metrics.get_default_ack())
+        self.default_warning = QLabel(HTTP_WARNING)
+        self.default_warning.setWordWrap(True)
+        defaults.addRow(self.default_warning)
+        defaults.addRow(self.default_ack)
+        self.default_edit.textChanged.connect(self._update_default_ack)
+        self.default_auth_box.currentIndexChanged.connect(self._update_default_ack)
+        self.mode.currentIndexChanged.connect(self._update_default_ack)
+        self._update_default_ack()
         self._mode_changed()
 
         self.table = QTableWidget(0, 4)
@@ -332,10 +377,16 @@ class MetricsPanel(QWidget):
         if not text:
             self._show_result("Nothing to test: the default is to look for one automatically.")
             return
+        if self._default_needs_ack() and not self.default_ack.isChecked():
+            self._show_result("Tick the plain-http box first: the token or password would be sent unencrypted.")
+            return
         self._run_test(None, text, self._chosen_auth())
 
     def _test_row(self, name):
         entry = self._entry(name)
+        if entry and plain_http_with_auth(entry["ref"], entry.get("auth", "")) and not entry.get("ack_http"):
+            self._show_result("Accept the plain-http warning first: use Edit… for this cluster.")
+            return
         if entry:
             self._run_test(name, entry["ref"], (entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")))
 
@@ -352,6 +403,7 @@ class MetricsPanel(QWidget):
         accepted = dialog.exec() == QDialog.Accepted
         name, text = dialog.chosen()
         kind, variable, user = dialog.auth_choice()
+        ack = dialog.ack_choice()
         dialog.deleteLater()
         if not accepted:
             return
@@ -366,7 +418,7 @@ class MetricsPanel(QWidget):
         except ValueError as error:
             QMessageBox.warning(self, "Metrics source", str(error))
             return
-        self.changes[name] = self._entry_dict(text, "proxy", 0, kind, variable, user)
+        self.changes[name] = self._entry_dict(text, "proxy", 0, kind, variable, user, ack=ack)
         self._refresh()
 
     def edit_selected(self):
@@ -378,10 +430,12 @@ class MetricsPanel(QWidget):
     def _edit(self, name):
         entry = self._entry(name)
         dialog = AddSourceDialog([name], self.discoverer, self, cluster=name, service=entry["ref"],
-                                 auth=(entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")), fixed_cluster=True)
+                                 auth=(entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")), fixed_cluster=True,
+                                 ack=entry.get("ack_http", False))
         accepted = dialog.exec() == QDialog.Accepted
         _name, text = dialog.chosen()
         kind, variable, user = dialog.auth_choice()
+        ack = dialog.ack_choice()
         dialog.deleteLater()
         if not accepted:
             return
@@ -395,15 +449,16 @@ class MetricsPanel(QWidget):
                 QMessageBox.warning(self, "Metrics source", str(error))
                 return
             self.changes[name] = self._entry_dict(text, entry.get("via", "proxy"), entry.get("local", 0), kind, variable, user,
-                                                  tls=entry.get("tls", ""), insecure=entry.get("insecure", ""))
+                                                  tls=entry.get("tls", ""), insecure=entry.get("insecure", ""), ack=ack)
         self._refresh()
 
     @staticmethod
-    def _entry_dict(text, via, local, kind, variable, user, tls="", insecure=""):
+    def _entry_dict(text, via, local, kind, variable, user, tls="", insecure="", ack=False):
         url = text.lower().startswith(("http://", "https://"))
         kind, variable, user = (kind, variable, user) if url else NO_AUTH
         return {"ref": text, "via": via if not url else "proxy", "local": local, "tls": tls, "insecure": insecure,
-                "auth": kind, "auth_env": variable, "auth_user": user}
+                "auth": kind, "auth_env": variable, "auth_user": user,
+                "ack_http": bool(ack) and plain_http_with_auth(text, kind)}
 
     def remove_selected(self):
         name = self._selected_name()
@@ -442,17 +497,32 @@ class MetricsPanel(QWidget):
         return valid_source(text)  # ValueError says what is wrong
 
     def save(self):
-        """Write the default and the staged per-cluster changes. Raises ValueError for a bad address, OSError when not written."""
+        """Write the default and the staged per-cluster changes. Raises ValueError for a bad address or an unaccepted plain-http
+        authentication, OSError when not written."""
         default = self._chosen_default()
         auth = self._chosen_auth() if default and default != METRICS_SERVER else NO_AUTH
-        if (default, auth) != (self.default_ref, self.default_auth):
+        ack = bool(default and self.default_ack.isChecked() and plain_http_with_auth(default, auth[0]))
+        if self._default_needs_ack() and not self.default_ack.isChecked():
+            raise ValueError("Tick the plain-http box for the default first: the token or password would be sent unencrypted.")
+        if (default, auth, ack) != (self.default_ref, self.default_auth, self.metrics.get_default_ack()):
             keep = bool(default) and default != METRICS_SERVER
             self.metrics.set_default(default, via=self.default_via if keep else "proxy", local=self.default_local if keep else 0,
-                                     auth=auth[0], auth_env=auth[1], auth_user=auth[2])
+                                     auth=auth[0], auth_env=auth[1], auth_user=auth[2], ack_http=ack)
         for name, entry in self.changes.items():
             if entry is None:
                 self.metrics.set(name, "")
             else:
+                if plain_http_with_auth(entry["ref"], entry.get("auth", "")) and not entry.get("ack_http"):
+                    raise ValueError(f"Accept the plain-http warning for {name} first (use Edit…).")
                 self.metrics.set(name, entry["ref"], via=entry["via"], local=entry["local"], tls=entry["tls"], insecure=entry["insecure"],
-                                 auth=entry.get("auth", ""), auth_env=entry.get("auth_env", ""), auth_user=entry.get("auth_user", ""))
+                                 auth=entry.get("auth", ""), auth_env=entry.get("auth_env", ""), auth_user=entry.get("auth_user", ""),
+                                 ack_http=entry.get("ack_http", False))
         self.changes = {}
+
+    def _default_needs_ack(self):
+        return self.mode.currentIndex() == 1 and plain_http_with_auth(self.default_edit.text().strip(), self._chosen_auth()[0])
+
+    def _update_default_ack(self, *_):
+        needed = self._default_needs_ack()
+        self.default_warning.setVisible(needed)
+        self.default_ack.setVisible(needed)
