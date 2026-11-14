@@ -27,7 +27,7 @@ from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
 from ..workers import Worker
 from .terminal import open_terminal
-from .metrics_sources import ForwardDefaults
+from .metrics_sources import ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .big_clusters import NOTICE_TEXT, BigClusters
@@ -1197,7 +1197,7 @@ class MainWindow(QMainWindow):
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
                                    forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
-                                   proxy=self.proxy_settings)
+                                   proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store))
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):

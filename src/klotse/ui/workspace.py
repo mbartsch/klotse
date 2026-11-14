@@ -2074,7 +2074,8 @@ class ClusterWorkspace(QMainWindow):
         """The Source… dialog: (text, via, local, tls, insecure) to keep for this cluster, or None when cancelled (text "" = look for one
         automatically). Test checks the chosen settings; a forward it starts is stopped again when the dialog is cancelled."""
         sources, defaults = self.metrics_sources, self.forward_defaults
-        dialog = PrometheusSourceDialog(sources.get(self.context), sources.get_via(self.context), sources.get_local(self.context),
+        own = sources.own(self.context) or {}  # the dialog edits this cluster's own entry, not the default it inherits
+        dialog = PrometheusSourceDialog(own.get("ref", ""), own.get("via", "proxy"), own.get("local", 0),
                                         sources.get_tls(self.context), sources.get_insecure(self.context), defaults.tls, defaults.insecure, self)
         asked = []
 

@@ -40,9 +40,47 @@ class ForwardDefaults:
 
 class MetricsSources:
     GROUP = "metrics_sources"
+    DEFAULT_GROUP = "metrics_default"  # Preferences > Metrics: one default for every cluster without its own entry
 
     def __init__(self, settings=None):
         self.store = settings if settings is not None else default_store()
+
+    def get_default(self):
+        """(ref text, via, local) of the default for all clusters; ("", "proxy", 0) means look for one automatically."""
+        ref = str(self.store.value(f"{self.DEFAULT_GROUP}/ref", "") or "").strip()
+        via = "forward" if str(self.store.value(f"{self.DEFAULT_GROUP}/via", "")) == "forward" else "proxy"
+        local = str(self.store.value(f"{self.DEFAULT_GROUP}/local", "0"))
+        return ref, via, int(local) if local.isdigit() and int(local) < 65536 else 0
+
+    def set_default(self, text, via="proxy", local=0):
+        """Save the default for all clusters; "" means look for one automatically. Raises OSError when it cannot be written."""
+        text = str(text or "").strip()
+        self.store.remove(self.DEFAULT_GROUP)
+        if text:
+            self.store.setValue(f"{self.DEFAULT_GROUP}/ref", text)
+            if via == "forward":
+                self.store.setValue(f"{self.DEFAULT_GROUP}/via", "forward")
+                self.store.setValue(f"{self.DEFAULT_GROUP}/local", int(local or 0))
+        self.store.sync()
+        if self.store.status() != QSettings.NoError:
+            raise OSError(f"Could not save the setting to {self.store.fileName()}")
+
+    def entries(self):
+        """{context: {ref, via, local, tls, insecure}} for every cluster with its own entry (the default is not included)."""
+        return self._entries()
+
+    def own(self, context):
+        """The entry saved for `context` itself, {ref, via, local} or None (the default does not count)."""
+        return self._entries().get(context)
+
+    def own_ref(self, context):
+        entry = self.own(context)
+        return entry["ref"] if entry else ""
+
+    def stale(self, live_contexts):
+        """The contexts with a saved entry that are not in `live_contexts` (the kubeconfig's list)."""
+        live = set(live_contexts)
+        return sorted(name for name in self._entries() if name not in live)
 
     def _entries(self):
         """{context: {ref, via, local, tls, insecure}}; via is "proxy" or "forward"; tls and insecure are "on", "off" or "" (the default)."""
@@ -70,16 +108,21 @@ class MetricsSources:
         return self._entries().get(context, {}).get(field, default)
 
     def get(self, context):
-        """The service reference typed for `context`, or "" (look for one)."""
-        return self._get(context, "ref", "")
+        """The service reference for `context`: its own entry, else the default for all clusters, else "" (look for one)."""
+        own = self._get(context, "ref", "")
+        return own or self.get_default()[0]
 
     def get_via(self, context):
-        """"forward" when `context`'s service is reached through a port-forward, else "proxy"."""
-        return self._get(context, "via", "proxy")
+        """"forward" when `context`'s service is reached through a port-forward, else "proxy" (own entry first, then the default)."""
+        if self._get(context, "ref", ""):
+            return self._get(context, "via", "proxy")
+        return self.get_default()[1]
 
     def get_local(self, context):
         """The local port asked for the forward (0 = a free one)."""
-        return self._get(context, "local", 0)
+        if self._get(context, "ref", ""):
+            return self._get(context, "local", 0)
+        return self.get_default()[2]
 
     def get_tls(self, context):
         """"on", "off" or "" (use the Preferences setting) for SSL through the forward."""
