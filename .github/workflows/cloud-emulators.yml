@@ -25,23 +25,15 @@ jobs:
       floci-aws:
         image: floci/floci@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf3dbb97e34019e48efae9c  # latest at the time of writing
         ports: ["4566:4566"]
-        options: >-
-          --health-cmd "curl -s -o /dev/null http://localhost:4566/" --health-interval 5s --health-timeout 5s --health-retries 24
       floci-oci:
         image: floci/floci-oci@sha256:7b976aabefd8a53ebf09df52b788a1b3c3cd4e71f2e0b29efe8f9d8b3954fbd3  # latest at the time of writing
         ports: ["4599:4599"]
-        options: >-
-          --health-cmd "curl -s -o /dev/null http://localhost:4599/" --health-interval 5s --health-timeout 5s --health-retries 24
       floci-gcp:
         image: floci/floci-gcp@sha256:d02e70407d6b37c3e24e31b5ccf100606735cba4f84fd476708b35afd052abb3  # latest at the time of writing
         ports: ["4588:4588"]
-        options: >-
-          --health-cmd "curl -s -o /dev/null http://localhost:4588/" --health-interval 5s --health-timeout 5s --health-retries 24
       floci-az:
         image: floci/floci-az@sha256:f9d7552c9c02be84f12e266d6201ff52c1f23421af94943cbf687526ded89790  # latest at the time of writing
         ports: ["4577:4577"]
-        options: >-
-          --health-cmd "curl -s -o /dev/null http://localhost:4577/" --health-interval 5s --health-timeout 5s --health-retries 24
     env:
       PYTHONPATH: src
       QT_QPA_PLATFORM: offscreen
