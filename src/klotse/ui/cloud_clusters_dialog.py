@@ -5,7 +5,7 @@ the main file asks first (Yes/No, default No) and keeps a .bak copy. Commands ru
 import shutil
 
 from PySide6.QtCore import QThreadPool, Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
                                QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from ..k8s import cloud_clusters as cloud
@@ -57,9 +57,10 @@ class CloudClustersDialog(QDialog):
         buttons.addWidget(self.add_button)
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["", "Cluster", "Location", "Group or state"])
+        self.table.setHorizontalHeaderLabels(["Add", "Cluster", "Location", "Group or state"])
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)  # the tick box keeps its width
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.target_note = QLabel(self._target_text())
@@ -139,6 +140,7 @@ class CloudClustersDialog(QDialog):
             self.table.setItem(row, 2, QTableWidgetItem(cluster.location))
             self.table.setItem(row, 3, QTableWidgetItem(cluster.group or cluster.state))
         self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(0, 64)  # the tick box must stay large enough to see; resizing to contents made it tiny
         self.status.setText(f"{len(self._clusters)} cluster(s) found. Tick the ones to add." if self._clusters
                             else "No clusters found in this scope.")
         self.add_button.setEnabled(bool(self._clusters))
@@ -180,6 +182,7 @@ class CloudClustersDialog(QDialog):
             for index, cluster in enumerate(chosen):
                 piece = workdir / f"{index}.yaml"
                 try:
+                    cluster = cloud.resolve_location(provider, cluster, values)
                     argv, env = cloud.credentials_argv(provider, cluster, values, piece)
                     cloud.run(argv, env=env)
                     if not piece.exists():

@@ -123,3 +123,13 @@ def test_the_main_window_reads_each_context_from_the_file_it_came_from(qtbot, tm
     assert win.new_service("demo-cloud").kubeconfig == str(generated)
     assert win.new_service("demo-default").kubeconfig is None
     assert Path(win.context_files["demo-cloud"]) == generated
+
+
+def test_the_tick_column_keeps_a_usable_width_after_listing(qtbot, tmp_path, monkeypatch):
+    fake_cli(monkeypatch)
+    dlg = CloudClustersDialog(lambda: (str(tmp_path / "klotse-cloud.klotse"), False))
+    qtbot.addWidget(dlg)
+    dlg.edits["region"].setText("eu-west-1")
+    dlg._list()
+    wait_for(qtbot, lambda: dlg.table.rowCount() == 2)
+    assert dlg.table.columnWidth(0) >= 56

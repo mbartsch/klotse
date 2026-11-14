@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -45,7 +45,7 @@ class Provider:
 
 PROVIDERS = {
     "aws": Provider("aws", "AWS (EKS)", "aws", (Field("region", "Region", True), Field("profile", "AWS profile"))),
-    "gcp": Provider("gcp", "Google Cloud (GKE)", "gcloud", (Field("project", "Project ID", True), Field("location", "Location (zone or region)"))),
+    "gcp": Provider("gcp", "Google Cloud (GKE)", "gcloud", (Field("project", "Project ID", True), Field("location", "Location (zone or region; optional, looked up when empty)"))),
     "azure": Provider("azure", "Azure (AKS)", "az", (Field("subscription", "Subscription (id or name)"), Field("resource_group", "Resource group"))),
     "oci": Provider("oci", "Oracle Cloud (OKE)", "oci", (Field("compartment", "Compartment OCID", True), Field("region", "Region", True), Field("profile", "OCI config profile"))),
 }
@@ -121,7 +121,7 @@ def parse_clusters(provider, text, scope=None):
             if not SAFE_VALUE.fullmatch(name):
                 continue
             if provider == "gcp":
-                location = str(item.get("location") or item.get("zone") or "")
+                location = str(item.get("location") or item.get("zone") or item.get("region") or "")
                 found = ClusterRef(name, name, location, state=str(item.get("status") or ""))
             elif provider == "azure":
                 group = str(item.get("resourceGroup") or "")
@@ -142,8 +142,10 @@ def credentials_argv(provider, cluster, scope, target):
         argv = ["aws", "eks", "update-kubeconfig", "--name", cluster.name, "--region", s["region"], "--kubeconfig", target]
         return argv + (["--profile", s["profile"]] if s["profile"] else []), {}
     if provider == "gcp":
-        argv = ["gcloud", "container", "clusters", "get-credentials", cluster.name, "--project", s["project"]]
-        return argv + (["--location", cluster.location] if cluster.location else []), {"KUBECONFIG": target}
+        if not cluster.location:
+            raise CloudError(f"the location of {cluster.name} is not known: see resolve_location")
+        argv = ["gcloud", "container", "clusters", "get-credentials", cluster.name, "--project", s["project"], "--location", cluster.location]
+        return argv, {"KUBECONFIG": target}
     if provider == "azure":
         argv = ["az", "aks", "get-credentials", "--name", cluster.name, "--file", target]
         argv += ["--resource-group", cluster.group] if cluster.group else []
@@ -169,6 +171,22 @@ def run(argv, env=None, timeout=CLI_TIMEOUT_S):
         reason = lines[-1][:240] if lines else f"exit status {done.returncode}"
         raise CloudError(f"{argv[0]} failed: {reason}")
     return done.stdout
+
+
+def resolve_location(provider, cluster, scope):
+    """The cluster with its location filled in. GKE needs --location (a zone or a region) for get-credentials. The list answer
+    usually gives it; when it does not, the Location field is used, else a filtered list gives it (one more gcloud call)."""
+    if provider != "gcp" or cluster.location:
+        return cluster
+    s = clean_scope(provider, scope)
+    if s["location"]:
+        return replace(cluster, location=s["location"])
+    text = run(["gcloud", "container", "clusters", "list", "--project", s["project"], "--filter", f"name={cluster.name}",
+                "--format", "value(location)"])
+    found = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if not found or not SAFE_VALUE.fullmatch(found):
+        raise CloudError(f"could not find the location of {cluster.name}: enter its zone or region in Location and try again")
+    return replace(cluster, location=found)
 
 
 def default_generated_path(home=None):

@@ -120,3 +120,34 @@ def test_a_file_that_is_not_a_kubeconfig_is_refused_and_left_alone(tmp_path):
 def test_a_missing_cli_is_a_clear_error_not_a_traceback():
     with pytest.raises(cloud.CloudError, match="not installed or not on the PATH"):
         cloud.run(["klotse-no-such-cli-for-tests", "list"])
+
+
+def test_a_gke_cluster_without_a_location_gets_it_from_the_scope(monkeypatch):
+    cluster = cloud.ClusterRef("demo-gke", "demo-gke")
+    filled = cloud.resolve_location("gcp", cluster, {"project": "demo-project", "location": "europe-west1"})
+    assert filled.location == "europe-west1"
+    monkeypatch.setattr(cloud, "run", lambda argv, env=None, timeout=None: pytest.fail("no lookup needed"))
+    assert cloud.resolve_location("gcp", cluster.__class__("demo-gke", "demo-gke", "us-central1"), {"project": "demo-project"}).location == "us-central1"
+
+
+def test_without_any_location_gcp_is_looked_up_with_a_filtered_list(monkeypatch):
+    calls = []
+
+    def run(argv, env=None, timeout=None):
+        calls.append(list(argv))
+        return "europe-west1-b\n"
+
+    monkeypatch.setattr(cloud, "run", run)
+    cluster = cloud.resolve_location("gcp", cloud.ClusterRef("demo-gke", "demo-gke"), {"project": "demo-project"})
+    assert cluster.location == "europe-west1-b"
+    assert calls == [["gcloud", "container", "clusters", "list", "--project", "demo-project", "--filter", "name=demo-gke", "--format", "value(location)"]]
+
+
+def test_gcp_credentials_refuse_an_unknown_location_instead_of_running_without_one(tmp_path):
+    with pytest.raises(cloud.CloudError, match="location"):
+        cloud.credentials_argv("gcp", cloud.ClusterRef("demo-gke", "demo-gke"), {"project": "demo-project"}, tmp_path / "p.yaml")
+
+
+def test_gcp_listing_reads_the_region_key_too():
+    text = json.dumps([{"name": "demo-gke", "region": "europe-west1"}])
+    assert cloud.parse_clusters("gcp", text)[0].location == "europe-west1"
