@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QHe
                                QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from ..k8s import cloud_clusters as cloud
+from . import theme
 from ..workers import Worker
 
 
@@ -64,6 +65,11 @@ class CloudClustersDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Add", "Cluster", "Location", "Group or state"])
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # The tick box is the table's own indicator; the app theme leaves it small and faint, so it is drawn larger here.
+        self.table.setStyleSheet(
+            f"QTableView::indicator {{ width: 20px; height: 20px; border: 2px solid {theme.MUTED}; border-radius: 4px; "
+            f"background: {theme.BASE}; }}"
+            f"QTableView::indicator:checked {{ background: {theme.ACCENT}; border-color: {theme.ACCENT}; }}")
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)  # the tick box keeps its width
         self.status = QLabel()
         self.status.setWordWrap(True)
