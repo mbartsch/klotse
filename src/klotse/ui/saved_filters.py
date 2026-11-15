@@ -54,5 +54,10 @@ class SavedFilters:
         keep = [e for e in self.all() if not (e["ctx"] == context and e["kind"] == kind and e["name"] == name)]
         self._write(keep + [{"ctx": context, "kind": kind, "name": name, "text": text}])
 
+    def exists(self, context, kind, name):
+        """True when a filter with this name is already saved for this cluster's list."""
+        name = name.strip()
+        return any(e["ctx"] == context and e["kind"] == kind and e["name"] == name for e in self.all())
+
     def remove(self, entry):
         self._write([e for e in self.all() if e != entry])

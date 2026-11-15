@@ -44,7 +44,7 @@ class ApplyDialog(QDialog):
         self.open_button.clicked.connect(self._open_file)
         self.check_button.clicked.connect(lambda: self._start(dry_run=True))
         self.apply_button.clicked.connect(lambda: self._start(dry_run=False))
-        self.close_button.clicked.connect(self.accept)
+        self.close_button.clicked.connect(self.reject)
         note = QLabel(f"<b>{_plain(context)}</b> · objects without a namespace go to <b>{_plain(namespace)}</b>. "
                       "Existing objects are updated to match the YAML (server-side apply); fields another tool owns are "
                       "reported as conflicts, not overwritten.")
@@ -111,6 +111,18 @@ class ApplyDialog(QDialog):
             self, "Apply YAML", f"Cluster: {self.context}\nApply {len(docs)} object{'s' if len(docs) != 1 else ''}?\n\n{shown}\n\n"
             "Existing objects are changed to match the YAML. Check (dry run) first if you are not sure.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+
+    def reject(self):
+        """Esc and the window's X: refused while the server is answering (the result would have nowhere to go), and asked
+        about when there is YAML that was never applied."""
+        if self._busy:
+            self.result.setPlainText("Wait for the server to answer before closing.")
+            return
+        if self.editor.toPlainText().strip() and QMessageBox.question(
+                self, "Close Apply YAML", "Close and drop the YAML in this window?", QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No) != QMessageBox.Yes:
+            return
+        super().reject()
 
     def set_busy(self, busy, text=""):
         self._busy = busy
