@@ -146,7 +146,8 @@ class ClusterWorkspace(QMainWindow):
     Embedded as a tab of the main window, so several clusters can be open side by side.
     """
 
-    message = Signal(str)  # status-bar text for the shell
+    message = Signal(str)  # status-bar text for the shell (progress and load messages)
+    result = Signal(str)  # an action's outcome: the shell keeps it on the status bar for a while (#497)
     state = Signal(str)  # connecting | connected | failed
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
@@ -2958,7 +2959,7 @@ class ClusterWorkspace(QMainWindow):
                   "CustomResourceDefinition", row.name, row.namespace, uid)
 
     def _deleted(self, kind, name):
-        self.message.emit(f"Deleted {kind} {name}")
+        self.result.emit(f"Deleted {kind} {name}")
         self.refresh()
 
     def scale_resource(self, kind, row):
@@ -3058,7 +3059,7 @@ class ClusterWorkspace(QMainWindow):
             self._run(self.service.set_cronjob_suspended, lambda _: self._saved("CronJob", row.name, "Suspended" if suspend else "Resumed"), row.name, row.namespace, suspend)
 
     def _restarted(self, kind, name):
-        self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")
+        self.result.emit(f"Restarted {kind} {name}: the pods are being replaced")
         self.refresh()
 
     # ---- bulk actions (several rows selected) ---------------------------
@@ -3165,7 +3166,7 @@ class ClusterWorkspace(QMainWindow):
                 for r in rows:
                     if id(r) not in bad:
                         on_each(r)
-            self.message.emit(f"{self.context}: {title}: {len(rows) - len(failed)} succeeded, {len(failed)} failed")
+            self.result.emit(f"{self.context}: {title}: {len(rows) - len(failed)} succeeded, {len(failed)} failed")
             if failed:
                 QMessageBox.warning(self, "Some actions failed", f"{self.context}\n\n" + "\n".join(
                     f"{getattr(r, 'namespace', '') + '/' if getattr(r, 'namespace', '') else ''}{r.name}: {m}" for r, m in failed[:10]))
@@ -3175,7 +3176,7 @@ class ClusterWorkspace(QMainWindow):
         self._run(work, done)
 
     def _scaled(self, kind, row, old, new):
-        self.message.emit(f"Scaling {kind} {row.name}: {old} → {new}")
+        self.result.emit(f"Scaling {kind} {row.name}: {old} → {new}")
         self.open_scale_monitor(kind, row, old, new)
         self.refresh()
 
@@ -3299,7 +3300,7 @@ class ClusterWorkspace(QMainWindow):
     def _node_changed(self, name, message):
         if self._closed:
             return
-        self.message.emit(f"{self.context} / {name}: {message}")
+        self.result.emit(f"{self.context} / {name}: {message}")
         self.refresh()
         if self._node_bars and self.foreground_key() != "nodes":  # keep the node action bars current (cordoned, gone)
             self.load_view("nodes")
@@ -3547,7 +3548,7 @@ class ClusterWorkspace(QMainWindow):
         self._run(self.service.create_namespace, lambda _: self._saved("Namespace", name, "Created"), dlg.result_body)
 
     def _saved(self, kind, name, verb="Saved"):
-        self.message.emit(f"{verb} {kind} {name}")  # also used after create
+        self.result.emit(f"{verb} {kind} {name}")  # also used after create
         self.refresh()
 
     # ---- connection / data ---------------------------------------------

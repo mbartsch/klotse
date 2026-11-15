@@ -106,7 +106,7 @@ def test_the_source_dialog_saves_automatic_search(qtbot, monkeypatch):
 def test_a_saved_action_says_what_happened(qtbot):
     ws = make_ws(qtbot)
     messages = []
-    ws.message.connect(messages.append)
+    ws.result.connect(messages.append)  # action outcomes are reported on the result signal (#497)
     ws.refresh = lambda: None
     ws._saved("Pod", "web-1", "Terminated")
     ws._saved("CronJob", "nightly", "Suspended")
