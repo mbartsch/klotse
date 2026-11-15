@@ -3,7 +3,7 @@
   "id": "gcp",
   "name": "Google Cloud (GKE) Plugin",
   "version": "0.1",
-  "requires_api": 11,
+  "requires_api": 12,
   "description": "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal.",
   "columns": [],
   "actions": [
@@ -19,7 +19,17 @@
     }
   ],
   "overview_cards": [],
-  "settings": [],
+  "settings": [
+    {
+      "key": "extra_environment",
+      "label": "Extra variables for commands and terminals",
+      "default": "",
+      "kind": "multiline",
+      "help": "One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example CLOUDSDK_ACTIVE_CONFIG_NAME=work. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster.",
+      "pattern": "",
+      "section": "Commands and terminals"
+    }
+  ],
   "cluster_settings": [
     {
       "key": "cloud",

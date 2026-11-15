@@ -104,9 +104,10 @@ class FileCopies(QObject):
     """The copies of one cluster workspace. `base(context, kubeconfig)` gives the kubectl command start (tests replace it)."""
     changed = Signal()
 
-    def __init__(self, base=kubectl_base, parent=None):
+    def __init__(self, base=kubectl_base, parent=None, variables=None):
         super().__init__(parent)
         self.base = base
+        self.variables = variables  # fn(context) -> what the plugins add to kubectl's environment for that cluster, or None
         self.items = []
         self._next = 1
         self._timer = QTimer(self)  # downloads: how much has arrived (a disk walk, so once a second, only while one runs)
@@ -125,7 +126,7 @@ class FileCopies(QObject):
         copy = Copy(self._next, context, namespace, pod, container or "", direction, local, remote)
         self._next += 1
         process = QProcess(self)
-        process.setProcessEnvironment(qt_environment())  # the app proxy, for kubectl (see k8s/process_env)
+        process.setProcessEnvironment(qt_environment(self.variables(context) if self.variables else None))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
         base = self.base(context, kubeconfig)
         process.setProgram(base[0])
         process.setArguments(build_args(base, copy)[1:])

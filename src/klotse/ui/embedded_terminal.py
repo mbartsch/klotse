@@ -92,8 +92,8 @@ class Bridge(QObject):
         self.pasteText.emit((QGuiApplication.clipboard().text() or "")[:MAX_PASTE])
 
 
-def make_session(argv, cols, rows):
-    return PtySession(argv, cols, rows, env=environment())  # the app proxy, for kubectl (see k8s/process_env)
+def make_session(argv, cols, rows, variables=None):
+    return PtySession(argv, cols, rows, env=environment(variables))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
 
 
 class TerminalTab(QWidget):

@@ -78,7 +78,7 @@ def test_credentials_and_cluster_settings_have_separate_sections(qtbot, tmp_path
     manager.loaded = [Loaded("aws", "bundled", "aws", AwsPlugin())]
     panel = PluginsPanel(manager)
     qtbot.addWidget(panel)
-    assert set(panel.section_boxes) == {"Credentials", "Per-cluster overrides"}
+    assert set(panel.section_boxes) == {"Credentials", "Per-cluster overrides", "Commands and terminals"}
     from PySide6.QtWidgets import QFormLayout
     form = panel.section_boxes["Credentials"][1]
     assert "access key ID" in form.itemAt(0, QFormLayout.ItemRole.LabelRole).widget().text()

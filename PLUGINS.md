@@ -155,11 +155,13 @@ legacy import fallback. Duplicate IDs and unsupported `requires_api` values are 
 
 ## API versions
 
-`klotse.plugins.API_VERSION` is 10: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
+`klotse.plugins.API_VERSION` is 12: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
 `EnrichRequest.warn`, version 4 added multi-line settings, version 5 added Overview cards, version 6 added cluster
 settings, version 7 added password settings, version 8 requires manifests and defers imports until enablement, and
 version 9 gives `EnrichRequest` an optional authenticated cluster `api_client()` factory.
 Version 10 adds node column presets. Set `presets=("AWS", "Core")` on a column to contribute it to the named AWS preset and the built-in Core preset. `All` always shows all available columns. List the same names in the manifest as a JSON array. Named presets from disabled plugins disappear.
+
+Version 11 adds cluster sources (File > Add clusters from the cloud…). Version 12 adds `process_environment` (see "Variables for commands and terminals").
 
 The manifest requirement applies to every plugin, including plugins declaring an older API. Set `requires_api` to the lowest
 version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings, 5 for Overview cards, 6 for cluster settings, 7 for password settings, 9 for `EnrichRequest.api_client`); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
@@ -173,6 +175,32 @@ setting; an empty box means "not set for this cluster". The values reach `enrich
 `request.settings` next to the general settings, for that cluster only (`""` when not set, so the plugin falls back to its
 general settings). `Setting.pattern`, if given, is a regular expression a non-empty value must match completely. Saving
 makes every open list and Overview ask the plugin again. They are stored in `[plugin_<id>_clusters]` of the settings file.
+
+## Variables for commands and terminals
+
+A plugin can add environment variables to the processes Klotse starts for a cluster: `kubectl` (drain, debug, port
+forward, file copy, file browser), `helm uninstall`, and the terminals it opens (Shell, Attach, node shell, a plugin's
+`Terminal` result), embedded or external. Override
+
+```python
+def process_environment(self, context, settings):
+    return {"MY_CLOUD_PROFILE": settings["profile"], **parse_environment(settings["extra_environment"])}
+```
+
+`context` is the cluster's kubeconfig context and `settings` are the plugin's settings with that cluster's settings. It
+is called on the GUI thread each time such a process starts, so it must be fast and use only the settings (no network,
+no files). `klotse.plugins.parse_environment(text)` turns a multi-line setting with one `NAME=value` per line into a
+dict (empty lines and `#` lines are skipped; a line that is not one raises `ValueError`).
+
+- The variables go on top of Klotse's own environment and the app proxy, for that cluster's processes only. Klotse's own
+  environment is not changed, and **the connection Klotse itself makes to the cluster does not use them** (the
+  kubeconfig's sign-in helper that Klotse runs to connect sees only Klotse's environment).
+- Names must match `[A-Za-z_][A-Za-z0-9_]*` and values must be one line of text. A plugin that raises, or returns
+  something else, adds nothing; the problem is shown in Preferences > Plugins without repeating a value.
+- Values are never logged or written to the change log. On macOS and Linux an external terminal gets them as `export`
+  lines in the private, self-deleting session script (a file only the user can read), not on a command line. On Windows
+  they are the environment of the console process.
+- Set `requires_api = 12`.
 
 ## The bundled plugin: AWS Plugin
 
@@ -223,8 +251,19 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
   "Open in the EC2 console" with several accounts it is taken from the menu, the per-cluster account list, the EKS ARN in
   the context name, and otherwise asked from AWS for the cluster's profile (STS GetCallerIdentity, like
   `aws sts get-caller-identity`; boto3 or the AWS CLI's credentials; kept per profile until Klotse closes).
+- **kubectl, helm and terminals get the AWS settings.** *Pass the AWS profile or access key to kubectl, helm and the
+  terminals Klotse opens* (on by default) sets variables for the processes Klotse starts for a cluster, so the
+  kubeconfig's `aws eks get-token` and the `aws` CLI in a shell opened from Klotse can sign in. A cluster with its own
+  profile (the Plugins menu, or *AWS profile for each cluster*) gets `AWS_PROFILE` and never the typed access key. Any
+  other cluster gets the typed access key (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`) when one
+  is filled in, else `AWS_PROFILE` for the default profile; nothing is set when nothing is filled in. This order differs
+  from the plugin's own AWS lookups, where a typed key replaces every profile. *Extra variables for those commands*
+  takes one `NAME=value` per line (`AWS_REGION`, `AWS_CONFIG_FILE`, ...), is applied even when the first setting is off,
+  and is saved as plain text: do not put secrets there. A kubeconfig entry that sets `AWS_PROFILE` for its helper still
+  wins for that helper. Klotse's own connection to the cluster is not changed. The Google Cloud, OCI and Azure plugins
+  have the same *Extra variables* setting. Not run against AWS.
 - **Settings:** *Use the AWS API when credentials are available* (on by default), *AWS profile*, *AWS profile for each
-  cluster*, and the console settings below.
+  cluster*, the two settings above, and the console settings below.
 
 ### Opening the console with several AWS accounts
 

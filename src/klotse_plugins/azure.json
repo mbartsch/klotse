@@ -3,7 +3,7 @@
   "id": "azure",
   "name": "Azure (AKS) Plugin",
   "version": "0.1",
-  "requires_api": 11,
+  "requires_api": 12,
   "description": "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal.",
   "columns": [],
   "actions": [
@@ -35,6 +35,15 @@
       "kind": "bool",
       "help": "Shows a code to enter in a browser, for a terminal without a browser. Off opens the browser.",
       "pattern": ""
+    },
+    {
+      "key": "extra_environment",
+      "label": "Extra variables for commands and terminals",
+      "default": "",
+      "kind": "multiline",
+      "help": "One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example AZURE_CONFIG_DIR=/path/to/dir. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster.",
+      "pattern": "",
+      "section": "Commands and terminals"
     }
   ],
   "cluster_settings": [

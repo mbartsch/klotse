@@ -2,7 +2,7 @@
 
 A GKE kubeconfig runs `gke-gcloud-auth-plugin`, which uses the account `gcloud` is signed in with. Klotse does not run the
 sign-in itself (a browser is needed): the action opens a terminal with `gcloud auth login`, and the user connects again."""
-from klotse.plugins import Action, Message, Plugin, Setting, Terminal
+from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_environment
 from . import clusters
 
 HELP_GCP = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; gcp accepts this cluster's nodes without it."
@@ -29,13 +29,19 @@ class GcpPlugin(Plugin):
     id = "gcp"
     name = "Google Cloud (GKE) Plugin"
     version = "0.1"
-    requires_api = 11
+    requires_api = 12
     description = "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal."
     actions = (
         Action("sign-in", "Sign in to Google Cloud for this cluster (gcloud auth login)…", kinds=("Node",)),
     )
     cluster_settings = (
         Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|gcp", help=HELP_GCP),
+    )
+
+    settings = (
+        Setting("extra_environment", "Extra variables for commands and terminals", "", kind="multiline",
+                section="Commands and terminals",
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example CLOUDSDK_ACTIVE_CONFIG_NAME=work. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
     )
 
     cluster_sources = (clusters.SOURCE,)
@@ -52,6 +58,9 @@ class GcpPlugin(Plugin):
         if source.key != "gke":
             return super().cluster_credentials(source, cluster, scope, target, run)
         clusters.cluster_credentials(cluster, scope, target, run)
+
+    def process_environment(self, context, settings):
+        return parse_environment(settings.get("extra_environment"))
 
     def run(self, request):
         if request.action != "sign-in":

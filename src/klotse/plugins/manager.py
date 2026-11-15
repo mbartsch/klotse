@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer, Signal, Slot
 
 from ..ui.settings_store import default_store
-from .api import API_VERSION, Action, Column, OverviewCard, Plugin, Setting, column_attr, valid_id
+from .api import API_VERSION, ENV_NAME, Action, Column, OverviewCard, Plugin, Setting, column_attr, valid_id
 from .manifest import declarations, read_manifest
 
 ENTRY_POINT_GROUP = "klotse.plugins"
@@ -409,6 +409,30 @@ class PluginManager(QObject):
             actions = [a for a in plugin.actions if kind in a.kinds and (a.multi or not multi)]
             if actions:
                 found.append((plugin, actions))
+        return found
+
+    def process_environment(self, context):
+        """{NAME: value} the enabled plugins add to the kubectl, helm and terminal processes of the cluster `context` (see
+        k8s/process_env). Call it on the GUI thread. A plugin that fails or returns something unusable adds nothing and
+        is reported in Preferences > Plugins; the message never repeats a value."""
+        found = {}
+        for plugin in self.active():
+            scope = (context, "environment")
+            try:
+                values = plugin.process_environment(context, self.settings_for(plugin.id, context)) or {}
+                checked = {}
+                for name, value in dict(values).items():
+                    if not isinstance(name, str) or not ENV_NAME.fullmatch(name):
+                        raise ValueError("a variable name is not valid")
+                    if not isinstance(value, str) or any(char in value for char in ("\x00", "\r", "\n")):
+                        raise ValueError(f"the value of {name} is not one line of text")
+                    checked[name] = value
+            except Exception as error:  # noqa: BLE001 - plugin code: contained and reported, like the other hooks
+                self.record_error(plugin.id, f"Variables for commands and terminals: {error}", scope)
+                continue
+            if scope in self._error_scopes.get(plugin.id, {}):
+                self.clear_error(plugin.id, scope)
+            found.update(checked)
         return found
 
     def cache_dir(self, plugin_id):
