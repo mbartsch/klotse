@@ -3,7 +3,7 @@
 An AKS kubeconfig usually runs `kubelogin` (Microsoft Entra ID), which reuses the account `az` is signed in with. Klotse does
 not run the sign-in itself (a browser or a code prompt is needed): the action opens a terminal with `az login`, and the user
 connects again. MFA is answered there."""
-from klotse.plugins import Action, Message, Plugin, Setting, Terminal
+from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_environment
 from . import clusters
 
 HELP_AZURE = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; azure accepts this cluster's nodes without it."
@@ -35,7 +35,7 @@ class AzurePlugin(Plugin):
     id = "azure"
     name = "Azure (AKS) Plugin"
     version = "0.1"
-    requires_api = 11
+    requires_api = 12
     description = "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal."
     actions = (
         Action("sign-in", "Sign in to Azure for this cluster (az login)…", kinds=("Node",)),
@@ -48,6 +48,9 @@ class AzurePlugin(Plugin):
                 help="A tenant id or domain for az login, when the account belongs to more than one tenant. Empty uses the default."),
         Setting("azure_device_code", "Sign in with a device code", False, kind="bool",
                 help="Shows a code to enter in a browser, for a terminal without a browser. Off opens the browser."),
+        Setting("extra_environment", "Extra variables for commands and terminals", "", kind="multiline",
+                section="Commands and terminals",
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example AZURE_CONFIG_DIR=/path/to/dir. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
     )
 
     cluster_sources = (clusters.SOURCE,)
@@ -64,6 +67,9 @@ class AzurePlugin(Plugin):
         if source.key != "aks":
             return super().cluster_credentials(source, cluster, scope, target, run)
         clusters.cluster_credentials(cluster, scope, target, run)
+
+    def process_environment(self, context, settings):
+        return parse_environment(settings.get("extra_environment"))
 
     def run(self, request):
         if request.action != "sign-in":

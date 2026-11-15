@@ -3,7 +3,7 @@
 An OKE kubeconfig runs `oci ce cluster generate-token`, which uses the OCI config profile (~/.oci/config). Klotse does not run
 the sign-in itself (a browser is needed): the action opens a terminal with `oci session authenticate` for that profile and
 the cluster's region, and the user connects again."""
-from klotse.plugins import Action, Message, Plugin, Setting, Terminal
+from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_environment
 from . import clusters
 
 HELP_OCI = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; oci accepts this cluster's nodes without it."
@@ -31,7 +31,7 @@ class OciPlugin(Plugin):
     id = "oci"
     name = "Oracle Cloud (OKE) Plugin"
     version = "0.1"
-    requires_api = 11
+    requires_api = 12
     description = "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal."
     actions = (
         Action("sign-in", "Sign in to Oracle Cloud for this cluster (oci session authenticate)…", kinds=("Node",)),
@@ -42,6 +42,9 @@ class OciPlugin(Plugin):
     settings = (
         Setting("oci_profile", "OCI config profile", "DEFAULT",
                 help="The profile in ~/.oci/config that the cluster's kubeconfig helper uses. The sign-in refreshes this profile's session token."),
+        Setting("extra_environment", "Extra variables for commands and terminals", "", kind="multiline",
+                section="Commands and terminals",
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example OCI_CLI_PROFILE=work. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
     )
 
     cluster_sources = (clusters.SOURCE,)
@@ -58,6 +61,9 @@ class OciPlugin(Plugin):
         if source.key != "oke":
             return super().cluster_credentials(source, cluster, scope, target, run)
         clusters.cluster_credentials(cluster, scope, target, run)
+
+    def process_environment(self, context, settings):
+        return parse_environment(settings.get("extra_environment"))
 
     def run(self, request):
         if request.action != "sign-in":

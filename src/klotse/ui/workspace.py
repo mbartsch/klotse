@@ -179,11 +179,11 @@ class ClusterWorkspace(QMainWindow):
         self._closed = False
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
-        self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
+        self.port_forwards = PortForwards(parent=self, variables=lambda _context: self.process_variables())  # the kubectl port-forward processes of this cluster
         self._source_forward = None  # the forward a usage history window reads Prometheus through, while it runs
         self._forward_users = set()  # the usage windows using it; the forward stops when the last one closes
         self._terminal_hosts = []  # embedded terminal sessions: each in its own window, or docked in this one
-        self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
+        self.file_copies = FileCopies(parent=self, variables=lambda _context: self.process_variables())  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self.review_changes = True  # View > Review changes before saving: a server dry run and a diff before an edit is stored
@@ -1093,11 +1093,12 @@ class ClusterWorkspace(QMainWindow):
             return
 
         self.record_change("helm uninstall", f"{row.namespace}/{row.name}")
+        env = environment(self.process_variables())  # asked here, on the GUI thread
 
         def run():
             flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
             try:
-                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=environment(), **flags)  # no console: see remote_files
+                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=env, **flags)  # no console: see remote_files
             except FileNotFoundError:
                 raise RuntimeError("The helm command was not found. Install Helm and make sure it is on the PATH.") from None
             except subprocess.TimeoutExpired:
@@ -1516,7 +1517,7 @@ class ClusterWorkspace(QMainWindow):
         base = kubectl_base(self.context, self.kubeconfig)
         return lambda container, path, ok, bad: self._run(
             remote_files.list_directory, lambda result: ok(*result), base, namespace, pod, container, path,
-            on_error=lambda message: bad(message.split(": ", 1)[-1]))
+            subprocess.run, self.process_variables(), on_error=lambda message: bad(message.split(": ", 1)[-1]))
 
     def browse_files(self, row, container=None, path="/"):
         """Right-click > Browse files… on a pod: look through the files of a container. Download… hands the chosen path to
@@ -3195,7 +3196,7 @@ class ClusterWorkspace(QMainWindow):
             return
         for node in nodes:
             self.record_change("drain", node)
-        view = CommandView(dialog.command())
+        view = CommandView(dialog.command(), variables=self.process_variables())
         view.key = ("drain", nodes[0] if len(nodes) == 1 else nodes)
         view.drain_nodes = nodes
         title = nodes[0] if len(nodes) == 1 else f"{len(nodes)} nodes"
@@ -3334,6 +3335,11 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Replacing {row.name}…")
         self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), row.name, row.namespace)
 
+    def process_variables(self):
+        """What the enabled plugins add to the environment of the kubectl, helm and terminal processes of this cluster (for
+        example the AWS profile or keys); {} without plugins. Call it on the GUI thread, when the process starts."""
+        return self.plugins.process_environment(self.context) if self.plugins is not None else {}
+
     def _launch_terminal(self, argv, message, title=None):
         """Open an interactive kubectl session in the configured terminal."""
         if self.terminal_settings.embedded:
@@ -3353,13 +3359,18 @@ class ClusterWorkspace(QMainWindow):
                 )
                 if answer != QMessageBox.Yes:
                     return
+        variables = self.process_variables()
         self._run(open_terminal, lambda _: self.message.emit(message), argv,
-                  self.terminal_settings.mac_terminal)
+                  self.terminal_settings.mac_terminal, *([variables] if variables else []))
 
     def open_embedded_terminal(self, argv, message, title=None, session_factory=None):
         """A session in its own window (with a button to dock it into the cluster window); False when it could not start (the
         caller then uses the external terminal)."""
         name = title or message.replace("Opened ", "")
+        variables = self.process_variables()
+        if session_factory is None and variables:
+            def session_factory(argv, cols, rows):
+                return embedded_terminal.make_session(argv, cols, rows, variables)
         kwargs = {"session_factory": session_factory} if session_factory is not None else {}
         try:
             tab = embedded_terminal.TerminalTab(name, argv, **kwargs)

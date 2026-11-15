@@ -2,7 +2,10 @@
 
 kubectl and helm read HTTPS_PROXY / HTTP_PROXY / NO_PROXY from their environment, so the app's proxy is passed to each process
 that way: nothing is written to the kubeconfig or to disk, and the app's own environment is not changed. A kubeconfig proxy-url
-is not replaced here. Call set_app_proxy when the setting changes; with no proxy set, every environment is the unchanged one."""
+is not replaced here. Call set_app_proxy when the setting changes; with no proxy set, every environment is the unchanged one.
+
+`extra` is what the enabled plugins add for one cluster (`PluginManager.process_environment(context)`, for example the AWS
+profile or keys): the caller asks for it on the GUI thread and passes it here, so it reaches only that cluster's processes."""
 import os
 
 _PROXY = {"url": None, "no_proxy": ""}
@@ -29,17 +32,18 @@ def proxy_variables():
     return variables
 
 
-def environment():
-    """A full environment for subprocess calls: the app's own, plus the proxy variables when one is set."""
+def environment(extra=None):
+    """A full environment for subprocess calls: the app's own, plus the proxy variables when one is set, plus `extra`."""
     env = dict(os.environ)
     env.update(proxy_variables())
+    env.update(extra or {})
     return env
 
 
-def qt_environment():
+def qt_environment(extra=None):
     """The same environment as a QProcessEnvironment, for QProcess (imported here so the rest of this module needs no Qt)."""
     from PySide6.QtCore import QProcessEnvironment
     env = QProcessEnvironment.systemEnvironment()
-    for key, value in proxy_variables().items():
+    for key, value in {**proxy_variables(), **(extra or {})}.items():
         env.insert(key, value)
     return env

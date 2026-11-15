@@ -9,11 +9,12 @@ import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from klotse.plugins import Action, Column, Copy, Message, OpenUrl, OverviewCard, Plugin, Setting, ShowText, Terminal
+from klotse.plugins import (Action, Column, Copy, Message, OpenUrl, OverviewCard, Plugin, Setting, ShowText, Terminal,
+                            parse_environment)
 from klotse.k8s.timing import timings
 
 from . import clusters
-from .console import account_for, console_results, profile_for
+from .console import account_for, cluster_profile_for, console_results, keys_from, profile_for
 from .ec2 import Ec2Error, Ec2Unavailable, boto3_session, default_ec2
 from .identity import caller_account
 from .federation import FederationError, console_credentials, fetch_json, login_url
@@ -69,7 +70,7 @@ class AwsPlugin(Plugin):
     id = "aws"
     name = "AWS Plugin"
     version = "0.1"
-    requires_api = 11
+    requires_api = 12
     cluster_sources = (clusters.SOURCE,)
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "
@@ -139,6 +140,18 @@ class AwsPlugin(Plugin):
         Setting("account_map", "Account for each cluster", "", kind="multiline", section="Per-cluster overrides",
                 help="Which account a cluster is in, one per line as context = 123456789012. Only needed when the "
                      "context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id)."),
+    )
+    settings += (
+        Setting("pass_environment", "Pass the AWS profile or access key to kubectl, helm and the terminals Klotse opens", True,
+                kind="bool", section="Commands and terminals",
+                help="Sets variables in the environment of those commands, so the kubeconfig's 'aws eks get-token' and the "
+                     "aws CLI in a shell Klotse opens can sign in. A cluster with its own profile (Plugins menu, or 'AWS "
+                     "profile for each cluster') gets AWS_PROFILE and never the typed access key. Any other cluster gets "
+                     "the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is "
+                     "filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. "
+                     "It does not change how Klotse itself connects to the cluster."),
+        Setting("extra_environment", "Extra variables for those commands", "", kind="multiline", section="Commands and terminals",
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
     )
     cluster_settings = (  # Plugins menu -> AWS Plugin -> settings for the cluster in front
         Setting("cluster_region", "AWS region", "", pattern=r"[a-z]{2}(?:-gov)?-[a-z]+-\d+",
@@ -300,6 +313,23 @@ class AwsPlugin(Plugin):
         return result
 
     # ---- the plugin interface -------------------------------------------------------------------
+    def process_environment(self, context, settings):
+        """What the kubectl, helm and terminal processes Klotse starts get (not Klotse's own connection): a profile chosen
+        for this cluster, else the typed access key, else the default profile; then the extra variables. Unlike the
+        plugin's own AWS calls, a profile chosen for the cluster wins over the typed key here, and the key is then not
+        passed at all. A key without a session token empties AWS_SESSION_TOKEN, so a token inherited from the
+        environment is not sent with another key."""
+        found = {}
+        if settings.get("pass_environment", True):
+            profile, keys = cluster_profile_for(context, settings), keys_from(settings)
+            if not profile and keys is not None:
+                found.update(AWS_ACCESS_KEY_ID=keys.access_key, AWS_SECRET_ACCESS_KEY=keys.secret_key,
+                             AWS_SESSION_TOKEN=keys.token)
+            elif profile or str(settings.get("aws_profile") or "").strip():
+                found["AWS_PROFILE"] = profile or str(settings.get("aws_profile")).strip()
+        found.update(parse_environment(settings.get("extra_environment")))
+        return found
+
     def enrich(self, request):
         if request.kind in INFRA_KINDS:
             return self.collect_infrastructure(request)

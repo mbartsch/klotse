@@ -13,7 +13,7 @@ class CommandView(QWidget):
 
     completed = Signal(bool)
 
-    def __init__(self, argv, parent=None):
+    def __init__(self, argv, parent=None, variables=None):
         super().__init__(parent)
         self.argv = argv
         self._done = False
@@ -31,7 +31,7 @@ class CommandView(QWidget):
         layout.addWidget(self.stop_button)
         layout.addWidget(self.text)
         self.process = QProcess(self)
-        self.process.setProcessEnvironment(qt_environment())  # the app proxy, for kubectl (see k8s/process_env)
+        self.process.setProcessEnvironment(qt_environment(variables))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
         self.process.setProcessChannelMode(QProcess.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read)
         self.process.finished.connect(self._finished)

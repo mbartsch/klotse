@@ -81,7 +81,7 @@ def explain_failure(stderr):
     return last
 
 
-def list_directory(base, namespace, pod, container, path, run=subprocess.run):
+def list_directory(base, namespace, pod, container, path, run=subprocess.run, variables=None):
     """([(name, kind)], cut) for a directory of a container. RemoteError with a user-ready message on failure."""
     try:
         argv = list_argv(base, namespace, pod, container, path)
@@ -91,7 +91,7 @@ def list_directory(base, namespace, pod, container, path, run=subprocess.run):
     try:
         # stdin must be given: the Windows launcher has no console (pythonw), so the inherited standard input is an invalid
         # handle and subprocess.run fails with "WinError 6: The handle is invalid" without it
-        done = run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, errors="replace", stdin=subprocess.DEVNULL, env=environment(), **flags)
+        done = run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, errors="replace", stdin=subprocess.DEVNULL, env=environment(variables), **flags)
     except FileNotFoundError:
         raise RemoteError("kubectl was not found. Install kubectl and make sure it is on the PATH.") from None
     except subprocess.TimeoutExpired:
