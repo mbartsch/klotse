@@ -303,8 +303,7 @@ class OverviewView(QWidget):
         self.dashboard_button.setCheckable(True)
         self.dashboard_button.setChecked(True)
         self.dashboard_button.setAccessibleName("Cluster dashboard view")
-        self.workloads_button = QPushButton("Workloads")
-        self.workloads_button.setCheckable(True)
+        self.workloads_button = QPushButton("Workloads")  # opens the workload overview in its own tab: never the view in front here
         self.workloads_button.setAccessibleName("Open workload overview")
         self.workloads_button.clicked.connect(lambda: self.action_requested.emit("workloads"))
         self.overview_switch = QWidget()
