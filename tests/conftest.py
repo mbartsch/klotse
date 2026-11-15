@@ -1,5 +1,7 @@
 import faulthandler
 import os
+import ipaddress
+import socket
 import sys
 import tempfile
 import threading
@@ -8,6 +10,21 @@ import time
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QSettings, Qt, QThreadPool
 from PySide6.QtWidgets import QMessageBox
+
+
+@pytest.fixture(autouse=True)
+def security_network_boundary(request, monkeypatch):
+    """The marked suite must not contact a cluster/cloud endpoint, even through accidental test fall-through."""
+    if request.node.get_closest_marker("security") is None:
+        return
+    connect = socket.socket.connect
+
+    def guarded(sock, address):
+        if sock.family in (socket.AF_INET, socket.AF_INET6):
+            assert ipaddress.ip_address(address[0]).is_loopback, "security tests forbid external connections"
+        return connect(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded)
 
 # QtWebEngine (the embedded terminal) needs this set before the QApplication that pytest-qt creates
 QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
@@ -164,6 +181,14 @@ def _ids_from(variable):
 
 
 def pytest_collection_modifyitems(items):
+    # Explicit inventory: this focused CI selection reuses existing boundary tests without changing full-suite discovery.
+    security_modules = {"test_metrics_url_auth.py", "test_cloud_clusters.py", "test_aws_federation.py", "test_aws_safe.py",
+                        "test_diagnostics.py", "test_secret_metadata.py", "test_secret_decode.py", "test_read_only.py",
+                        "test_locked_actions.py", "test_audit_log.py", "test_plugin_environment.py", "test_kubectl_proxy_env.py",
+                        "test_terminal_settings.py"}
+    for item in items:
+        if item.path.name in security_modules:
+            item.add_marker(pytest.mark.security)
     only, skip = _ids_from("KLOTSE_TEST_ONLY"), _ids_from("KLOTSE_TEST_SKIP")
     if only is not None:
         items[:] = [item for item in items if item.nodeid in only]

@@ -34,7 +34,7 @@ Issues = "https://github.com/mbartsch/klotse/issues"
 Releases = "https://github.com/mbartsch/klotse/releases"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-qt"]
+dev = ["pytest", "pytest-qt", "cryptography>=43"]
 
 [project.gui-scripts]
 klotse = "klotse.__main__:main"
@@ -51,6 +51,7 @@ klotse = ["assets/*", "assets/xterm/*"]
 klotse_plugins = ["*.json"]
 
 [tool.pytest.ini_options]
+markers = ["security: offline adversarial and sensitive-data boundary checks"]
 testpaths = ["tests"]
 # Keep the static guide out of test discovery. Web-specific tests still run when named on the command line.
 norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", "node_modules", "web"]

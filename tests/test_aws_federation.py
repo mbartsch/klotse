@@ -11,9 +11,18 @@ from klotse_plugins.aws import federation
 from klotse_plugins.aws.ec2 import Ec2Error, Ec2Unavailable
 from klotse_plugins.aws.federation import Credentials, FederationError, console_credentials, login_url
 
+pytestmark = pytest.mark.security
+
 ARN = "arn:aws:eks:eu-west-1:123456789012:cluster/prod"
 SECRET = "SECRETKEYVALUE+/abc"
 PLAIN = "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#InstanceDetails:instanceId=i-0abc123"
+
+
+def test_credential_representations_omit_secret_key_and_session_token():
+    credentials = Credentials("SYNTHETIC-ACCESS", "SYNTHETIC-SECRET", "SYNTHETIC-TOKEN")
+    for text in (repr(credentials), str(credentials)):
+        assert "SYNTHETIC-ACCESS" in text
+        assert "SYNTHETIC-SECRET" not in text and "SYNTHETIC-TOKEN" not in text
 
 
 def node(name="n1", instance="i-0abc123", zone="eu-west-1a"):

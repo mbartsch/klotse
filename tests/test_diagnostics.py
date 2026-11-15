@@ -57,7 +57,8 @@ class Service:
                               "lastTimestamp": "2026-11-07T09:00:00Z"})
         return []
 
-    def read_pod_log(self, namespace, pod_name, container, tail, previous):
+    def read_pod_log(self, namespace, pod_name, container, tail, previous, *, limit_bytes=None):
+        assert limit_bytes == dg.MAX_LOG_BYTES
         self.logs_asked.append((pod_name, container, tail, previous))
         if self.cancel is not None:
             self.cancel.set()
@@ -135,7 +136,7 @@ def test_a_forbidden_kind_is_noted_not_fatal(tmp_path):
 
 def test_a_huge_log_keeps_its_end_and_says_so(tmp_path):
     class Big(Service):
-        def read_pod_log(self, *a):
+        def read_pod_log(self, *a, **kw):
             return "x" * (dg.MAX_LOG_BYTES + 500) + "THE END\n"
     target = tmp_path / "out.zip"
     dg.collect(Big(), "c", "shop", str(target), options())
@@ -170,7 +171,7 @@ def test_dialog_cancel_removes_the_unfinished_file(qtbot, tmp_path):
     cancel_seen = threading.Event()
 
     class Slow(Service):
-        def read_pod_log(self, *a):
+        def read_pod_log(self, *a, **kw):
             cancel_seen.wait(5)
             return "x\n"
     service = Slow()
