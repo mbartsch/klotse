@@ -5,7 +5,7 @@ import re
 import webbrowser
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QObject, QProcess, Qt, Signal
+from PySide6.QtCore import QObject, QProcess, Qt, QTimer, Signal
 
 from ..k8s.process_env import qt_environment
 from PySide6.QtGui import QGuiApplication
@@ -294,6 +294,8 @@ class PortForwardPanel(QWidget):
         fw = self._selected()
         if fw is not None and fw.address:
             QGuiApplication.clipboard().setText(fw.address)
+            self.copy_button.setText("Copied")
+            QTimer.singleShot(1200, self, lambda: self.copy_button.setText("Copy address"))
 
     def _open(self):
         fw = self._selected()

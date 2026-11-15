@@ -125,19 +125,23 @@ class DetailPanel(QWidget):
         self.copy_uid_button.setAccessibleName("Copy object UID")
         self.copy_uid_button.setIcon(action_icon("copy"))
         self.copy_uid_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.copy_uid_button.clicked.connect(lambda: self._copy_text(self._identity_uid))
+        self.copy_uid_button.clicked.connect(lambda: self._copy_id_value(self._identity_uid, "UID"))
         self.identity_provider = QLabel()
         self.identity_provider.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.copy_provider_button = QToolButton(text="Copy provider ID")
         self.copy_provider_button.setAccessibleName("Copy node provider ID")
         self.copy_provider_button.setIcon(action_icon("copy"))
         self.copy_provider_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.copy_provider_button.clicked.connect(lambda: self._copy_text(self._identity_provider))
+        self.copy_provider_button.clicked.connect(lambda: self._copy_id_value(self._identity_provider, "Provider ID"))
         identity_ids.addWidget(self.identity_scope, 0, 0, 1, 2)
         identity_ids.addWidget(self.identity_uid, 1, 0)
         identity_ids.addWidget(self.copy_uid_button, 1, 1)
         identity_ids.addWidget(self.identity_provider, 2, 0)
         identity_ids.addWidget(self.copy_provider_button, 2, 1)
+        self.copied_note = QLabel()  # "Copied UID" / "Copied Provider ID" for a moment
+        self.copied_note.setAccessibleName("Copy confirmation")
+        self.copied_note.hide()
+        identity_ids.addWidget(self.copied_note, 3, 0, 1, 2)
         identity_ids.setColumnStretch(0, 1)
         for label in (self.identity_scope, self.identity_uid, self.identity_provider):
             label.setWordWrap(True)
@@ -237,6 +241,10 @@ class DetailPanel(QWidget):
         self.find_edit = QLineEdit(placeholderText="Find in YAML…", clearButtonEnabled=True)
         self.find_edit.setAccessibleName("Find text in resource YAML")
         self.find_edit.setMaximumWidth(260)
+        self.find_note = QLabel("No match")  # shown after Find cannot locate the text (#497)
+        self.find_note.setAccessibleName("Find: no match")
+        theme.muted(self.find_note)
+        self.find_note.hide()
         self.find_edit.returnPressed.connect(self._find_next)
         self.find_edit.textChanged.connect(lambda _t: self._find_from_start())
         self.copy_button = QPushButton("Copy YAML")
@@ -251,6 +259,7 @@ class DetailPanel(QWidget):
         tools = QHBoxLayout(self.yaml_tools)
         tools.setContentsMargins(0, 0, 0, 0)
         tools.addWidget(self.find_edit)
+        tools.addWidget(self.find_note)
         tools.addWidget(self.copy_button)
         tools.addWidget(self.wrap_box)
         tools.addStretch(1)
@@ -566,12 +575,21 @@ class DetailPanel(QWidget):
         return "Unknown"
 
     def _copy_identity(self):
-        self._copy_text(self._identity_text)
+        self._copy_id_value(self._identity_text, "name")
 
     @staticmethod
     def _copy_text(value):
         if value:
             QGuiApplication.clipboard().setText(value)
+
+    def _copy_id_value(self, value, what):
+        """Copy a UID or provider ID and say so beside the identity (#497: copying gave no sign)."""
+        if not value:
+            return
+        QGuiApplication.clipboard().setText(value)
+        self.copied_note.setText(f"Copied {what}")
+        self.copied_note.show()
+        QTimer.singleShot(1500, self, lambda: self.copied_note.hide())  # tied to this panel, like Copy YAML
 
     def _show_mode(self, *_):
         if self._secret_row is not None and self.formatted_button.isChecked() and not self._formatted_ok:
@@ -621,7 +639,10 @@ class DetailPanel(QWidget):
             cursor = self.editor.textCursor()
             cursor.setPosition(0)
             self.editor.setTextCursor(cursor)
-            self.editor.find(text)
+            found = self.editor.find(text)
+            self.find_note.setVisible(not found)
+        else:
+            self.find_note.hide()
 
     def _copy_yaml(self):
         QGuiApplication.clipboard().setText(self.editor.toPlainText())

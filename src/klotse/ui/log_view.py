@@ -107,12 +107,25 @@ class LogView(QWidget):
         bar.setContentsMargins(6, 4, 6, 4)
         for w in (QLabel("Container"), self.container, QLabel("Tail"), self.tail, self.follow, self.wrap, self.timestamps, self.previous):
             bar.addWidget(w)
+        self.no_match = QLabel("No match")  # #497: Find said nothing when nothing matched
+        self.no_match.hide()
+        self.reconnect = QPushButton("Reconnect")  # shown when the stream has ended or failed
+        self.reconnect.setAccessibleName(f"Reconnect logs for pod {pod}")
+        self.reconnect.hide()
+        self.drop_note = QLabel("")  # shown once when older lines start to fall off
+        self.drop_note.setWordWrap(True)
+        self.drop_note.hide()
+        self._dropping = False
         bar.addWidget(self.search, 1)
+        bar.addWidget(self.no_match)
+        bar.addWidget(self.reconnect)
         bar.addWidget(clear)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(bar)
+        lay.addWidget(self.drop_note)
         lay.addWidget(self.text)
+        self.reconnect.clicked.connect(self.start)
 
         clear.clicked.connect(self.text.clear)
         self.search.returnPressed.connect(self.find_next)
@@ -136,6 +149,8 @@ class LogView(QWidget):
         s = LogStreamer(lambda: self.service.open_log_stream(self.namespace, self.pod, name, tail, **extra))
         s.chunk.connect(self._append)
         s.failed.connect(lambda m: self._append(f"\n[error] {m}\n"))
+        s.failed.connect(lambda _m: self.reconnect.show())
+        self.reconnect.hide()
         _alive.add(s)
         s.finished.connect(lambda: _alive.discard(s))
         self._streamer = s
@@ -155,6 +170,12 @@ class LogView(QWidget):
         cur = QTextCursor(self.text.document())  # separate cursor: leaves the user's selection alone
         cur.movePosition(QTextCursor.End)
         cur.insertText(text)
+        if text == "\n[stream ended]\n":
+            self.reconnect.show()
+        if not self._dropping and self.text.document().blockCount() >= self.text.maximumBlockCount():
+            self._dropping = True
+            self.drop_note.setText(f"Only the newest {self.text.maximumBlockCount():,} lines are kept here; Save keeps the rest.")
+            self.drop_note.show()
         if self.follow.isChecked():
             bar = self.text.verticalScrollBar()
             bar.setValue(bar.maximum())
@@ -163,4 +184,6 @@ class LogView(QWidget):
         term = self.search.text()
         if term and not self.text.find(term):
             self.text.moveCursor(QTextCursor.Start)  # wrap around
-            self.text.find(term)
+            self.no_match.setVisible(not self.text.find(term))
+        elif term:
+            self.no_match.hide()

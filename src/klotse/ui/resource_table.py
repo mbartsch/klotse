@@ -901,6 +901,10 @@ class ResourceTable(QWidget):
             last = self.proxy.rowCount() - 1
         return [self.model.rows[self.proxy.mapToSource(self.proxy.index(r, 0)).row()] for r in range(first, last + 1)]
 
+    def _copy_cell(self, text):
+        QApplication.clipboard().setText(text)
+        self.status.setText(f"Copied: {text[:80]}" + ("…" if len(text) > 80 else ""))  # #497: copying gave no sign
+
     def selected_rows(self):
         return [self.model.rows[self.proxy.mapToSource(i).row()] for i in self.view.selectionModel().selectedRows()]
 
@@ -1079,7 +1083,7 @@ class ResourceTable(QWidget):
         attr = self.model.columns[source.column()][1]
         value = index.data(Qt.EditRole if attr.startswith("annotation:") else Qt.DisplayRole)
         text = "" if value is None else str(value)
-        copy = menu.addAction(action_icon("copy"), "Copy cell value", lambda: QApplication.clipboard().setText(text))
+        copy = menu.addAction(action_icon("copy"), "Copy cell value", lambda: self._copy_cell(text))
         copy.setEnabled(bool(text))
         name = filter_expr.normalize(attr)
         found = self._resolve(self.model.rows[source.row()], name)

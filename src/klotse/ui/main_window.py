@@ -219,6 +219,11 @@ class MainWindow(QMainWindow):
         self.port_forwards_action.triggered.connect(self.show_port_forwards)
         operations_menu.addAction(self.port_forwards_action)
         operations_menu.aboutToShow.connect(lambda: self.port_forwards_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.activity_action = QAction("Activity…", self)
+        self.activity_action.setToolTip("What the actions on the cluster in front did this session: results, and errors in full")
+        self.activity_action.triggered.connect(self.show_activity)
+        operations_menu.addAction(self.activity_action)
+        operations_menu.aboutToShow.connect(lambda: self.activity_action.setEnabled(self.clusters.currentWidget() is not None))
         self.rightsizing_action = QAction("Right-sizing…", self)
         self.rightsizing_action.setToolTip("Requests and limits against current usage, per workload, with advice")
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
@@ -970,6 +975,14 @@ class MainWindow(QMainWindow):
         if ws is None:
             return False
         ws.show_rightsizing()
+        return True
+
+    def show_activity(self):
+        """View > Operations > Activity…: the Activity tab of the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_activity()
         return True
 
     def show_port_forwards(self):
