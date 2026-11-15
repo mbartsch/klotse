@@ -228,6 +228,19 @@ class PluginsPanel(QWidget):
                 widget = QPlainTextEdit(str(values[setting.key]))
                 widget.setFixedHeight(96)
                 widget.setTabChangesFocus(True)
+                widget.setObjectName("settingBox")
+                widget.setStyleSheet("QPlainTextEdit#settingBox { border: 1px solid palette(mid); border-radius: 8px; "
+                                     "padding: 4px; background: palette(base); }")
+                widget.setLineWrapMode(QPlainTextEdit.WidgetWidth)  # long lines wrap by default
+                wrap = QCheckBox("Wrap long lines")
+                wrap.setChecked(True)
+                wrap.toggled.connect(lambda on, w=widget: w.setLineWrapMode(QPlainTextEdit.WidgetWidth if on else QPlainTextEdit.NoWrap))
+                holder = QWidget()
+                column = QVBoxLayout(holder)
+                column.setContentsMargins(0, 0, 0, 0)
+                column.addWidget(widget)
+                column.addWidget(wrap)
+                widget.wrap_box = wrap
                 timer = QTimer(widget, singleShot=True, interval=700)  # one save after typing stops, not one per key
                 save = lambda w=widget, s=setting: self._save_setting(plugin.id, s.key, w.toPlainText())  # noqa: E731
                 timer.timeout.connect(save)
@@ -243,6 +256,8 @@ class PluginsPanel(QWidget):
                 label = setting.label
             if setting.help:
                 widget.setToolTip(setting.help)
+            if setting.kind == "multiline":
+                widget = holder
             if label:
                 form.addRow(label, widget)
             else:

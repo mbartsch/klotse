@@ -288,18 +288,24 @@ ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")  # a variable name every shell 
 
 def parse_environment(text):
     """{NAME: value} from a multi-line setting with one NAME=value per line (empty lines and lines starting with # are
-    skipped; the value is everything after the first =, spaces around it removed). ValueError names a line that is not
-    one, without repeating its value."""
+    skipped; the value is everything after the first =, spaces around it removed). A leading `export ` is ignored and a
+    value wrapped in matching quotes loses them, so AWS_ENDPOINT_URL="http://localhost:4566" works as typed.
+    ValueError names a line that is not one, without repeating its value."""
     found = {}
     for number, line in enumerate(str(text or "").splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
         name, equals, value = line.partition("=")
         name = name.strip()
         if not equals or not ENV_NAME.fullmatch(name):
             raise ValueError(f"line {number} is not NAME=value")
-        found[name] = value.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        found[name] = value
     return found
 
 
