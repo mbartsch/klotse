@@ -150,6 +150,15 @@ class AwsPlugin(Plugin):
                      "the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is "
                      "filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. "
                      "Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
+        Setting("endpoint_url", "AWS endpoint URL for those commands (optional)", "", section="Commands and terminals",
+                pattern=r"(?:https?://\S+)?",
+                help="Sets AWS_ENDPOINT_URL for the kubectl, helm and terminal processes and the kubeconfig's sign-in helper, for "
+                     "a local emulator such as Floci (for example http://localhost:4566). Empty uses the real AWS endpoints. Only "
+                     "with 'Pass the AWS profile or access key' on."),
+        Setting("default_region", "AWS region for those commands (optional)", "", section="Commands and terminals",
+                pattern=r"(?:[a-z]{2}(?:-gov)?-[a-z]+-\d+)?",
+                help="Sets AWS_DEFAULT_REGION for those processes and the sign-in helper. Empty leaves the region to the AWS "
+                     "configuration. Only with 'Pass the AWS profile or access key' on."),
         Setting("extra_environment", "Extra variables for those commands", "", kind="multiline", section="Commands and terminals",
                 help="One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
     )
@@ -321,6 +330,11 @@ class AwsPlugin(Plugin):
         environment is not sent with another key."""
         found = {}
         if settings.get("pass_environment", True):
+            endpoint, region = str(settings.get("endpoint_url") or "").strip(), str(settings.get("default_region") or "").strip()
+            if endpoint:
+                found["AWS_ENDPOINT_URL"] = endpoint
+            if region:
+                found["AWS_DEFAULT_REGION"] = region
             profile, keys = cluster_profile_for(context, settings), keys_from(settings)
             if not profile and keys is not None:
                 found.update(AWS_ACCESS_KEY_ID=keys.access_key, AWS_SECRET_ACCESS_KEY=keys.secret_key,

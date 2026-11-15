@@ -560,7 +560,7 @@ def test_it_is_a_bundled_plugin_that_loads_and_is_off_until_enabled(qtbot, tmp_p
         "Instance ID", "Instance type", "Capacity", "AMI", "On-demand price/h", "Price/h", "Price/month", "Launched"]
     assert [a.key for _, actions in manager.actions_for("Node") for a in actions] == ["copy-id", "console", "cost", "sign-in"]
     assert manager.settings_for("aws") == {"use_aws_api": True, "aws_profile": "", "multi_account": False,
-                                                 "pass_environment": True, "extra_environment": "",
+                                                 "pass_environment": True, "endpoint_url": "", "default_region": "", "extra_environment": "",
                                                  "sso_start_url": "", "role_name": "", "auto_login": False, "account_map": "", "profile_map": "", "keys_warning": "", "access_key_id": "", "secret_access_key": "", "session_token": ""}
 
 

@@ -253,3 +253,19 @@ def test_a_workspace_without_plugins_adds_nothing(qtbot, tmp_path):
     ws = make_ws(qtbot, tmp_path, None)
     assert ws.process_variables() == {} and ws.port_forwards.variables("prod") == {}
     ws.shutdown()
+
+
+def test_endpoint_and_region_settings_reach_the_processes_and_the_sign_in_helper():
+    # the local emulator case (issue #486): AWS_ENDPOINT_URL and AWS_DEFAULT_REGION come from the plugin's own settings
+    found = aws(endpoint_url="http://localhost:4566", default_region="us-east-1")
+    assert found == {"AWS_ENDPOINT_URL": "http://localhost:4566", "AWS_DEFAULT_REGION": "us-east-1"}
+    assert aws(endpoint_url="http://localhost:4566", pass_environment=False) == {}  # off with the other passing
+
+
+def test_endpoint_and_region_are_checked_by_their_patterns():
+    endpoint = next(s for s in AwsPlugin.settings if s.key == "endpoint_url")
+    region = next(s for s in AwsPlugin.settings if s.key == "default_region")
+    assert endpoint.pattern and region.pattern
+    import re
+    assert re.fullmatch(endpoint.pattern, "http://localhost:4566") and re.fullmatch(endpoint.pattern, "")
+    assert re.fullmatch(region.pattern, "eu-west-1") and not re.fullmatch(region.pattern, "eu west 1")
