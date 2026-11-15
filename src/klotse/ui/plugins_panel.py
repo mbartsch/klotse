@@ -1,23 +1,23 @@
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from . import theme
 
 WARNING = ("Plugins are code that runs with your permissions and can see everything Klotse shows. "
-           "Enable only plugins you trust. Ticking or unticking a plugin takes effect when you press Save in Preferences; "
-           "Cancel leaves it as it was. Plugin settings are saved as you change them.")
+           "Enable only plugins you trust. Ticking a plugin and changing its settings take effect when you press Save in "
+           "Preferences; Cancel leaves them as they were.")
 
 
 class PluginsPanel(QWidget):
     """The Plugins page of Preferences: every plugin that was found, whether it is enabled, its settings, and why one
-    failed. Ticking a plugin is kept here until `apply()` (Preferences' Save); its settings are saved as they are typed."""
+    failed. Ticks and settings are kept here until `apply()` (Preferences' Save)."""
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.manager = manager
-        self._pending = []  # (timer, save) of multi-line settings that were typed in and not saved yet
         self._wanted = {}  # plugin id -> enabled, for ticks not applied yet
+        self._wanted_settings = {}  # (plugin id, key) -> value, for settings changed and not applied yet
         warning = QLabel(WARNING)
         warning.setWordWrap(True)
         self.list = QListWidget()
@@ -167,6 +167,13 @@ class PluginsPanel(QWidget):
     def apply(self):
         """Enable or disable the plugins ticked since the last apply (Preferences' Save). False, with a message, when one
         could not be saved; the ticks that failed stay pending."""
+        for (plugin_id, key), value in list(self._wanted_settings.items()):
+            try:
+                self.manager.set_setting(plugin_id, key, value)
+            except OSError as error:
+                QMessageBox.warning(self, "Cannot save", str(error))
+                return False
+            del self._wanted_settings[(plugin_id, key)]
         for plugin_id, enabled in list(self._wanted.items()):
             try:
                 self.manager.set_enabled(plugin_id, enabled)
@@ -181,23 +188,7 @@ class PluginsPanel(QWidget):
         return True
 
     # ---- the details of the selected plugin ---------------------------------------
-    def flush(self):
-        """Save multi-line settings that were typed in but whose timer has not fired yet (leaving the page, another plugin)."""
-        for timer, save in list(self._pending):
-            try:
-                if timer.isActive():
-                    timer.stop()
-                    save()
-            except RuntimeError:
-                pass  # the box is already gone
-
-    def hideEvent(self, event):
-        self.flush()
-        super().hideEvent(event)
-
     def _show_details(self, item, _previous):
-        self.flush()
-        self._pending = []  # the boxes of the plugin shown so far are about to be replaced
         found = item.data(Qt.UserRole) if item is not None else None
         while self.settings_form.rowCount():
             self.settings_form.removeRow(0)
@@ -219,7 +210,8 @@ class PluginsPanel(QWidget):
         self._refresh_details()
         if plugin is None:
             return
-        values = self.manager.settings_for(plugin.id)
+        values = {**self.manager.settings_for(plugin.id),
+                  **{key: value for (pid, key), value in self._wanted_settings.items() if pid == plugin.id}}
         pending_notes = []
         for setting in plugin.settings:
             if setting.section:
@@ -247,6 +239,7 @@ class PluginsPanel(QWidget):
                 widget = QPlainTextEdit(str(values[setting.key]))
                 widget.setFixedHeight(96)
                 widget.setTabChangesFocus(True)
+                widget.textChanged.connect(lambda w=widget, s=setting: self._save_setting(plugin.id, s.key, w.toPlainText()))
                 widget.setObjectName("settingBox")
                 widget.setStyleSheet("QPlainTextEdit#settingBox { border: 1px solid palette(mid); border-radius: 8px; "
                                      "padding: 4px; background: palette(base); }")
@@ -260,12 +253,6 @@ class PluginsPanel(QWidget):
                 column.addWidget(widget)
                 column.addWidget(wrap)
                 widget.wrap_box = wrap
-                timer = QTimer(widget, singleShot=True, interval=700)  # one save after typing stops, not one per key
-                save = lambda w=widget, s=setting: self._save_setting(plugin.id, s.key, w.toPlainText())  # noqa: E731
-                timer.timeout.connect(save)
-                widget.textChanged.connect(timer.start)
-                widget.save_timer = timer
-                self._pending.append((timer, save))
                 label = setting.label
             else:
                 widget = QLineEdit(str(values[setting.key]))
@@ -335,10 +322,7 @@ class PluginsPanel(QWidget):
             self.error.setText(self.error.text() + "\nRetry requested in connected clusters. The error stays until a successful result or dismissal.")
 
     def _save_setting(self, plugin_id, key, value):
-        try:
-            self.manager.set_setting(plugin_id, key, value)
-        except OSError as error:
-            QMessageBox.warning(self, "Cannot save", str(error))
+        self._wanted_settings[(plugin_id, key)] = value  # saved by apply()
 
     def open_plugins_folder(self):
         if self.manager.folder is None:

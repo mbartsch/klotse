@@ -406,9 +406,11 @@ def test_the_dialog_lists_plugins_toggles_them_and_edits_settings(qtbot, tmp_pat
     line = dialog.settings_form.itemAt(0, QFormLayout.ItemRole.FieldRole).widget()
     line.setText("ap-south-1")
     line.editingFinished.emit()
-    assert manager.settings_for("zone")["region"] == "ap-south-1"
+    assert manager.settings_for("zone")["region"] == "eu-west-1"  # not saved until Save
     box = dialog.settings_form.itemAt(1, QFormLayout.ItemRole.SpanningRole).widget()
     box.setChecked(False)
+    assert manager.settings_for("zone")["live"] is True  # settings wait for Save too
+    assert dialog.apply() and manager.settings_for("zone")["region"] == "ap-south-1"
     assert manager.settings_for("zone")["live"] is False
 
 
