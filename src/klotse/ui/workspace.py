@@ -159,6 +159,7 @@ class ClusterWorkspace(QMainWindow):
 
     def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None, audit_log=None):
         super().__init__(parent)
+        self._helm_running, self._rolling_back = set(), set()  # (namespace, name) with an action in progress
         self.service = service
         self.audit_log = audit_log  # the local change log (ui/audit_log.AuditLog) or None
         self.context = context
@@ -1104,6 +1105,9 @@ class ClusterWorkspace(QMainWindow):
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
 
+        if (row.namespace, row.name) in self._helm_running:
+            return
+        self._helm_running.add((row.namespace, row.name))
         self.record_change("helm uninstall", f"{row.namespace}/{row.name}")
         env = environment(self.process_variables())  # asked here, on the GUI thread
 
@@ -1121,8 +1125,11 @@ class ClusterWorkspace(QMainWindow):
             return (done.stdout or "").strip()
 
         self.message.emit(f"{self.context}: uninstalling Helm release {row.name}…")
-        self._run(run, lambda out: self._helm_uninstalled(row, dialog),
-                  on_error=(lambda msg: dialog.show_status(f"✖ {msg}")) if dialog is not None else None)
+        def finished():
+            self._helm_running.discard((row.namespace, row.name))
+
+        self._run(run, lambda out: (finished(), self._helm_uninstalled(row, dialog)),
+                  on_error=lambda msg: (finished(), dialog.show_status(f"✖ {msg}") if dialog is not None else None))
 
     def _helm_uninstalled(self, row, dialog):
         self.message.emit(f"{self.context}: uninstalled Helm release {row.name}")
@@ -2951,15 +2958,24 @@ class ClusterWorkspace(QMainWindow):
                 "(pods are replaced one by one) and becomes a new revision.",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
+        key = (row.namespace, row.name)
+        if key in self._rolling_back:  # a second click while the first rollback runs is ignored
+            return
+        self._rolling_back.add(key)
         dialog.show_status("Rolling back…")
 
+        def finished():
+            self._rolling_back.discard(key)
+
         def done(_):
+            finished()
             self.message.emit(f"Rolled {row.name} back to revision {revision['revision']}")
             dialog.show_status(f"✔ Rolled back to revision {revision['revision']}; the pods are being replaced.")
             self.refresh()
             self._run(self.service.deployment_history, dialog.set_revisions, row.namespace, row.name,
                       on_error=dialog.show_error)
-        self._run(self.service.rollback_deployment, done, row.namespace, row.name, revision["name"], on_error=dialog.show_error)
+        self._run(self.service.rollback_deployment, done, row.namespace, row.name, revision["name"],
+                  on_error=lambda msg: (finished(), dialog.show_error(msg)))
 
     def _cronjob_action(self, action, row):
         """CronJob right-click: Run now (a Job made from its template, like `kubectl create job --from`), Suspend and Resume."""

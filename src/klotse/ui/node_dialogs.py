@@ -47,6 +47,8 @@ class DrainDialog(QDialog):
                 field.toggled.connect(lambda _=None: self._render_preview())
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Drain")
+        buttons.button(QDialogButtonBox.Ok).setAutoDefault(False)  # Enter in the timeout box must not start the drain
+        buttons.button(QDialogButtonBox.Ok).setDefault(False)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)

@@ -627,7 +627,12 @@ class Navigator(QTreeWidget):
         name = clean_path(name) if name is not None else self._ask_name("Rename group", leaf_name(path))
         if not name:
             return path
-        new = self.groups.rename_group(path, clean_path(f"{parent_path(path)}/{name}"))
+        target = clean_path(f"{parent_path(path)}/{name}")
+        if target != path and self.groups.has_group(target) and QMessageBox.question(
+                self, "Rename group", f"The group {target} already exists.\n\nMerge {path} into it? Its clusters and subgroups "
+                "join the existing group.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return path  # No: keep the name, nothing changes
+        new = self.groups.rename_group(path, target)
         self._edited()
         return new
 

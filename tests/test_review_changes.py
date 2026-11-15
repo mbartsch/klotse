@@ -159,8 +159,8 @@ def test_the_dialog_enables_save_only_when_the_server_accepts_and_defaults_to_ca
     assert other.verdict == EDIT
     closed = ReviewDialog("x")
     qtbot.addWidget(closed)
-    closed.reject()
-    assert closed.verdict == CANCEL
+    closed.reject()  # Esc or the window's X keep the edit (#496): back to editing, not Cancel
+    assert closed.verdict == EDIT
 
 
 # ---- the edit flow ---------------------------------------------------------------------------------------------------

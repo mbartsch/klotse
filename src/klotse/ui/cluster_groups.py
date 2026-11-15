@@ -83,6 +83,11 @@ class ClusterGroups:
             found.update(lineage(path))
         return sorted(found, key=str.casefold)
 
+    def has_group(self, group):
+        """True when `group` exists (as a group with clusters, an empty group, or a parent of one)."""
+        group = clean_path(group)
+        return any(path == group or inside(path, group) for path in self.groups()) if group else False
+
     def contexts_in(self, group, contexts):
         """The given contexts that are in `group` or below it, in the order given."""
         return [ctx for ctx in contexts if inside(self.group_of(ctx), group)]

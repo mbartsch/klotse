@@ -582,6 +582,10 @@ class ResourceTable(QWidget):
         name, ok = QInputDialog.getText(self, "Save filter", f"Name for the filter “{self.filter.text().strip()}”:")
         if not ok or not name.strip():
             return
+        if self._saved_filters.exists(self._saved_context, self.kind, name) and QMessageBox.question(
+                self, "Save filter", f"A filter named “{name.strip()}” is already saved here. Replace it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return  # No: the older filter stays as it was
         try:
             self._saved_filters.add(self._saved_context, self.kind, name, self.filter.text())
         except (OSError, ValueError) as e:
