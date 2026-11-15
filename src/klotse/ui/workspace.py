@@ -2902,9 +2902,15 @@ class ClusterWorkspace(QMainWindow):
         where = f" in namespace {row.namespace}" if row.namespace else ""
         extra = care_warnings(kind, row.raw)
         note = "\n\n".join(n for n in [self.DELETE_NOTES.get(kind, ""), *extra] if n)
-        if QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
-                                + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
-                                QMessageBox.No) != QMessageBox.Yes:
+        propagation = None
+        if kind == "Job":
+            # A Job's pods outlive the Job unless asked; the user chooses, and Cancel is the default
+            propagation = self._ask_job_pods(row, where)
+            if propagation is None:
+                return
+        elif QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
+                                  + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
+                                  QMessageBox.No) != QMessageBox.Yes:
             return
         uid = (row.raw.get("metadata") or {}).get("uid")
         if not uid:
@@ -2917,7 +2923,40 @@ class ClusterWorkspace(QMainWindow):
             self._run(self.service.delete_custom, lambda _: self._deleted(kind, row.name), group, version, plural, namespaced,
                       row.namespace, row.name, uid)
             return
-        self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid)
+        self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid,
+                  propagation)
+
+    @staticmethod
+    def job_pods_choice_text(name, pods):
+        """The question asked before a Job is deleted, as one text (kept apart so it can be read and tested)."""
+        return (f"Delete the Job {name}?\n\n"
+                f"Its pods are not removed with it unless you say so. Pods that are still running keep running, and "
+                f"finished pods stay until someone deletes them.\n\n"
+                f"  Job and its pods: deletes the Job and every pod it owns ({pods}).\n"
+                f"  Job only: deletes the Job; its pods stay.\n"
+                f"  Cancel: nothing is deleted.")
+
+    def _ask_job_pods(self, row, where):
+        """Ask what happens to a Job's pods. Returns the propagation policy, or None to cancel. Cancel is the default button."""
+        box = QMessageBox(QMessageBox.Question, "Delete Job", f"Cluster: {self.context}\n" + self.job_pods_choice_text(
+            f"{row.name}{where}", self._job_pod_count(row)), parent=self)
+        with_pods = box.addButton("Job and its pods", QMessageBox.DestructiveRole)
+        job_only = box.addButton("Job only", QMessageBox.AcceptRole)
+        cancel = box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is with_pods:
+            return "Background"
+        if clicked is job_only:
+            return "Orphan"
+        return None
+
+    def _job_pod_count(self, row):
+        """How many pods the Job's status counts (a best effort; the pods themselves are not listed here)."""
+        count = (row.raw.get("status") or {}).get("active", 0) + (row.raw.get("status") or {}).get("succeeded", 0) + (
+            row.raw.get("status") or {}).get("failed", 0)
+        return str(count)  # what the Job status counts: its active, succeeded and failed pods
 
     def _delete_crd(self, row):
         """Deleting a CustomResourceDefinition deletes every object of its type in the cluster. Count them first, ask once with

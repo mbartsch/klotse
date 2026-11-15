@@ -1033,9 +1033,10 @@ class KubeService:
                 for c in found.items or []]
 
     @mutating
-    def delete_resource(self, kind, name, namespace, uid):
-        """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
-        reused the name from being deleted."""
+    def delete_resource(self, kind, name, namespace, uid, propagation=None):
+        """Delete a deletable registry kind. The UID precondition keeps a replacement object that reused the name from being
+        deleted. `propagation` ("Background", "Foreground" or "Orphan") says what happens to the objects it owns: a Job's pods
+        are kept by default ("Orphan") unless the user asked for them to go too."""
         spec = SPEC_BY_KIND.get(kind)
         if spec is not None and spec.deletable:
             api_key, snake, namespaced = spec.api, spec.snake, spec.namespaced
@@ -1047,7 +1048,7 @@ class KubeService:
         if not uid:
             raise ValueError(f"{kind} UID is missing; refresh the list first")
         api = self._apis[api_key]
-        body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid))
+        body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid), propagation_policy=propagation)
         if namespaced:
             getattr(api, f"delete_namespaced_{snake}")(name, namespace, body=body, _request_timeout=15)
         else:
