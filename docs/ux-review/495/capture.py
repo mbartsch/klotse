@@ -1,6 +1,6 @@
 import os, sys
 from types import SimpleNamespace
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 from PySide6.QtWidgets import QApplication
 from klotse.k8s.models import PodRow
 from klotse.ui.detail_panel import DetailPanel
