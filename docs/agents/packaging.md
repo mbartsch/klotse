@@ -1,0 +1,9 @@
+# Packaging
+
+- PyInstaller from `packaging/klotse.spec` in the isolated `.venv-build`; output in git-ignored `dist/` and `build/`. See `packaging/README.md`.
+- In a frozen app `sys.executable` is the app binary and there are no loose `.py` files: never run `sys.executable some_script.py`; ship runtime-read files via the spec's `datas` (files directly in `src/klotse/assets/` are automatic, `assets/source/` is not).
+- `--self-test` is the packaged smoke test; add a check when the app starts depending on something that could be missing from a bundle. QtWebEngine is required there in packaged apps only.
+- **Releases:** the version lives in `src/klotse/_version.py` and changes only in a release PR (branch `release/vX.Y.Z`, title `Release vX.Y.Z`, only the version file and `CHANGELOG.md`) defined by `scripts/release.py` and `.github/workflows/release.yml`. Merging tags the merge commit; Package and PyPI workflows run on `v*` tags (PyPI waits for the `pypi` environment approval). Build scripts write a git-ignored `_build_info.py` so the app reports `X.Y.Z+g<commit>` off a tag. A `RELEASE_TOKEN` secret lets release PRs start their own checks. **Never tag or publish by hand or without the owner's explicit go-ahead; publishing is irreversible.**
+- The Windows `AppId` GUID in `klotse.iss` must never change.
+- Linux is served by the Python package (pipx), not a native package. Keep PyPI `classifiers` valid, `readme` links absolute, and `assets/source/` out of the wheel. Packages are unsigned.
+- Verified: Windows one-folder build, installer (silent per-user), macOS arm64/x86_64 CI builds, Linux pipx smoke jobs, the v0.1.0 release job. Not verified: interactive installer wizard, all-users mode, upgrades, which features the owner exercised on a Mac, the Intel build, a clean-machine install, the release workflow end to end.
