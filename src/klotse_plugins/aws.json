@@ -332,24 +332,6 @@
       "section": "Commands and terminals"
     },
     {
-      "key": "endpoint_url",
-      "label": "AWS endpoint URL for those commands (optional)",
-      "default": "",
-      "kind": "text",
-      "help": "Sets AWS_ENDPOINT_URL for the kubectl, helm and terminal processes and the kubeconfig's sign-in helper, for a local emulator such as Floci (for example http://localhost:4566). Empty uses the real AWS endpoints. Only with 'Pass the AWS profile or access key' on.",
-      "pattern": "(?:https?://\\S+)?",
-      "section": "Commands and terminals"
-    },
-    {
-      "key": "default_region",
-      "label": "AWS region for those commands (optional)",
-      "default": "",
-      "kind": "text",
-      "help": "Sets AWS_DEFAULT_REGION for those processes and the sign-in helper. Empty leaves the region to the AWS configuration. Only with 'Pass the AWS profile or access key' on.",
-      "pattern": "(?:[a-z]{2}(?:-gov)?-[a-z]+-\\d+)?",
-      "section": "Commands and terminals"
-    },
-    {
       "key": "extra_environment",
       "label": "Extra variables for those commands",
       "default": "",
