@@ -149,9 +149,9 @@ class AwsPlugin(Plugin):
                      "profile for each cluster') gets AWS_PROFILE and never the typed access key. Any other cluster gets "
                      "the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is "
                      "filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. "
-                     "It does not change how Klotse itself connects to the cluster."),
+                     "Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
         Setting("extra_environment", "Extra variables for those commands", "", kind="multiline", section="Commands and terminals",
-                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
     )
     cluster_settings = (  # Plugins menu -> AWS Plugin -> settings for the cluster in front
         Setting("cluster_region", "AWS region", "", pattern=r"[a-z]{2}(?:-gov)?-[a-z]+-\d+",
@@ -314,7 +314,7 @@ class AwsPlugin(Plugin):
 
     # ---- the plugin interface -------------------------------------------------------------------
     def process_environment(self, context, settings):
-        """What the kubectl, helm and terminal processes Klotse starts get (not Klotse's own connection): a profile chosen
+        """What the kubectl, helm and terminal processes Klotse starts get (and Klotse's own connection, through the kubeconfig's sign-in helper only): a profile chosen
         for this cluster, else the typed access key, else the default profile; then the extra variables. Unlike the
         plugin's own AWS calls, a profile chosen for the cluster wins over the typed key here, and the key is then not
         passed at all. A key without a session token empties AWS_SESSION_TOKEN, so a token inherited from the

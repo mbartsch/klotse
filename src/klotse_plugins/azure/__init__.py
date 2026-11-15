@@ -50,7 +50,7 @@ class AzurePlugin(Plugin):
                 help="Shows a code to enter in a browser, for a terminal without a browser. Off opens the browser."),
         Setting("extra_environment", "Extra variables for commands and terminals", "", kind="multiline",
                 section="Commands and terminals",
-                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example AZURE_CONFIG_DIR=/path/to/dir. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AZURE_CONFIG_DIR=/path/to/dir. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
     )
 
     cluster_sources = (clusters.SOURCE,)

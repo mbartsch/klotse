@@ -193,8 +193,10 @@ no files). `klotse.plugins.parse_environment(text)` turns a multi-line setting w
 dict (empty lines and `#` lines are skipped; a line that is not one raises `ValueError`).
 
 - The variables go on top of Klotse's own environment and the app proxy, for that cluster's processes only. Klotse's own
-  environment is not changed, and **the connection Klotse itself makes to the cluster does not use them** (the
-  kubeconfig's sign-in helper that Klotse runs to connect sees only Klotse's environment).
+  environment is not changed. Klotse's own connection to the cluster gets them too, but only for the kubeconfig's sign-in
+  helper of that cluster (for example `aws eks get-token`): they are added to that helper's `env` in memory, never
+  written to the kubeconfig, a log or the change log. A cluster that signs in with a helper must be connected again after
+  its variables change.
 - Names must match `[A-Za-z_][A-Za-z0-9_]*` and values must be one line of text. A plugin that raises, or returns
   something else, adds nothing; the problem is shown in Preferences > Plugins without repeating a value.
 - Values are never logged or written to the change log. On macOS and Linux an external terminal gets them as `export`
@@ -260,8 +262,8 @@ and these right-click actions: **Copy instance ID** (several nodes at once), **O
   from the plugin's own AWS lookups, where a typed key replaces every profile. *Extra variables for those commands*
   takes one `NAME=value` per line (`AWS_REGION`, `AWS_CONFIG_FILE`, ...), is applied even when the first setting is off,
   and is saved as plain text: do not put secrets there. A kubeconfig entry that sets `AWS_PROFILE` for its helper still
-  wins for that helper. Klotse's own connection to the cluster is not changed. The Google Cloud, OCI and Azure plugins
-  have the same *Extra variables* setting. Not run against AWS.
+  wins for that helper. The typed key and the other variables also reach Klotse's own connection through that helper
+  (issue #486). The Google Cloud, OCI and Azure plugins have the same *Extra variables* setting. Not run against AWS.
 - **Settings:** *Use the AWS API when credentials are available* (on by default), *AWS profile*, *AWS profile for each
   cluster*, the two settings above, and the console settings below.
 
