@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klotse for developers</title>
+<meta name="description" content="How to extend Klotse with plugins, and how to contribute to it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Static site: plain HTML and CSS, no scripts.
+   Direction: a terminal-style manual (prompt headings, numbered steps) in the Klotse palette. */
+/* Klotse palette: slate neutrals with the teal of the app badge, amber for warnings only.
+   Tokens keep their old names; --phosphor is the accent, --dim the rules.
+   Three modes: Auto (follows the system, the default), Daylight and Dark. The switch is a set of
+   radio buttons at the top of the page, so the choice needs no script. */
+:root{
+  --bg:#f5f7f8;
+  --panel:#ffffff;
+  --ink:#1c2327;
+  --mute:#56616a;
+  --phosphor:#0f6e6c;
+  --dim:#9aa6ae;
+  --line:#d8dee3;
+  --code:#eef2f4;
+  --amber:#7a4c00;
+  --amber-bg:#fff3dc;
+  --glow:none;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not(:has(#t-light:checked)){
+    --bg:#12171a;--panel:#1a2125;--ink:#e4e9ec;--mute:#9aa7b0;--phosphor:#41b8b4;--dim:#4a5a64;--line:#33404a;--code:#202a2f;--amber:#f0b45a;--amber-bg:#32270e;color-scheme:dark;
+  }
+}
+:root:has(#t-dark:checked){--bg:#12171a;--panel:#1a2125;--ink:#e4e9ec;--mute:#9aa7b0;--phosphor:#41b8b4;--dim:#4a5a64;--line:#33404a;--code:#202a2f;--amber:#f0b45a;--amber-bg:#32270e;color-scheme:dark}
+:root:has(#t-light:checked){--bg:#f5f7f8;--panel:#ffffff;--ink:#1c2327;--mute:#56616a;--phosphor:#0f6e6c;--dim:#9aa6ae;--line:#d8dee3;--code:#eef2f4;--amber:#7a4c00;--amber-bg:#fff3dc;color-scheme:light}
+
+/* Screenshots: each image has a Daylight twin. The dark one is the default; the light one shows
+   when the page is in light mode. */
+.shot-light{display:none}
+@media (prefers-color-scheme: light){
+  :root:not(:has(#t-dark:checked)) .shot-dark{display:none}
+  :root:not(:has(#t-dark:checked)) .shot-light{display:block}
+}
+:root:has(#t-light:checked) .shot-dark{display:none}
+:root:has(#t-light:checked) .shot-light{display:block}
+
+/* The theme switch: visually hidden radio buttons, styled labels. */
+.switch{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;font-size:12px;flex:none;background:var(--panel)}
+.switch input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.switch label{padding:5px 11px;cursor:pointer;color:var(--mute);white-space:nowrap}
+.switch label+input+label{border-left:1px solid var(--line)}
+.switch label:hover{color:var(--phosphor)}
+.switch input:checked+label{background:var(--phosphor);color:var(--bg)}
+.switch input:focus-visible+label{outline:2px solid var(--amber);outline-offset:-2px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font:15px/1.65 "JetBrains Mono",ui-monospace,Consolas,Menlo,monospace;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  min-height:100vh;
+}
+::selection{background:var(--phosphor);color:var(--bg)}
+a{color:var(--phosphor);text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{background:var(--phosphor);color:var(--bg);text-decoration:none}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+h1,h2,h3{font-weight:700;color:var(--phosphor);text-shadow:var(--glow);letter-spacing:.01em}
+p{margin:0 0 14px}
+strong{color:var(--ink);font-weight:700}
+em{color:var(--ink);font-style:normal;text-decoration:underline dotted var(--dim);text-underline-offset:3px}
+code{font:13px/1.4 "JetBrains Mono",ui-monospace,Consolas,monospace;background:var(--code);color:var(--phosphor);padding:1px 6px;border:1px solid var(--line);border-radius:2px}
+pre{background:var(--code);border:1px solid var(--line);padding:12px 14px;overflow-x:auto;font:13px/1.5 "JetBrains Mono",ui-monospace,Consolas,monospace;color:var(--ink);margin:14px 0;max-width:100%}
+pre code{background:none;border:0;padding:0;color:inherit}
+table.ref{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+table.ref th,table.ref td{border-bottom:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+table.ref th{color:var(--phosphor);font-weight:700}
+kbd{font:13px/1.4 "JetBrains Mono",ui-monospace,Consolas,monospace;background:var(--code);color:var(--phosphor);border:1px solid var(--dim);border-bottom-width:3px;border-radius:3px;padding:0 6px;white-space:nowrap}
+
+/* ---------- top bar: a terminal title bar ---------- */
+.top{border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:40}
+.top-inner{max-width:1280px;margin:0 auto;padding:10px 0;display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}
+.brand{font-weight:700;font-size:17px;color:var(--phosphor);text-shadow:var(--glow);text-decoration:none;white-space:nowrap}
+.brand::before{content:"> ";color:var(--dim)}
+.brand:hover{background:none;color:var(--ink)}
+.page{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:190px minmax(0,1fr);gap:0 44px;padding:0}
+.side{position:sticky;top:64px;align-self:start;padding-top:36px}
+.side nav{display:flex;flex-direction:column;gap:2px;font-size:13px;border-left:1px dashed var(--dim)}
+.side nav .num{color:var(--dim);margin-right:6px;font-variant-numeric:tabular-nums}
+.side nav a{display:block;padding:5px 0 5px 14px;margin-left:-1px;border-left:2px solid transparent;color:var(--mute);text-decoration:none}
+.side nav a:hover,.side nav a:focus-visible{background:none;color:var(--phosphor);border-left-color:var(--phosphor)}
+.top-actions{display:flex;align-items:center;gap:14px}
+.top .gh{color:var(--mute);display:flex;padding:4px;text-decoration:none}
+.top .gh svg{fill:currentColor;display:block}
+.top .gh:hover,.top .gh:focus-visible{background:none;color:var(--phosphor)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:none;margin:0;padding:36px 0 56px;min-width:0}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:36px;align-items:center;margin-bottom:44px}
+.hero h1{font-size:clamp(26px,3.4vw,38px);line-height:1.18;margin:0 0 16px;text-wrap:balance}
+.hero h1::after{content:"_";color:var(--phosphor);margin-left:4px;animation:blink 1.05s steps(1) infinite}
+.hero p{color:var(--ink);max-width:56ch}
+.hero p.lede{color:var(--mute)}
+.banner{margin:0 0 18px;color:var(--phosphor);font-size:clamp(9px,1.25vw,12px);line-height:1.15;overflow-x:auto;white-space:pre;max-width:100%}
+.prompt{color:var(--mute);margin:0 0 6px;font-size:13px}
+.prompt b{color:var(--phosphor);font-weight:500}
+
+.buttons{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+.btn{display:inline-block;padding:8px 14px;border:1px solid var(--phosphor);color:var(--phosphor);background:transparent;text-decoration:none;font-size:14px;font-weight:500;letter-spacing:.02em;transition:background-color .15s,color .15s}
+.btn::before{content:"[ ";}
+.btn::after{content:" ]";}
+.btn:hover{background:var(--phosphor);color:var(--bg);text-decoration:none}
+.btn.primary{background:var(--phosphor);color:var(--bg);text-shadow:none}
+.btn.primary:hover{background:var(--ink)}
+
+/* CRT bezel around every screenshot */
+figure{margin:0}
+figure img{
+  display:block;width:100%;height:auto;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--panel);
+  padding:6px;
+  box-shadow:0 1px 3px rgba(20,30,36,.12);
+}
+figcaption{font-size:12.5px;color:var(--mute);margin-top:10px;padding-left:10px;border-left:2px solid var(--dim)}
+figcaption::before{content:"fig: ";color:var(--dim)}
+
+/* Sections are shell sessions */
+section{padding:34px 0 8px;border-top:1px dashed var(--dim);margin-top:10px}
+section h2{font-size:clamp(20px,2.6vw,26px);margin:0 0 10px;text-wrap:balance;line-height:1.3}
+section h2::before{content:"klotse@desk:~$ ";color:var(--mute);font-weight:400;text-shadow:none;font-size:.7em;display:block;margin-bottom:4px;letter-spacing:0}
+section h2 .cursor{display:inline-block;width:.6em;height:1em;background:var(--phosphor);vertical-align:-.12em;margin-left:6px;box-shadow:var(--glow);animation:blink 1.05s steps(1) infinite}
+section > p{max-width:70ch;color:var(--mute);margin:0 0 18px}
+section h3{font-size:16px;margin:0 0 8px}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:28px;align-items:start}
+.split.flip{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}
+.split.flip > figure{order:-1}
+.hero > *,.split > *,.cards > *,main,section{min-width:0}
+
+ul.clean{margin:0;padding-left:0;list-style:none}
+ul.clean li{position:relative;padding-left:22px;margin:0 0 8px}
+ul.clean li::before{content:">";position:absolute;left:0;top:0;color:var(--phosphor);text-shadow:var(--glow)}
+
+/* Numbered steps read like a log: [01] [02] */
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:step;display:grid;gap:10px}
+ol.steps li{counter-increment:step;background:var(--panel);border:1px solid var(--line);padding:12px 16px 12px 70px;position:relative;border-radius:2px}
+ol.steps li::before{content:"[" counter(step,decimal-leading-zero) "]";position:absolute;left:14px;top:12px;color:var(--phosphor);font-weight:700;text-shadow:var(--glow);font-size:14px}
+ol.steps li:hover{border-color:var(--dim)}
+
+/* Notes are boxed log lines */
+.note{border:1px dashed var(--dim);background:var(--panel);padding:12px 16px;margin:18px 0;max-width:72ch;color:var(--ink);border-radius:2px}
+.note strong{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:4px;color:var(--phosphor)}
+.note strong::before{content:"[ "}
+.note strong::after{content:" ]"}
+.note.warn{border-style:solid;border-color:var(--amber);background:var(--amber-bg)}
+.note.warn strong{color:var(--amber)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:8px}
+.card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;position:relative;transition:border-color .15s}
+.card:hover{border-color:var(--phosphor)}
+.card h3{color:var(--phosphor);text-shadow:var(--glow)}
+.card h3::before{content:"> ";color:var(--dim);text-shadow:none}
+.card p{margin:0;color:var(--mute);font-size:14px}
+
+details{background:var(--panel);border:1px solid var(--line);padding:12px 16px;margin-top:10px}
+details summary{cursor:pointer;font-weight:700;color:var(--phosphor);list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"\25B8  ";color:var(--dim)}
+details[open] summary::before{content:"\25BE  "}
+details p{color:var(--mute);margin:8px 0 0 18px}
+
+footer{border-top:1px dashed var(--dim);padding:24px 0 40px;color:var(--mute);font-size:13px}
+footer p{max-width:80ch;margin:0 0 8px}
+
+/* Click a picture to enlarge it: a pure-CSS lightbox (:target), so the guide still has no scripts. */
+.zoom{display:block;cursor:zoom-in}
+.zoom:hover{background:none}
+.zoom:hover img{border-color:var(--phosphor)}
+.zt:checked ~ .lightbox{display:flex}
+.zt{display:none}
+.lightbox{display:none;position:fixed;inset:0;z-index:100;background:rgba(10,14,16,.86);align-items:center;justify-content:center;padding:16px;cursor:zoom-out;text-decoration:none}
+.lightbox:hover{background:rgba(10,14,16,.86)}
+.lightbox img{border:0;padding:0;box-shadow:none;margin:0;width:auto;height:auto;max-width:96vw;max-height:92vh;border-radius:8px;background:var(--panel)}
+
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .hero h1::after,section h2 .cursor{animation:none}
+}
+@media (hover:hover){
+  .btn:active{transform:translateY(1px)}
+}
+@media (max-width:860px){
+  .page{grid-template-columns:minmax(0,1fr);gap:0}
+  .side{position:static;padding-top:16px}
+  .side nav{flex-direction:row;flex-wrap:wrap;gap:4px 14px;border-left:0}
+  .side nav a{padding:2px 0;border-left:0}
+  .hero,.split,.split.flip{grid-template-columns:minmax(0,1fr);gap:22px}
+  .split.flip > figure{order:0}
+  .hero h1{font-size:26px}
+  section h2{font-size:21px}
+  body::before{opacity:.4}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#">KLOTSE</a>
+    <div class="top-actions">
+    <a class="gh" href="https://github.com/mbartsch/klotse" rel="noopener" aria-label="Klotse on GitHub" title="Klotse on GitHub"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+    <div class="switch" role="radiogroup" aria-label="Colour theme">
+      <input type="radio" name="theme" id="t-auto" checked>
+      <label for="t-auto">Auto</label>
+      <input type="radio" name="theme" id="t-light">
+      <label for="t-light">Daylight</label>
+      <input type="radio" name="theme" id="t-dark">
+      <label for="t-dark">Dark</label>
+    </div>
+    </div>
+  </div>
+</header>
+
+<div class="page">
+<aside class="side">
+  <nav aria-label="Guide sections">
+  <a href="index.html">User guide</a>
+  <a href="developers.html" aria-current="page">For developers</a>
+  <a href="#dev-start">Start here</a>
+  <a href="#dev-run">Run from source</a>
+  <a href="#dev-plugin">Write a plugin</a>
+  <a href="#dev-install">Install and enable</a>
+  <a href="#dev-api">API reference</a>
+  <a href="#dev-versions">API versions</a>
+  <a href="#dev-release">Versions and releases</a>
+  <a href="#dev-contribute">Contribute</a>
+  <a href="#dev-rules">Rules that matter</a>
+  </nav>
+</aside>
+<main class="wrap" id="top">
+  <div class="hero" style="grid-template-columns:minmax(0,1fr)">
+    <div>
+      <h1>Klotse for developers</h1>
+      <p>Klotse can be extended with plugins, without changing its code. This page covers how plugins work, how Klotse is versioned, and how to run and contribute to the project. For using Klotse, see the <a href="index.html">user guide</a>.</p>
+    </div>
+  </div>
+
+  <div class="note warn"><strong>Work in progress</strong>The plugin API described here is in the git code of this project, not yet in a released version. Names and details may still change, and the bundled cloud plugins have not been tested against real clouds.</div>
+
+  <section id="dev-start">
+    <h2>Start here<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Klotse is a Python desktop application (PySide6 / Qt Widgets). It talks to clusters with the Kubernetes Python client and <code>kubectl</code>. There is no server and no database. You can extend it in two ways:</p>
+    <div class="cards">
+      <div class="card"><h3>Plugins</h3><p>Add columns to the resource lists, right-click actions, Overview cards, settings, per-cluster settings, environment variables for kubectl and terminals, and cluster sources. A plugin is a Python module plus a small JSON manifest, and it runs inside Klotse's process.</p></div>
+      <div class="card"><h3>Changes to Klotse</h3><p>Behaviour lives in clear layers: pure logic in <code>src/klotse/k8s/</code>, windows in <code>src/klotse/ui/</code>, and cluster writes in <code>KubeService</code>.</p></div>
+    </div>
+    <p style="margin-top:14px">Most extension work is a plugin, so start with <em>Write a plugin</em>.</p>
+  </section>
+
+  <section id="dev-run">
+    <h2>Run from source<span class="cursor" aria-hidden="true"></span></h2>
+    <pre><code># macOS / Linux: create .venv and install the requirements
+./run.sh --install
+
+# Windows
+run.bat --install
+
+# Run from the checkout
+PYTHONPATH=src .venv/bin/python -m klotse
+
+# Tests (no live cluster needed)
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_&lt;area&gt;.py
+PYTHONPATH=src QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q      # the full suite, about 10 minutes
+git diff --check</code></pre>
+    <p><code>kubectl</code> must be on the PATH for drain and terminals. Tests use fake services and synthetic objects. They never change a real cluster and never touch the real user settings.</p>
+    <div class="note"><strong>Hooks</strong>Run <code>pre-commit install</code> once per clone. The hooks check for private keys, run bandit on <code>src</code> and <code>scripts</code>, and check whitespace. They refuse commits to <code>master</code>.</div>
+  </section>
+
+  <section id="dev-plugin">
+    <h2>Write a plugin<span class="cursor" aria-hidden="true"></span></h2>
+    <p>A plugin is a Python module with a <code>Plugin</code> subclass, plus a JSON manifest beside it. The manifest lets Klotse list the plugin without importing its code. This example adds a zone column to the Nodes list and a "Copy zone" action:</p>
+    <pre><code>from klotse.plugins import Action, Column, Copy, Plugin
+
+
+class NodeZone(Plugin):
+    id = "node-zone"            # lower case letters, digits, "-" and "_"
+    name = "Node zone"
+    description = "Shows the availability zone of every node."
+    columns = (Column("zone", "Zone"),)
+    actions = (Action("copy", "Copy zone", multi=True),)
+
+    def zone(self, resource):
+        labels = (resource.raw.get("metadata") or {}).get("labels") or {}
+        return labels.get("topology.kubernetes.io/zone")
+
+    def enrich(self, request):
+        # runs on a worker thread: no Qt here; it may use the network
+        return {resource.key: {"zone": self.zone(resource)} for resource in request.resources}
+
+    def run(self, request):
+        return Copy("\n".join(str(self.zone(resource)) for resource in request.resources))
+
+
+plugin = NodeZone()   # Klotse looks for a module-level `plugin`, or a `register()` function</code></pre>
+    <p>Save it as <code>node_zone.py</code>, with <code>node_zone.json</code> beside it:</p>
+    <pre><code>{
+  "manifest_version": 1,
+  "id": "node-zone",
+  "name": "Node zone",
+  "description": "Shows the availability zone of every node.",
+  "requires_api": 1,
+  "columns": [{"key": "zone", "title": "Zone"}],
+  "actions": [{"key": "copy", "title": "Copy zone", "multi": true}]
+}</code></pre>
+    <p>The manifest is required. Its ID, name, API requirement and declarations must match the Python plugin. Omitted lists are empty, and omitted fields take their API defaults.</p>
+    <h3>Columns</h3>
+    <p><code>enrich()</code> returns <code>{resource.key: {column key: value}}</code>. Values are strings, numbers or <code>None</code>. A resource you leave out gets empty cells. Set <code>refresh_s</code> when values go stale, such as prices. Cache anything expensive yourself.</p>
+    <h3>Actions</h3>
+    <p>An action appears in the right-click menu for the kinds you name. <code>run(request)</code> runs on a worker thread and returns one of these:</p>
+    <table class="ref">
+      <tr><th>Result</th><th>What Klotse does</th></tr>
+      <tr><td><code>Message(text, level)</code></td><td>Status bar, or a dialog for warning and error</td></tr>
+      <tr><td><code>Copy(text)</code></td><td>Puts the text on the clipboard</td></tr>
+      <tr><td><code>OpenUrl(url)</code></td><td>Opens an http or https address in the browser</td></tr>
+      <tr><td><code>ShowText(title, text)</code></td><td>A read-only tab in Logs &amp; activity</td></tr>
+      <tr><td><code>Terminal(argv)</code></td><td>Runs a command in the user's terminal</td></tr>
+      <tr><td><code>Reload(kinds)</code></td><td>Reloads open lists after a change</td></tr>
+    </table>
+    <p>Set <code>dangerous=True</code> for anything that changes a cluster or something outside it. Klotse then marks the entry with ⚠ and always asks first. This is a label that triggers the question, not a sandbox.</p>
+  </section>
+
+  <section id="dev-install">
+    <h2>Install and enable<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Klotse finds plugins in three places. None runs until the user enables it in <em>Preferences &gt; Plugins</em>.</p>
+    <ol class="steps">
+      <li><strong>The plugins folder.</strong> <code>.py</code> files, or folders with an <code>__init__.py</code>, in the <code>plugins</code> folder next to Klotse's settings file. A <code>name.py</code> needs <code>name.json</code> beside it, and a package folder needs <code>klotse-plugin.json</code> inside. The Plugins page has buttons to open that folder and to reload.</li>
+      <li><strong>A pip package.</strong> Declare two entry points, <code>klotse.plugins</code> for the code and <code>klotse.plugin_manifests</code> for the JSON, then install it into the same environment as Klotse, for example <code>pipx inject klotse my-klotse-plugin</code>.</li>
+      <li><strong>Bundled.</strong> Plugins the project ships itself, such as AWS, Google Cloud, Azure and Oracle Cloud, in <code>src/klotse_plugins/</code>.</li>
+    </ol>
+    <pre><code>[project.entry-points."klotse.plugins"]
+node-zone = "my_klotse_plugin:plugin"
+
+[project.entry-points."klotse.plugin_manifests"]
+node-zone = "my_klotse_plugin.klotse_manifest"
+
+[tool.setuptools.package-data]
+my_klotse_plugin = ["klotse_manifest.json"]</code></pre>
+    <p>Discovery reads manifests only. Enabling a plugin imports and checks its code on a worker thread. A plugin that fails to load stays disabled, and the reason is shown. A missing or invalid manifest makes a plugin unavailable without importing it. Its saved settings are kept, and come back when a valid manifest is installed.</p>
+  </section>
+
+  <section id="dev-api">
+    <h2>API reference<span class="cursor" aria-hidden="true"></span></h2>
+    <p>Everything a plugin needs is in <code>klotse.plugins</code>.</p>
+    <table class="ref">
+      <tr><th>Name</th><th>What it is</th></tr>
+      <tr><td><code>Plugin</code></td><td>Base class. Set <code>id</code>, <code>name</code>, <code>description</code>, <code>version</code>, <code>requires_api</code>, <code>columns</code>, <code>actions</code>, <code>settings</code>, <code>cluster_settings</code>, <code>overview_cards</code>, <code>refresh_s</code>. Override <code>enrich()</code> and <code>run()</code>, and optionally <code>applies()</code> and <code>process_environment()</code>.</td></tr>
+      <tr><td><code>Column(key, title, kinds, format, presets)</code></td><td>A column for tables of those kinds. Sorting uses the raw value, so numbers stay numbers.</td></tr>
+      <tr><td><code>Action(key, title, kinds, multi, confirm, dangerous)</code></td><td>A right-click entry. <code>multi</code> offers it for several selected rows. <code>confirm</code> asks a Yes/No question first.</td></tr>
+      <tr><td><code>Setting(key, label, default, kind, help, pattern)</code></td><td>A setting shown on the Plugins page. Kinds: <code>text</code>, <code>password</code>, <code>note</code>, <code>multiline</code>, <code>bool</code>. A password is still saved as plain text, like every other setting.</td></tr>
+      <tr><td><code>EnrichRequest</code></td><td><code>plugin_id</code>, <code>kind</code>, <code>context</code>, <code>resources</code>, <code>settings</code>, <code>cache_dir</code>, <code>api_client()</code>, <code>warn(text)</code>.</td></tr>
+      <tr><td><code>ActionRequest</code></td><td><code>plugin_id</code>, <code>action</code>, <code>kind</code>, <code>context</code>, <code>resources</code>, <code>settings</code>, <code>log(line)</code>, <code>api_client()</code>, <code>kubectl</code>, <code>cache_dir</code>.</td></tr>
+      <tr><td><code>ResourceInfo</code></td><td><code>name</code>, <code>namespace</code>, <code>raw</code> (the full manifest, read-only), <code>key</code>, <code>uid</code>.</td></tr>
+      <tr><td><code>parse_environment(text)</code></td><td>Turns <code>NAME=value</code> lines into a dict for <code>process_environment()</code>.</td></tr>
+    </table>
+    <h3>Cluster sources (API 11)</h3>
+    <p>A plugin that lists the clusters of an account declares a cluster source, and <em>File &gt; Add clusters from the cloud…</em> offers it. The plugin lists clusters and writes one cluster's credentials into a private temporary file. Klotse merges that entry into its own kubeconfig file. The plugin never edits the user's main kubeconfig.</p>
+    <h3>Variables for commands and terminals (API 12)</h3>
+    <pre><code>def process_environment(self, context, settings):
+    return {"MY_CLOUD_PROFILE": settings["profile"], **parse_environment(settings["extra_environment"])}</code></pre>
+    <p>Klotse calls this on the GUI thread each time a kubectl, helm or terminal process starts for the cluster. It must be fast, and must not use the network or read files. Names must match <code>[A-Za-z_][A-Za-z0-9_]*</code>, and values must be one line. Values are never logged or written to the change log.</p>
+  </section>
+
+  <section id="dev-versions">
+    <h2>API versions<span class="cursor" aria-hidden="true"></span></h2>
+    <p>The plugin API has its own number, <code>klotse.plugins.API_VERSION</code>, which goes up when the API grows. Each plugin states the lowest version it needs in <code>requires_api</code>. An older Klotse lists such a plugin as not loadable, instead of failing in a strange way.</p>
+    <table class="ref">
+      <tr><th>Version</th><th>Added</th></tr>
+      <tr><td>1</td><td>Columns</td></tr>
+      <tr><td>2</td><td>Actions</td></tr>
+      <tr><td>3</td><td><code>cache_dir</code> and <code>EnrichRequest.warn</code></td></tr>
+      <tr><td>4</td><td>Multi-line settings</td></tr>
+      <tr><td>5</td><td>Overview cards</td></tr>
+      <tr><td>6</td><td>Cluster settings</td></tr>
+      <tr><td>7</td><td>Password settings</td></tr>
+      <tr><td>8</td><td>Required manifests, imports deferred until enabled</td></tr>
+      <tr><td>9</td><td><code>EnrichRequest.api_client()</code></td></tr>
+      <tr><td>10</td><td>Column presets</td></tr>
+      <tr><td>11</td><td>Cluster sources</td></tr>
+      <tr><td>12</td><td><code>process_environment()</code></td></tr>
+    </table>
+    <p>Set <code>requires_api</code> to the lowest version your plugin needs. The current value is in <code>src/klotse/plugins/api.py</code>.</p>
+  </section>
+
+  <section id="dev-release">
+    <h2>Versions and releases<span class="cursor" aria-hidden="true"></span></h2>
+    <ul class="clean">
+      <li><strong>Klotse's version</strong> is one line in <code>src/klotse/_version.py</code>, written as <code>MAJOR.MINOR.PATCH</code>. It changes only in a release pull request, titled <code>Release vX.Y.Z</code>. Contributors do not change it.</li>
+      <li><strong>Tags.</strong> Merging the release pull request tags its commit <code>vX.Y.Z</code>. The packaging and PyPI workflows run on version tags.</li>
+      <li><strong>Development builds</strong> report the version followed by the commit, for example <code>0.4.0+g1a2b3c4</code>, so a build from source is easy to tell from a release.</li>
+      <li><strong>The plugin API version</strong> is separate from Klotse's version. A release can raise it, and each plugin's own <code>version</code> is up to its author.</li>
+      <li><strong>Releases are made by maintainers only.</strong> Publishing is irreversible, so it waits for an explicit go-ahead.</li>
+    </ul>
+  </section>
+
+  <section id="dev-contribute">
+    <h2>Contribute<span class="cursor" aria-hidden="true"></span></h2>
+    <ol class="steps">
+      <li><strong>Find or open an issue.</strong> Search first. Use the <code>enhancement</code> label for features, and an <code>effort:</code> label if you can estimate one. For a large change, agree the approach on the issue first.</li>
+      <li><strong>Branch from an up-to-date <code>master</code>.</strong> Never commit to <code>master</code> directly. Keep one feature or fix per pull request, and do not stack pull requests.</li>
+      <li><strong>Change the right layer.</strong> Read <code>AGENTS.md</code> for the file map and the rules that must not regress: read-only mode, secret masking, the change log and clean shutdown.</li>
+      <li><strong>Add tests</strong> next to the existing ones in <code>tests/test_&lt;area&gt;.py</code>. Run at least the focused tests for your area, and say what you ran in the pull request.</li>
+      <li><strong>Show UI changes.</strong> A pull request that changes what the app looks like includes before and after screenshots taken from the app, embedded by their full commit-pinned URL.</li>
+      <li><strong>Update the docs</strong> in the same pull request when behaviour changes: <code>README.md</code> and the relevant part of <code>AGENTS.md</code>.</li>
+      <li><strong>Keep line endings.</strong> The Windows working tree uses CRLF. Do not convert whole files.</li>
+    </ol>
+    <div class="note"><strong>AI-assisted changes</strong>Welcome, as long as a person has run and tested them, can answer review questions about every line, and says in the pull request that AI wrote most of it. Never paste secrets, kubeconfig data or real cluster output into issues, pull requests or test fixtures.</div>
+    <p>Report security problems privately, not as public issues. See <code>SECURITY.md</code>.</p>
+  </section>
+
+  <section id="dev-rules">
+    <h2>Rules that matter<span class="cursor" aria-hidden="true"></span></h2>
+    <ul class="clean">
+      <li><strong>Plugins are trusted code.</strong> They run in Klotse's process with your permissions and see the manifests of the resources they are asked about. There is no sandbox, so enable only plugins you trust.</li>
+      <li><strong>No Qt in <code>enrich()</code> or <code>run()</code>.</strong> They run on a worker thread. Change the window through the returned results, such as <code>Reload</code>.</li>
+      <li><strong>Refreshes are cheap.</strong> Klotse asks for each resource once, and asks again only when <code>refresh_s</code> says so or a value was missing. Cache expensive lookups yourself, since one plugin object lives for the whole session.</li>
+      <li><strong>Failures are contained.</strong> An exception is shown on the Plugins page and retried after about a minute. It never stops Klotse.</li>
+      <li><strong>Column keys are saved.</strong> Plugin columns are saved under <code>plugin:&lt;id&gt;:&lt;key&gt;</code>, so renaming a key resets where users put that column.</li>
+      <li><strong>Settings live in one place.</strong> Use the settings store or the plugin's own section, never a hard-coded path. Tests inject a <code>QSettings</code> on a temporary folder.</li>
+    </ul>
+    <p>The full plugin notes, including the AWS plugin's design, are in <code>PLUGINS.md</code> in the repository.</p>
+  </section>
+</main>
+</div>
+
+<footer class="wrap" style="padding-top:0">
+  <p>Klotse is open source under the Apache-2.0 licence. Kubernetes is a trademark of The Linux Foundation; Klotse is not affiliated with it.</p>
+</footer>
+
+</body>
+</html>
