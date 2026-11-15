@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QComp
 from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from ..k8s.timing import timings
+from .wording import counted
 from . import filter_expr, theme
 from .action_icons import action_icon
 from .customizations import ANNOTATION_KINDS
@@ -900,17 +901,17 @@ class ResourceTable(QWidget):
             menu.addAction("Compare these two…", lambda: self.compare_requested.emit(self.kind, list(rows)))
         if self.kind in METRIC_KINDS:  # looking only
             separate(menu)
-            menu.addAction(f"Usage history of {n} {self.kind}s…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
+            menu.addAction(f"Usage history of {counted(n, self.kind)}…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
         if self.kind == "Pod":
             separate(menu)
         if self.kind == "Pod":
             menu.addAction(f"Logs of {n} pods…", lambda: self.multi_logs_requested.emit("Pod", list(rows)))
         if self.kind in SCALABLE:
             separate(menu)
-            menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
+            menu.addAction(f"Scale {counted(n, self.kind)}…", bulk("scale"))
         if self.kind in RESTARTABLE:
             separate(menu)
-            menu.addAction(f"Restart {n} {self.kind}s…", bulk("restart"))
+            menu.addAction(f"Restart {counted(n, self.kind)}…", bulk("restart"))
         if self.kind == "Node":
             separate(menu)
             menu.addAction(f"Cordon {n} nodes…", bulk("cordon"))
@@ -922,7 +923,7 @@ class ResourceTable(QWidget):
             destructive.addAction(action_icon("delete"), f"Force terminate {n} pods…", bulk("force-terminate"))
         if self.kind in DELETABLE_KINDS:
             separate(destructive)
-            destructive.addAction(action_icon("delete"), f"Delete {n} {self.kind}s…", bulk("delete"))
+            destructive.addAction(action_icon("delete"), f"Delete {counted(n, self.kind)}…", bulk("delete"))
         if self.kind == "Node":
             separate(destructive)
             destructive.addAction(action_icon("delete"), f"Delete {n} nodes…", bulk("delete-node"))

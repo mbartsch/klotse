@@ -131,7 +131,7 @@ class MetricsQueryDialog(QWidget):
     def set_source(self, text, reason=""):
         """Show the source the queries use (or that none is set, and why)."""
         self.source.setText(f"Source: {text}")
-        self.status.setText(f"No source: {reason}. Choose one with Source…." if reason else "")
+        self.status.setText(f"No source: {reason}. Choose one with Source…" if reason else "")
 
     def _preset_changed(self, *_):
         query = self.preset_box.currentData()

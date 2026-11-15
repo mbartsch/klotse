@@ -8,6 +8,7 @@ from ..k8s import trivy
 from . import theme
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
+from .wording import counted
 
 BASE = ["Namespace", "Workload", "Container"]
 COUNTS = ["Critical", "High", "Medium", "Low", "Unknown"]
@@ -158,7 +159,7 @@ class ReportDialog(QDialog):
         self.setWindowTitle(title)
         resize_dialog(self, 980, 520)
         self.rows = rows
-        self.summary = QLabel(f"{len(rows)} findings" + (f" · scanned {scanned}" if scanned else ""))
+        self.summary = QLabel(f"{counted(len(rows), 'finding')}" + (f" · scanned {scanned}" if scanned else ""))
         theme.muted(self.summary)
         self.filter = QLineEdit(placeholderText="Filter…", clearButtonEnabled=True)
         self.filter.setAccessibleName("Filter full vulnerability report")

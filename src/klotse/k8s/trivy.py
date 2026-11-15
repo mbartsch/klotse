@@ -57,7 +57,7 @@ def totals(rows):
 def summary_text(rows, title):
     t = totals(rows)
     if not rows:
-        return f"No {title.lower()} reports."
+        return f"No {title if title.isupper() else title.lower()} reports."
     return (f"{t['reports']} reports; {t['critical']} critical, {t['high']} high, {t['medium']} medium, {t['low']} low"
             f"{', ' + str(t['unknown']) + ' unknown' if t['unknown'] else ''}. {t['serious']} have a critical or high finding.")
 

@@ -23,7 +23,7 @@ from .dialog_actions import action_box
 
 NOTE_SAMPLED = ("metrics-server keeps no history, so this chart starts when the window opens and is kept in memory only. "
                 "Prometheus or VictoriaMetrics would show earlier data: use Source… to point Klotse at one.")
-NOTE_PROMETHEUS = ("History from the Prometheus or VictoriaMetrics service, read through the Kubernetes API server (no port-forward). "
+NOTE_PROMETHEUS = ("History from the Prometheus or VictoriaMetrics service, read through the source chosen with Source… (the API server proxy, a port-forward or a URL). "
                    "It needs the kubelet cAdvisor metrics; an empty chart usually means they are not scraped or labelled differently.")
 SAMPLED, REMOTE = "sampled", "prometheus"
 REFRESH_S = 30

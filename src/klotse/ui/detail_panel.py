@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout
 from ..k8s.related import KINDS as RELATED_KINDS
 from . import events_view, karpenter_view, network_view, node_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
+from .status_tone import status_tone
 from .action_icons import action_icon
 
 
@@ -526,9 +527,8 @@ class DetailPanel(QWidget):
         self.copy_provider_button.setVisible(bool(self._identity_provider))
         self.identity_provider.setVisible(bool(self._identity_provider))
         self.identity_status.setText(status)
-        folded = status.casefold()
-        color = theme.BAD if any(word in folded for word in ("failed", "not ready", "error", "crash")) else (
-            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend", "warning")) else theme.OK)
+        tone = status_tone(status.replace(" ", ""))  # the same words and colours as the table's status column
+        color = {"bad": theme.BAD, "warn": theme.WARN}.get(tone, theme.OK)
         self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
         self.identity_header.show()
 

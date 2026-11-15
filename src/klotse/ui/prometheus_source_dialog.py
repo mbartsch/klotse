@@ -152,7 +152,7 @@ class PrometheusSourceDialog(QDialog):
             text, via, _local = self.values()
             if text:
                 prometheus.parse_ref(text)
-            elif via != AUTO:
+            elif not self.auto.isChecked():
                 raise ValueError("Write the service as namespace/service:port, for example monitoring/prometheus-server:80.")
         except ValueError as error:
             QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))

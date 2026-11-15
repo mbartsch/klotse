@@ -43,6 +43,7 @@ from . import branding, embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
+from .wording import menu_text
 
 
 def _shortcut_tooltip(action, text):
@@ -998,10 +999,10 @@ class MainWindow(QMainWindow):
                                          lambda k=key, w=ws: self._goto_view(w, k), f"view:{ws.context}:{key}"))
             for name in getattr(ws, "_ns_names", []):
                 if name != "All namespaces":
-                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.set_namespace(n),
+                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.choose_namespace(n),
                                          f"namespace:{ws.context}:{name}"))
             entries.append(Entry("Namespace", "All namespaces", ws.context,
-                                 lambda w=ws: w.set_namespace("All namespaces"), f"namespace:{ws.context}:All namespaces"))
+                                 lambda w=ws: w.choose_namespace("All namespaces"), f"namespace:{ws.context}:All namespaces"))
         for ctx in self.contexts:
             if ctx in self.workspaces:
                 entries.append(Entry("Cluster", ctx, "switch to it", lambda c=ctx: self._focus_workspace(self.workspaces[c]),
@@ -1011,7 +1012,7 @@ class MainWindow(QMainWindow):
         def add_menu_actions(menu, path):
             menu.aboutToShow.emit()  # menus enable their entries lazily, when they are about to show
             for action in menu.actions():
-                text = action.text().replace("&", "").replace("…", "").strip()
+                text = menu_text(action.text()).replace("…", "").strip()
                 if action.isSeparator() or not text or action is self.palette_action:
                     continue
                 if action.menu() is not None:
@@ -1021,7 +1022,7 @@ class MainWindow(QMainWindow):
 
         for menu_action in self.menuBar().actions():
             if menu_action.menu() is not None:
-                add_menu_actions(menu_action.menu(), menu_action.text().replace("&", ""))
+                add_menu_actions(menu_action.menu(), menu_text(menu_action.text()))
         recent_keys = self._recent_palette_keys()
         available = {entry.key: entry for entry in entries if entry.key}
         # Recent targets can belong to another open workspace. Resolve them against every live workspace, while
@@ -1040,10 +1041,10 @@ class MainWindow(QMainWindow):
                 if name != "All namespaces":
                     target_key = f"namespace:{other.context}:{name}"
                     available[target_key] = Entry("Namespace", name, other.context,
-                                                   lambda n=name, w=other: (self._focus_workspace(w), w.set_namespace(n)), target_key)
+                                                   lambda n=name, w=other: (self._focus_workspace(w), w.choose_namespace(n)), target_key)
             target_key = f"namespace:{other.context}:All namespaces"
             available[target_key] = Entry("Namespace", "All namespaces", other.context,
-                                           lambda w=other: (self._focus_workspace(w), w.set_namespace("All namespaces")), target_key)
+                                           lambda w=other: (self._focus_workspace(w), w.choose_namespace("All namespaces")), target_key)
         recent = []
         kept = [key for key in recent_keys if key in available][:8]
         if kept != recent_keys:
