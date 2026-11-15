@@ -1,7 +1,7 @@
 """Registry of the simple list views (Phase 2/4). Each spec says which API to call and how to turn an
 object into a table row, so the service and UI need no per-kind code."""
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -655,6 +655,10 @@ SPECS = [
     Spec("leases", "Leases", "Lease", "lease", "coordination", True,
          (("Name", "name"), NS, ("Holder", "holder"), ("Renewed", "renewed"), ("Duration", "duration"), AGE), map_lease, editable=False),
 ]
+# Owner decision (#503): every listed kind offers Delete, behind a Yes/No question (default No). The workload kinds below
+# have their own lists in Klotse and are added to the delete set here; Pods, Nodes and Namespaces keep their own actions.
+SPECS = [replace(s, deletable=True) for s in SPECS]
+WORKLOAD_DELETE_KINDS = frozenset({"Deployment", "StatefulSet", "ReplicaSet"})
 SPEC_BY_KEY = {s.key: s for s in SPECS}
 SPEC_BY_KIND = {s.kind: s for s in SPECS}
-DELETABLE_KINDS = frozenset(s.kind for s in SPECS if s.deletable)
+DELETABLE_KINDS = frozenset(s.kind for s in SPECS if s.deletable) | WORKLOAD_DELETE_KINDS

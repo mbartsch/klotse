@@ -50,7 +50,7 @@ def test_table_shows_selected_row_count(qtbot):
 def test_bulk_menu_offers_actions_per_kind(qtbot):
     ws = make_ws(qtbot)
     for table, expected in ((ws.pod_table, ["Usage history of 2 Pods…", "Logs of 2 pods…", "Terminate 2 pods…", "Force terminate 2 pods…"]),
-                            (ws.deploy_table, ["Usage history of 2 Deployments…", "Scale 2 Deployments…", "Restart 2 Deployments…"]),
+                            (ws.deploy_table, ["Usage history of 2 Deployments…", "Scale 2 Deployments…", "Restart 2 Deployments…", "Delete 2 Deployments…"]),
                             (ws.node_table, ["Usage history of 2 Nodes…", "Cordon 2 nodes…", "Uncordon 2 nodes…", "Drain 2 nodes…", "Delete 2 nodes…",
                                              "Force delete 2 nodes…"])):
         menu = QMenu()
