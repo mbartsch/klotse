@@ -256,9 +256,10 @@ class PluginsPanel(QWidget):
                 label = setting.label
             if setting.help:
                 widget.setToolTip(setting.help)
-            if setting.kind == "multiline":
-                widget = holder
-            if label:
+            if setting.kind == "multiline":  # the label on its own line, so the box has the full width
+                form.addRow(QLabel(label))
+                form.addRow(holder)
+            elif label:
                 form.addRow(label, widget)
             else:
                 form.addRow(widget)
