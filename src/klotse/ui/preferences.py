@@ -226,20 +226,12 @@ class PreferencesDialog(QDialog):
         self.tabs.tabBar().setVisible(self.tabs.count() > 1)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         self.buttons = buttons
-        self.tabs.currentChanged.connect(self._update_button_labels)
-        self._update_button_labels()
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(buttons)
         resize_dialog(self, 780, 560) if plugins is not None else resize_dialog(self, 640, 0)
-
-    def _update_button_labels(self, *_):
-        """Make clear that Cancel applies to the other preference pages, not Plugins."""
-        on_plugins = self.plugins_panel is not None and self.tabs.currentWidget() is self.plugins_panel
-        self.buttons.button(QDialogButtonBox.Save).setText("Save other changes" if on_plugins else "Save")
-        self.buttons.button(QDialogButtonBox.Cancel).setText("Cancel other changes" if on_plugins else "Cancel")
 
     def _theme_rows(self, form):
         self.theme_box = QComboBox()
@@ -371,4 +363,6 @@ class PreferencesDialog(QDialog):
             except OSError as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
                 return
+        if self.plugins_panel is not None and not self.plugins_panel.apply():
+            return  # a plugin could not be enabled or disabled: stay here, the other pages are saved
         self.accept()  # the caller saves and applies the kubeconfig (closing open clusters needs confirmation first)
