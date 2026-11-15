@@ -253,3 +253,9 @@ def test_a_workspace_without_plugins_adds_nothing(qtbot, tmp_path):
     ws = make_ws(qtbot, tmp_path, None)
     assert ws.process_variables() == {} and ws.port_forwards.variables("prod") == {}
     ws.shutdown()
+
+
+def test_quoted_and_export_lines_are_read_as_typed():
+    text = 'export AWS_ENDPOINT_URL="http://localhost:4566"\nAWS_DEFAULT_REGION=\'us-east-1\'\nQ="a=b"\nSINGLE="x\n'
+    assert parse_environment(text) == {"AWS_ENDPOINT_URL": "http://localhost:4566", "AWS_DEFAULT_REGION": "us-east-1",
+                                       "Q": "a=b", "SINGLE": '"x'}

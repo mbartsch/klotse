@@ -44,7 +44,7 @@ class OciPlugin(Plugin):
                 help="The profile in ~/.oci/config that the cluster's kubeconfig helper uses. The sign-in refreshes this profile's session token."),
         Setting("extra_environment", "Extra variables for commands and terminals", "", kind="multiline",
                 section="Commands and terminals",
-                help="One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example OCI_CLI_PROFILE=work. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster."),
+                help="One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example OCI_CLI_PROFILE=work. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
     )
 
     cluster_sources = (clusters.SOURCE,)

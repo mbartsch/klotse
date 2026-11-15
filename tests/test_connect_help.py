@@ -90,7 +90,7 @@ def test_connect_reports_a_failed_helper_in_words(kubeconfig, monkeypatch):
     service.kubeconfig = kubeconfig
     monkeypatch.setattr(connect_help, "missing_helper", lambda info: "")  # the helper runs here; it is the helper's own failure under test
 
-    def boom(context):
+    def boom(context, variables=None):
         raise config.ConfigException("exec: process returned 1. token expired")
 
     service._connect = boom
@@ -103,7 +103,7 @@ def test_connect_leaves_other_errors_alone(kubeconfig):
     service = KubeService()
     service.kubeconfig = kubeconfig
 
-    def boom(context):
+    def boom(context, variables=None):
         raise ValueError("odd")
 
     service._connect = boom

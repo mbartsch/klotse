@@ -35,6 +35,8 @@ def test_manifest_metadata_and_saved_settings_are_visible_without_import(qtbot, 
     assert region.text() == "eu"
     region.setText("us")
     region.editingFinished.emit()
+    assert manager.settings_for("sample")["region"] == "eu"  # saved by Preferences' Save
+    assert panel.apply()
     assert manager.settings_for("sample")["region"] == "us"
     assert manager.loaded[0].plugin is None
 
@@ -46,6 +48,8 @@ def test_loading_keeps_preferences_responsive_and_failure_reverts_checkbox(qtbot
         "import sys\nsys.modules['_klotse_panel_test_gate'].wait(5)\nraise SystemExit('cannot start')\n")
     try:
         panel.list.item(0).setCheckState(Qt.Checked)
+        assert not manager.loaded[0].loading  # the tick waits for Save
+        assert panel.apply()
         assert manager.loaded[0].loading
         assert "loading" in panel.list.item(0).text().lower()
         assert "Loading plugin" in panel.error.text()

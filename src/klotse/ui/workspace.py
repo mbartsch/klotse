@@ -470,7 +470,9 @@ class ClusterWorkspace(QMainWindow):
         """Connect; called by the shell after it has hooked up the signals."""
         self.state.emit("connecting")
         self.message.emit(f"Connecting to {self.context}…")
-        self._run(self.service.connect, lambda _: self._connected(), self.context, on_error=self._connect_failed)
+        # the plugins' variables for this cluster are asked here, on the GUI thread, and used for the sign-in helper only
+        self._run(self.service.connect, lambda _: self._connected(), self.context, self.process_variables(),
+                  on_error=self._connect_failed)
 
     def _build_views(self):
         T = ResourceTable

@@ -406,16 +406,18 @@ class KubeService:
         """True once connect() has succeeded for this service."""
         return self._core is not None
 
-    def connect(self, context):
+    def connect(self, context, variables=None):
         """Connect to a context. A failure is put into plain words (`connect_help.explain`): a sign-in helper that needs a terminal,
-        a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
+        a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one).
+        `variables` are the enabled plugins' variables for this cluster (`ClusterWorkspace.process_variables`); they reach the
+        kubeconfig's sign-in helper (for example `aws eks get-token`) and nothing else."""
         connect_help.guard_helper_stdin()
         info = connect_help.auth_info(self.kubeconfig, context)
         if connect_help.missing_helper(info):  # say what to install; do not send a request that the cluster would refuse with 401
             raise ConnectionError(connect_help.explain(FileNotFoundError(2, "No such file or directory", info["exec"]), info))
         try:
             with timings.timed("connect", "connect"):
-                self._connect(context)
+                self._connect(context, variables or {})
         except Exception as error:  # noqa: BLE001 - re-raised, only the wording changes
             text = connect_help.explain(error, connect_help.auth_info(self.kubeconfig, context))
             if text == str(error):
@@ -429,9 +431,29 @@ class KubeService:
         cfg.proxy = self.proxy
         cfg.no_proxy = ",".join(self.no_proxy or []) or None
 
-    def _connect(self, context):
+    def _load_kube_config(self, context, cfg, variables):
+        """Load `context` from the kubeconfig into `cfg`. The kubernetes client starts an exec helper with a copy of this
+        process's environment, so the variables are added to the helper's `env` entries of this context's user instead: they
+        reach no other process, are never written back to the file and never logged. Without an exec helper (or without
+        variables) the kubeconfig is loaded as before."""
+        path = self.kubeconfig or config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
+        merged = config.kube_config.KubeConfigMerger(path).config if variables else None  # a ConfigNode, as the client reads it
+        exec_block = None
+        if merged is not None and merged.safe_get("contexts") and merged.safe_get("users"):
+            ctx = merged["contexts"].get_with_name(context, safe=True)
+            user_name = ctx["context"].safe_get("user") if ctx else None
+            user = merged["users"].get_with_name(user_name, safe=True) if user_name else None
+            exec_block = user["user"].safe_get("exec") if user else None  # the dict itself: changing it changes the kubeconfig data
+        if exec_block is None:
+            config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
+            return
+        env = [item for item in exec_block.get("env") or [] if item.get("name") not in variables]
+        exec_block["env"] = env + [{"name": name, "value": value} for name, value in variables.items()]
+        config.load_kube_config_from_dict(merged, context=context, client_configuration=cfg, persist_config=False)
+
+    def _connect(self, context, variables=None):
         cfg = client.Configuration()
-        config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
+        self._load_kube_config(context, cfg, variables or {})
         self.apply_proxy(cfg, context)
         cfg.retries = 1  # the default (3 retries with backoff) makes a dead cluster take ~9s to report
         api = client.ApiClient(cfg)

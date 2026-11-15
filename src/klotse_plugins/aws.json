@@ -327,7 +327,7 @@
       "label": "Pass the AWS profile or access key to kubectl, helm and the terminals Klotse opens",
       "default": true,
       "kind": "bool",
-      "help": "Sets variables in the environment of those commands, so the kubeconfig's 'aws eks get-token' and the aws CLI in a shell Klotse opens can sign in. A cluster with its own profile (Plugins menu, or 'AWS profile for each cluster') gets AWS_PROFILE and never the typed access key. Any other cluster gets the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. It does not change how Klotse itself connects to the cluster.",
+      "help": "Sets variables in the environment of those commands, so the kubeconfig's 'aws eks get-token' and the aws CLI in a shell Klotse opens can sign in. A cluster with its own profile (Plugins menu, or 'AWS profile for each cluster') gets AWS_PROFILE and never the typed access key. Any other cluster gets the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs.",
       "pattern": "",
       "section": "Commands and terminals"
     },
@@ -336,7 +336,7 @@
       "label": "Extra variables for those commands",
       "default": "",
       "kind": "multiline",
-      "help": "One NAME=value per line, added to the environment of the kubectl and helm commands and the terminals Klotse starts for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. It does not change how Klotse itself connects to the cluster.",
+      "help": "One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs.",
       "pattern": "",
       "section": "Commands and terminals"
     }
