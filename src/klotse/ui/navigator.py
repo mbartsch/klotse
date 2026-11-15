@@ -187,6 +187,16 @@ class Navigator(QTreeWidget):
             self._states[n] = "idle"
         self._layout_idle()
 
+    def state_snapshot(self):
+        """{context: (state, error)} for every cluster row, so the states can be put back after set_contexts."""
+        return {name: (state, self._failures.get(name) or None) for name, state in self._states.items()}
+
+    def restore_states(self, snapshot):
+        """Put back the states from state_snapshot, for the clusters that are still listed. Idle ones are left as they are."""
+        for name, (state, error) in snapshot.items():
+            if name in self._clusters and state != "idle":
+                self.set_state(name, state, error)
+
     def set_filter(self, text):
         """Show clusters whose kubeconfig context or display alias contains `text`."""
         text = str(text or "").strip().casefold()
