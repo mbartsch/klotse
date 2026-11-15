@@ -43,6 +43,7 @@ from . import branding, embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
+from .status_line import StatusLine
 from .wording import menu_text
 
 
@@ -417,6 +418,7 @@ class MainWindow(QMainWindow):
         self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
 
         self.status = self.statusBar()
+        self.status_line = StatusLine(self.status)  # action results are held here; load chatter waits (#497)
         self.plugin_errors_button = QToolButton(self)
         self.plugin_errors_button.setObjectName("pluginErrorsStatus")
         self.plugin_errors_button.setText("Plugin error")
@@ -684,7 +686,8 @@ class MainWindow(QMainWindow):
         self._apply_global_auto_pause(ws)
         ws.detail.set_show_managed_fields(self.managed_fields_action.isChecked())
         self.managed_fields_action.toggled.connect(ws.detail.set_show_managed_fields)
-        ws.message.connect(self.status.showMessage)
+        ws.message.connect(lambda text, line=self.status_line: line.show_chatter(text))
+        ws.result.connect(lambda text, line=self.status_line: line.show_result(text))
         ws.state.connect(lambda s, c=ctx: self._on_state(c, s))
         ws.failed.connect(lambda m, c=ctx: self._on_failed(c, m))
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
