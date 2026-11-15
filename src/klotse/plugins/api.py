@@ -37,7 +37,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 10  # 10: plugin column presets. 9: enrichment receives the cluster ApiClient factory. 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
+API_VERSION = 12  # 12: process_environment (variables for the kubectl, helm and terminal processes of a cluster). 11: cluster sources (Add clusters from the cloud). 10: plugin column presets. 9: enrichment receives the cluster ApiClient factory. 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -228,6 +228,96 @@ class Reload:
     kinds: tuple = ()
 
 
+# ---- clusters from a cloud account (Add clusters from the cloud): the plugin lists them and writes their credentials ---------
+class CloudError(Exception):
+    """A cloud CLI is missing, failed, or answered with something that cannot be used. The message is safe to show."""
+
+
+SAFE_CLUSTER_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@()-]{0,199}")  # names, ids, groups, profiles, projects
+
+
+def checked_value(value, pattern, what):
+    """The value stripped, or "" when empty; CloudError when it has characters the cloud's names and ids never have."""
+    value = str(value or "").strip()
+    if value and not pattern.fullmatch(value):
+        raise CloudError(f"{what} has characters that are not allowed: {value[:40]!r}")
+    return value
+
+
+@dataclass(frozen=True)
+class ClusterField:
+    """A value the listing needs (region, project, ...), shown in the Add clusters dialog."""
+    key: str
+    label: str
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class ClusterSource:
+    """A kind of cluster a plugin lists in Add clusters from the cloud (for example EKS). `fields` are the scope it needs."""
+    key: str
+    title: str
+    fields: tuple = ()
+
+
+@dataclass(frozen=True)
+class ClusterRef:
+    """A cluster found by a listing. `ref` is what the cloud's CLI needs to name it (the name, or an OCID)."""
+    name: str
+    ref: str
+    location: str = ""
+    group: str = ""
+    state: str = ""
+
+
+def read_ini_file(path):
+    """The parsed INI file (AWS and OCI config files), or None when it is missing or unreadable. Interpolation is off."""
+    import configparser
+
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, UnicodeDecodeError, configparser.Error):
+        return None
+    return parser
+
+
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")  # a variable name every shell and Windows accept
+
+
+def parse_environment(text):
+    """{NAME: value} from a multi-line setting with one NAME=value per line (empty lines and lines starting with # are
+    skipped; the value is everything after the first =, spaces around it removed). A leading `export ` is ignored and a
+    value wrapped in matching quotes loses them, so AWS_ENDPOINT_URL="http://localhost:4566" works as typed.
+    ValueError names a line that is not one, without repeating its value."""
+    found = {}
+    for number, line in enumerate(str(text or "").splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        name, equals, value = line.partition("=")
+        name = name.strip()
+        if not equals or not ENV_NAME.fullmatch(name):
+            raise ValueError(f"line {number} is not NAME=value")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        found[name] = value
+    return found
+
+
+def env_value(env, *names):
+    """The first of these environment variables that is set (stripped), else ""."""
+    for name in names:
+        value = (env.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 class Plugin:
     """Base class for plugins. Set the class attributes and override `enrich` and/or `run`."""
 
@@ -262,3 +352,26 @@ class Plugin:
     def run(self, request):
         """Do the action in `request` (an ActionRequest). Runs on a worker thread. Return results (see above)."""
         return None
+
+    def process_environment(self, context, settings):
+        """Return {NAME: value} to add to the environment of the kubectl and helm commands and the terminals Klotse starts for
+        the cluster `context` (`settings` are the plugin's, with that cluster's). Called on the GUI thread each time such a
+        process starts, so it must be fast and use only the settings (no network, no files). Not used for the connection
+        Klotse itself makes to the cluster. An empty value is passed as an empty variable; leave a name out to not set it."""
+        return {}
+
+    cluster_sources = ()  # ClusterSource objects: kinds of cluster this plugin lists in Add clusters from the cloud
+
+    def cluster_defaults(self, source, env):
+        """Scope values for `source` from the local CLI configuration (the dialog offers them; the user can change them). {} if none."""
+        return {}
+
+    def list_clusters(self, source, scope, run):
+        """Return [ClusterRef] for the clusters of `source` in `scope` (a dict of the source's field values). `run(argv, env=None)`
+        runs one CLI and returns its standard output, raising CloudError on failure. Runs on a worker thread; no Qt here."""
+        raise CloudError(f"{self.name or self.id} does not list clusters")
+
+    def cluster_credentials(self, source, cluster, scope, target, run):
+        """Write the kubeconfig entry of `cluster` into the file `target` (a private temporary file Klotse merges afterwards),
+        by running the cloud's own CLI with `run`. Runs on a worker thread."""
+        raise CloudError(f"{self.name or self.id} does not write cluster credentials")

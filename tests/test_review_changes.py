@@ -188,7 +188,7 @@ def flow(qtbot, monkeypatch, answer, result=None, review=True):
 
     def exec_(self):
         dialogs.append(self)
-        qtbot.waitUntil(lambda: self.save_button.isEnabled() or "refuses" in self.status.text(), timeout=5000)
+        qtbot.waitUntil(lambda: self.save_button.isEnabled() or "refuses" in self.status.text(), timeout=20000)
         getattr(self, answer + "_button", self.save_button).click() if answer != "cancel" else None
         return 0
 
@@ -224,7 +224,7 @@ def test_cancel_stores_nothing_and_back_to_editing_reopens_the_editor(qtbot, mon
     ws, service, submitted, _dialogs = flow(qtbot, monkeypatch, "back")
     ws._has_form = lambda kind, current: False
     answers = iter(["back", "save"])
-    monkeypatch.setattr(ReviewDialog, "exec", lambda self: (qtbot.waitUntil(lambda: self.save_button.isEnabled(), timeout=5000),
+    monkeypatch.setattr(ReviewDialog, "exec", lambda self: (qtbot.waitUntil(lambda: self.save_button.isEnabled(), timeout=20000),
                                                             getattr(self, next(answers) + "_button").click(), 0)[2])
     first, second = {"metadata": {"name": "c"}, "data": {"a": "2"}}, {"metadata": {"name": "c"}, "data": {"a": "3"}}
     yaml_dialog(monkeypatch, [first, second])

@@ -114,7 +114,7 @@ class FakeService:
     def list_configmap_names(namespace):
         return []
 
-    def connect(self, ctx):
+    def connect(self, ctx, variables=None):
         pass
 
     def list_namespaces(self):
@@ -451,7 +451,7 @@ class MultiService(FakeService):
         self.context = None
         MultiService.instances.append(self)
 
-    def connect(self, ctx):
+    def connect(self, ctx, variables=None):
         if ctx == "bad":
             raise RuntimeError("unreachable")
         self.context = ctx
@@ -623,7 +623,7 @@ def test_cancelling_inflight_retry_drops_late_failure(qtbot):
     started, release = Event(), Event()
 
     class SlowService(MultiService):
-        def connect(self, ctx):
+        def connect(self, ctx, variables=None):
             started.set()
             release.wait(5)
             raise RuntimeError("late failure")
@@ -1000,7 +1000,7 @@ def test_disconnect_while_connecting_drops_late_result(qtbot):
     gate = threading.Event()
 
     class SlowService(MultiService):
-        def connect(self, ctx):
+        def connect(self, ctx, variables=None):
             gate.wait(5)  # the connection is "in flight" until released
             super().connect(ctx)
 

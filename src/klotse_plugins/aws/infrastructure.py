@@ -6,7 +6,7 @@ import urllib.parse
 from datetime import datetime, timezone
 
 from .awscreds import AwsCredentials, CredentialSource
-from .ec2 import Ec2Unavailable, boto3_session
+from .ec2 import Ec2Error, Ec2Unavailable, boto3_session
 from .native import AwsHttpError, _strip_namespaces, _text, post
 from .safe import parse_xml, valid_region
 from .sigv4 import sign
@@ -70,7 +70,7 @@ class InfrastructureApi:
         self.source, self.http, self.now = CredentialSource(profile), http, now
         try:
             self.session = session_factory(profile)
-        except Ec2Unavailable:  # boto3 is optional; use the same AWS CLI/environment fallback as the node lookups
+        except (Ec2Unavailable, Ec2Error):  # boto3 is optional, or the profile is unknown: use the AWS CLI/environment fallback as the node lookups do
             self.session = None
 
     def _credentials(self):

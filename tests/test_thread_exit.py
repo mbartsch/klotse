@@ -45,11 +45,17 @@ def test_a_thread_still_blocked_after_the_grace_period_skips_the_interpreter_tea
 
 
 def run_entry_point(script, timeout=20):
+    """Run the script in a child. The child prints READY once its window is up; the seconds returned count from then to its
+    exit, so interpreter start and imports (which vary a lot on a busy runner) are not part of the measure."""
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    child = subprocess.Popen([sys.executable, "-c", script], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True)
+    ready = child.stdout.readline()
     started = monotonic()
-    result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=timeout)
-    return result, monotonic() - started
+    out, err = child.communicate(timeout=timeout)
+    seconds = monotonic() - started
+    return subprocess.CompletedProcess(child.args, child.returncode, ready + out, err), seconds
 
 
 def test_quitting_while_a_watch_thread_is_blocked_in_a_read_exits_cleanly():
@@ -79,6 +85,7 @@ def create_window(factory):
     watcher.start()
     keep.append(watcher)
     QTimer.singleShot(200, lambda: QApplication.instance().quit())
+    print("READY", flush=True)
     return win
 entry.MainWindow = create_window
 entry.main()
@@ -86,4 +93,4 @@ entry.main()
     result, seconds = run_entry_point(script)
     assert result.returncode == 0, (result.returncode, result.stderr)
     assert "Destroyed while thread is still running" not in result.stderr
-    assert seconds < 10  # it did not wait out the 15 s read
+    assert seconds < 10  # from READY to exit: it did not wait out the 15 s read

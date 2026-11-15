@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDoc
 from shiboken6 import isValid
 
 from ..k8s.api_index import ApiIndex
+from ..k8s.process_env import environment
 from ..k8s.permissions import Permissions
 from ..k8s.helm import HelmError, helm_uninstall_args
 from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPEC_BY_KIND, SPECS, crd_groups,
@@ -38,7 +39,7 @@ from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
-from .metrics_sources import ForwardDefaults, MetricsSources
+from .metrics_sources import METRICS_SERVER, ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .metrics_query_dialog import MetricsQueryDialog
 from .prometheus_source_dialog import FORWARD, PrometheusSourceDialog
@@ -178,11 +179,11 @@ class ClusterWorkspace(QMainWindow):
         self._closed = False
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
-        self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
+        self.port_forwards = PortForwards(parent=self, variables=lambda _context: self.process_variables())  # the kubectl port-forward processes of this cluster
         self._source_forward = None  # the forward a usage history window reads Prometheus through, while it runs
         self._forward_users = set()  # the usage windows using it; the forward stops when the last one closes
         self._terminal_hosts = []  # embedded terminal sessions: each in its own window, or docked in this one
-        self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
+        self.file_copies = FileCopies(parent=self, variables=lambda _context: self.process_variables())  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self.review_changes = True  # View > Review changes before saving: a server dry run and a diff before an edit is stored
@@ -469,7 +470,9 @@ class ClusterWorkspace(QMainWindow):
         """Connect; called by the shell after it has hooked up the signals."""
         self.state.emit("connecting")
         self.message.emit(f"Connecting to {self.context}…")
-        self._run(self.service.connect, lambda _: self._connected(), self.context, on_error=self._connect_failed)
+        # the plugins' variables for this cluster are asked here, on the GUI thread, and used for the sign-in helper only
+        self._run(self.service.connect, lambda _: self._connected(), self.context, self.process_variables(),
+                  on_error=self._connect_failed)
 
     def _build_views(self):
         T = ResourceTable
@@ -707,10 +710,26 @@ class ClusterWorkspace(QMainWindow):
 
     def _show_detail_row(self, table, row):
         if row is None:
+            self._detail_row = None
             self.detail.clear_row()
             return
+        self._detail_row = row
         self.detail.show_row(row)
         self.detail.set_object_actions(table.row_actions(row))
+        if table.kind == "Secret" and not getattr(row, "secret_loaded", True):
+            # the list only had its metadata: show what is known, then the whole Secret once it is read (if still selected)
+            self._load_secret(row, lambda loaded, t=table: self._show_detail_row(t, loaded) if self._detail_row is loaded else None)
+
+    def _load_secret(self, row, then):
+        """A Secret from the list has only its metadata: read the whole object in the background, copy it into `row`, then call
+        `then(row)`. A failed read is shown in the status line and `then` is not called."""
+        def loaded(full, r=row):
+            r.raw, r.type, r.keys = full.raw, full.type, full.keys
+            r.expires, r.subject, r.secret_data, r.secret_loaded = full.expires, full.subject, full.secret_data, True
+            then(r)
+        self._run(self.service.read_secret, loaded, row.namespace, row.name,
+                  on_error=lambda msg: self.message.emit(f"Could not read the Secret {row.name}: {msg}"))
+
 
     def _sync_details_to_tab(self, widget):
         """Show the active resource tab's current selection, or its clear empty state."""
@@ -1076,11 +1095,12 @@ class ClusterWorkspace(QMainWindow):
             return
 
         self.record_change("helm uninstall", f"{row.namespace}/{row.name}")
+        env = environment(self.process_variables())  # asked here, on the GUI thread
 
         def run():
             flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
             try:
-                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, **flags)  # no console: see remote_files
+                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=env, **flags)  # no console: see remote_files
             except FileNotFoundError:
                 raise RuntimeError("The helm command was not found. Install Helm and make sure it is on the PATH.") from None
             except subprocess.TimeoutExpired:
@@ -1499,7 +1519,7 @@ class ClusterWorkspace(QMainWindow):
         base = kubectl_base(self.context, self.kubeconfig)
         return lambda container, path, ok, bad: self._run(
             remote_files.list_directory, lambda result: ok(*result), base, namespace, pod, container, path,
-            on_error=lambda message: bad(message.split(": ", 1)[-1]))
+            subprocess.run, self.process_variables(), on_error=lambda message: bad(message.split(": ", 1)[-1]))
 
     def browse_files(self, row, container=None, path="/"):
         """Right-click > Browse files… on a pod: look through the files of a container. Download… hands the chosen path to
@@ -1823,6 +1843,13 @@ class ClusterWorkspace(QMainWindow):
         """Find the source the query window reads: the one set for this cluster (through its port-forward when it is one), else the first
         candidate that answers. The window shows what it found, or why nothing was found."""
         typed = self.metrics_sources.get(self.context)
+        if typed == METRICS_SERVER:
+            holder["ref"] = None
+            try:
+                dialog.set_source("metrics-server only", "Prometheus is not used for this cluster (Preferences > Metrics).")
+            except RuntimeError:
+                pass
+            return
 
         def found(ref):
             holder["ref"] = ref
@@ -1861,7 +1888,7 @@ class ClusterWorkspace(QMainWindow):
         def find_source():
             """(ref, [what failed]) of the first source that answers the Prometheus API; runs on a worker."""
             notes = []
-            candidates = [prometheus.parse_ref(typed)] if typed else (self.service.find_prometheus() or [])[:3]
+            candidates = [prometheus.with_auth(prometheus.parse_ref(typed), *self.metrics_sources.get_auth(self.context))] if typed else (self.service.find_prometheus() or [])[:3]
             for ref in candidates:
                 try:
                     self.service.prometheus_check(ref)
@@ -2003,8 +2030,12 @@ class ClusterWorkspace(QMainWindow):
         if find is None or check is None:
             return
         manual = self.metrics_sources.get(self.context)
+        if manual == METRICS_SERVER:
+            dialog.set_source_note("Prometheus is not used for this cluster (Preferences > Metrics chooses metrics-server only).")
+            return
         try:
-            typed = forwarded or (prometheus.parse_ref(manual) if manual else None)
+            typed = forwarded or (prometheus.with_auth(prometheus.parse_ref(manual), *self.metrics_sources.get_auth(self.context))
+                                  if manual else None)
         except ValueError as error:
             dialog.set_source_note(f"The saved Prometheus address is not valid: {error}")
             return
@@ -2046,6 +2077,28 @@ class ClusterWorkspace(QMainWindow):
 
         self._run(work, done, on_error=lambda _message: None)
 
+    def find_metrics_sources(self, done):
+        """Preferences > Metrics Add: the Prometheus / VictoriaMetrics services found on this cluster, as address texts, best first;
+        done([]) when none is found. Runs in the background and saves nothing."""
+        def work():
+            return [prometheus.ref_text(ref) for ref in self.service.find_prometheus()]
+
+        self._run(work, done, on_error=lambda _message: done([]))
+
+    def check_metrics_source(self, text, done, auth=("", "", "")):
+        """Preferences > Metrics Test: check `text` (a Prometheus / VictoriaMetrics address, or metrics-server) on this cluster in the
+        background, then call done(message). Nothing is saved."""
+        def work():
+            if text == METRICS_SERVER:
+                if self.service.metrics_available():
+                    return "metrics-server answered: the metrics.k8s.io API is served here."
+                raise RuntimeError("metrics-server is not installed on this cluster (metrics.k8s.io is not served).")
+            ref = prometheus.with_auth(prometheus.parse_ref(text), *auth)
+            self.service.prometheus_check(ref)
+            return f"{prometheus.ref_text(ref)} answered the Prometheus API."
+
+        self._run(work, done, on_error=done)
+
     def _forward_options(self, context=None):
         """(tls, insecure) for the port-forward of a cluster: its own choice, else the Preferences setting."""
         context = context or self.context
@@ -2057,7 +2110,8 @@ class ClusterWorkspace(QMainWindow):
         """The Source… dialog: (text, via, local, tls, insecure) to keep for this cluster, or None when cancelled (text "" = look for one
         automatically). Test checks the chosen settings; a forward it starts is stopped again when the dialog is cancelled."""
         sources, defaults = self.metrics_sources, self.forward_defaults
-        dialog = PrometheusSourceDialog(sources.get(self.context), sources.get_via(self.context), sources.get_local(self.context),
+        own = sources.own(self.context) or {}  # the dialog edits this cluster's own entry, not the default it inherits
+        dialog = PrometheusSourceDialog(own.get("ref", ""), own.get("via", "proxy"), own.get("local", 0),
                                         sources.get_tls(self.context), sources.get_insecure(self.context), defaults.tls, defaults.insecure, self)
         asked = []
 
@@ -2194,7 +2248,9 @@ class ClusterWorkspace(QMainWindow):
                 QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
                 return False
         try:
-            self.metrics_sources.set(self.context, text, via, local, tls, insecure)
+            own = self.metrics_sources.own(self.context) or {}  # the Source… dialog keeps the URL authentication already saved
+            self.metrics_sources.set(self.context, text, via, local, tls, insecure, own.get("auth", ""), own.get("auth_env", ""),
+                                     own.get("auth_user", ""))
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
             return False
@@ -2614,6 +2670,10 @@ class ClusterWorkspace(QMainWindow):
         return [self.ns_combo.itemText(i) for i in range(self.ns_combo.count()) if self.ns_combo.itemText(i) != ALL_NS]
 
     def edit_resource(self, kind, row):
+        if kind == "Secret" and not getattr(row, "secret_loaded", True):
+            # never edit from metadata alone: the data must be read first (or the edit would drop it)
+            self._load_secret(row, lambda loaded: self.edit_resource(kind, loaded))
+            return
         self._edit_flow(kind, row.raw, row.name, getattr(row, "namespace", ""),
                         secret_data=getattr(row, "secret_data", None))
 
@@ -3138,7 +3198,7 @@ class ClusterWorkspace(QMainWindow):
             return
         for node in nodes:
             self.record_change("drain", node)
-        view = CommandView(dialog.command())
+        view = CommandView(dialog.command(), variables=self.process_variables())
         view.key = ("drain", nodes[0] if len(nodes) == 1 else nodes)
         view.drain_nodes = nodes
         title = nodes[0] if len(nodes) == 1 else f"{len(nodes)} nodes"
@@ -3277,6 +3337,11 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Replacing {row.name}…")
         self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), row.name, row.namespace)
 
+    def process_variables(self):
+        """What the enabled plugins add to the environment of the kubectl, helm and terminal processes of this cluster (for
+        example the AWS profile or keys); {} without plugins. Call it on the GUI thread, when the process starts."""
+        return self.plugins.process_environment(self.context) if self.plugins is not None else {}
+
     def _launch_terminal(self, argv, message, title=None):
         """Open an interactive kubectl session in the configured terminal."""
         if self.terminal_settings.embedded:
@@ -3296,13 +3361,18 @@ class ClusterWorkspace(QMainWindow):
                 )
                 if answer != QMessageBox.Yes:
                     return
+        variables = self.process_variables()
         self._run(open_terminal, lambda _: self.message.emit(message), argv,
-                  self.terminal_settings.mac_terminal)
+                  self.terminal_settings.mac_terminal, *([variables] if variables else []))
 
     def open_embedded_terminal(self, argv, message, title=None, session_factory=None):
         """A session in its own window (with a button to dock it into the cluster window); False when it could not start (the
         caller then uses the external terminal)."""
         name = title or message.replace("Opened ", "")
+        variables = self.process_variables()
+        if session_factory is None and variables:
+            def session_factory(argv, cols, rows):
+                return embedded_terminal.make_session(argv, cols, rows, variables)
         kwargs = {"session_factory": session_factory} if session_factory is not None else {}
         try:
             tab = embedded_terminal.TerminalTab(name, argv, **kwargs)

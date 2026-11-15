@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import theme
+from ..k8s.process_env import environment
 from .pty_session import PtySession
 
 # A terminal needs no GPU: software rendering avoids driver trouble and the GPU process's memory. Read when QtWebEngine starts.
@@ -91,8 +92,8 @@ class Bridge(QObject):
         self.pasteText.emit((QGuiApplication.clipboard().text() or "")[:MAX_PASTE])
 
 
-def make_session(argv, cols, rows):
-    return PtySession(argv, cols, rows)
+def make_session(argv, cols, rows, variables=None):
+    return PtySession(argv, cols, rows, env=environment(variables))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
 
 
 class TerminalTab(QWidget):

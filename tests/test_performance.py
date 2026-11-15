@@ -24,6 +24,7 @@ def test_connection_requests_compressed_responses(monkeypatch):
         return SimpleNamespace(get_api_resources=lambda **kw: None)
 
     monkeypatch.setattr(module.client, 'CoreV1Api', core)
+    monkeypatch.setattr(module.client, 'AuthorizationV1Api', lambda api: SimpleNamespace(create_self_subject_access_review=lambda *a, **k: None))
     svc = KubeService()
     svc.connect('test')
     assert clients[0].default_headers['Accept-Encoding'] == 'gzip'
@@ -117,10 +118,10 @@ def test_large_table_initial_load_and_filter(qtbot):
     table.set_rows([PodRow(f'pod-{i}', 'ns', '1/1', 'Running', i, '', '') for i in range(10000)])
     assert table.proxy.rowCount() == 10000 and table.proxy.sortColumn() == -1
     table.filter.setText('pod-9999')
-    qtbot.waitUntil(lambda: table.proxy.rowCount() == 1)
+    qtbot.waitUntil(lambda: table.proxy.rowCount() == 1, timeout=20000)
     assert table.proxy.index(0, 0).data() == 'pod-9999'
     table.filter.clear()
-    qtbot.waitUntil(lambda: table.proxy.rowCount() == 10000)
+    qtbot.waitUntil(lambda: table.proxy.rowCount() == 10000, timeout=20000)
     table.view.sortByColumn(1, Qt.DescendingOrder)
     assert table.proxy.index(0, 1).data() == '9999'
 

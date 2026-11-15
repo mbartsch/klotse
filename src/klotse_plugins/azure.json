@@ -1,0 +1,59 @@
+{
+  "manifest_version": 1,
+  "id": "azure",
+  "name": "Azure (AKS) Plugin",
+  "version": "0.1",
+  "requires_api": 12,
+  "description": "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal.",
+  "columns": [],
+  "actions": [
+    {
+      "key": "sign-in",
+      "title": "Sign in to Azure for this cluster (az login)…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    }
+  ],
+  "overview_cards": [],
+  "settings": [
+    {
+      "key": "azure_tenant",
+      "label": "Azure tenant (optional)",
+      "default": "",
+      "kind": "text",
+      "help": "A tenant id or domain for az login, when the account belongs to more than one tenant. Empty uses the default.",
+      "pattern": ""
+    },
+    {
+      "key": "azure_device_code",
+      "label": "Sign in with a device code",
+      "default": false,
+      "kind": "bool",
+      "help": "Shows a code to enter in a browser, for a terminal without a browser. Off opens the browser.",
+      "pattern": ""
+    },
+    {
+      "key": "extra_environment",
+      "label": "Extra variables for commands and terminals",
+      "default": "",
+      "kind": "multiline",
+      "help": "One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AZURE_CONFIG_DIR=/path/to/dir. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs.",
+      "pattern": "",
+      "section": "Commands and terminals"
+    }
+  ],
+  "cluster_settings": [
+    {
+      "key": "cloud",
+      "label": "Cloud of this cluster",
+      "default": "auto",
+      "kind": "text",
+      "help": "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; azure accepts this cluster's nodes without it.",
+      "pattern": "auto|azure"
+    }
+  ]
+}
