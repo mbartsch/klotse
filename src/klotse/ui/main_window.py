@@ -551,7 +551,9 @@ class MainWindow(QMainWindow):
             except (ValueError, OSError) as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
         self.contexts = self._load_contexts()
+        states = self.nav.state_snapshot()  # set_contexts rebuilds the rows; open clusters must stay Connected
         self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
+        self.nav.restore_states(states)
         self._sync_cluster_picker()
         self.status.showMessage(f"Added {len(contexts)} cluster(s) to {path}")
 
