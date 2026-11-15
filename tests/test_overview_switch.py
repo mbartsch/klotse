@@ -18,3 +18,15 @@ def test_both_switch_buttons_have_the_frame_and_dashboard_is_the_one_in_front(qt
         assert "border: 1px solid" in button.styleSheet()
     view.refresh_theme()
     assert "border: 1px solid" in view.workloads_button.styleSheet()
+
+
+def test_workloads_is_an_action_so_it_never_looks_active_here(qtbot):
+    view = OverviewView(CLUSTER_CARDS)
+    qtbot.addWidget(view)
+    view.show()
+    actions = []
+    view.action_requested.connect(actions.append)
+    view.workloads_button.click()
+    assert actions == ["workloads"]
+    assert view.dashboard_button.isChecked() and not view.workloads_button.isChecked()
+    assert not view.workloads_button.isCheckable()
