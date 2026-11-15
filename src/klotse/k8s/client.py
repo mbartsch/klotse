@@ -10,7 +10,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 import time
 from concurrent.futures import ThreadPoolExecutor
 from heapq import heappush, heapreplace
@@ -37,6 +37,30 @@ FAILING_STATES = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "Inval
 
 HUGE_PODS = 5000  # big-cluster mode: from this many pods the Overview counts by pod phase instead of reading every pod
 MAX_PROMETHEUS_BODY = 64 * 1024 * 1024  # most bytes read from a Prometheus answer through a port-forward
+
+
+class MetricsRedirectPolicy(urllib.request.HTTPRedirectHandler):
+    """Keep credentials on their original origin and never downgrade TLS, on every redirect hop."""
+
+    @staticmethod
+    def _refuse(fp, message):
+        if fp is not None:
+            fp.close()
+        raise prometheus.PrometheusError(message) from None
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            old, new = urlsplit(req.full_url), urlsplit(newurl)
+            old_origin = (old.scheme.lower(), old.hostname, old.port or (443 if old.scheme == "https" else 80))
+            new_origin = (new.scheme.lower(), new.hostname, new.port or (443 if new.scheme == "https" else 80))
+        except ValueError:
+            self._refuse(fp, "the metrics source redirected to an invalid address")
+        authenticated = any(key.lower() == "authorization" for key in req.headers)
+        if (new.scheme not in ("http", "https") or not new.hostname or new.username is not None
+                or (old.scheme == "https" and new.scheme != "https")
+                or (authenticated and old_origin != new_origin)):
+            self._refuse(fp, "the metrics source redirected outside the allowed origin or transport")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 OVERVIEW_LIST_CAP = 500  # most rows the overview keeps per drill-down list (pending pods, failed pods, warnings)
 
 
@@ -1221,15 +1245,17 @@ class KubeService:
             handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
         else:
             handler = urllib.request.ProxyHandler({}) if proxy else urllib.request.ProxyHandler()
-        opener = urllib.request.build_opener(handler)
+        opener = urllib.request.build_opener(handler, MetricsRedirectPolicy())
         try:
             # nosec B310 - the address is the one the user typed for this source; only http and https are allowed (prometheus.parse_url)
             with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
                 body = response.read(MAX_PROMETHEUS_BODY + 1)
         except urllib.error.HTTPError as error:
-            raise prometheus.PrometheusError(f"{ref['origin']} refused the query (HTTP {error.code}); check the authentication and the path prefix") from error
-        except (urllib.error.URLError, OSError) as error:
-            raise prometheus.PrometheusError(f"could not reach {ref['origin']}: {getattr(error, 'reason', error)}") from error
+            error.close()
+            raise prometheus.PrometheusError(f"{ref['origin']} refused the query (HTTP {error.code}); check the authentication and the path prefix") from None
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            # Transport errors may quote server-controlled text or credential-bearing redirect URLs.
+            raise prometheus.PrometheusError(f"could not reach {ref['origin']} ({type(error).__name__})") from None
         if len(body) > MAX_PROMETHEUS_BODY:
             raise prometheus.PrometheusError("the answer is too large")
         return body.decode("utf-8", "replace")
@@ -1570,10 +1596,24 @@ class KubeService:
                                                     field_selector=",".join(selectors), **options)]
         return self._with_usage(rows, label_selector=label_selector) if rows else rows
 
-    def read_pod_log(self, namespace, pod, container, tail=500, previous=False):
+    def read_pod_log(self, namespace, pod, container, tail=500, previous=False, *, limit_bytes=None):
         """The last `tail` lines of one container's log as text (not streamed), or of its previous run. Looking only."""
-        return self._core.read_namespaced_pod_log(pod, namespace, container=container, tail_lines=tail, previous=previous,
-                                                  _request_timeout=60) or ""
+        options = dict(container=container, tail_lines=tail, previous=previous, _request_timeout=60)
+        if limit_bytes is None:
+            return self._core.read_namespaced_pod_log(pod, namespace, **options) or ""
+        if not isinstance(limit_bytes, int) or limit_bytes <= 0:
+            raise ValueError("limit_bytes must be a positive integer")
+        response = self._core.read_namespaced_pod_log(pod, namespace, limit_bytes=limit_bytes,
+                                                      _preload_content=False, **options)
+        try:
+            # Even a server ignoring limit_bytes must not make the client allocate an unbounded body.
+            data = response.read(limit_bytes + 1)
+            truncated = len(data) > limit_bytes
+            text = data[:limit_bytes].decode("utf-8", "replace")
+            return text + ("\n[later bytes cut: the server exceeded the log limit]\n" if truncated else "")
+        finally:
+            response.close()
+            response.release_conn()
 
     def rbac_data(self):
         """{roles, clusterroles, rolebindings, clusterrolebindings: [manifests], missing: [kinds that could not be read]} for the

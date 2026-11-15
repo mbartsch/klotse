@@ -171,7 +171,8 @@ def collect(service, context, namespace, path, options, version="", progress=lam
                     base = f"logs/{safe_name(meta.get('name'))}_{safe_name(cname)}"
                     for previous in (False, True) if (statuses.get(cname) or {}).get("restartCount") else (False,):
                         try:
-                            text = service.read_pod_log(namespace, meta.get("name"), cname, options["tail"], previous)
+                            text = service.read_pod_log(namespace, meta.get("name"), cname, options["tail"], previous,
+                                                        limit_bytes=MAX_LOG_BYTES)
                         except Exception as error:  # noqa: BLE001
                             notes.append(f"log of {meta.get('name')}/{cname}{' (previous)' if previous else ''}: {type(error).__name__}")
                             continue

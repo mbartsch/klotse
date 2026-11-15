@@ -218,9 +218,10 @@ def test_the_windows_console_gets_them_as_its_environment(monkeypatch):
         started.update(kwargs, argv=argv)
 
     monkeypatch.setattr(terminal.subprocess, "Popen", popen)
-    terminal.open_terminal(["kubectl", "exec"], variables={"AWS_PROFILE": "work"})
+    terminal.open_terminal(["kubectl", "exec"], variables={"AWS_PROFILE": "KLOTSE-SYNTHETIC-PROFILE"})
     Path(started["argv"][-1]).unlink()
-    assert started["env"]["AWS_PROFILE"] == "work" and "work" not in " ".join(started["argv"])
+    assert started["env"]["AWS_PROFILE"] == "KLOTSE-SYNTHETIC-PROFILE"
+    assert "KLOTSE-SYNTHETIC-PROFILE" not in " ".join(started["argv"])
 
 
 # ---- the workspace ----------------------------------------------------------------------------------------------

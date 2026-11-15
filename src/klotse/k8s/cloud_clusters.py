@@ -8,7 +8,6 @@ Preferences. The main kubeconfig is never a CLI target.
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -84,8 +83,6 @@ def merge_into(target, source, backup=True):
     existing = current is not None
     if current is None:
         current = {}
-    if backup and existing:
-        shutil.copy2(target, Path(f"{target}.bak"))
     merged = {"apiVersion": current.get("apiVersion") or new.get("apiVersion") or "v1",
               "kind": current.get("kind") or "Config", "preferences": current.get("preferences") or {}}
     added, skipped = [], []
@@ -106,12 +103,30 @@ def merge_into(target, source, backup=True):
         merged[section] = have
     merged["current-context"] = current.get("current-context") or (added[0] if added else "")
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(target.name + ".tmp")
-    temporary.write_text(yaml.safe_dump(merged, sort_keys=False, allow_unicode=True), encoding="utf-8")
-    if os.name == "posix":
-        os.chmod(temporary, 0o600)
-    os.replace(temporary, target)
+    content = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True).encode("utf-8")
+    if backup and existing:
+        _private_replace(Path(f"{target}.bak"), target.read_bytes())
+    _private_replace(target, content)
     return added, skipped
+
+
+def _private_replace(target, content):
+    """Write credentials through an exclusive private file, then atomically replace the destination.
+
+    mkstemp applies POSIX mode 0600 before the first byte, independently of the user's umask. Backups use the same path so
+    an old broadly readable backup or a symlink is replaced rather than opened. Windows retains its usual directory ACLs."""
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    try:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with handle:
+            handle.write(content)
+        os.replace(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def scratch_dir():
