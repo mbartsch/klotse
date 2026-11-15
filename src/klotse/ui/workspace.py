@@ -33,6 +33,7 @@ from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from ..k8s.client import HUGE_PODS
 from .compare_dialog import CompareDialog
+from .wording import counted, plural_label
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
@@ -321,6 +322,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.pods_table.port_forward_requested.connect(self.start_port_forward)
                 widget.pods_table.duplicate_requested.connect(self.copy_resource)
                 widget.pods_table.copy_files_requested.connect(self.copy_files)
+                self._wire_pod_list_extras(widget.pods_table)
             if isinstance(widget, ResourceTable):
                 if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS, *NETWORK_KINDS):  # these kinds can be created from their list
                     widget.enable_new()
@@ -854,6 +856,14 @@ class ClusterWorkspace(QMainWindow):
             return True  # reloading would throw away the pages the user loaded
         return is_manual(key, self.refresh_settings.overrides())
 
+    def _wire_pod_list_extras(self, table):
+        """The usage, log and compare entries of a Pod list (node pods tab, pending pods on the overview)."""
+        table.metrics_requested.connect(self.show_metrics)
+        table.metrics_query_requested.connect(self.show_metrics_query)
+        table.metrics_many_requested.connect(self.show_metrics_many)
+        table.multi_logs_requested.connect(self.multi_logs)
+        table.compare_requested.connect(self.compare_objects)
+
     def _wire_refresh(self, table):
         """Give a list its right-click Refresh and Refresh automatically entries and the manual-refresh note."""
         key = getattr(table, "view_key", None)
@@ -1190,7 +1200,7 @@ class ClusterWorkspace(QMainWindow):
     @staticmethod
     def plural_label(kind):
         """'NodePool' -> 'NodePools', 'EC2NodeClass' -> 'EC2NodeClasses'."""
-        return kind + ("es" if kind.endswith("s") else "s")
+        return plural_label(kind)
 
     def _find_karpenter(self):
         """Ask (in the background, quietly) whether the cluster runs Karpenter; if it does the navigator gets a Karpenter
@@ -1975,7 +1985,7 @@ class ClusterWorkspace(QMainWindow):
             return None
         picked = list(rows)
         if len(picked) > metrics_history.MAX_OBJECTS:
-            self.message.emit(f"Usage history shows the first {metrics_history.MAX_OBJECTS} of the {len(picked)} {kind}s selected")
+            self.message.emit(f"Usage history shows the first {metrics_history.MAX_OBJECTS} of the {counted(len(picked), kind)} selected")
             picked = picked[:metrics_history.MAX_OBJECTS]
         targets = []
         for row in picked:
@@ -2000,7 +2010,7 @@ class ClusterWorkspace(QMainWindow):
             return metrics_history.combine([(label, sample(kind, ns, name, sel)) for label, (ns, name, sel) in zip(labels, targets)])
 
         available = getattr(self.service, "metrics_available", lambda: True)()
-        title = f"Usage history: {len(targets)} {kind}s ({self.context})"
+        title = f"Usage history: {counted(len(targets), kind)} ({self.context})"
         object_options = {label: f"{kind} {label}" for label in labels}
         dialog = MetricsDialog(title, read, None, available, parent=self, allow_source=False,
                                object_options=object_options)
@@ -2962,7 +2972,7 @@ class ClusterWorkspace(QMainWindow):
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self.message.emit(f"Starting a Job from {row.name}…")
-            self._run(self.service.trigger_cronjob, lambda job: self._saved("Job", job), row.name, row.namespace)
+            self._run(self.service.trigger_cronjob, lambda job: self._saved("Job", job, "Started"), row.name, row.namespace)
         elif action in ("cronjob-suspend", "cronjob-resume"):
             suspend = action == "cronjob-suspend"
             if suspend and QMessageBox.question(self, "Suspend CronJob", f"Cluster: {self.context}\nSuspend CronJob {name}? "
@@ -2970,7 +2980,7 @@ class ClusterWorkspace(QMainWindow):
                                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self.message.emit(f"{'Suspending' if suspend else 'Resuming'} {row.name}…")
-            self._run(self.service.set_cronjob_suspended, lambda _: self._saved("CronJob", row.name), row.name, row.namespace, suspend)
+            self._run(self.service.set_cronjob_suspended, lambda _: self._saved("CronJob", row.name, "Suspended" if suspend else "Resumed"), row.name, row.namespace, suspend)
 
     def _restarted(self, kind, name):
         self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")
@@ -2996,8 +3006,8 @@ class ClusterWorkspace(QMainWindow):
         elif action == "scale":
             olds = {id(r): (r.raw.get("spec") or {}).get("replicas", 1) for r in rows}
             text, ok = QInputDialog.getText(
-                self, f"Scale {n} {kind}s",
-                f"New replicas for each of the {n} {kind}s:\n{names}\n\n"
+                self, f"Scale {counted(n, kind)}",
+                f"New replicas for each of the {counted(n, kind)}:\n{names}\n\n"
                 "Enter a number, or change each one relative to its own count:\n"
                 "*2 double   /2 halve (rounds up)   +1 add one   -1 remove one", text=str(olds[id(rows[0])]))
             if not ok:
@@ -3007,14 +3017,14 @@ class ClusterWorkspace(QMainWindow):
             except ValueError as e:
                 QMessageBox.warning(self, "Scale", str(e))
                 return
-            self._bulk(f"Scaling {n} {kind}s ({text.strip()})", rows,
+            self._bulk(f"Scaling {counted(n, kind)} ({text.strip()})", rows,
                        lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
                        lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
         elif action == "restart":
-            if QMessageBox.question(self, f"Restart {kind}s", f"Cluster: {self.context}\nRestart {n} {kind}s?\n\n{names}\n\n"
+            if QMessageBox.question(self, f"Restart {plural_label(kind)}", f"Cluster: {self.context}\nRestart {counted(n, kind)}?\n\n{names}\n\n"
                                     f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
-            self._bulk(f"Restarting {n} {kind}s", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
+            self._bulk(f"Restarting {counted(n, kind)}", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
         elif action == "delete" and kind in DELETABLE_KINDS:
             missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
             if missing:
@@ -3024,10 +3034,10 @@ class ClusterWorkspace(QMainWindow):
             care = (f"\n\nTake care: {len(flagged)} of them are default (system) objects, feed an aggregated role "
                     f"(admin/edit/view) or grant cluster-admin:\n{self._names([r for r in rows if r.name in flagged])}"
                     ) if flagged else ""
-            if QMessageBox.question(self, f"Delete {kind}s", f"Cluster: {self.context}\nDelete {n} {kind}s?\n\n{names}{care}",
+            if QMessageBox.question(self, f"Delete {plural_label(kind)}", f"Cluster: {self.context}\nDelete {counted(n, kind)}?\n\n{names}{care}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
-            self._bulk(f"Deleting {n} {kind}s", rows, lambda r: self.service.delete_resource(
+            self._bulk(f"Deleting {counted(n, kind)}", rows, lambda r: self.service.delete_resource(
                 kind, r.name, r.namespace, r.raw["metadata"]["uid"]))
         elif action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
@@ -3256,6 +3266,7 @@ class ClusterWorkspace(QMainWindow):
             table.copy_files_requested.connect(self.copy_files)
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
+            self._wire_pod_list_extras(table)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
             self.loaders[key] = (lambda _, **options: self.service.list_node_pods(node, **options), False,
                                  lambda rows, t=table, b=bar: (t.set_rows(rows), b.set_pods(rows)))
@@ -3291,7 +3302,7 @@ class ClusterWorkspace(QMainWindow):
                 return
             self.message.emit(f"Terminating {row.name}…")
             args = (row.name, row.namespace, True) if force else (row.name, row.namespace)
-            self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), *args)
+            self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Terminated"), *args)
             return
         containers = [c[0] for c in pod_containers(row.raw)]
         if action == "logs":
@@ -3335,7 +3346,7 @@ class ClusterWorkspace(QMainWindow):
         if ok != QMessageBox.Yes:
             return
         self.message.emit(f"Replacing {row.name}…")
-        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), row.name, row.namespace)
+        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Deleted"), row.name, row.namespace)
 
     def process_variables(self):
         """What the enabled plugins add to the environment of the kubectl, helm and terminal processes of this cluster (for
@@ -3399,6 +3410,7 @@ class ClusterWorkspace(QMainWindow):
         table = ResourceTable(CONTAINER_COLUMNS, "Container", editable=False)
         table.set_page_title(f"Containers in {row.name}")
         table.view_key = key
+        table.refresh_requested.connect(lambda k=key: self.load_view(k))  # the heading's Refresh button, as F5
         bar = PodActionBar()
         table.set_header_widget(bar)
         table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
@@ -3455,10 +3467,10 @@ class ClusterWorkspace(QMainWindow):
             return
         name = dlg.result_body["metadata"]["name"]
         self.message.emit(f"Creating namespace {name}…")
-        self._run(self.service.create_namespace, lambda _: self._saved("Namespace", name), dlg.result_body)
+        self._run(self.service.create_namespace, lambda _: self._saved("Namespace", name, "Created"), dlg.result_body)
 
-    def _saved(self, kind, name):
-        self.message.emit(f"Saved {kind} {name}")  # also used after create
+    def _saved(self, kind, name, verb="Saved"):
+        self.message.emit(f"{verb} {kind} {name}")  # also used after create
         self.refresh()
 
     # ---- connection / data ---------------------------------------------
@@ -3506,6 +3518,13 @@ class ClusterWorkspace(QMainWindow):
             self.ns_combo.setCurrentIndex(index)
             self.ns_combo.setEditText(name)
         return index >= 0
+
+    def choose_namespace(self, name):
+        """A namespace picked from the command palette: change the selector and reload the list in front, as the
+        selector itself does (set_namespace alone changes only the combo)."""
+        if self.set_namespace(name):
+            self.load_scoped()
+        return self.namespace() == name
 
     def _sync_pin_button(self):
         name = self.namespace()

@@ -147,6 +147,7 @@ class MultiClusterDialog(QDialog):
         if key == "crds":
             self.table.filter.setPlaceholderText("Search CustomResourceDefinitions…")
         self.table.context_actions = self._context_actions
+        self.table.refresh_requested.connect(self.read)  # Refresh on an empty result reads again, as on the other lists
         self.table.view.doubleClicked.connect(lambda _index: self._open_selected())
         self.holder.addWidget(self.table, 1)
         self._rows, self._failed, self._pending = [], {}, set()

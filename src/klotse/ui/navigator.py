@@ -654,7 +654,9 @@ class Navigator(QTreeWidget):
 
     def _on_click(self, item, _col):
         kind = item.data(0, self.ROLE_KIND)
-        if kind == "view":
+        if kind == "cluster" and self._states.get(item.data(0, self.ROLE_KEY)) in ACTIVE_STATES:
+            self.context_clicked.emit(item.data(0, self.ROLE_KEY))  # a connected cluster: bring its tab to the front
+        elif kind == "view":
             cluster = self._cluster_of(item)  # views live under groups under the cluster item
             self.view_requested.emit(cluster.data(0, self.ROLE_KEY), item.data(0, self.ROLE_KEY))
 

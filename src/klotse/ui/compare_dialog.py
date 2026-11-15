@@ -3,6 +3,7 @@ from html import escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
+from .wording import plural_label
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
 from ..k8s import compare
@@ -40,7 +41,7 @@ class CompareDialog(QDialog):
     def __init__(self, context, kind, left, right, parent=None):
         super().__init__(parent)
         self.left, self.right = left, right
-        self.setWindowTitle(f"Compare {kind}s")
+        self.setWindowTitle(f"Compare {plural_label(kind)}")
         resize_dialog(self, 900, 620)
         self.header = QLabel(f"<b>{escape(context)}</b> · {escape(label(left))} (−) against {escape(label(right))} (+)")
         self.header.setTextFormat(Qt.RichText)
