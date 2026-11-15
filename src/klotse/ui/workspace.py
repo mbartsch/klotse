@@ -33,6 +33,7 @@ from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from ..k8s.client import HUGE_PODS
 from .compare_dialog import CompareDialog
+from .crd_delete_dialog import CrdDeleteDialog
 from .wording import counted, plural_label
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
@@ -352,7 +353,8 @@ class ClusterWorkspace(QMainWindow):
                                                  "HelmRelease": self._helm_action, "CronJob": self._cronjob_action,
                                                  "PersistentVolumeClaim": lambda _action, row: self.browse_claim(row),
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
-                                                    for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
+                                                    for k in DELETABLE_KINDS if k != "CustomResourceDefinition"}}.get(
+                                                     widget.kind, self.pod_action))  # CRDs: their own action (open, delete)
         self.ns_table.new_requested.connect(self.new_namespace)
         self.node_table.visible_changed.connect(self._update_node_pods)
 
@@ -698,6 +700,10 @@ class ClusterWorkspace(QMainWindow):
         self.overview.set_plugin_values(self.plugin_host.overview_values())
 
     def _hook_table(self, table):
+        table.selection_count_changed.connect(lambda count, t=table: self._show_detail_row(t, None) if count > 1 else None)
+        self._hook_table_plugins(table)
+
+    def _hook_table_plugins(self, table):
         """Let plugins add columns to this table (only the customizable lists, not the Overview's drill-downs) and
         ask them for values whenever rows arrive."""
         if self.plugin_host is None or table.customize_button is None or getattr(table, "_plugin_hooked", False):
@@ -712,6 +718,11 @@ class ClusterWorkspace(QMainWindow):
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
 
     def _show_detail_row(self, table, row):
+        count = len(table.selected_rows()) if table is not None else 0
+        if count > 1:  # several rows: no single-object actions in Details (#503)
+            self._detail_row = None
+            self.detail.show_many(count)
+            return
         if row is None:
             self._detail_row = None
             self.detail.clear_row()
@@ -1066,6 +1077,8 @@ class ClusterWorkspace(QMainWindow):
             self.open_custom_resources(row)
         elif action == "open-crd-group":
             self.open_crd_group(row.name)
+        elif action == "delete":
+            self.delete_resource("CustomResourceDefinition", row)  # one at a time: each one lists its objects first
 
     def _helm_action(self, action, row):
         if action == "helm-details":
@@ -2863,6 +2876,10 @@ class ClusterWorkspace(QMainWindow):
         self.refresh()
 
     DELETE_NOTES = {
+        "CustomResourceDefinition": "Every object of this kind in the cluster is deleted with it.",
+        "Deployment": "Its pods are removed by the garbage collector; the Service and other objects stay.",
+        "StatefulSet": "Its pods are removed; their volume claims stay unless deleted separately.",
+        "ReplicaSet": "Its pods are removed unless a Deployment owns the ReplicaSet and creates a new one.",
         "ClusterRole": "Bindings that refer to it stop granting anything; aggregated roles are rebuilt by the controller.",
         "Role": "Bindings that refer to it stop granting anything.",
         "ServiceAccount": "Pods that use it can no longer be created, and its tokens stop working.",
@@ -2875,8 +2892,11 @@ class ClusterWorkspace(QMainWindow):
     }
 
     def delete_resource(self, kind, row):
-        """Delete one RBAC object after a Yes/No question (default No); the UID precondition guards against a replacement."""
+        """Delete one object after a Yes/No question (default No); the UID precondition guards against a replacement."""
         if not self._writable("delete objects"):
+            return
+        if kind == "CustomResourceDefinition":
+            self._delete_crd(row)
             return
         where = f" in namespace {row.namespace}" if row.namespace else ""
         extra = care_warnings(kind, row.raw)
@@ -2897,6 +2917,45 @@ class ClusterWorkspace(QMainWindow):
                       row.namespace, row.name, uid)
             return
         self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid)
+
+    def _delete_crd(self, row):
+        """Deleting a CustomResourceDefinition deletes every object of its type in the cluster. Count them first, ask once with
+        the count, then show them in a scrollable list and ask again (#503)."""
+        spec = row.raw.get("spec") or {}
+        names = spec.get("names") or {}
+        group, plural = spec.get("group"), names.get("plural")
+        kind = names.get("kind") or row.name
+        versions = spec.get("versions") or []
+        version = (next((v.get("name") for v in versions if v.get("storage")), None)
+                   or next((v.get("name") for v in versions if v.get("served")), None)
+                   or (versions[0].get("name") if versions else None))
+        namespaced = spec.get("scope") == "Namespaced"
+        if not (group and plural and version):
+            self._on_error(f"{row.name} does not say which group, version and plural it uses; nothing was deleted.")
+            return
+        if not (row.raw.get("metadata") or {}).get("uid"):
+            self._on_error("CustomResourceDefinition UID is missing. Refresh the list before deleting.")
+            return
+        self.message.emit(f"Counting {kind} objects before deleting {row.name}…")
+        self._run(self.service.list_custom_objects,
+                  lambda objects: self._confirm_crd_delete(row, kind, objects),
+                  group, version, plural, namespaced, on_error=self._on_error)
+
+    def _confirm_crd_delete(self, row, kind, objects):
+        count = len(objects)
+        if QMessageBox.question(self, "Delete CustomResourceDefinition",
+                                f"Cluster: {self.context}\nDeleting {row.name} deletes all {count} {kind} object"
+                                f"{'s' if count != 1 else ''} in the cluster, in every namespace.\n\nNext: the list of them, "
+                                "and a second question.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        listed = [(o.namespace, o.name, (o.raw.get("metadata") or {}).get("creationTimestamp", "")) for o in objects]
+        dialog = CrdDeleteDialog(kind, row.name, listed, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        uid = (row.raw.get("metadata") or {}).get("uid")
+        self.message.emit(f"Deleting CustomResourceDefinition {row.name}…")
+        self._run(self.service.delete_resource, lambda _: self._deleted("CustomResourceDefinition", row.name),
+                  "CustomResourceDefinition", row.name, row.namespace, uid)
 
     def _deleted(self, kind, name):
         self.message.emit(f"Deleted {kind} {name}")
@@ -3041,6 +3100,8 @@ class ClusterWorkspace(QMainWindow):
                                     f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self._bulk(f"Restarting {counted(n, kind)}", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
+        elif action == "delete" and kind == "CustomResourceDefinition":
+            self._on_error("Delete CustomResourceDefinitions one at a time: each one counts and lists its objects first.")
         elif action == "delete" and kind in DELETABLE_KINDS:
             missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
             if missing:

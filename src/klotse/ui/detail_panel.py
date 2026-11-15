@@ -351,6 +351,19 @@ class DetailPanel(QWidget):
                 self.formatted.verticalScrollBar().setValue(inner_scroll)
         QTimer.singleShot(0, restore_scroll)
 
+    def show_many(self, count):
+        """Several rows are selected: Details says so and offers no single-object actions (the right-click menu acts on all)."""
+        self.clear_row()
+        self.identity_title.setText(f"{count} selected")
+        self.identity_scope.setText("Actions apply to every selected row: use the right-click menu.")
+        self.identity_uid.hide()
+        self.identity_provider.hide()
+        self.copy_uid_button.hide()
+        self.copy_provider_button.hide()
+        self.identity_status.setText("")
+        self.identity_header.show()
+        self.set_object_actions([])
+
     def clear_row(self):
         """Return Details to its empty state and discard object-specific actions and secret values."""
         self._secret_row = None

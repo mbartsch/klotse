@@ -25,7 +25,7 @@ from . import connect_help, helm, metrics_history, preflight, prometheus, proces
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata, NOT_APPLICABLE
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, WORKLOAD_DELETE_KINDS, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata, NOT_APPLICABLE
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 from .selectors import cronjob_job_uids, cronjob_pod_info
 
@@ -1037,16 +1037,21 @@ class KubeService:
         """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
         reused the name from being deleted."""
         spec = SPEC_BY_KIND.get(kind)
-        if spec is None or not spec.deletable:
+        if spec is not None and spec.deletable:
+            api_key, snake, namespaced = spec.api, spec.snake, spec.namespaced
+        elif kind in WORKLOAD_DELETE_KINDS:
+            api_key, snake, namespaced = "apps", {"Deployment": "deployment", "StatefulSet": "stateful_set",
+                                                  "ReplicaSet": "replica_set"}[kind], True
+        else:
             raise ValueError(f"Deleting {kind} is not supported")
         if not uid:
             raise ValueError(f"{kind} UID is missing; refresh the list first")
-        api = self._apis[spec.api]
+        api = self._apis[api_key]
         body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid))
-        if spec.namespaced:
-            getattr(api, f"delete_namespaced_{spec.snake}")(name, namespace, body=body, _request_timeout=15)
+        if namespaced:
+            getattr(api, f"delete_namespaced_{snake}")(name, namespace, body=body, _request_timeout=15)
         else:
-            getattr(api, f"delete_{spec.snake}")(name, body=body, _request_timeout=15)
+            getattr(api, f"delete_{snake}")(name, body=body, _request_timeout=15)
 
     @mutating
     def create_custom(self, group, version, plural, namespaced, body):

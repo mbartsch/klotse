@@ -88,10 +88,11 @@ def test_text_columns_labels_kind_and_logic(table, qtbot):
     assert shown(table, qtbot, "(Restarts > 3 or Age > 20d) and Namespace != data") == ["kube-dns", "web-2"]
 
 
-def test_a_bad_expression_is_explained_and_filters_nothing(table, qtbot):
-    assert shown(table, qtbot, "Restarts >") == ["db-1", "kube-dns", "web-1", "web-2"]
+def test_a_bad_expression_is_explained_and_shows_no_rows(table, qtbot):
+    # Owner's decision (#503): a wrong expression shows no rows, so a bulk action cannot act on rows the user did not mean
+    assert shown(table, qtbot, "Restarts >") == []
     assert table.filter_note.isVisibleTo(table) and "Filter:" in table.filter_note.text()
-    assert shown(table, qtbot, "Age > 5") == ["db-1", "kube-dns", "web-1", "web-2"] and "needs a unit" in table.filter_note.text()
+    assert shown(table, qtbot, "Age > 5") == [] and "needs a unit" in table.filter_note.text()
     assert shown(table, qtbot, "Restarts > 3") == ["web-2"] and not table.filter_note.isVisibleTo(table)  # fixed: the note goes
 
 

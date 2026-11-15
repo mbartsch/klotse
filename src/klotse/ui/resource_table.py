@@ -53,6 +53,7 @@ class _FilterProxy(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.expression = None
+        self.blocked = False  # a wrong filter expression shows no rows: nothing is acted on by mistake (#503)
         self.resolver = None  # (row, name) -> (value, unit) | None, set by the table
 
     def set_expression(self, expression):
@@ -64,7 +65,18 @@ class _FilterProxy(QSortFilterProxyModel):
             self.expression = expression
             self.invalidateFilter()
 
+    def set_blocked(self, blocked):
+        if hasattr(self, "beginFilterChange"):
+            self.beginFilterChange()
+            self.blocked = blocked
+            self.endFilterChange()
+        else:
+            self.blocked = blocked
+            self.invalidateFilter()
+
     def filterAcceptsRow(self, source_row, source_parent):
+        if self.blocked:
+            return False
         if self.expression is None:
             return super().filterAcceptsRow(source_row, source_parent)
         row = self.sourceModel().rows[source_row]
@@ -82,6 +94,7 @@ class _FilterCompleter(QCompleter):
 
 class ResourceTable(QWidget):
     selected = Signal(object)  # row dataclass
+    selection_count_changed = Signal(int)  # how many rows are selected now
     edit_requested = Signal(str, object)  # kind, row dataclass
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
@@ -300,6 +313,7 @@ class ResourceTable(QWidget):
     def _update_selection_count(self, *_, emit_empty=True):
         count = len(self.view.selectionModel().selectedRows())
         self.selection_count.setText(f"{count} selected")
+        self.selection_count_changed.emit(count)  # Details shows "N selected" with no single-row actions when N > 1 (#503)
         if emit_empty and count == 0:
             self.selected.emit(None)
 
@@ -518,11 +532,13 @@ class ResourceTable(QWidget):
                 self.filter_note.setVisible(True)
                 self.proxy.set_expression(None)
                 self.proxy.setFilterFixedString("")
+                self.proxy.set_blocked(True)  # the note says why; no row is shown or acted on until the expression is right
                 self._set_api_filter()
                 self.show_status()
                 self._update_empty_state()
                 return
             self.filter_note.setVisible(False)
+            self.proxy.set_blocked(False)
             self.proxy.setFilterFixedString("")
             self.proxy.set_expression(expression)
             self._set_api_filter(expression)
@@ -530,6 +546,7 @@ class ResourceTable(QWidget):
             self._update_empty_state()
             return
         self.filter_note.setVisible(False)
+        self.proxy.set_blocked(False)
         self.proxy.set_expression(None)
         self.proxy.setFilterFixedString(text)
         self._set_api_filter()

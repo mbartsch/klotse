@@ -67,7 +67,7 @@ def test_registry_and_navigator():
     assert not SPEC_BY_KEY["clusterroles"].namespaced and SPEC_BY_KEY["roles"].namespaced
     group = next(v for v in VIEWS if v[0] == "Access Control")
     assert [k for k, _ in group[1]] == keys
-    assert "Secret" not in DELETABLE_KINDS and "Role" in DELETABLE_KINDS
+    assert "Secret" in DELETABLE_KINDS and "Role" in DELETABLE_KINDS  # #503: every listed kind can be deleted
 
 
 class FakeApi:
@@ -100,16 +100,16 @@ def test_delete_uses_uid_precondition_and_right_method():
 def test_delete_refuses_other_kinds_and_missing_uid():
     svc = service_with(FakeApi())
     with pytest.raises(ValueError):
-        svc.delete_resource("Secret", "s", "n", "u")
+        svc.delete_resource("Role", "r", "n", "")  # the UID precondition is still required (#503: every kind is deletable now)
     with pytest.raises(ValueError):
-        svc.delete_resource("Role", "r", "n", "")
+        svc.delete_resource("Pod", "p", "n", "u")  # Pods keep their own terminate action
 
 
 def labels(menu):
     return [a.text() for a in menu.actions()]
 
 
-def test_table_offers_delete_only_for_rbac_kinds(qtbot, monkeypatch):
+def test_table_offers_delete_for_listed_kinds(qtbot, monkeypatch):
     from PySide6.QtWidgets import QMenu
     shown = []
     monkeypatch.setattr(QMenu, "exec", lambda self, *a: shown.append(labels(self)))
@@ -122,10 +122,6 @@ def test_table_offers_delete_only_for_rbac_kinds(qtbot, monkeypatch):
     table.view.selectAll()
     table._bulk_menu(menu := QMenu(), table.selected_rows())
     assert "Delete 2 Roles…" in labels(menu)
-    other = ResourceTable(SPEC_BY_KEY["configmaps"].columns, "ConfigMap")
-    qtbot.addWidget(other)
-    other._bulk_menu(menu2 := QMenu(), [])
-    assert menu2.isEmpty()
 
 
 # ---- formatted Details view ------------------------------------------------
