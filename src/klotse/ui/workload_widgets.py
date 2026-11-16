@@ -451,12 +451,19 @@ class LinesEdit(QPlainTextEdit):
     """One item per line (a command and its arguments)."""
 
     def __init__(self, items, placeholder):
-        super().__init__("\n".join(str(i) for i in items))
+        # The items are argv values: an empty string, spaces or a newline inside one are legitimate (#648). They are kept
+        # exactly as they were until the text is edited.
+        self._items = [str(i) for i in items]
+        super().__init__("\n".join(self._items))
+        self._edited = False
+        self.textChanged.connect(lambda: setattr(self, "_edited", True))
         self.setPlaceholderText(placeholder)
         self.setFixedHeight(76)
         self.setTabChangesFocus(True)
 
     def lines(self):
+        if not self._edited:
+            return list(self._items)  # never edited: the same list, byte for byte
         return [line for line in self.toPlainText().splitlines() if line.strip()]
 
 

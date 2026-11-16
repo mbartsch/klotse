@@ -735,8 +735,8 @@ def _build_container(target, c):
     _set_or_pop(target, "resources", resources or None)
     _set_or_pop(target, "env", [deepcopy(e) for e in c["env"]])
     _set_or_pop(target, "envFrom", deepcopy(c["env_from"]))
-    _set_or_pop(target, "command", [x for x in c["command"] if x != ""])
-    _set_or_pop(target, "args", [x for x in c["args"] if x != ""])
+    _set_or_pop(target, "command", list(c["command"]))  # argv values are kept as given, empty ones included (#648)
+    _set_or_pop(target, "args", list(c["args"]))
     _set_or_pop(target, "ports", deepcopy(c["ports"]))
     _set_or_pop(target, "volumeMounts", deepcopy(c["mounts"]))
     for key, _label in PROBE_NAMES:
