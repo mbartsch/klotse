@@ -99,6 +99,7 @@ NODE_PODS_TTL_S = 20  # a node on screen is not recounted more often than this
 NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
 POD_IDLE_S = 1.5  # the paged Pods list keeps loading the next page after this much quiet
 NODE_PODS_BIG_REFRESH_MS = 300_000  # the same in big-cluster mode: the count reads every pod
+CLUSTER_WORKER_THREADS = 2  # isolate a slow cluster without creating one thread per refresh
 
 
 def parse_scale(text, current):
@@ -177,7 +178,10 @@ class ClusterWorkspace(QMainWindow):
         self._schemas = {}  # OpenAPI document path -> the document, for the YAML editor's schema help
         self._prometheus = None  # None = not looked for yet, False = none found, else the ref that answered
         self.refresh_settings = RefreshSettings(self.label_settings.store)  # which lists reload only on request
-        self.pool = QThreadPool.globalInstance()
+        # Keep a slow or unreachable cluster from occupying the application's shared worker pool. Two workers
+        # preserve enough concurrency for an overview's independent reads while keeping this experiment bounded.
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(CLUSTER_WORKER_THREADS)
         self._workers = set()
         self._loads = {}  # view -> latest requested namespace
         self._load_serial = {}  # view -> number of the newest load; results of older (abandoned) loads are dropped
