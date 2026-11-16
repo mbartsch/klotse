@@ -44,8 +44,8 @@ def test_a_connected_cluster_menu_enables_or_disables_its_auto_refresh(qtbot):
     sent = []
     nav.auto_refresh_clusters_requested.connect(lambda names, on: sent.append((list(names), on)))
     menu = nav.menu_for(nav.cluster_item("a"))
-    next(x for x in menu.actions() if x.text() == "Disable auto-refresh").trigger()
-    next(x for x in menu.actions() if x.text() == "Enable auto-refresh").trigger()
+    next(x for x in menu.actions() if x.text() == "Turn off auto-refresh").trigger()
+    next(x for x in menu.actions() if x.text() == "Turn on auto-refresh").trigger()
     assert sent == [(["a"], False), (["a"], True)]
 
 
@@ -61,10 +61,10 @@ def test_with_several_connected_clusters_selected_the_entries_act_on_the_selecti
     nav.cluster_item("c").setSelected(True)  # disconnected: not part of the selection
     menu = nav.menu_for(nav.cluster_item("a"))
     texts = [x.text() for x in menu.actions()]
-    assert "Disable auto-refresh (2)" in texts and "Enable auto-refresh (2)" in texts
+    assert "Turn off auto-refresh (2)" in texts and "Turn on auto-refresh (2)" in texts
     sent = []
     nav.auto_refresh_clusters_requested.connect(lambda names, on: sent.append((sorted(names), on)))
-    next(x for x in menu.actions() if x.text() == "Disable auto-refresh (2)").trigger()
+    next(x for x in menu.actions() if x.text() == "Turn off auto-refresh (2)").trigger()
     assert sent == [(["a", "b"], False)]
 
 
@@ -82,3 +82,17 @@ def test_the_window_switches_only_the_given_clusters_and_a_global_pause_still_wi
     window._set_clusters_auto_refresh(["second"], False)
     window._set_clusters_auto_refresh(["first"], True)
     assert not first.auto_action.isChecked()  # the global pause still wins
+
+
+def test_the_cluster_menu_offers_only_the_change_that_applies_when_the_state_is_known(qtbot):
+    from klotse.ui.navigator import Navigator
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["a"])
+    nav.set_state("a", "connected")
+    nav.auto_refresh_is_on = lambda name: True
+    texts = [x.text() for x in nav.menu_for(nav.cluster_item("a")).actions()]
+    assert "Turn off auto-refresh" in texts and "Turn on auto-refresh" not in texts
+    nav.auto_refresh_is_on = lambda name: False
+    texts = [x.text() for x in nav.menu_for(nav.cluster_item("a")).actions()]
+    assert "Turn on auto-refresh" in texts and "Turn off auto-refresh" not in texts
