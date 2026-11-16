@@ -32,6 +32,7 @@ def test_all_clusters_shows_paired_metrics_and_attention(qtbot):
     assert page.table.item(0, 2).text() == "2 / 3"
     assert page.table.item(0, 3).text() == "8 / 1"
     assert "1 needs attention" in page.summary.text()
+    page.fit_button.click()
 
 
 def test_all_clusters_filter_and_actions_use_context(qtbot):

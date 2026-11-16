@@ -53,6 +53,10 @@ class ClusterOverview(QWidget):
         self.refresh_button.setToolTip("Refresh the overview for every connected cluster")
         self.refresh_button.clicked.connect(self.refresh_all_requested)
         heading.addWidget(self.refresh_button)
+        self.fit_button = QPushButton("Fit columns")
+        self.fit_button.setToolTip("Fit column widths to their contents")
+        self.fit_button.clicked.connect(self.fit_columns)
+        heading.addWidget(self.fit_button)
         root.addLayout(heading)
 
         self.summary = QLabel()
@@ -117,6 +121,11 @@ class ClusterOverview(QWidget):
             f" QTableWidget::item:selected {{ background: {theme.SELECTED_ROW}; color: {theme.TEXT}; }}"
             f" QHeaderView::section {{ background: {theme.BG}; color: {theme.MUTED}; border: 0; border-bottom: 1px solid {theme.BORDER}; padding: 8px; }}"
         )
+
+    def fit_columns(self):
+        """Fit the visible table columns to their current contents."""
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setStretchLastSection(True)
 
     def set_workspaces(self, workspaces, names=None):
         self._workspaces = dict(workspaces)
