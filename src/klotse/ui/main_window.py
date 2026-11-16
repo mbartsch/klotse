@@ -1620,7 +1620,7 @@ class MainWindow(QMainWindow):
         background = ctx in self._connection_retries
         self._discard(ctx, preserve_retry=True)
         self.nav.set_state(ctx, "failed", msg)
-        self.status.showMessage(f"{ctx}: {msg}")
+        self.status.showMessage(f"{self.aliases.display(ctx)}: {msg}")
         if background:
             self._schedule_connection_retry(ctx)
             return
@@ -1682,10 +1682,10 @@ class MainWindow(QMainWindow):
         timer, attempts = current
         if attempts >= 5:
             self._cancel_connection_retry(ctx)
-            self.status.showMessage(f"{ctx}: background connection retries stopped after 5 attempts")
+            self.status.showMessage(f"{self.aliases.display(ctx)}: background connection retries stopped after 5 attempts")
             return
         delay = min(5 * (2 ** attempts), 60)
-        self.status.showMessage(f"{ctx}: retrying in {delay}s (right-click cluster to cancel)")
+        self.status.showMessage(f"{self.aliases.display(ctx)}: retrying in {delay}s (right-click cluster to cancel)")
         timer.start(delay * 1000)
 
     def _retry_connection(self, ctx):
@@ -1716,7 +1716,7 @@ class MainWindow(QMainWindow):
         self._cancel_connection_retry(ctx)
         if ctx in self.workspaces and not self.workspaces[ctx]._ready:
             self._discard(ctx)
-        self.status.showMessage(f"{ctx}: background connection retry cancelled")
+        self.status.showMessage(f"{self.aliases.display(ctx)}: background connection retry cancelled")
 
     def _confirm_stop_work(self, ws, action):
         """Closing, disconnecting or reconnecting a cluster stops its port forwards, log streams and open tool windows. Ask

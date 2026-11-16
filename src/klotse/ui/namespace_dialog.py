@@ -47,7 +47,7 @@ class NamespaceDialog(QDialog):
         self.finalizers = QPlainTextEdit(placeholderText="one per line (optional)")
         self.finalizers.setToolTip("Custom finalizers block deletion of the namespace until a controller removes them.")
         form = QFormLayout(self)
-        form.addRow("Name", self.name)
+        form.addRow("Name *", self.name)  # required: named in a box on OK (#500)
         form.addRow("Labels", self.labels)
         form.addRow("Annotations", self.annotations)
         form.addRow("Finalizers", self.finalizers)
