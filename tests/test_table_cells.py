@@ -51,7 +51,7 @@ def test_node_context_menu_puts_node_deletion_after_navigation_and_operations(qt
 
     monkeypatch.setattr("klotse.ui.resource_table.QMenu", Menu)
     table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
-    assert captured.index("List pods on this node") < captured.index("Shell (nsenter)…")
+    assert captured.index("Show pods on this node") < captured.index("Shell (nsenter)…")
     assert captured[-2:] == ["Delete node…", "Force delete node…"]
 
 

@@ -29,6 +29,7 @@ from ..k8s.clone import clone_manifest
 from ..k8s import gateway as gateway_api
 from ..k8s.timing import name_of, timings
 from . import big_clusters
+from . import confirm
 from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from ..k8s.client import HUGE_PODS
@@ -1140,10 +1141,10 @@ class ClusterWorkspace(QMainWindow):
         except HelmError as e:
             self._on_error(str(e))
             return
-        if QMessageBox.question(dialog or self, "Uninstall release", f"Cluster: {self.context}\nUninstall Helm release "
+        if confirm.verb_question(dialog or self, "Uninstall release", f"Cluster: {self.cluster_label()}\nUninstall Helm release "
                                 f"{row.namespace}/{row.name}?\n\nHelm removes every object the release created, and its history "
                                 "unless it keeps it. This runs the helm command on this computer.",
-                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Uninstall") != QMessageBox.Yes:
             return
 
         if (row.namespace, row.name) in self._helm_running:
@@ -1476,7 +1477,7 @@ class ClusterWorkspace(QMainWindow):
         if isinstance(view, PortForwardPanel):
             active = self.port_forwards.active()
             if active and QMessageBox.question(
-                    self, "Stop port forwards?", f"Cluster: {self.context}\n{len(active)} port forward(s) are running. "
+                    self, "Stop port forwards", f"Cluster: {self.cluster_label()}\n{len(active)} port forward(s) are running. "
                     "Closing the Port forwards tab stops every forward. Continue?",
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
@@ -1701,7 +1702,7 @@ class ClusterWorkspace(QMainWindow):
         if direction == UPLOAD:
             if not self._writable("copy files into a container"):
                 return None
-            ask = QMessageBox.question(self, "Upload to container", f"Cluster: {self.context}\nCopy {local} to {row.name}:{remote}?\n\nAn existing file or "
+            ask = QMessageBox.question(self, "Upload to container", f"Cluster: {self.cluster_label()}\nCopy {local} to {row.name}:{remote}?\n\nAn existing file or "
                                        "folder there is replaced.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if ask != QMessageBox.Yes:
                 return None
@@ -2549,6 +2550,11 @@ class ClusterWorkspace(QMainWindow):
     def _analysis_scope(self):
         return "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
 
+    def cluster_label(self):
+        """The cluster as the user named it, with its context in brackets when they differ: for messages and confirmations."""
+        alias = self._alias()
+        return alias if alias == self.context else f"{alias} ({self.context})"
+
     def _alias(self):
         """The name the user gave this cluster (MainWindow sets `display_name`), else its kubeconfig context."""
         return getattr(self, "display_name", "") or self.context
@@ -3081,9 +3087,8 @@ class ClusterWorkspace(QMainWindow):
             propagation = self._ask_job_pods(row, where)
             if propagation is None:
                 return
-        elif QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
-                                  + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
-                                  QMessageBox.No) != QMessageBox.Yes:
+        elif confirm.verb_question(self, f"Delete {kind}", f"Cluster: {self.cluster_label()}\nDelete {kind} {row.name}{where}?" + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
+                                  QMessageBox.No, verb="Delete") != QMessageBox.Yes:
             return
         uid = (row.raw.get("metadata") or {}).get("uid")
         if not uid:
@@ -3111,7 +3116,7 @@ class ClusterWorkspace(QMainWindow):
 
     def _ask_job_pods(self, row, where):
         """Ask what happens to a Job's pods. Returns the propagation policy, or None to cancel. Cancel is the default button."""
-        box = QMessageBox(QMessageBox.Question, "Delete Job", f"Cluster: {self.context}\n" + self.job_pods_choice_text(
+        box = QMessageBox(QMessageBox.Question, "Delete Job", f"Cluster: {self.cluster_label()}\n" + self.job_pods_choice_text(
             f"{row.name}{where}", self._job_pod_count(row)), parent=self)
         with_pods = box.addButton("Job and its pods", QMessageBox.DestructiveRole)
         job_only = box.addButton("Job only", QMessageBox.AcceptRole)
@@ -3156,10 +3161,9 @@ class ClusterWorkspace(QMainWindow):
 
     def _confirm_crd_delete(self, row, kind, objects):
         count = len(objects)
-        if QMessageBox.question(self, "Delete CustomResourceDefinition",
-                                f"Cluster: {self.context}\nDeleting {row.name} deletes all {count} {kind} object"
+        if confirm.verb_question(self, "Delete CustomResourceDefinition", f"Cluster: {self.cluster_label()}\nDeleting {row.name} deletes all {count} {kind} object"
                                 f"{'s' if count != 1 else ''} in the cluster, in every namespace.\n\nNext: the list of them, "
-                                "and a second question.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                                "and a second question.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Delete") != QMessageBox.Yes:
             return
         listed = [(o.namespace, o.name, (o.raw.get("metadata") or {}).get("creationTimestamp", "")) for o in objects]
         dialog = CrdDeleteDialog(kind, row.name, listed, self)
@@ -3198,7 +3202,7 @@ class ClusterWorkspace(QMainWindow):
     def restart_resource(self, kind, row):
         if not self._writable("restart workloads"):
             return
-        if QMessageBox.question(self, f"Restart {kind}", f"Cluster: {self.context}\nRestart {kind} {row.namespace}/{row.name}?\n\n"
+        if QMessageBox.question(self, f"Restart {kind}", f"Cluster: {self.cluster_label()}\nRestart {kind} {row.namespace}/{row.name}?\n\n"
                                 f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         self.message.emit(f"Restarting {kind} {row.name}…")
@@ -3225,7 +3229,7 @@ class ClusterWorkspace(QMainWindow):
             return
         images = ", ".join(revision["images"]) or "(no images)"
         if QMessageBox.question(
-                dialog, "Roll back", f"Cluster: {self.context}\nRoll back {row.namespace}/{row.name} to revision {revision['revision']}?\n\n"
+                dialog, "Roll back", f"Cluster: {self.cluster_label()}\nRoll back {row.namespace}/{row.name} to revision {revision['revision']}?\n\n"
                 f"Images: {images}\n\nThe pod template of that revision is put back, which starts a normal rollout "
                 "(pods are replaced one by one) and becomes a new revision.",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
@@ -3255,7 +3259,7 @@ class ClusterWorkspace(QMainWindow):
             return
         name = f"{row.namespace}/{row.name}"
         if action == "cronjob-run":
-            if QMessageBox.question(self, "Run CronJob now", f"Cluster: {self.context}\nStart one Job now from CronJob {name}?\n\n"
+            if QMessageBox.question(self, "Run CronJob now", f"Cluster: {self.cluster_label()}\nStart one Job now from CronJob {name}?\n\n"
                                     "The schedule is not changed. The Job runs even if the CronJob is suspended.",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
@@ -3263,7 +3267,7 @@ class ClusterWorkspace(QMainWindow):
             self._run(self.service.trigger_cronjob, lambda job: self._saved("Job", job, "Started"), row.name, row.namespace)
         elif action in ("cronjob-suspend", "cronjob-resume"):
             suspend = action == "cronjob-suspend"
-            if suspend and QMessageBox.question(self, "Suspend CronJob", f"Cluster: {self.context}\nSuspend CronJob {name}? "
+            if suspend and QMessageBox.question(self, "Suspend CronJob", f"Cluster: {self.cluster_label()}\nSuspend CronJob {name}? "
                                                 "No new Jobs start until it is resumed; running Jobs continue.",
                                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
@@ -3309,7 +3313,7 @@ class ClusterWorkspace(QMainWindow):
                        lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
                        lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
         elif action == "restart":
-            if QMessageBox.question(self, f"Restart {plural_label(kind)}", f"Cluster: {self.context}\nRestart {counted(n, kind)}?\n\n{names}\n\n"
+            if QMessageBox.question(self, f"Restart {plural_label(kind)}", f"Cluster: {self.cluster_label()}\nRestart {counted(n, kind)}?\n\n{names}\n\n"
                                     f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self._bulk(f"Restarting {counted(n, kind)}", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
@@ -3324,23 +3328,23 @@ class ClusterWorkspace(QMainWindow):
             care = (f"\n\nTake care: {len(flagged)} of them are default (system) objects, feed an aggregated role "
                     f"(admin/edit/view) or grant cluster-admin:\n{self._names([r for r in rows if r.name in flagged])}"
                     ) if flagged else ""
-            if QMessageBox.question(self, f"Delete {plural_label(kind)}", f"Cluster: {self.context}\nDelete {counted(n, kind)}?\n\n{names}{care}",
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            if confirm.verb_question(self, f"Delete {plural_label(kind)}", f"Cluster: {self.cluster_label()}\nDelete {counted(n, kind)}?\n\n{names}{care}",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Delete") != QMessageBox.Yes:
                 return
             self._bulk(f"Deleting {counted(n, kind)}", rows, lambda r: self.service.delete_resource(
                 kind, r.name, r.namespace, r.raw["metadata"]["uid"]))
         elif action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
             note = "\nForce uses zero grace period; finalizers still apply." if force else "\nController-managed pods will be recreated."
-            if QMessageBox.question(self, "Terminate pods", f"Cluster: {self.context}\n"
+            if confirm.verb_question(self, "Terminate pods", f"Cluster: {self.cluster_label()}\n"
                                     f"{'Force terminate' if force else 'Terminate'} {n} pods?{note}\n\n{names}",
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Force terminate" if force else "Terminate") != QMessageBox.Yes:
                 return
             self._bulk(f"Terminating {n} pods", rows,
                        lambda r: self.service.delete_pod(r.name, r.namespace, *((True,) if force else ())))
         elif action in ("cordon", "uncordon"):
             verb = action.capitalize()
-            if QMessageBox.question(self, f"{verb} nodes", f"Cluster: {self.context}\n{verb} {n} nodes?\n\n{names}",
+            if QMessageBox.question(self, f"{verb} nodes", f"Cluster: {self.cluster_label()}\n{verb} {n} nodes?\n\n{names}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self._bulk(f"{verb} {n} nodes", rows, lambda r: self.service.cordon_node(r.name, action == "cordon"))
@@ -3350,11 +3354,10 @@ class ClusterWorkspace(QMainWindow):
             if missing:
                 self._on_error("Node UID is missing for: " + ", ".join(missing) + ". Refresh the Nodes view first.")
                 return
-            if QMessageBox.question(self, "Delete nodes",
-                f"Cluster: {self.context}\n{'Force delete' if force else 'Delete'} {n} Kubernetes Nodes?\n\n{names}\n\n"
+            if confirm.verb_question(self, "Delete nodes", f"Cluster: {self.cluster_label()}\n{'Force delete' if force else 'Delete'} {n} Kubernetes Nodes?\n\n{names}\n\n"
                 "Drain them first. This does not terminate the underlying machines; "
                 f"running kubelets may register them again.{chr(10) + 'Force uses zero grace period; finalizers still apply.' if force else ''}",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Force delete" if force else "Delete") != QMessageBox.Yes:
                 return
             self._bulk(f"Deleting {n} nodes", rows, lambda r: self.service.delete_node(
                 r.name, r.raw["metadata"]["uid"], *((True,) if force else ())))
@@ -3436,7 +3439,7 @@ class ClusterWorkspace(QMainWindow):
             verb = "Cordon" if action == "cordon" else "Uncordon"
             effect = "Prevent new pods from scheduling here." if action == "cordon" else "Allow new pods to schedule here."
             if QMessageBox.question(self, f"{verb} node",
-                                    f"Cluster: {self.context}\n{verb} node {row.name}?\n{effect}",
+                                    f"Cluster: {self.cluster_label()}\n{verb} node {row.name}?\n{effect}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self.message.emit(f"{verb} node {row.name}…")
@@ -3446,11 +3449,10 @@ class ClusterWorkspace(QMainWindow):
             force = action == "force-delete-node"
             verb = "Force delete" if force else "Delete"
             warning = "Force uses zero grace period; finalizers still apply.\n" if force else ""
-            if QMessageBox.question(self, "Delete node",
-                f"Cluster: {self.context}\n{verb} Kubernetes Node {row.name}?\n"
+            if confirm.verb_question(self, "Delete node", f"Cluster: {self.cluster_label()}\n{verb} Kubernetes Node {row.name}?\n"
                 "Drain the node first. This does not terminate the underlying machine; "
                 f"a running kubelet may register it again.\n{warning}",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb=verb) != QMessageBox.Yes:
                 return
             uid = (row.raw.get("metadata") or {}).get("uid")
             if not uid:
@@ -3590,9 +3592,9 @@ class ClusterWorkspace(QMainWindow):
             verb = "Force terminate" if force else "Terminate"
             warning = ("\nForce removes the pod with zero grace period. Its processes may keep running "
                        "until the kubelet catches up; finalizers still apply.") if force else ""
-            ok = QMessageBox.question(self, "Terminate pod", f"Cluster: {self.context}\n{verb} pod {row.namespace}/{row.name}? "
+            ok = confirm.verb_question(self, "Terminate pod", f"Cluster: {self.cluster_label()}\n{verb} pod {row.namespace}/{row.name}? "
                                       f"Controller-managed pods will be recreated.{warning}",
-                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb=verb)
             if ok != QMessageBox.Yes:
                 return
             self.message.emit(f"Terminating {row.name}…")
@@ -3629,15 +3631,15 @@ class ClusterWorkspace(QMainWindow):
         pod. That is offered only for a pod that has a controller (which makes the new one); a bare pod would be lost."""
         owners = (row.raw.get("metadata") or {}).get("ownerReferences") or []
         if not any(o.get("controller") for o in owners):
-            QMessageBox.information(self, "Remove debug containers", f"Cluster: {self.context}\nPod {row.namespace}/{row.name} has no "
+            QMessageBox.information(self, "Remove debug containers", f"Cluster: {self.cluster_label()}\nPod {row.namespace}/{row.name} has no "
                                     "controller, so deleting it would lose it for good.\n\nKubernetes cannot remove a debug container "
                                     "from a running pod; recreate the pod yourself if you want it gone.")
             return
         names = ", ".join(c.get("name", "?") for c in (row.raw.get("spec") or {}).get("ephemeralContainers") or [])
-        ok = QMessageBox.question(self, "Remove debug containers", f"Cluster: {self.context}\nKubernetes cannot remove a debug container "
+        ok = confirm.verb_question(self, "Remove debug containers", f"Cluster: {self.cluster_label()}\nKubernetes cannot remove a debug container "
                                   f"({names}) from a running pod. Recreate pod {row.namespace}/{row.name}: it is deleted so its controller creates a "
                                   "fresh one without it?\n\nThe pod's processes stop and restart; connections drop.",
-                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Recreate pod")
         if ok != QMessageBox.Yes:
             return
         self.message.emit(f"Replacing {row.name}…")

@@ -1071,7 +1071,7 @@ class ResourceTable(QWidget):
             add("port-forward", "Port forward…", lambda: self.port_forward_requested.emit(self.kind, row),
                 primary=self.kind == "Service", permission="port-forward" if self.kind == "Pod" else None)
         if self.kind == "Node":
-            add("node-pods", "List pods on this node", lambda: self.action_requested.emit("node-pods", row), primary=True)
+            add("node-pods", "Show pods on this node", lambda: self.action_requested.emit("node-pods", row), primary=True)
             cordoned = ((getattr(row, "raw", {}) or {}).get("spec") or {}).get("unschedulable", False)
             key = "uncordon" if cordoned else "cordon"
             add("cordon", "Uncordon…" if cordoned else "Cordon…",

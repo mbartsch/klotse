@@ -188,4 +188,4 @@ def test_node_entries_follow_the_cluster_wide_rules(qtbot):
     ws.node_table.set_rows([NodeRow("n1", "Ready", "worker", "v1", "1.1.1.1", 4.0, 8.0, "1d", {"metadata": {"name": "n1"}})])
     texts = menu_texts(ws.node_table)
     assert "Cordon…  (not allowed for you)" in texts and "Delete node…  (not allowed for you)" in texts
-    assert "List pods on this node" in texts
+    assert "Show pods on this node" in texts

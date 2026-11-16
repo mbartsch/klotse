@@ -26,7 +26,7 @@ def test_dialog_offers_the_containers_and_returns_the_choice(qtbot):
     dialog.image.setText(" nicolaka/netshoot ")
     assert dialog.values() == ("nicolaka/netshoot", "sidecar")
     dialog.image.setText("")
-    assert not dialog.open_button.isEnabled()
+    assert dialog.open_button.isEnabled()  # OK stays enabled; an empty image is named on click (#500)
 
 
 def test_debug_action_opens_a_terminal_with_kubectl_debug(qtbot, monkeypatch):

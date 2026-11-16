@@ -1,6 +1,16 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                               QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox)
+                               QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox)
+
+
+def need(parent, *fields):
+    """True when every (label, field) has text; otherwise a message names the empty ones. The OK button stays enabled, so
+    the problem is said on click, as in the other forms (#500)."""
+    missing = [label for label, field in fields if not field.text().strip()]
+    if missing:
+        QMessageBox.warning(parent, "Missing value", "Fill in: " + ", ".join(missing) + ".")
+        return False
+    return True
 
 from ..k8s import drain_plan
 from . import theme
@@ -120,14 +130,13 @@ class DebugDialog(QDialog):
         self.sharing.setTextFormat(Qt.PlainText)  # "<pid>" must not be read as markup
         self.sharing.setWordWrap(True)
         theme.muted(self.sharing)
-        form.addRow("Debug image", self.image)
+        form.addRow("Debug image *", self.image)
         form.addRow("Share processes with", self.target)
         form.addRow(self.sharing)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.open_button = buttons.button(QDialogButtonBox.Ok)
         self.open_button.setText("Open debug shell")
-        self.image.textChanged.connect(lambda t: self.open_button.setEnabled(bool(t.strip())))
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(lambda: self.accept() if need(self, ("Debug image", self.image)) else None)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
 
@@ -149,15 +158,12 @@ class NodeShellDialog(QDialog):
         form.addRow(info)
         self.namespace = QLineEdit("default")
         self.image = QLineEdit(NODE_SHELL_IMAGE)
-        form.addRow("Debug pod namespace", self.namespace)
-        form.addRow("Debug image (must include nsenter)", self.image)
+        form.addRow("Debug pod namespace *", self.namespace)
+        form.addRow("Debug image (must include nsenter) *", self.image)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.open_button = buttons.button(QDialogButtonBox.Ok)
         self.open_button.setText("Open shell")
-        def validate():
-            self.open_button.setEnabled(bool(self.namespace.text().strip() and self.image.text().strip()))
-        self.namespace.textChanged.connect(validate)
-        self.image.textChanged.connect(validate)
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(lambda: self.accept() if need(self, ("Debug pod namespace", self.namespace),
+                                                              ("Debug image", self.image)) else None)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)

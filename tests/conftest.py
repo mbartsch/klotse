@@ -41,6 +41,18 @@ def no_blocking_exit_question(monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No))
 
 
+@pytest.fixture(autouse=True)
+def verb_questions_use_the_question_patch(monkeypatch):
+    """The destructive questions show a button with the action's name (ui/confirm.py); a test patches QMessageBox.question to
+    answer them, so the helper delegates to that. Tests of the buttons themselves call confirm.ORIGINAL."""
+    from klotse.ui import confirm
+
+    def ask(parent, title, text, buttons=None, default=None, verb="Yes"):
+        return QMessageBox.question(parent, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+    monkeypatch.setattr(confirm, "verb_question", ask)
+
+
 # ---- what the background workers did, printed when a test fails -----------------------------------------------------
 # Waits for a worker's answer time out now and then on the macOS runners and nothing in the failure says why. This records, per
 # test, every runnable handed to the pool and how far each worker got, so a failure shows whether the worker never started, is
