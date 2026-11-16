@@ -483,3 +483,13 @@ def test_the_aws_entry_renders_as_an_external_link_and_stays_escaped():
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
     assert "href='https://evil.example/&#x27;&gt;&lt;b&gt;'" in html or "evil.example" in html
     assert related_view.parse_link("https://eu-west-1.console.aws.amazon.com/") is None
+
+
+def test_an_expanded_relation_keeps_its_external_console_link():
+    target = "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123"
+    entry = Relation("Backed by", "AWS EBS volume", "", "vol-0abc123", url=target)
+    note = Relation("Backed by", "AWS EBS volume", "", "... and 1 more", 0, "more", (entry,))
+    collapsed = related_view.render([note])
+    expanded = related_view.render([note], expanded=frozenset({("Backed by", "AWS EBS volume", 0)}))
+    assert target not in collapsed and "show all" in collapsed
+    assert f"href='{target}'" in expanded and "show fewer" in expanded
