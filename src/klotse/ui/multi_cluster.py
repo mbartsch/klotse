@@ -24,7 +24,7 @@ class MultiClusterDialog(QDialog):
     def __init__(self, source, parent=None):
         super().__init__(parent)
         self.source = source
-        self.setWindowTitle("Multi Cluster")
+        self.setWindowTitle("Several clusters")
         resize_dialog(self, 1100, 600)
         self._serial = 0
         self._workers = set()

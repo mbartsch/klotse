@@ -31,7 +31,7 @@ def test_pods_tab_has_node_action_bar(qtbot):
     table = ws.views["node-pods:n1"][0]
     bar = ws._node_bars["n1"][0]
     assert bar.parent() is table and bar.title.text() == "Node n1"
-    assert texts(bar) == ["Cordon", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete…"]
+    assert texts(bar) == ["Cordon…", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete…"]
     assert "Ready" in bar.state.text()
 
 
@@ -58,7 +58,7 @@ def test_cordon_button_follows_node_state_and_nodes_reload(qtbot):
     bar.cordon.trigger()
     assert done == ["uncordon"]
     ws._set_nodes([node("n1")])
-    assert bar.cordon.text() == "Cordon"
+    assert bar.cordon.text() == "Cordon…"
     ws._set_nodes([node("other")])  # node deleted
     assert not any(b.isEnabled() for b in bar.items) and "no longer" in bar.state.text()
     ws.open_node_pods("n1")  # reopening the tab keeps it consistent with the list

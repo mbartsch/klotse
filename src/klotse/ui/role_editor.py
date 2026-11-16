@@ -156,7 +156,7 @@ def confirm_risky(parent, kind, name, warnings, action="Save", namespace=None, c
         return True
     target = confirmation_target(parent, kind, name, namespace, context)
     text = target + "\n\n" + "\n\n".join(warnings) + f"\n\n{action} anyway?"
-    return QMessageBox.question(parent, f"{action} {kind}?", text, QMessageBox.Yes | QMessageBox.No,
+    return QMessageBox.question(parent, f"{action} {kind}", text, QMessageBox.Yes | QMessageBox.No,
                                 QMessageBox.No) == QMessageBox.Yes
 
 
@@ -651,7 +651,7 @@ class RoleEditDialog(DiscardGuard, QDialog):
             return
         meta = self._raw.get("metadata") or {}
         if grants_everything(self.rules) and QMessageBox.question(
-                self, "Grant everything?", confirmation_target(self, self.kind, meta.get("name", "")) +
+                self, "Grant everything", confirmation_target(self, self.kind, meta.get("name", "")) +
                 "\n\nA rule gives every verb on every resource in every API group (cluster-admin). Save anyway?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return

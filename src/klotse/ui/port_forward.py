@@ -212,7 +212,7 @@ class PortForwardPanel(QWidget):
         for button in (self.stop_button, self.stop_all_button, self.copy_button, self.open_button, self.save_button, self.clear_button):
             buttons.addWidget(button)
         self.saved_button = QToolButton()
-        self.saved_button.setText("Saved forwards ▾")
+        self.saved_button.setText("Saved forwards")  # the arrow Qt draws is enough (#500)
         self.saved_button.setPopupMode(QToolButton.InstantPopup)
         self.saved_menu = QMenu(self.saved_button)
         self.saved_menu.aboutToShow.connect(self._fill_saved)

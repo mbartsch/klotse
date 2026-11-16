@@ -483,7 +483,8 @@ class DetailPanel(QWidget):
         logs = next((action for action in actions if action.key in ("logs", "container-logs", "multi-logs")), None)
         if len(actions) > 3 and logs is not None and logs not in primary:
             primary = primary[:1] + [logs]
-        overflow = [action for action in actions if action not in primary]
+        # Dangerous entries go last, in a menu of their own; the others keep their order (#500: Force terminate came before Files)
+        overflow = sorted((action for action in actions if action not in primary), key=lambda action: bool(action.dangerous))
         for action in primary:
             button = QToolButton(text=action.title)
             button.setToolTip(action.title)

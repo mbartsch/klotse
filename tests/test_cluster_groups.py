@@ -202,7 +202,7 @@ def test_context_menus_offer_the_group_actions(qtbot):
     move = next(a for a in cluster_menu.actions() if a.text() == "Move to group").menu()
     assert labels(move) == ["prod", "New group…", "No group"]
     assert labels(nav.menu_for(nav.topLevelItem(0))) == [  # the CONNECTED header: auto-refresh for all clusters, then fold or open
-        "Turn auto-refresh off on all connected clusters", "Turn auto-refresh on on all connected clusters",
+        "Turn auto-refresh off for all connected clusters", "Turn auto-refresh on for all connected clusters",
         "Restore each cluster's previous auto-refresh"] + collapse_expand
 
 
