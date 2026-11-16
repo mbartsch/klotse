@@ -107,6 +107,8 @@ class Card(QFrame):
         hover = f"Card:hover {{ border-color: {theme.ACCENT}; }}" if self._clickable else ""
         focus = f"Card:focus {{ border: 2px solid {theme.ACCENT_HI}; }}" if self._clickable else ""
         self.setStyleSheet(f"Card {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {theme.BASE},stop:1 {theme.BG}); border: 1px solid {border}; border-radius: 9px; }} {hover} {focus}")
+        if hasattr(self, "detail"):  # the caption under the value takes the theme's muted colour too (#501)
+            self.detail.setStyleSheet(f"font-size: 10px; color: {theme.MUTED}; border: 0;")
 
     def mousePressEvent(self, event):
         if self._clickable and event.button() == Qt.LeftButton:

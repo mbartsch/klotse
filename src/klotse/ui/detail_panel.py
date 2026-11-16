@@ -552,10 +552,18 @@ class DetailPanel(QWidget):
         self.copy_provider_button.setVisible(bool(self._identity_provider))
         self.identity_provider.setVisible(bool(self._identity_provider))
         self.identity_status.setText(status)
-        tone = status_tone(status.replace(" ", ""))  # the same words and colours as the table's status column
-        color = {"bad": theme.BAD, "warn": theme.WARN}.get(tone, theme.OK)
-        self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
+        self._status_tone = status_tone(status.replace(" ", ""))  # the same words and colours as the table's status column
+        self._style_identity_status()
         self.identity_header.show()
+
+    def _style_identity_status(self):
+        """The status takes the theme's colour for its tone when drawn, so a theme change restyles it (#501)."""
+        color = {"bad": theme.BAD, "warn": theme.WARN}.get(getattr(self, "_status_tone", "ok"), theme.OK)
+        self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
+
+    def refresh_theme(self):
+        """A theme change: the object status keeps its tone in the new colours (#501: it kept the old ones until the next resource)."""
+        self._style_identity_status()
 
     @staticmethod
     def _identity_status_text(row, kind, raw):

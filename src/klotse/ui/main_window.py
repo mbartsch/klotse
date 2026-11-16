@@ -1410,7 +1410,10 @@ class MainWindow(QMainWindow):
         for workspace in self.workspaces.values():
             workspace.overview.refresh_theme()
             workspace.wl_overview.refresh_theme()
+            workspace.refresh_theme()  # the read-only banner (#501)
+            workspace.detail.refresh_theme()  # the object status in Details (#501)
         self.nav.refresh_theme()  # the navigator's headings and folders (#501)
+        self._sync_plugin_error_status()  # the plugin-error button takes the new error colour (#501)
         return True
 
     def apply_kubeconfig(self, path):

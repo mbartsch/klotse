@@ -2617,6 +2617,10 @@ class ClusterWorkspace(QMainWindow):
         self._run(self.service.list_object_events, lambda events, r=row: self.detail.show_events(r, events),
                   meta.get("namespace") or "", meta.get("uid"), on_error=lambda msg, r=row: self.detail.show_events(r, error=msg))
 
+    def refresh_theme(self):
+        """A theme change: the read-only banner takes the new warning colours (#501: it kept the old ones until a restart)."""
+        self.read_only_label.setStyleSheet(theme.warning_style())
+
     def set_read_only(self, on):
         """Read-only mode: the banner shows and every change this window could make is refused with an explanation. The
         service refuses as well (KubeService.read_only), so nothing slips past the buttons."""
