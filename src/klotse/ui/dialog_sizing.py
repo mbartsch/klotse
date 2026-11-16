@@ -28,9 +28,14 @@ class _SizeMemory(QObject):
         self.dialog = dialog
 
     def eventFilter(self, watched, event):
-        if watched is self.dialog and event.type() in (QEvent.Hide, QEvent.Close) and _settings is not None:
-            size = self.dialog.size()
-            _settings.setValue(SIZE_KEY + self.dialog.__class__.__name__, f"{size.width()}x{size.height()}")
+        # an event that reaches a filter whose dialog reference is gone (during teardown, or a wrapper Qt keeps alive
+        # after its Python side was collected) is ignored: an exception here surfaces in whatever runs next (#502)
+        dialog = getattr(self, "dialog", None)
+        if dialog is None or watched is not dialog:
+            return False
+        if event.type() in (QEvent.Hide, QEvent.Close) and _settings is not None:
+            size = dialog.size()
+            _settings.setValue(SIZE_KEY + dialog.__class__.__name__, f"{size.width()}x{size.height()}")
         return False
 
 

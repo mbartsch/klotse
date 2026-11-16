@@ -454,7 +454,7 @@ class MainWindow(QMainWindow):
         self.resizeDocks([nav_dock], [234], Qt.Horizontal)
         self.nav.context_clicked.connect(self.open_cluster)
         self.nav.connect_requested.connect(self.open_cluster)
-        self.nav.disconnect_requested.connect(self._discard)
+        self.nav.disconnect_requested.connect(self._disconnect_clicked)
         self.nav.cancel_retry_requested.connect(self._cancel_background_connection)
         self.nav.retry_pending = lambda ctx: ctx in self._connection_retries
         self.nav.reconnect_requested.connect(self.reconnect_cluster)
@@ -672,8 +672,8 @@ class MainWindow(QMainWindow):
     def _pick_cluster(self, index):
         context = self.cluster_picker.itemData(index)
         workspace = self.workspaces.get(context)
-        if workspace is not None and context not in self._detached:
-            self.clusters.setCurrentWidget(workspace)
+        if workspace is not None:
+            self._focus_workspace(workspace)
         self.nav.reveal_cluster(context)
 
     def _cluster_tab_menu(self, position):
@@ -709,7 +709,7 @@ class MainWindow(QMainWindow):
                 workspace = window.takeCentralWidget()
                 if workspace is not None:
                     workspace.setParent(owner.clusters)
-                    tab = owner.clusters.addTab(workspace, workspace.context)
+                    tab = owner.clusters.addTab(workspace, owner.aliases.display(workspace.context))
                     owner.clusters.setCurrentIndex(tab)
                 owner._detached.pop(ws.context, None)
                 event.accept()
@@ -1669,19 +1669,45 @@ class MainWindow(QMainWindow):
             self._discard(ctx)
         self.status.showMessage(f"{ctx}: background connection retry cancelled")
 
+    def _confirm_stop_forwards(self, ws):
+        """Closing or disconnecting a cluster stops its port forwards. Ask first (default No) when there are some; True otherwise."""
+        active = ws.port_forwards.active()
+        if not active:
+            return True
+        names = "\n".join(f"{fw.namespace}/{fw.name} port {fw.remote}" for fw in active)
+        answer = QMessageBox.question(self, "Stop port forwards?",
+                                      f"Cluster: {ws.context}\n{len(active)} port forward(s) are running:\n{names}\n\n"
+                                      "Closing this cluster stops them. Continue?",
+                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        return answer == QMessageBox.Yes
+
+    def _disconnect_clicked(self, ctx):
+        ws = self.workspaces.get(ctx)
+        if ws is not None and not self._confirm_stop_forwards(ws):
+            return
+        self._discard(ctx)
+
     def _close_cluster_tab(self, index):
         ws = self.clusters.widget(index)
         if ws is self.cluster_overview:
+            return
+        if not self._confirm_stop_forwards(ws):
             return
         self._discard(ws.context)
 
     def _discard(self, ctx, preserve_retry=False):
         if not preserve_retry:
             self._cancel_connection_retry(ctx)
+        window = self._detached.pop(ctx, None)
         ws = self.workspaces.pop(ctx, None)
+        if window is not None:
+            if ws is not None and window.centralWidget() is ws:
+                window.takeCentralWidget()  # closing the window must not put the workspace back into a tab
+            window.close()
         if ws is None:
             return
-        self.clusters.removeTab(self.clusters.indexOf(ws))
+        if window is None:
+            self.clusters.removeTab(self.clusters.indexOf(ws))
         ws.shutdown()
         ws.deleteLater()
         self.nav.hide_views(ctx)
@@ -1693,7 +1719,7 @@ class MainWindow(QMainWindow):
         ws = self.workspaces.get(ctx)
         if ws is None:
             return
-        self.clusters.setCurrentWidget(ws)
+        self._focus_workspace(ws)
         ws.open_view(key)
 
     def _on_view_opened(self, ctx, key):
@@ -1748,8 +1774,8 @@ class MainWindow(QMainWindow):
         shown has nobody to ask."""
         if not self.isVisible():
             return True
-        opened = [self.clusters.widget(i).context for i in range(self.clusters.count())
-                  if isinstance(self.clusters.widget(i), ClusterWorkspace)]
+        # every connected cluster, in a tab or in its own window (a detached one is not in the tab bar)
+        opened = list(self.workspaces)
         try:
             if not opened:
                 self.session.forget()
