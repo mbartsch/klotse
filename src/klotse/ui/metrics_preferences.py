@@ -102,7 +102,9 @@ class AddSourceDialog(QDialog):
     def __init__(self, clusters, discover=None, parent=None, cluster="", service="", auth=NO_AUTH, fixed_cluster=False, ack=False):
         super().__init__(parent)
         self.setWindowTitle("Metrics source" if fixed_cluster else "Add a metrics source")
+        self._had_source = bool(str(service).strip())  # Edit… of a cluster that had a source (clearing it asks first, #496)
         self.discover = discover
+        self.fixed_cluster = fixed_cluster
         self.cluster = QComboBox()
         self.cluster.setEditable(not fixed_cluster)
         self.cluster.addItems(clusters)
@@ -195,6 +197,21 @@ class AddSourceDialog(QDialog):
         return bool(self._needs_ack() and self.ack_box.isChecked())
 
     def accept(self):
+        # Checked here, while the dialog is still open: a mistake keeps what was typed (#496: it used to close first and lose it)
+        text = self.service.currentText().strip()
+        if self.fixed_cluster is False and not self.cluster.currentText().strip():
+            QMessageBox.warning(self, "Metrics source", "Choose or type the cluster.")
+            return
+        if text:
+            try:
+                valid_source(text)
+            except ValueError as error:
+                QMessageBox.warning(self, "Metrics source", str(error))
+                return
+        elif self._had_source and QMessageBox.question(
+                self, "Metrics source", "The source is empty. Save that: the cluster goes back to the default source?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return  # No: the dialog stays open with the field as it was
         if self._needs_ack() and not self.ack_box.isChecked():
             QMessageBox.warning(self, "Metrics source", "Tick the box to accept that the token or password is sent unencrypted over "
                                 "http://, or use https://.")
