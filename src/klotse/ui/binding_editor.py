@@ -18,6 +18,7 @@ from .edit_dialog import leave_for_yaml
 from .role_editor import (AUTOUPDATE, DEFAULTS_LABEL, RESULT_LIMIT, RULE_KINDS, Picker, confirm_risky, role_warnings)
 from .service_account_editor import service_account_warnings
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 BINDING_KINDS = ("RoleBinding", "ClusterRoleBinding")
 RBAC_API_GROUP = "rbac.authorization.k8s.io"
@@ -149,7 +150,7 @@ def care_warnings(kind, raw):
 
 
 # ---- the dialog -------------------------------------------------------------------
-class BindingEditDialog(QDialog):
+class BindingEditDialog(DiscardGuard, QDialog):
     """Edit the subjects of a binding. After Save, `result_body` is the manifest with the new subjects; "Edit as
     YAML…" sets `wants_yaml` and rejects the dialog."""
 
