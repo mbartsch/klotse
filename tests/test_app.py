@@ -315,7 +315,7 @@ def test_pod_terminate_and_connect(qtbot, monkeypatch):
     row = ws.pod_table.model.rows[0]
     ws.pod_table.action_requested.emit("terminate", row)
     qtbot.waitUntil(lambda: bool(deleted), timeout=5000)
-    assert deleted[0] == ("web", "default")
+    assert deleted[0] == ("web", "default", False, "")  # the uid is the row's own, empty in this fake (#651)
     ws.pod_table.action_requested.emit("shell", row)
     qtbot.waitUntil(lambda: bool(opened))
     assert opened[0][:6] == ["kubectl", "--context", "ctx", "-n", "default", "exec"]

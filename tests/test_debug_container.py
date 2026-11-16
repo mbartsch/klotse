@@ -77,7 +77,7 @@ def test_removing_debug_containers_replaces_a_controlled_pod_after_asking(qtbot,
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
     ws.pod_action("remove-debug", _pod())
     qtbot.waitUntil(lambda: bool(deleted))
-    assert deleted == [("web-1", "shop")]
+    assert deleted == [("web-1", "shop", False, "")]  # the replacement is deleted by name and uid (#651)
     qtbot.waitUntil(lambda: not ws._workers)
 
 

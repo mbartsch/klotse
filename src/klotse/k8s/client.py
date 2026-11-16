@@ -782,8 +782,15 @@ class KubeService:
                                                   _preload_content=False, **extra)
 
     @mutating
-    def delete_pod(self, name, namespace, force=False):
-        options = {"body": client.V1DeleteOptions(grace_period_seconds=0, propagation_policy="Background")} if force else {}
+    def delete_pod(self, name, namespace, force=False, uid=""):
+        """Delete one pod. With the `uid` of the pod the user chose, the server refuses to delete a replacement that took
+        its name since the list was read (#651)."""
+        body = {}
+        if force:
+            body = {"grace_period_seconds": 0, "propagation_policy": "Background"}
+        if uid:
+            body["preconditions"] = client.V1Preconditions(uid=uid)
+        options = {"body": client.V1DeleteOptions(**body)} if body else {}
         self._core.delete_namespaced_pod(name, namespace, _request_timeout=15, **options)
 
     # ---- API discovery (for the role editor's pickers) --------------------
