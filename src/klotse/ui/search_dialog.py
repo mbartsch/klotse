@@ -131,6 +131,12 @@ class SearchDialog(QDialog):
             h = self.hits[row]
             self.goto_requested.emit(h.kind, h.namespace, h.name)
 
+    def reject(self):
+        """Esc: the same as closing the window, so a running search stops (#499: Esc used to leave it running)."""
+        if self._cancel is not None:
+            self._cancel.set()
+        super().reject()
+
     def closeEvent(self, event):
         if self._cancel is not None:
             self._cancel.set()

@@ -29,6 +29,12 @@ def _when(stamp):
 class MetricsQueryDialog(QWidget):
     source_requested = Signal()  # the Source… button: choose the Prometheus / VictoriaMetrics source for this window's queries
 
+    def keyPressEvent(self, event):  # noqa: N802 - Qt name: Esc closes the window (#499)
+        if event.key() == Qt.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(event)
+
     def __init__(self, title, source_text, presets, run, parent=None, run_range=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -116,6 +122,13 @@ class MetricsQueryDialog(QWidget):
         layout.addWidget(self.chart, 1)
         layout.addWidget(self.status)
         layout.addWidget(self.note)
+        close_row = QHBoxLayout()
+        close_row.addStretch(1)
+        close_button = QPushButton("Close")  # a window with no Close button and no Esc was hard to leave (#499)
+        close_button.clicked.connect(self.close)
+        close_row.addWidget(close_button)
+        layout.addLayout(close_row)
+
         if self._presets:
             self._preset_changed()
         self.resize(760, 560)
