@@ -124,7 +124,8 @@ class PreferencesDialog(QDialog):
         general = QWidget()
         form = QFormLayout(general)
 
-        self.path = QLineEdit(kubeconfig.path or "", readOnly=True)
+        self.path = QLineEdit(kubeconfig.path or "")  # typed or pasted; checked when the dialog is accepted (#498)
+        self.path.setAccessibleName("Kubeconfig path")
         self.path.setPlaceholderText("Default (KUBECONFIG or ~/.kube/config)")
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
@@ -313,6 +314,13 @@ class PreferencesDialog(QDialog):
         error = open_folder(self.config_folder)
         if error:
             QMessageBox.warning(self, "Cannot open config folder", error)
+
+    def accept(self):
+        path = self.path.text().strip()
+        if path and not Path(path).is_file():
+            QMessageBox.warning(self, "Kubeconfig", f"No file at {path}. Browse to it, or clear the field to use the default.")
+            return
+        super().accept()
 
     def chosen_kubeconfig(self):
         """The kubeconfig path picked in the dialog (None = default)."""
