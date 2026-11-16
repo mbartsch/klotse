@@ -83,8 +83,8 @@ class ObjectDialog(DiscardGuard, QDialog):
             self.namespace_edit.setEditable(True)
             self.namespace_edit.addItems(list(namespaces))
             self.namespace_edit.setCurrentText(str(meta.get("namespace", "")))
-            identity.addRow("Name", self.name_edit)
-            identity.addRow("Namespace", self.namespace_edit)
+            identity.addRow("Name *", self.name_edit)
+            identity.addRow("Namespace *", self.namespace_edit)
 
         self.tabs = QTabWidget()
         self.annotations = KeyValueEditor("Annotations", self.annotation_suggestions, hidden_keys=(LAST_APPLIED,), height=110)

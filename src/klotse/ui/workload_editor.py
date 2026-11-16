@@ -90,8 +90,8 @@ class WorkloadEditDialog(DiscardGuard, QDialog):
             self.namespace_edit.setEditable(True)
             self.namespace_edit.addItems(list(namespaces))
             self.namespace_edit.setCurrentText(str(meta.get("namespace", "")))
-            general.addRow("Name", self.name_edit)
-            general.addRow("Namespace", self.namespace_edit)
+            general.addRow("Name *", self.name_edit)
+            general.addRow("Namespace *", self.namespace_edit)
             if kind == "StatefulSet":
                 self.service_edit = QLineEdit(placeholderText="the headless Service; empty = the name")
                 general.addRow("Service name", self.service_edit)
