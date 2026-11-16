@@ -38,7 +38,7 @@ def test_subresources_need_their_own_rule():
     assert perms(rule(["create"], resources=["pods"])).check("create", "", "pods", "exec") is False  # pods is not pods/exec
     assert perms(rule(["update"], ["apps"], ["deployments/scale"])).check("update", "apps", "deployments", "scale") is True
     assert perms(rule(["get"], resources=["*/log"])).check("get", "", "pods", "log") is True
-    assert perms(rule(["get"], resources=["pods/*"])).check("get", "", "pods", "log") is True
+    assert perms(rule(["get"], resources=["pods/*"])).check("get", "", "pods", "log") is False  # no pods/* wildcard (#655)
 
 
 def test_incomplete_or_failed_rules_never_deny():
