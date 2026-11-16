@@ -13,6 +13,9 @@ def _meta(obj):
     return obj.get("metadata") or {}
 
 
+NAMELESS_VERBS = ("create", "deletecollection", "list", "watch")
+
+
 def rule_matches(rule, verb, group, resource, name=""):
     """None when the rule does not cover the request, else "all" (covers it for every object) or "named" (only for some named
     objects, which cover the request only when `name` is one of them, or when no name was asked for: then it is "named")."""
@@ -26,6 +29,8 @@ def rule_matches(rule, verb, group, resource, name=""):
     names = rule.get("resourceNames") or []
     if not names:
         return "all"
+    if verb in NAMELESS_VERBS:
+        return None  # the request URL carries no object name for these, so resourceNames never grant them (#656)
     return "all" if name and name in names else ("named" if not name else None)
 
 
