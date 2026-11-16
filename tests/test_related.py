@@ -447,7 +447,7 @@ def test_an_ebs_volume_behind_a_persistent_volume_links_to_its_console_page():
     pv = _pv(_csi(), {"topology.kubernetes.io/zone": "eu-west-1b"})
     aws = [r for r in rel.related("PersistentVolume", pv, CLUSTER) if r.kind == "AWS EBS volume"]
     assert aws == [Relation("Backed by", "AWS EBS volume", "", "vol-0abc123", 0, "eu-west-1",
-                            "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123")]
+                            url="https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123")]
 
 
 def test_the_region_comes_from_the_region_label_or_the_zone_in_node_affinity_or_the_legacy_source():
@@ -477,8 +477,8 @@ def test_no_aws_entry_for_other_or_unreadable_volumes(pv):
 
 def test_the_aws_entry_renders_as_an_external_link_and_stays_escaped():
     html = related_view.render([Relation("Backed by", "AWS EBS volume", "", "vol-0abc123", 0, "eu-west-1",
-                                         "https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123"),
-                                Relation("Backed by", "AWS EBS volume", "", "<b>x</b>", 0, "", "https://evil.example/'><b>")])
+                                         url="https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123"),
+                                Relation("Backed by", "AWS EBS volume", "", "<b>x</b>", 0, "", url="https://evil.example/'><b>")])
     assert "href='https://eu-west-1.console.aws.amazon.com/ec2/home?region=eu-west-1#Volumes:volumeId=vol-0abc123'" in html
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
     assert "href='https://evil.example/&#x27;&gt;&lt;b&gt;'" in html or "evil.example" in html

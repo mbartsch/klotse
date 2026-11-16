@@ -1,6 +1,6 @@
 """Browse the files of a container (Pod > Browse files…, PersistentVolumeClaim > Browse files…) and pick a path for Copy files….
 Looking only: the listing is `kubectl exec ... ls` (see k8s/remote_files.py)."""
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout)
@@ -73,7 +73,7 @@ class FileBrowserDialog(QDialog):
             self.copy_button.setAccessibleName("Copy selected container path")
             self.download_button = QPushButton("Download…")
             self.download_button.setAccessibleName("Download selected container file")
-            self.copy_button.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.selected_path()))
+            self.copy_button.clicked.connect(self._copy_path)  # the button says Copied for a moment (#497)
             self.download_button.clicked.connect(lambda: self.download_requested.emit(self.container.currentText(), self.selected_path()))
             buttons.addWidget(self.copy_button)
             buttons.addWidget(self.download_button)
@@ -143,6 +143,11 @@ class FileBrowserDialog(QDialog):
             self.open_path(rf.join(self.path, name))
 
     # ---- picking -------------------------------------------------------------------------------------------------
+    def _copy_path(self):
+        QGuiApplication.clipboard().setText(self.selected_path())
+        self.copy_button.setText("Copied")
+        QTimer.singleShot(1200, self, lambda: self.copy_button.setText("Copy path"))
+
     def selected_path(self):
         """The selected entry's full path, or the folder being shown when nothing is selected."""
         rows = self.table.selectionModel().selectedRows()

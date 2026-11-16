@@ -7,6 +7,9 @@ import sys
 import tempfile
 import uuid
 
+from ..k8s.process_env import environment, proxy_variables
+from ..plugins.api import ENV_NAME
+
 
 NODE_SHELL_IMAGE = "docker.io/library/alpine"
 
@@ -83,13 +86,14 @@ def _mac_session_command(argv, mac_terminal):
     return "exec " + shlex.join([sys.executable, runner, mac_terminal, json.dumps(argv)])
 
 
-def _external_session_script(argv):
+def _external_session_script(argv, variables=None):
     """Create a unique self-cleaning shell script for a local terminal session."""
     fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".sh")
     try:
         with open(fd, "w", encoding="utf-8", newline="\n") as script:
             script.write("#!/bin/sh\n")
             script.write("trap 'rm -f -- \"$0\"' EXIT\n")
+            script.write(_export_lines(variables))
             script.write(f"{shlex.join(argv)}; status=$?\n")
             script.write("printf '\\nSession ended. Press Enter to close.'\n")
             script.write("read -r answer\n")
@@ -118,7 +122,14 @@ def _windows_session_file(argv):
         raise
 
 
-def _mac_session_script(argv, mac_terminal):
+def _export_lines(variables):
+    """Shell lines that export the plugins' variables for a cluster (see k8s/process_env) inside a private session script:
+    never on a command line, where other users of the computer could read them in the process list."""
+    return "".join(f"export {name}={shlex.quote(value)}\n" for name, value in (variables or {}).items()
+                   if ENV_NAME.fullmatch(name))
+
+
+def _mac_session_script(argv, mac_terminal, variables=None):
     """Create a unique script; AppleScript passes only the new window/session target to it."""
     fd, path = tempfile.mkstemp(prefix="klotse-terminal-", suffix=".sh")
     runner = str(Path(__file__).with_name("terminal_session.py").resolve())
@@ -129,6 +140,7 @@ def _mac_session_script(argv, mac_terminal):
     try:
         with open(fd, "w", encoding="utf-8", newline="\n") as script:
             script.write("#!/bin/sh\n")
+            script.write(_export_lines(variables))
             script.write(f"{shlex.join(runner_args)} \"$@\"; status=$?\n")
             script.write("rm -f -- \"$0\"\nexit \"$status\"\n")
         return path
@@ -140,8 +152,19 @@ def _mac_session_script(argv, mac_terminal):
         raise
 
 
-def open_terminal(argv, mac_terminal="Terminal"):
-    """Open an interactive session; macOS sessions close after a successful command."""
+def _with_proxy(argv):
+    """A POSIX terminal starts its own shell, which does not inherit this process's environment, so the app's proxy goes in
+    front of the command as `env NAME=value`. Windows passes the environment to the console process instead."""
+    variables = proxy_variables()
+    if not variables or sys.platform == "win32":
+        return argv
+    return ["env", *[f"{key}={value}" for key, value in variables.items()], *argv]
+
+
+def open_terminal(argv, mac_terminal="Terminal", variables=None):
+    """Open an interactive session; macOS sessions close after a successful command. `variables` are what the plugins add
+    for the cluster: the environment of the console process on Windows, exported in the private session script elsewhere."""
+    argv = _with_proxy(argv)
     if sys.platform == "win32":
         path = _windows_session_file(argv)
         if getattr(sys, "frozen", False):
@@ -153,7 +176,7 @@ def open_terminal(argv, mac_terminal="Terminal"):
             runner = [str(executable), str(Path(__file__).with_name("terminal_session.py").resolve()), "Windows", path]
         try:
             # A pythonw/frozen parent may have invalid standard handles. The runner opens its own new console streams.
-            subprocess.Popen(runner, creationflags=subprocess.CREATE_NEW_CONSOLE,
+            subprocess.Popen(runner, creationflags=subprocess.CREATE_NEW_CONSOLE, env=environment(variables),
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             Path(path).unlink(missing_ok=True)
@@ -180,7 +203,7 @@ def open_terminal(argv, mac_terminal="Terminal"):
                       ' end tell\n end tell\nend run')
         else:
             raise ValueError(f"Unsupported macOS terminal: {mac_terminal}")
-        script_path = _mac_session_script(argv, mac_terminal)
+        script_path = _mac_session_script(argv, mac_terminal, variables)
         command = "exec " + shlex.join(["/bin/sh", script_path])
         try:
             subprocess.run(["osascript", "-e", script, command], check=True,
@@ -193,7 +216,7 @@ def open_terminal(argv, mac_terminal="Terminal"):
                                ("konsole", ["-e"]), ("xterm", ["-e"])):
             executable = shutil.which(terminal)
             if executable:
-                script = _external_session_script(argv)
+                script = _external_session_script(argv, variables)
                 try:
                     subprocess.Popen([executable, *args, "/bin/sh", script])
                 except Exception:

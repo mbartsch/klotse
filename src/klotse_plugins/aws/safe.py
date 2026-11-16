@@ -1,7 +1,12 @@
 """Checks on data that comes from outside before it is used: node labels (a cluster's administrators write them), URLs and
 XML answers. Found by the static security checks (bandit) and a review of what reaches an AWS request."""
+import os
 import re
+import urllib.parse
+
 import xml.etree.ElementTree as ET  # nosec B405 - parse_xml below is the only entry, and it refuses DTDs and entities
+
+from klotse.net_policy import insecure_net_allowed
 
 ParseError = ET.ParseError  # what parse_xml raises, for callers
 
@@ -20,6 +25,32 @@ def require_https(url):
     if not str(url).lower().startswith("https://"):
         raise ValueError("only https addresses are used")
     return url
+
+
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def require_endpoint(url, environ=None):
+    """Like require_https, but plain http is also allowed to this computer (127.0.0.1, localhost, ::1): a local emulator
+    such as Floci is reached that way, and its traffic never leaves the machine. Any other host must be https, unless
+    KLOTSE_INSECURE_NET is set (testing only, see klotse.net_policy): then plain http to any host is allowed too."""
+    text = str(url)
+    lowered = text.lower()
+    if lowered.startswith("https://"):
+        return url
+    if lowered.startswith("http://"):
+        if insecure_net_allowed(environ) or (urllib.parse.urlsplit(text).hostname or "") in LOOPBACK_HOSTS:
+            return url
+    raise ValueError("only https addresses are used (plain http only to this computer, or with KLOTSE_INSECURE_NET)")
+
+
+def endpoint_override(environ=None):
+    """AWS_ENDPOINT_URL, the variable boto3 and the AWS CLI also read (for example http://127.0.0.1:4566 for a local
+    emulator), with a trailing slash; None when it is not set. A value that is not an allowed address raises ValueError."""
+    value = (os.environ if environ is None else environ).get("AWS_ENDPOINT_URL", "").strip()
+    if not value:
+        return None
+    return require_endpoint(value if value.endswith("/") else value + "/", environ)
 
 
 def parse_xml(data):

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout
 from ..k8s.related import KINDS as RELATED_KINDS
 from . import events_view, karpenter_view, network_view, node_view, rbac_view, related_view, theme, workload_view
 from .manifest import dump_manifest
+from .status_tone import status_tone
 from .action_icons import action_icon
 
 
@@ -124,19 +125,23 @@ class DetailPanel(QWidget):
         self.copy_uid_button.setAccessibleName("Copy object UID")
         self.copy_uid_button.setIcon(action_icon("copy"))
         self.copy_uid_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.copy_uid_button.clicked.connect(lambda: self._copy_text(self._identity_uid))
+        self.copy_uid_button.clicked.connect(lambda: self._copy_id_value(self._identity_uid, "UID"))
         self.identity_provider = QLabel()
         self.identity_provider.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.copy_provider_button = QToolButton(text="Copy provider ID")
         self.copy_provider_button.setAccessibleName("Copy node provider ID")
         self.copy_provider_button.setIcon(action_icon("copy"))
         self.copy_provider_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.copy_provider_button.clicked.connect(lambda: self._copy_text(self._identity_provider))
+        self.copy_provider_button.clicked.connect(lambda: self._copy_id_value(self._identity_provider, "Provider ID"))
         identity_ids.addWidget(self.identity_scope, 0, 0, 1, 2)
         identity_ids.addWidget(self.identity_uid, 1, 0)
         identity_ids.addWidget(self.copy_uid_button, 1, 1)
         identity_ids.addWidget(self.identity_provider, 2, 0)
         identity_ids.addWidget(self.copy_provider_button, 2, 1)
+        self.copied_note = QLabel()  # "Copied UID" / "Copied Provider ID" for a moment
+        self.copied_note.setAccessibleName("Copy confirmation")
+        self.copied_note.hide()
+        identity_ids.addWidget(self.copied_note, 3, 0, 1, 2)
         identity_ids.setColumnStretch(0, 1)
         for label in (self.identity_scope, self.identity_uid, self.identity_provider):
             label.setWordWrap(True)
@@ -204,6 +209,7 @@ class DetailPanel(QWidget):
         self.related.hide()
         self._related_ok = False  # the current row is of a kind that has a Related view
         self._related_row = None  # the row the Related view is waiting for or showing
+        self._related_relations, self._related_expanded = [], set()  # the answer shown, and the capped groups shown in full
         self.events = QTextBrowser()
         self.events.setObjectName("detailEvents")
         self.events.setAccessibleName("Events for the selected resource")
@@ -235,6 +241,10 @@ class DetailPanel(QWidget):
         self.find_edit = QLineEdit(placeholderText="Find in YAML…", clearButtonEnabled=True)
         self.find_edit.setAccessibleName("Find text in resource YAML")
         self.find_edit.setMaximumWidth(260)
+        self.find_note = QLabel("No match")  # shown after Find cannot locate the text (#497)
+        self.find_note.setAccessibleName("Find: no match")
+        theme.muted(self.find_note)
+        self.find_note.hide()
         self.find_edit.returnPressed.connect(self._find_next)
         self.find_edit.textChanged.connect(lambda _t: self._find_from_start())
         self.copy_button = QPushButton("Copy YAML")
@@ -249,6 +259,7 @@ class DetailPanel(QWidget):
         tools = QHBoxLayout(self.yaml_tools)
         tools.setContentsMargins(0, 0, 0, 0)
         tools.addWidget(self.find_edit)
+        tools.addWidget(self.find_note)
         tools.addWidget(self.copy_button)
         tools.addWidget(self.wrap_box)
         tools.addStretch(1)
@@ -341,12 +352,26 @@ class DetailPanel(QWidget):
         self._events_row = None
         self._related_ok = getattr(row, "table_kind", None) in RELATED_KINDS and isinstance(getattr(row, "raw", None), dict)
         self._related_row = None
+        self._related_expanded = set()  # a new selection starts with every capped group folded
         self._render_formatted(row)
         def restore_scroll():
             if self._detail_key == key:
                 self.summary_scroll.verticalScrollBar().setValue(outer_scroll)
                 self.formatted.verticalScrollBar().setValue(inner_scroll)
         QTimer.singleShot(0, restore_scroll)
+
+    def show_many(self, count):
+        """Several rows are selected: Details says so and offers no single-object actions (the right-click menu acts on all)."""
+        self.clear_row()
+        self.identity_title.setText(f"{count} selected")
+        self.identity_scope.setText("Actions apply to every selected row: use the right-click menu.")
+        self.identity_uid.hide()
+        self.identity_provider.hide()
+        self.copy_uid_button.hide()
+        self.copy_provider_button.hide()
+        self.identity_status.setText("")
+        self.identity_header.show()
+        self.set_object_actions([])
 
     def clear_row(self):
         """Return Details to its empty state and discard object-specific actions and secret values."""
@@ -385,9 +410,16 @@ class DetailPanel(QWidget):
         if error:
             self.related.setHtml(f"<p style='color:{theme.BAD}'>Cannot read the related objects: {events_view._e(error)}</p>")
         else:
-            self.related.setHtml(related_view.render(relations or [], getattr(row, "name", "")))
+            self._related_relations = list(relations or [])
+            self.related.setHtml(related_view.render(self._related_relations, getattr(row, "name", ""), frozenset(self._related_expanded)))
 
     def _related_clicked(self, url):
+        more = related_view.parse_more(url.toString())
+        if more is not None:  # "... and N more": show every entry of that group, or fold it back
+            self._related_expanded ^= {more}
+            self.related.setHtml(related_view.render(self._related_relations, getattr(self._related_row, "name", ""),
+                                                     frozenset(self._related_expanded)))
+            return
         target = related_view.parse_link(url.toString())
         if target is not None:
             self.goto_object.emit(*target)
@@ -453,7 +485,8 @@ class DetailPanel(QWidget):
         logs = next((action for action in actions if action.key in ("logs", "container-logs", "multi-logs")), None)
         if len(actions) > 3 and logs is not None and logs not in primary:
             primary = primary[:1] + [logs]
-        overflow = [action for action in actions if action not in primary]
+        # Dangerous entries go last, in a menu of their own; the others keep their order (#500: Force terminate came before Files)
+        overflow = sorted((action for action in actions if action not in primary), key=lambda action: bool(action.dangerous))
         for action in primary:
             button = QToolButton(text=action.title)
             button.setToolTip(action.title)
@@ -519,9 +552,8 @@ class DetailPanel(QWidget):
         self.copy_provider_button.setVisible(bool(self._identity_provider))
         self.identity_provider.setVisible(bool(self._identity_provider))
         self.identity_status.setText(status)
-        folded = status.casefold()
-        color = theme.BAD if any(word in folded for word in ("failed", "not ready", "error", "crash")) else (
-            theme.WARN if any(word in folded for word in ("pending", "unknown", "terminating", "suspend", "warning")) else theme.OK)
+        tone = status_tone(status.replace(" ", ""))  # the same words and colours as the table's status column
+        color = {"bad": theme.BAD, "warn": theme.WARN}.get(tone, theme.OK)
         self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
         self.identity_header.show()
 
@@ -546,12 +578,21 @@ class DetailPanel(QWidget):
         return "Unknown"
 
     def _copy_identity(self):
-        self._copy_text(self._identity_text)
+        self._copy_id_value(self._identity_text, "name")
 
     @staticmethod
     def _copy_text(value):
         if value:
             QGuiApplication.clipboard().setText(value)
+
+    def _copy_id_value(self, value, what):
+        """Copy a UID or provider ID and say so beside the identity (#497: copying gave no sign)."""
+        if not value:
+            return
+        QGuiApplication.clipboard().setText(value)
+        self.copied_note.setText(f"Copied {what}")
+        self.copied_note.show()
+        QTimer.singleShot(1500, self, lambda: self.copied_note.hide())  # tied to this panel, like Copy YAML
 
     def _show_mode(self, *_):
         if self._secret_row is not None and self.formatted_button.isChecked() and not self._formatted_ok:
@@ -601,7 +642,10 @@ class DetailPanel(QWidget):
             cursor = self.editor.textCursor()
             cursor.setPosition(0)
             self.editor.setTextCursor(cursor)
-            self.editor.find(text)
+            found = self.editor.find(text)
+            self.find_note.setVisible(not found)
+        else:
+            self.find_note.hide()
 
     def _copy_yaml(self):
         QGuiApplication.clipboard().setText(self.editor.toPlainText())

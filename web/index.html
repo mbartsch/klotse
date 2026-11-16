@@ -81,18 +81,23 @@ kbd{font:13px/1.4 "JetBrains Mono",ui-monospace,Consolas,monospace;background:va
 
 /* ---------- top bar: a terminal title bar ---------- */
 .top{border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:40}
-.top-inner{max-width:1080px;margin:0 auto;padding:10px 0;display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}
+.top-inner{max-width:1280px;margin:0 auto;padding:10px 0;display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}
 .brand{font-weight:700;font-size:17px;color:var(--phosphor);text-shadow:var(--glow);text-decoration:none;white-space:nowrap}
 .brand::before{content:"> ";color:var(--dim)}
 .brand:hover{background:none;color:var(--ink)}
-.top nav{display:flex;gap:4px 14px;flex-wrap:wrap;font-size:13px}
-.top .gh{font-size:13px;color:var(--mute);text-decoration:none;white-space:nowrap}
+.page{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:190px minmax(0,1fr);gap:0 44px;padding:0}
+.side{position:sticky;top:64px;align-self:start;padding-top:36px}
+.side nav{display:flex;flex-direction:column;gap:2px;font-size:13px;border-left:1px dashed var(--dim)}
+.side nav .num{color:var(--dim);margin-right:6px;font-variant-numeric:tabular-nums}
+.side nav a{display:block;padding:5px 0 5px 14px;margin-left:-1px;border-left:2px solid transparent;color:var(--mute);text-decoration:none}
+.side nav a:hover,.side nav a:focus-visible{background:none;color:var(--phosphor);border-left-color:var(--phosphor)}
+.top-actions{display:flex;align-items:center;gap:14px}
+.top .gh{color:var(--mute);display:flex;padding:4px;text-decoration:none}
+.top .gh svg{fill:currentColor;display:block}
 .top .gh:hover,.top .gh:focus-visible{background:none;color:var(--phosphor)}
-.top nav a{color:var(--mute);text-decoration:none;padding:2px 0}
-.top nav a:hover,.top nav a:focus-visible{background:none;color:var(--phosphor);text-shadow:var(--glow)}
 
 /* ---------- layout ---------- */
-.wrap{max-width:1080px;margin:0 auto;padding:36px 0 56px}
+.wrap{max-width:none;margin:0;padding:36px 0 56px;min-width:0}
 .hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:36px;align-items:center;margin-bottom:44px}
 .hero h1{font-size:clamp(26px,3.4vw,38px);line-height:1.18;margin:0 0 16px;text-wrap:balance}
 .hero h1::after{content:"_";color:var(--phosphor);margin-left:4px;animation:blink 1.05s steps(1) infinite}
@@ -171,6 +176,16 @@ details p{color:var(--mute);margin:8px 0 0 18px}
 footer{border-top:1px dashed var(--dim);padding:24px 0 40px;color:var(--mute);font-size:13px}
 footer p{max-width:80ch;margin:0 0 8px}
 
+/* Click a picture to enlarge it: a pure-CSS lightbox (:target), so the guide still has no scripts. */
+.zoom{display:block;cursor:zoom-in}
+.zoom:hover{background:none}
+.zoom:hover img{border-color:var(--phosphor)}
+.zt:checked ~ .lightbox{display:flex}
+.zt{display:none}
+.lightbox{display:none;position:fixed;inset:0;z-index:100;background:rgba(10,14,16,.86);align-items:center;justify-content:center;padding:16px;cursor:zoom-out;text-decoration:none}
+.lightbox:hover{background:rgba(10,14,16,.86)}
+.lightbox img{border:0;padding:0;box-shadow:none;margin:0;width:auto;height:auto;max-width:96vw;max-height:92vh;border-radius:8px;background:var(--panel)}
+
 @keyframes blink{50%{opacity:0}}
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
@@ -180,6 +195,10 @@ footer p{max-width:80ch;margin:0 0 8px}
   .btn:active{transform:translateY(1px)}
 }
 @media (max-width:860px){
+  .page{grid-template-columns:minmax(0,1fr);gap:0}
+  .side{position:static;padding-top:16px}
+  .side nav{flex-direction:row;flex-wrap:wrap;gap:4px 14px;border-left:0}
+  .side nav a{padding:2px 0;border-left:0}
   .hero,.split,.split.flip{grid-template-columns:minmax(0,1fr);gap:22px}
   .split.flip > figure{order:0}
   .hero h1{font-size:26px}
@@ -192,18 +211,9 @@ footer p{max-width:80ch;margin:0 0 8px}
 
 <header class="top">
   <div class="top-inner">
-    <a class="brand" href="#top">KLOTSE</a>
-    <nav aria-label="Guide sections">
-      <a href="#start">Start</a>
-      <a href="#clusters">Clusters</a>
-      <a href="#views">Views</a>
-      <a href="#details">Details</a>
-      <a href="#changes">Changes</a>
-      <a href="#usage">Usage &amp; metrics</a>
-      <a href="#palette">Shortcuts</a>
-      <a href="#help">Help</a>
-    </nav>
-    <a class="gh" href="https://github.com/mbartsch/klotse" rel="noopener">GitHub</a>
+    <a class="brand" href="#">KLOTSE</a>
+    <div class="top-actions">
+    <a class="gh" href="https://github.com/mbartsch/klotse" rel="noopener" aria-label="Klotse on GitHub" title="Klotse on GitHub"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
     <div class="switch" role="radiogroup" aria-label="Colour theme">
       <input type="radio" name="theme" id="t-auto" checked>
       <label for="t-auto">Auto</label>
@@ -212,8 +222,29 @@ footer p{max-width:80ch;margin:0 0 8px}
       <input type="radio" name="theme" id="t-dark">
       <label for="t-dark">Dark</label>
     </div>
+    </div>
   </div>
 </header>
+
+<div class="page">
+<aside class="side">
+  <nav aria-label="Guide sections">
+  <a href="#start">Start and connect</a>
+  <a href="#clusters">Clusters and the navigator</a>
+  <a href="#views">Views, tables and filters</a>
+  <a href="#details">The Details pane</a>
+  <a href="#changes">Changing things safely</a>
+  <a href="#pods">Pods, logs and terminals</a>
+  <a href="#usage">Usage &amp; metrics</a>
+  <a href="#forwards">Port forwards</a>
+  <a href="#insights">Insights</a>
+  <a href="#palette">Command palette and shortcuts</a>
+  <a href="#settings">Preferences</a>
+  <a href="#multicloud">Multi-cloud</a>
+  <a href="#help">Help and troubleshooting</a>
+  <a href="developers.html">For developers</a>
+  </nav>
+</aside>
 
 <main class="wrap" id="top">
 
@@ -235,7 +266,7 @@ footer p{max-width:80ch;margin:0 0 8px}
       </div>
     </div>
     <figure>
-      <img class="shot shot-dark" src="screenshots/main-window.png" alt="The Klotse main window: a cluster list on the left, the cluster overview in the middle and the details pane on the right." width="1280" height="800"><img class="shot shot-light" src="screenshots/daylight/main-window.png" alt="" width="1280" height="800" aria-hidden="true">
+      <input type="checkbox" id="z-1" class="zt" hidden><label class="zoom" for="z-1" title="Click to enlarge" aria-label="Enlarge: The Klotse main window: a cluster list on the left, the cluster overview in the middle and the details pane on the right."><img class="shot shot-dark" src="screenshots/main-window.png" alt="The Klotse main window: a cluster list on the left, the cluster overview in the middle and the details pane on the right." width="1280" height="800"><img class="shot shot-light" src="screenshots/daylight/main-window.png" alt="" width="1280" height="800" aria-hidden="true"></label><label class="lightbox" for="z-1"><img class="shot shot-dark" src="screenshots/main-window.png" alt="The Klotse main window: a cluster list on the left, the cluster overview in the middle and the details pane on the right."><img class="shot shot-light" src="screenshots/daylight/main-window.png" alt="" aria-hidden="true"></label>
       <figcaption>The main window. Clusters are on the left, the open cluster is in the tabs, and the Details pane is on the right.</figcaption>
     </figure>
   </div>
@@ -274,7 +305,7 @@ footer p{max-width:80ch;margin:0 0 8px}
     <p>Every kind of object has a view: pods, deployments, nodes, services, secrets, events and more. Tables are built to be scanned.</p>
     <div class="split flip">
       <figure>
-        <img class="shot shot-dark" src="screenshots/08-pods-filter-expression.png" alt="Pod table filtered with an expression." width="1180" height="270" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/08-pods-filter-expression.png" alt="" width="1180" height="270" loading="lazy" aria-hidden="true">
+        <input type="checkbox" id="z-2" class="zt" hidden><label class="zoom" for="z-2" title="Click to enlarge" aria-label="Enlarge: Pod table filtered with an expression."><img class="shot shot-dark" src="screenshots/08-pods-filter-expression.png" alt="Pod table filtered with an expression." width="1180" height="270" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/08-pods-filter-expression.png" alt="" width="1180" height="270" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-2"><img class="shot shot-dark" src="screenshots/08-pods-filter-expression.png" alt="Pod table filtered with an expression."><img class="shot shot-light" src="screenshots/daylight/08-pods-filter-expression.png" alt="" aria-hidden="true"></label>
         <figcaption>A filter expression such as <code>Restarts &gt; 3 and kind = pod*</code>. A bad expression filters nothing and says why.</figcaption>
       </figure>
       <ul class="clean">
@@ -293,7 +324,7 @@ footer p{max-width:80ch;margin:0 0 8px}
     <p>Select an object and its details open on the right. You can switch between four views, and every kind has the YAML view, even kinds with no summary.</p>
     <div class="split">
       <figure>
-        <img class="shot shot-dark" src="screenshots/details-yaml.png" alt="Details pane showing a Deployment as YAML." width="620" height="560" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/details-yaml.png" alt="" width="620" height="560" loading="lazy" aria-hidden="true">
+        <input type="checkbox" id="z-3" class="zt" hidden><label class="zoom" for="z-3" title="Click to enlarge" aria-label="Enlarge: Details pane showing a Deployment as YAML."><img class="shot shot-dark" src="screenshots/details-yaml.png" alt="Details pane showing a Deployment as YAML." width="620" height="560" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/details-yaml.png" alt="" width="620" height="560" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-3"><img class="shot shot-dark" src="screenshots/details-yaml.png" alt="Details pane showing a Deployment as YAML."><img class="shot shot-light" src="screenshots/daylight/details-yaml.png" alt="" aria-hidden="true"></label>
         <figcaption>The YAML view of a Deployment. Search it, copy it or wrap its lines.</figcaption>
       </figure>
       <div>
@@ -337,7 +368,7 @@ footer p{max-width:80ch;margin:0 0 8px}
     <p>See CPU and memory for a pod, node or workload, and ask Prometheus or VictoriaMetrics questions, without opening a graph tool.</p>
     <div class="split">
       <figure>
-        <img class="shot shot-dark" src="screenshots/09-usage-history.png" alt="Usage history chart of CPU and memory with request and limit lines." width="1000" height="660" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/09-usage-history.png" alt="" width="1000" height="660" loading="lazy" aria-hidden="true">
+        <input type="checkbox" id="z-4" class="zt" hidden><label class="zoom" for="z-4" title="Click to enlarge" aria-label="Enlarge: Usage history chart of CPU and memory with request and limit lines."><img class="shot shot-dark" src="screenshots/09-usage-history.png" alt="Usage history chart of CPU and memory with request and limit lines." width="1000" height="660" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/09-usage-history.png" alt="" width="1000" height="660" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-4"><img class="shot shot-dark" src="screenshots/09-usage-history.png" alt="Usage history chart of CPU and memory with request and limit lines."><img class="shot shot-light" src="screenshots/daylight/09-usage-history.png" alt="" aria-hidden="true"></label>
         <figcaption>Usage history. With only metrics-server, the chart starts when the window opens and is not kept after you close it.</figcaption>
       </figure>
       <div>
@@ -355,8 +386,8 @@ footer p{max-width:80ch;margin:0 0 8px}
         </ul>
       </div>
     </div>
-    <figure style="margin-top:28px">
-      <img class="shot shot-dark" src="screenshots/metrics-query.png" alt="Metrics query window: presets, a results table with time, latest value and series, and a graph." width="900" height="760" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/metrics-query.png" alt="" width="900" height="760" loading="lazy" aria-hidden="true">
+    <figure style="margin-top:28px;max-width:620px">
+      <input type="checkbox" id="z-5" class="zt" hidden><label class="zoom" for="z-5" title="Click to enlarge" aria-label="Enlarge: Metrics query window: presets, a results table with time, latest value and series, and a graph."><img class="shot shot-dark" src="screenshots/metrics-query.png" alt="Metrics query window: presets, a results table with time, latest value and series, and a graph." width="900" height="760" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/metrics-query.png" alt="" width="900" height="760" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-5"><img class="shot shot-dark" src="screenshots/metrics-query.png" alt="Metrics query window: presets, a results table with time, latest value and series, and a graph."><img class="shot shot-light" src="screenshots/daylight/metrics-query.png" alt="" aria-hidden="true"></label>
       <figcaption>The Metrics query window. Each run adds rows; the graph draws the query over the range you choose.</figcaption>
     </figure>
     <div class="note"><strong>metrics-server is limited</strong>It gives current CPU and memory for pods and nodes. It cannot run queries, and it has no network or replica data. Those come from Prometheus or VictoriaMetrics.</div>
@@ -367,7 +398,7 @@ footer p{max-width:80ch;margin:0 0 8px}
     <p>Port forwards open a pod or service on this computer. They listen on 127.0.0.1 only.</p>
     <div class="split flip">
       <figure>
-        <img class="shot shot-dark" src="screenshots/port-forwards.png" alt="Port forwards list with a running service forward, a running pod forward and a stopped forward." width="900" height="340" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/port-forwards.png" alt="" width="900" height="340" loading="lazy" aria-hidden="true">
+        <input type="checkbox" id="z-6" class="zt" hidden><label class="zoom" for="z-6" title="Click to enlarge" aria-label="Enlarge: Port forwards list with a running service forward, a running pod forward and a stopped forward."><img class="shot shot-dark" src="screenshots/port-forwards.png" alt="Port forwards list with a running service forward, a running pod forward and a stopped forward." width="900" height="340" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/port-forwards.png" alt="" width="900" height="340" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-6"><img class="shot shot-dark" src="screenshots/port-forwards.png" alt="Port forwards list with a running service forward, a running pod forward and a stopped forward."><img class="shot shot-light" src="screenshots/daylight/port-forwards.png" alt="" aria-hidden="true"></label>
         <figcaption>The Port forwards tab: state, address, and who started each forward.</figcaption>
       </figure>
       <ul class="clean">
@@ -384,7 +415,7 @@ footer p{max-width:80ch;margin:0 0 8px}
     <p>Look, don't touch: these windows only read.</p>
     <div class="split">
       <figure>
-        <img class="shot shot-dark" src="screenshots/10-health-check.png" alt="Health check window listing findings by severity." width="1380" height="460" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/10-health-check.png" alt="" width="1380" height="460" loading="lazy" aria-hidden="true">
+        <input type="checkbox" id="z-7" class="zt" hidden><label class="zoom" for="z-7" title="Click to enlarge" aria-label="Enlarge: Health check window listing findings by severity."><img class="shot shot-dark" src="screenshots/10-health-check.png" alt="Health check window listing findings by severity." width="1380" height="460" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/10-health-check.png" alt="" width="1380" height="460" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-7"><img class="shot shot-dark" src="screenshots/10-health-check.png" alt="Health check window listing findings by severity."><img class="shot shot-light" src="screenshots/daylight/10-health-check.png" alt="" aria-hidden="true"></label>
         <figcaption>Health check: crash loops, missing limits, <code>latest</code> tags and more. Each finding is advice, not a verdict.</figcaption>
       </figure>
       <div class="cards">
@@ -399,6 +430,12 @@ footer p{max-width:80ch;margin:0 0 8px}
   <section id="palette">
     <h2>10. Command palette and shortcuts<span class="cursor" aria-hidden="true"></span></h2>
     <p>Press <kbd>Ctrl</kbd>+<kbd>K</kbd> (<kbd>Cmd</kbd>+<kbd>K</kbd> on a Mac) and type a few letters. The palette finds views, namespaces, clusters and every enabled menu action.</p>
+    <figure style="max-width:620px">
+      <input type="checkbox" id="z-palette" class="zt" hidden>
+      <label class="zoom" for="z-palette" title="Click to enlarge" aria-label="Enlarge: The command palette, with pod typed in the search box and the matching views listed."><img class="shot shot-dark" src="screenshots/command-palette.png" alt="The command palette with pod typed in the search box and the matching views listed." width="640" height="420" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/command-palette.png" alt="" width="640" height="420" loading="lazy" aria-hidden="true"></label>
+      <label class="lightbox" for="z-palette"><img class="shot shot-dark" src="screenshots/command-palette.png" alt="The command palette with pod typed in the search box and the matching views listed."><img class="shot shot-light" src="screenshots/daylight/command-palette.png" alt="" aria-hidden="true"></label>
+      <figcaption>Type <code>pod</code> and the views that match it are listed. Enter opens the top one.</figcaption>
+    </figure>
     <ul class="clean">
       <li><kbd>Ctrl</kbd>+<kbd>K</kbd> opens the palette.</li>
       <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches objects across the cluster.</li>
@@ -416,8 +453,36 @@ footer p{max-width:80ch;margin:0 0 8px}
     </div>
   </section>
 
+  <section id="multicloud">
+    <h2>12. Multi-cloud <span style="font-size:.6em;color:var(--amber);vertical-align:middle">(work in progress)</span><span class="cursor" aria-hidden="true"></span></h2>
+    <div class="note warn"><strong>Work in progress</strong>Multi-cloud is not in a released version yet. It is only in the git code of this project, so you can use it by running Klotse from source. Its cloud sign-in and cluster listing have not been tested against real AWS, Google Cloud, Oracle or Azure accounts, and the details may still change.</div>
+    <p>Klotse can list the clusters of a cloud account and add them to your kubeconfig. Cloud plugins add a few things for nodes: their cloud details, console links and sign-in. Every plugin is off until you turn it on in <em>Edit &gt; Preferences &gt; Plugins</em>.</p>
+    <div class="split">
+      <figure>
+        <input type="checkbox" id="z-8" class="zt" hidden><label class="zoom" for="z-8" title="Click to enlarge" aria-label="Enlarge: Add clusters from the cloud: a list of invented EKS cluster names with two ticked, and the Add selected clusters button."><img class="shot shot-dark" src="screenshots/cloud-clusters.png" alt="Add clusters from the cloud: a list of invented EKS cluster names with two ticked, and the Add selected clusters button." width="640" height="520" loading="lazy"><img class="shot shot-light" src="screenshots/daylight/cloud-clusters.png" alt="" width="640" height="520" loading="lazy" aria-hidden="true"></label><label class="lightbox" for="z-8"><img class="shot shot-dark" src="screenshots/cloud-clusters.png" alt="Add clusters from the cloud: a list of invented EKS cluster names with two ticked, and the Add selected clusters button."><img class="shot shot-light" src="screenshots/daylight/cloud-clusters.png" alt="" aria-hidden="true"></label>
+        <figcaption>File &gt; Add clusters from the cloud… lists the clusters of an enabled plugin. Tick the ones you want. The names here are invented.</figcaption>
+      </figure>
+      <div>
+        <ol class="steps">
+          <li><strong>Enable a cloud plugin</strong> in Preferences &gt; Plugins: AWS, Google Cloud (GKE), Azure (AKS) or Oracle Cloud (OKE).</li>
+          <li><strong>Choose File &gt; Add clusters from the cloud…</strong> and fill in the region, and the profile if you use one.</li>
+          <li><strong>List clusters</strong>, tick the ones to add and press <em>Add selected clusters</em>.</li>
+        </ol>
+        <p style="margin-top:14px">The clusters go into <code>klotse-cloud.klotse</code> in your <code>.kube</code> folder, which Klotse reads with your other kubeconfig files. Klotse can write them into your main kubeconfig instead, but only when you turn that on in Preferences (off by default), and it keeps a backup first.</p>
+      </div>
+    </div>
+    <div class="cards">
+      <div class="card"><h3>AWS</h3><p>Lists EKS clusters. Node columns show the instance, type, capacity, AMI and price. Estimates the cost of the selected nodes. Sign-in runs <code>aws sso login</code> in a terminal.</p></div>
+      <div class="card"><h3>Google Cloud</h3><p>Sign-in for a GKE node, through <code>gcloud auth login</code> in a terminal. Cluster listing and columns are not there yet.</p></div>
+      <div class="card"><h3>Oracle Cloud</h3><p>Sign-in for an OKE node, through <code>oci session authenticate</code>. Cluster listing and columns are not there yet.</p></div>
+      <div class="card"><h3>Azure</h3><p>Sign-in for an AKS node, through <code>az login</code>. Cluster listing and columns are not there yet.</p></div>
+    </div>
+    <div class="note"><strong>Credentials</strong>Klotse uses the cloud's own command-line tool and its sign-in. A cloud profile is the safer choice. The AWS plugin can also keep an access key in Klotse's settings, but that key is stored as plain text, so use a dedicated read-only key if you do.</div>
+    <div class="note"><strong>Tested so far</strong>The project's tests use fake cloud tools and invented data. Nothing has been run against a real cloud account yet.</div>
+  </section>
+
   <section id="help">
-    <h2>Help and troubleshooting<span class="cursor" aria-hidden="true"></span></h2>
+    <h2>13. Help and troubleshooting<span class="cursor" aria-hidden="true"></span></h2>
     <details open>
       <summary>A cluster will not connect</summary>
       <p>Check that the kubeconfig context works in kubectl, and that the authentication helper it names is installed. The error says which step failed, and <em>Retry</em> tries again.</p>
@@ -441,6 +506,7 @@ footer p{max-width:80ch;margin:0 0 8px}
   </section>
 
 </main>
+</div>
 
 <footer class="wrap" style="padding-top:0">
   <p>Klotse is open source under the Apache-2.0 licence. Kubernetes is a trademark of The Linux Foundation; Klotse is not affiliated with it.</p>

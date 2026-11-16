@@ -55,6 +55,10 @@ class ReviewDialog(QDialog):
         self.save_button.setDefault(False)
         self.back_button.setDefault(True)
 
+    def reject(self):
+        """Esc and the window's X mean Back to editing: the edit is kept, not thrown away."""
+        self._finish(EDIT)
+
     def _finish(self, verdict):
         self.verdict = verdict  # closing the window or Esc leaves the initial verdict, Cancel
         self.accept()

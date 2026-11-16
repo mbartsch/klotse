@@ -288,6 +288,8 @@ def test_a_shell_opens_as_a_tab_when_embedded_is_chosen(qtbot, tmp_path, monkeyp
     assert (flags & Qt.WindowType.WindowType_Mask) == Qt.WindowType.Window  # a normal window, not a Tool window
     assert not flags & Qt.WindowType.WindowStaysOnTopHint
     assert factory.made[0].running and factory.made[0].argv == ["kubectl", "exec"]
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.Yes)  # a running shell asks first (#496)
     host.window.close()  # closing the window ends the session and forgets it
     assert factory.made[0].stopped == 1 and ws._terminal_hosts == []
     ws.shutdown()

@@ -23,7 +23,7 @@ def test_the_node_bar_has_one_actions_button_and_cordon_toggles(qtbot):
     bar = NodeActionBar("n1")
     qtbot.addWidget(bar)
     assert bar.menu_button.text() == "Actions"
-    assert [a.text() for a in bar.items] == ["Cordon", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete…"]
+    assert [a.text() for a in bar.items] == ["Cordon…", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete…"]
 
 
 def test_actions_button_emits_the_action_name(qtbot):

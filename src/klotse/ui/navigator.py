@@ -8,6 +8,7 @@ from . import theme
 
 ACTIVE_STATES = ("connecting", "connected")  # shown in the Connected section
 STATE_COLORS = {"idle": "#6b7280", "connecting": "#f5a524", "connected": "#2fbf71", "failed": "#e5484d"}
+STATE_SHAPES = {"idle": "hollow", "connecting": "ring", "connected": "dot", "failed": "square"}  # not colour alone (#498)
 
 # Shown under the connected cluster, Lens order. A leaf is (key, label); a group is
 # (label, [leaves], expanded_by_default).
@@ -36,14 +37,29 @@ VIEWS = [
 ]
 
 
-def dot_icon(color):
+def dot_icon(color, shape="dot"):
+    """A state mark: the colour, and a shape of its own so the state is not colour alone (#498): dot (connected), ring
+    (connecting), hollow (disconnected), square (failed)."""
     pm = QPixmap(12, 12)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setBrush(QBrush(QColor(color)))
-    p.setPen(Qt.NoPen)
-    p.drawEllipse(1, 1, 10, 10)
+    if shape == "ring":
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(color), 2))
+        p.drawEllipse(2, 2, 8, 8)
+    elif shape == "hollow":
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(color), 1.5))
+        p.drawEllipse(2, 2, 8, 8)
+    elif shape == "square":
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.NoPen)
+        p.drawRect(1, 1, 10, 10)
+    else:
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(1, 1, 10, 10)
     p.end()
     return QIcon(pm)
 
@@ -64,8 +80,12 @@ class Navigator(QTreeWidget):
     reconnect_requested = Signal(str)
     plugin_settings_requested = Signal(str, str)  # plugin id, context name: a plugin's settings for that cluster
     metrics_source_requested = Signal(str)  # context name: the Prometheus / VictoriaMetrics source for usage history
+    sign_in_requested = Signal(str)  # context name: run the kubeconfig's sign-in helper in a terminal, then connect again
+    config_requested = Signal(str)  # context name: show what the kubeconfig says about it, read-only
     alias_requested = Signal(str)  # rename the display alias for a cluster context
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
+    auto_refresh_requested = Signal(str)  # "pause", "enable" or "restore": auto-refresh on all open clusters (CONNECTED header menu)
+    auto_refresh_clusters_requested = Signal(object, bool)  # [context names], enabled: the cluster menu's Enable/Disable entries
 
     ROLE_KIND = Qt.UserRole
     ROLE_KEY = Qt.UserRole + 1
@@ -100,12 +120,15 @@ class Navigator(QTreeWidget):
         self.retry_pending = lambda _ctx: False
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
         self._group_items = {}  # group path -> its folder item
+        self._collapsed_clusters = None  # cluster name -> expanded before collapse_clusters, while collapsed
         self._connected_hdr = self._idle_hdr = None
         self._filter_text = ""
+        self._read_only = set()  # contexts marked read-only: shown with a lock word, not only in the tab title (#498)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
         self.itemDoubleClicked.connect(self._on_double_click)
+        self.itemActivated.connect(self._on_activate)  # Enter on a row (#498: keyboard use of the navigator)
 
     def _style_item(self, item, kind):
         """Give each navigation level a theme-aware cue while keeping leaf rows compact."""
@@ -177,10 +200,20 @@ class Navigator(QTreeWidget):
             it = QTreeWidgetItem()
             it.setData(0, self.ROLE_KIND, "cluster")
             it.setData(0, self.ROLE_KEY, n)
-            it.setIcon(0, dot_icon(STATE_COLORS["idle"]))
+            it.setIcon(0, dot_icon(STATE_COLORS["idle"], STATE_SHAPES["idle"]))
             self._clusters[n] = it
             self._states[n] = "idle"
         self._layout_idle()
+
+    def state_snapshot(self):
+        """{context: (state, error)} for every cluster row, so the states can be put back after set_contexts."""
+        return {name: (state, self._failures.get(name) or None) for name, state in self._states.items()}
+
+    def restore_states(self, snapshot):
+        """Put back the states from state_snapshot, for the clusters that are still listed. Idle ones are left as they are."""
+        for name, (state, error) in snapshot.items():
+            if name in self._clusters and state != "idle":
+                self.set_state(name, state, error)
 
     def set_filter(self, text):
         """Show clusters whose kubeconfig context or display alias contains `text`."""
@@ -229,8 +262,18 @@ class Navigator(QTreeWidget):
                  "connected": "Connected", "failed": "Failed"}.get(state, state.title())
         alias = self._aliases.get(name) or name
         identity = alias if alias == name else f"{alias}  [{name}]"
+        if name in self._read_only:  # a lock beside the name; the tooltip says read-only (#498)
+            identity += "  🔒"
         item.setText(0, identity)
         item.setData(0, Qt.AccessibleDescriptionRole, label)
+
+    def set_read_only(self, name, on):
+        """The cluster's read-only mode changed: its row says so (its text carries the word)."""
+        if on:
+            self._read_only.add(name)
+        else:
+            self._read_only.discard(name)
+        self._refresh_cluster_text(name)
 
     def _group_of(self, name):
         return self.groups.group_of(name) if self.groups is not None else ""
@@ -274,6 +317,21 @@ class Navigator(QTreeWidget):
         self._update_headers()
         self._apply_filter()
 
+    def collapse_clusters(self):
+        """Fold every cluster's views, namespaces and other children away, so only the cluster list shows. The
+        expansion of each cluster is remembered so expand_clusters can put it back (groups are left as they are)."""
+        if self._collapsed_clusters is None:
+            self._collapsed_clusters = {name: item.isExpanded() for name, item in self._clusters.items()}
+        for item in self._clusters.values():
+            item.setExpanded(False)
+
+    def expand_clusters(self):
+        """Undo collapse_clusters: each cluster goes back to its remembered state (open when not remembered)."""
+        remembered = self._collapsed_clusters or {}
+        for name, item in self._clusters.items():
+            item.setExpanded(remembered.get(name, True))
+        self._collapsed_clusters = None
+
     def _header(self, label):
         h = QTreeWidgetItem([label])
         self._style_item(h, "header")
@@ -281,6 +339,18 @@ class Navigator(QTreeWidget):
         self.addTopLevelItem(h)
         h.setExpanded(True)
         return h
+
+    def refresh_theme(self):
+        """A theme change: every heading and folder takes the new colours (#501: they kept the old ones until a restart)."""
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            kind = item.data(0, self.ROLE_KIND)
+            if kind in ("header", self.RESOURCE_GROUP, "gateway", "karpenter"):
+                self._style_item(item, kind)
+            stack.extend(item.child(i) for i in range(item.childCount()))
 
     def _update_headers(self):
         idle = [name for name, state in self._states.items() if state not in ACTIVE_STATES]
@@ -315,7 +385,7 @@ class Navigator(QTreeWidget):
         self._states[name] = state
         self._failures[name] = str(error).strip() if state == "failed" and error else ""
         self._refresh_cluster_text(name)
-        item.setIcon(0, dot_icon(STATE_COLORS[state]))
+        item.setIcon(0, dot_icon(STATE_COLORS[state], STATE_SHAPES[state]))
         want = self._connected_hdr if state in ACTIVE_STATES else self._idle_parent(name)
         if item.parent() is want:
             self._update_headers()
@@ -475,15 +545,25 @@ class Navigator(QTreeWidget):
         """The context menu for a sidebar item, or None when there is nothing to offer."""
         kind = item.data(0, self.ROLE_KIND) if item is not None else None
         menu = QMenu(self)
+        if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: auto-refresh, fold or open clusters
+            if item is self._connected_hdr:
+                menu.addAction("Turn auto-refresh off for all connected clusters", lambda: self.auto_refresh_requested.emit("pause"))
+                menu.addAction("Turn auto-refresh on for all connected clusters", lambda: self.auto_refresh_requested.emit("enable"))
+                menu.addAction("Restore each cluster's previous auto-refresh", lambda: self.auto_refresh_requested.emit("restore"))
+                menu.addSeparator()
+            menu.addAction("Collapse clusters (show only the cluster list)", self.collapse_clusters)
+            menu.addAction("Expand clusters", self.expand_clusters)
+            if item is self._idle_hdr and self.groups is not None:
+                menu.addSeparator()
+                menu.addAction("New group…", lambda: self.create_group(""))
+                menu.addAction("Suggest groups…", self.suggest_groups)
+            return menu
         if kind == "group":
             path = item.data(0, self.ROLE_KEY)
             menu.addAction("Connect all", lambda: self.connect_all(path))
             menu.addAction("New subgroup…", lambda: self.create_group(path))
             menu.addAction("Rename…", lambda: self.rename_group(path))
             menu.addAction("Delete group", lambda: self.delete_group(path))
-        elif item is not None and item is self._idle_hdr and self.groups is not None:
-            menu.addAction("New group…", lambda: self.create_group(""))
-            menu.addAction("Suggest groups…", self.suggest_groups)
         else:
             # the cluster menu belongs to the cluster's own row only; the views under it (Overview, Nodes, …) offer nothing here
             cluster = item if kind == "cluster" else None
@@ -499,6 +579,14 @@ class Navigator(QTreeWidget):
                 for label, signal in self.actions_for(name):
                     menu.addAction(label, lambda sig=signal: sig.emit(name))
             menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
+            if self._states.get(name) not in ACTIVE_STATES:
+                menu.addAction("Sign in with the helper…", lambda c=name: self.sign_in_requested.emit(c))
+            menu.addAction("Show kubeconfig entry…", lambda c=name: self.config_requested.emit(c))  # works before connecting
+            if self._states.get(name) in ACTIVE_STATES:
+                targets = self._auto_refresh_targets(cluster, name)
+                suffix = f" ({len(targets)})" if len(targets) > 1 else ""
+                menu.addAction(f"Disable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
+                menu.addAction(f"Enable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if self._states.get(name) in ACTIVE_STATES:
                 menu.addSeparator()
@@ -518,6 +606,15 @@ class Navigator(QTreeWidget):
                 if self._group_of(name):
                     move.addAction("No group", lambda: self.move_cluster(name, ""))
         return menu
+
+    def _auto_refresh_targets(self, item, name):
+        """The connected clusters an auto-refresh menu entry acts on: the selected connected clusters when the clicked one is
+        among several selected, else just the clicked cluster."""
+        selected = [i.data(0, self.ROLE_KEY) for i in self.selectedItems()
+                    if i.data(0, self.ROLE_KIND) == "cluster" and self._states.get(i.data(0, self.ROLE_KEY)) in ACTIVE_STATES]
+        if item in self.selectedItems() and len(selected) > 1:
+            return selected
+        return [name]
 
     def _selected_disconnected_clusters(self):
         return [item for item in self.selectedItems()
@@ -570,7 +667,12 @@ class Navigator(QTreeWidget):
         name = clean_path(name) if name is not None else self._ask_name("Rename group", leaf_name(path))
         if not name:
             return path
-        new = self.groups.rename_group(path, clean_path(f"{parent_path(path)}/{name}"))
+        target = clean_path(f"{parent_path(path)}/{name}")
+        if target != path and self.groups.has_group(target) and QMessageBox.question(
+                self, "Rename group", f"The group {target} already exists.\n\nMerge {path} into it? Its clusters and subgroups "
+                "join the existing group.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return path  # No: keep the name, nothing changes
+        new = self.groups.rename_group(path, target)
         self._edited()
         return new
 
@@ -607,9 +709,21 @@ class Navigator(QTreeWidget):
 
     def _on_click(self, item, _col):
         kind = item.data(0, self.ROLE_KIND)
-        if kind == "view":
+        if kind == "cluster" and self._states.get(item.data(0, self.ROLE_KEY)) in ACTIVE_STATES:
+            self.context_clicked.emit(item.data(0, self.ROLE_KEY))  # a connected cluster: bring its tab to the front
+        elif kind == "view":
             cluster = self._cluster_of(item)  # views live under groups under the cluster item
             self.view_requested.emit(cluster.data(0, self.ROLE_KEY), item.data(0, self.ROLE_KEY))
+
+    def _on_activate(self, item, col):
+        if item.data(0, self.ROLE_KIND) == "cluster":
+            name = item.data(0, self.ROLE_KEY)
+            if self._states.get(name) in ACTIVE_STATES:
+                self.context_clicked.emit(name)
+            else:
+                self.connect_requested.emit(name)
+        else:
+            self._on_click(item, col)
 
     def _on_double_click(self, item, _col):
         if item.data(0, self.ROLE_KIND) != "cluster":

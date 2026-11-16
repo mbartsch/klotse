@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from . import theme
 from .edit_dialog import leave_for_yaml
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 RESULT_LIMIT = 200
 SEARCH_DELAY_MS = 150
@@ -155,7 +156,7 @@ def confirm_risky(parent, kind, name, warnings, action="Save", namespace=None, c
         return True
     target = confirmation_target(parent, kind, name, namespace, context)
     text = target + "\n\n" + "\n\n".join(warnings) + f"\n\n{action} anyway?"
-    return QMessageBox.question(parent, f"{action} {kind}?", text, QMessageBox.Yes | QMessageBox.No,
+    return QMessageBox.question(parent, f"{action} {kind}", text, QMessageBox.Yes | QMessageBox.No,
                                 QMessageBox.No) == QMessageBox.Yes
 
 
@@ -315,7 +316,7 @@ class Picker(QWidget):
         self.query.clear()
 
 
-class RoleEditDialog(QDialog):
+class RoleEditDialog(DiscardGuard, QDialog):
     """Edit the rules of a Role/ClusterRole. After Save, `result_body` is the manifest with the new rules; if the user
     chose "Edit as YAML…" instead, `wants_yaml` is True and the dialog was rejected."""
 
@@ -650,7 +651,7 @@ class RoleEditDialog(QDialog):
             return
         meta = self._raw.get("metadata") or {}
         if grants_everything(self.rules) and QMessageBox.question(
-                self, "Grant everything?", confirmation_target(self, self.kind, meta.get("name", "")) +
+                self, "Grant everything", confirmation_target(self, self.kind, meta.get("name", "")) +
                 "\n\nA rule gives every verb on every resource in every API group (cluster-admin). Save anyway?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return

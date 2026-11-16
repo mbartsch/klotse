@@ -15,7 +15,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .safe import require_https
 
@@ -33,8 +33,8 @@ class FederationError(Exception):
 @dataclass(frozen=True)
 class Credentials:
     access_key: str
-    secret_key: str
-    token: str
+    secret_key: str = field(repr=False)
+    token: str = field(repr=False)
 
 
 def short(error):

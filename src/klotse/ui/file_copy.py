@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Qt, Signal
+
+from ..k8s.process_env import qt_environment
 from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -17,6 +19,18 @@ from .terminal import kubectl_base
 ACTIVE = ("running", "stopping")
 STATE_TEXT = {"running": "… Copying", "stopping": "■ Cancelling", "done": "✔ Done", "cancelled": "■ Cancelled", "failed": "▲ Failed"}
 UPLOAD, DOWNLOAD = "upload", "download"
+
+
+def check_local(direction, local):
+    """The local side of a copy, checked where the user is still looking at the dialog (#496: it used to be checked after the
+    dialog had closed and after the upload question): an upload source must exist, and the download's folder must exist."""
+    local = os.path.abspath(local)
+    if direction == UPLOAD and not os.path.exists(local):
+        raise ValueError(f"{local} does not exist.")
+    folder = os.path.dirname(local)
+    if not os.path.isdir(folder):
+        raise ValueError(f"The folder {folder} does not exist.")
+    return local
 
 
 def valid_remote(path):
@@ -102,9 +116,10 @@ class FileCopies(QObject):
     """The copies of one cluster workspace. `base(context, kubeconfig)` gives the kubectl command start (tests replace it)."""
     changed = Signal()
 
-    def __init__(self, base=kubectl_base, parent=None):
+    def __init__(self, base=kubectl_base, parent=None, variables=None):
         super().__init__(parent)
         self.base = base
+        self.variables = variables  # fn(context) -> what the plugins add to kubectl's environment for that cluster, or None
         self.items = []
         self._next = 1
         self._timer = QTimer(self)  # downloads: how much has arrived (a disk walk, so once a second, only while one runs)
@@ -123,6 +138,7 @@ class FileCopies(QObject):
         copy = Copy(self._next, context, namespace, pod, container or "", direction, local, remote)
         self._next += 1
         process = QProcess(self)
+        process.setProcessEnvironment(qt_environment(self.variables(context) if self.variables else None))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
         base = self.base(context, kubeconfig)
         process.setProgram(base[0])
         process.setArguments(build_args(base, copy)[1:])
@@ -362,6 +378,7 @@ class FileCopyDialog(QDialog):
         local = self.local.text().strip()
         if not local:
             raise ValueError("Choose the file or folder on this computer.")
+        check_local(self.direction(), local)
         return self.direction(), self.container.currentText(), local, remote
 
     def _accept(self):

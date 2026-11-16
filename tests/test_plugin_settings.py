@@ -1,5 +1,5 @@
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QFormLayout, QLineEdit, QPlainTextEdit
+from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QPlainTextEdit
 
 from klotse.plugins import Column, Plugin, Setting
 from klotse.plugins.manager import Loaded, PluginManager
@@ -30,11 +30,18 @@ def manager_for(tmp_path):
 
 
 def boxes(panel):
-    form = panel.settings_form
-    return [form.itemAt(i, QFormLayout.ItemRole.FieldRole).widget() for i in range(form.rowCount())]
+    """The input widget of each setting, in order: a text box, or the text box inside a multi-line setting's frame."""
+    form, found = panel.settings_form, []
+    for row in range(form.rowCount()):
+        item = form.itemAt(row, QFormLayout.ItemRole.FieldRole) or form.itemAt(row, QFormLayout.ItemRole.SpanningRole)
+        widget = item.widget() if item is not None else None
+        if widget is None or isinstance(widget, QLabel):
+            continue  # the label of a multi-line setting, or a hint
+        found.append(widget.findChild(QPlainTextEdit) or widget)
+    return found
 
 
-def test_a_multiline_setting_is_a_text_box_that_saves_once_typing_stops(qtbot, tmp_path):
+def test_a_multiline_setting_is_a_text_box_that_is_saved_by_save(qtbot, tmp_path):
     manager = manager_for(tmp_path)
     panel = PluginsPanel(manager)
     qtbot.addWidget(panel)
@@ -42,29 +49,28 @@ def test_a_multiline_setting_is_a_text_box_that_saves_once_typing_stops(qtbot, t
     assert isinstance(line, QLineEdit) and isinstance(many, QPlainTextEdit) and many.toPlainText() == "a = 1"
     assert many.toolTip() == "one per line"
     many.setPlainText("prod = p1\nstaging = p2")
-    assert many.save_timer.isActive() and manager.settings_for("mapped")["many"] == "a = 1"  # not saved on every key
-    many.save_timer.timeout.emit()
+    assert manager.settings_for("mapped")["many"] == "a = 1"  # not saved while typing
+    assert panel.apply()  # Preferences' Save
     assert manager.settings_for("mapped")["many"] == "prod = p1\nstaging = p2"
     again = PluginsPanel(PluginManager(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat), bundled=(), entry_points=False))
     assert again.manager.store.value("plugin_mapped/many") == "prod = p1\nstaging = p2"  # saved in the settings file
 
 
-def test_typed_text_is_not_lost_when_the_page_is_left_before_the_timer_fires(qtbot, tmp_path):
+def test_typed_text_waits_for_save_even_when_the_page_is_left(qtbot, tmp_path):
     manager = manager_for(tmp_path)
     panel = PluginsPanel(manager)
     qtbot.addWidget(panel)
     panel.show()
     many = boxes(panel)[1]
     many.setPlainText("typed quickly")
-    panel.hide()  # closing Preferences or switching tabs
-    assert manager.settings_for("mapped")["many"] == "typed quickly" and not many.save_timer.isActive()
+    panel.hide()  # closing Preferences or switching tabs: nothing is saved by that
+    assert manager.settings_for("mapped")["many"] == "a = 1"
     panel.show()
-    many = boxes(panel)[1]
-    many.setPlainText("and again")
-    panel.flush()
-    assert manager.settings_for("mapped")["many"] == "and again"
-    panel.flush()  # nothing pending now: no error, no change
-    assert manager.settings_for("mapped")["many"] == "and again"
+    assert boxes(panel)[1].toPlainText() == "typed quickly"  # still shown as typed
+    assert panel.apply()
+    assert manager.settings_for("mapped")["many"] == "typed quickly"
+    assert panel.apply()  # nothing pending now: no error, no change
+    assert manager.settings_for("mapped")["many"] == "typed quickly"
 
 
 def test_a_setting_change_announces_which_plugin_and_comes_before_the_general_change(qtbot, tmp_path):

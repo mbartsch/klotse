@@ -1,0 +1,49 @@
+name: Bug report
+description: Something does not work or looks wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open cluster X\n2. Go to Overview\n3. ..."
+  - type: input
+    id: version
+    attributes:
+      label: Klotse version
+      description: Output of `klotse --version`, or the version in the About window.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows, macOS (Apple silicon), macOS (Intel), Linux, Other]
+    validations:
+      required: true
+  - type: input
+    id: cluster
+    attributes:
+      label: Cluster type
+      description: For example docker-desktop, kind, EKS, GKE, AKS, k3s. No server addresses or credentials.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Screenshots help a lot. Redact names, IPs, tokens and anything from Secrets before pasting.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues.
+          required: true
+        - label: I removed secrets, kubeconfig data and real Secret values from this report.
+          required: true

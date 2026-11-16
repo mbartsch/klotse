@@ -13,7 +13,7 @@ class SecurityDialog(HealthDialog):
     def __init__(self, context, scope, parent=None):
         super().__init__(context, scope, parent)
         self.setWindowTitle("Pod security")
-        self.reload_button.setText("Check again")
+        self.reload_button.setText("Refresh")  # one name for reloading in every analysis window (#499)
         self.filter.setPlaceholderText("Filter by workload, namespace or what it does…")
         for label in self.findChildren(QLabel):
             if label.text().startswith("A finding is advice"):

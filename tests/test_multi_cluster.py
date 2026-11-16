@@ -60,7 +60,7 @@ def test_rows_of_several_clusters_land_in_one_list_with_a_cluster_column(qtbot):
     source = Source()
     dialog = MultiClusterDialog(source)
     qtbot.addWidget(dialog)
-    assert dialog.windowTitle() == "Multi Cluster"
+    assert dialog.windowTitle() == "Several clusters"
     assert dialog.table.filter.placeholderText() == "Filter…"
     assert dialog.kind_box.isEditable()
     assert dialog.kind_box.lineEdit().placeholderText() == "Search kinds…"

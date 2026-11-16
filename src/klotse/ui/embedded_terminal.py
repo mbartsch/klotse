@@ -12,9 +12,11 @@ from urllib.parse import urlencode
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
+from .dialog_sizing import resize_dialog
 from . import theme
+from ..k8s.process_env import environment
 from .pty_session import PtySession
 
 # A terminal needs no GPU: software rendering avoids driver trouble and the GPU process's memory. Read when QtWebEngine starts.
@@ -91,8 +93,8 @@ class Bridge(QObject):
         self.pasteText.emit((QGuiApplication.clipboard().text() or "")[:MAX_PASTE])
 
 
-def make_session(argv, cols, rows):
-    return PtySession(argv, cols, rows)
+def make_session(argv, cols, rows, variables=None):
+    return PtySession(argv, cols, rows, env=environment(variables))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
 
 
 class TerminalTab(QWidget):
@@ -244,6 +246,12 @@ class TerminalHost(QObject):
     def _make_window(self):
         class Window(QWidget):
             def closeEvent(w, event):  # noqa: N805
+                # Closing the window ends a live shell: ask first, default No (#496). An ended session closes at once.
+                if not self.tab.ended and QMessageBox.question(
+                        w, "End the terminal", "This terminal is still running. Closing it ends the shell and any program in it.",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                    event.ignore()
+                    return
                 self._end()
                 event.accept()
         window = Window()  # no parent: a parented window stays above its owner on Windows
@@ -262,7 +270,7 @@ class TerminalHost(QObject):
         """Show the window (first time: near `near`, a QWidget). It appears once xterm.js is ready, so no blank window flashes
         up and the main window is not disturbed while the page loads; after `wait_s` seconds it is shown anyway."""
         window = self.window
-        window.resize(900, 560)
+        resize_dialog(window, 900, 560)
         if near is not None:
             window.move(near.mapToGlobal(near.rect().topLeft()) + QPoint(80, 80))
         done = []

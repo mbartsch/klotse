@@ -2,13 +2,15 @@ from dataclasses import dataclass
 import re
 import time
 
-from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
+from PySide6.QtCore import QElapsedTimer, QEvent, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
 from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from ..k8s.timing import timings
+from .wording import counted
 from . import filter_expr, theme
 from .action_icons import action_icon
 from .customizations import ANNOTATION_KINDS
@@ -52,6 +54,7 @@ class _FilterProxy(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.expression = None
+        self.blocked = False  # a wrong filter expression shows no rows: nothing is acted on by mistake (#503)
         self.resolver = None  # (row, name) -> (value, unit) | None, set by the table
 
     def set_expression(self, expression):
@@ -63,7 +66,18 @@ class _FilterProxy(QSortFilterProxyModel):
             self.expression = expression
             self.invalidateFilter()
 
+    def set_blocked(self, blocked):
+        if hasattr(self, "beginFilterChange"):
+            self.beginFilterChange()
+            self.blocked = blocked
+            self.endFilterChange()
+        else:
+            self.blocked = blocked
+            self.invalidateFilter()
+
     def filterAcceptsRow(self, source_row, source_parent):
+        if self.blocked:
+            return False
         if self.expression is None:
             return super().filterAcceptsRow(source_row, source_parent)
         row = self.sourceModel().rows[source_row]
@@ -81,6 +95,7 @@ class _FilterCompleter(QCompleter):
 
 class ResourceTable(QWidget):
     selected = Signal(object)  # row dataclass
+    selection_count_changed = Signal(int)  # how many rows are selected now
     edit_requested = Signal(str, object)  # kind, row dataclass
     scale_requested = Signal(str, object)
     restart_requested = Signal(str, object)
@@ -199,6 +214,9 @@ class ResourceTable(QWidget):
         self.view.selectionModel().currentRowChanged.connect(self._on_row)
         self.view.selectionModel().selectionChanged.connect(self._update_selection_count)
         self.view.doubleClicked.connect(self._on_double_click)
+        # Enter opens the current row; Esc clears the filter; Ctrl+F moves to it (#498: the list works without the mouse)
+        self.view.installEventFilter(self)
+        self.filter.installEventFilter(self)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context_menu)
         top = QHBoxLayout()
@@ -299,6 +317,7 @@ class ResourceTable(QWidget):
     def _update_selection_count(self, *_, emit_empty=True):
         count = len(self.view.selectionModel().selectedRows())
         self.selection_count.setText(f"{count} selected")
+        self.selection_count_changed.emit(count)  # Details shows "N selected" with no single-row actions when N > 1 (#503)
         if emit_empty and count == 0:
             self.selected.emit(None)
 
@@ -517,11 +536,13 @@ class ResourceTable(QWidget):
                 self.filter_note.setVisible(True)
                 self.proxy.set_expression(None)
                 self.proxy.setFilterFixedString("")
+                self.proxy.set_blocked(True)  # the note says why; no row is shown or acted on until the expression is right
                 self._set_api_filter()
                 self.show_status()
                 self._update_empty_state()
                 return
             self.filter_note.setVisible(False)
+            self.proxy.set_blocked(False)
             self.proxy.setFilterFixedString("")
             self.proxy.set_expression(expression)
             self._set_api_filter(expression)
@@ -529,6 +550,7 @@ class ResourceTable(QWidget):
             self._update_empty_state()
             return
         self.filter_note.setVisible(False)
+        self.proxy.set_blocked(False)
         self.proxy.set_expression(None)
         self.proxy.setFilterFixedString(text)
         self._set_api_filter()
@@ -581,6 +603,10 @@ class ResourceTable(QWidget):
         name, ok = QInputDialog.getText(self, "Save filter", f"Name for the filter “{self.filter.text().strip()}”:")
         if not ok or not name.strip():
             return
+        if self._saved_filters.exists(self._saved_context, self.kind, name) and QMessageBox.question(
+                self, "Save filter", f"A filter named “{name.strip()}” is already saved here. Replace it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return  # No: the older filter stays as it was
         try:
             self._saved_filters.add(self._saved_context, self.kind, name, self.filter.text())
         except (OSError, ValueError) as e:
@@ -879,6 +905,10 @@ class ResourceTable(QWidget):
             last = self.proxy.rowCount() - 1
         return [self.model.rows[self.proxy.mapToSource(self.proxy.index(r, 0)).row()] for r in range(first, last + 1)]
 
+    def _copy_cell(self, text):
+        QApplication.clipboard().setText(text)
+        self.status.setText(f"Copied: {text[:80]}" + ("…" if len(text) > 80 else ""))  # #497: copying gave no sign
+
     def selected_rows(self):
         return [self.model.rows[self.proxy.mapToSource(i).row()] for i in self.view.selectionModel().selectedRows()]
 
@@ -900,17 +930,17 @@ class ResourceTable(QWidget):
             menu.addAction("Compare these two…", lambda: self.compare_requested.emit(self.kind, list(rows)))
         if self.kind in METRIC_KINDS:  # looking only
             separate(menu)
-            menu.addAction(f"Usage history of {n} {self.kind}s…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
+            menu.addAction(f"Usage history of {counted(n, self.kind)}…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
         if self.kind == "Pod":
             separate(menu)
         if self.kind == "Pod":
             menu.addAction(f"Logs of {n} pods…", lambda: self.multi_logs_requested.emit("Pod", list(rows)))
         if self.kind in SCALABLE:
             separate(menu)
-            menu.addAction(f"Scale {n} {self.kind}s…", bulk("scale"))
+            menu.addAction(f"Scale {counted(n, self.kind)}…", bulk("scale"))
         if self.kind in RESTARTABLE:
             separate(menu)
-            menu.addAction(f"Restart {n} {self.kind}s…", bulk("restart"))
+            menu.addAction(f"Restart {counted(n, self.kind)}…", bulk("restart"))
         if self.kind == "Node":
             separate(menu)
             menu.addAction(f"Cordon {n} nodes…", bulk("cordon"))
@@ -922,7 +952,7 @@ class ResourceTable(QWidget):
             destructive.addAction(action_icon("delete"), f"Force terminate {n} pods…", bulk("force-terminate"))
         if self.kind in DELETABLE_KINDS:
             separate(destructive)
-            destructive.addAction(action_icon("delete"), f"Delete {n} {self.kind}s…", bulk("delete"))
+            destructive.addAction(action_icon("delete"), f"Delete {counted(n, self.kind)}…", bulk("delete"))
         if self.kind == "Node":
             separate(destructive)
             destructive.addAction(action_icon("delete"), f"Delete {n} nodes…", bulk("delete-node"))
@@ -1057,7 +1087,7 @@ class ResourceTable(QWidget):
         attr = self.model.columns[source.column()][1]
         value = index.data(Qt.EditRole if attr.startswith("annotation:") else Qt.DisplayRole)
         text = "" if value is None else str(value)
-        copy = menu.addAction(action_icon("copy"), "Copy cell value", lambda: QApplication.clipboard().setText(text))
+        copy = menu.addAction(action_icon("copy"), "Copy cell value", lambda: self._copy_cell(text))
         copy.setEnabled(bool(text))
         name = filter_expr.normalize(attr)
         found = self._resolve(self.model.rows[source.row()], name)
@@ -1224,6 +1254,26 @@ class ResourceTable(QWidget):
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
                     "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group",
                     "HelmRelease": "helm-details"}
+
+    def _focus_filter(self):
+        self.filter.setFocus()
+        self.filter.selectAll()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.KeyPress and watched in (self.view, self.filter):
+            key, ctrl = event.key(), bool(event.modifiers() & Qt.ControlModifier)
+            if watched is self.view and key in (Qt.Key_Return, Qt.Key_Enter):
+                index = self.view.currentIndex()
+                if index.isValid() and self.DOUBLE_CLICK.get(self.kind):
+                    self._on_double_click(index)
+                    return True
+            if watched is self.filter and key == Qt.Key_Escape and self.filter.text():
+                self.filter.clear()
+                return True
+            if key == Qt.Key_F and ctrl:
+                self._focus_filter()
+                return True
+        return super().eventFilter(watched, event)
 
     def _on_double_click(self, index):
         action = self.DOUBLE_CLICK.get(self.kind)

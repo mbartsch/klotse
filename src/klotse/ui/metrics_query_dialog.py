@@ -5,6 +5,7 @@ labels, the latest value and the time of that sample), and a graph of the query 
 queries; Usage history covers it."""
 from datetime import datetime
 
+from .dialog_sizing import resize_dialog
 from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
 from PySide6.QtWidgets import QCompleter
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -28,6 +29,12 @@ def _when(stamp):
 
 class MetricsQueryDialog(QWidget):
     source_requested = Signal()  # the Source… button: choose the Prometheus / VictoriaMetrics source for this window's queries
+
+    def keyPressEvent(self, event):  # noqa: N802 - Qt name: Esc closes the window (#499)
+        if event.key() == Qt.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(event)
 
     def __init__(self, title, source_text, presets, run, parent=None, run_range=None):
         super().__init__(parent)
@@ -116,9 +123,16 @@ class MetricsQueryDialog(QWidget):
         layout.addWidget(self.chart, 1)
         layout.addWidget(self.status)
         layout.addWidget(self.note)
+        close_row = QHBoxLayout()
+        close_row.addStretch(1)
+        close_button = QPushButton("Close")  # a window with no Close button and no Esc was hard to leave (#499)
+        close_button.clicked.connect(self.close)
+        close_row.addWidget(close_button)
+        layout.addLayout(close_row)
+
         if self._presets:
             self._preset_changed()
-        self.resize(760, 560)
+        resize_dialog(self, 760, 560)
 
     def set_metric_names(self, names):
         """The metric names for autocomplete (the source's names, already limited)."""
@@ -131,7 +145,7 @@ class MetricsQueryDialog(QWidget):
     def set_source(self, text, reason=""):
         """Show the source the queries use (or that none is set, and why)."""
         self.source.setText(f"Source: {text}")
-        self.status.setText(f"No source: {reason}. Choose one with Source…." if reason else "")
+        self.status.setText(f"No source: {reason}. Choose one with Source…" if reason else "")
 
     def _preset_changed(self, *_):
         query = self.preset_box.currentData()

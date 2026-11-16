@@ -11,7 +11,9 @@ default kube-prometheus-stack; other relabelling can leave a node chart empty, a
 Prometheus or VictoriaMetrics: the answer shapes come from the documented API."""
 import json
 import re
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
+
+AUTH_KINDS = ("", "bearer", "basic")  # URL sources only: no authentication, a bearer token, or a user name and password
 
 RANGES = (("15 minutes", 900), ("1 hour", 3600), ("6 hours", 21600), ("24 hours", 86400), ("7 days", 604800))
 DEFAULT_PORTS = {"prometheus": 9090, "victoria": 8428, "vmselect": 8481}
@@ -32,13 +34,17 @@ def quote_label(text):
 
 # ---- finding the service ---------------------------------------------------------------------------------------------
 def ref_text(ref):
-    """`namespace/name:port` plus the path prefix when there is one."""
+    """`namespace/name:port` plus the path prefix when there is one; the URL itself for a URL source."""
+    if ref.get("url"):
+        return ref["url"]
     return f"{ref['namespace']}/{ref['name']}:{ref['port']}{ref.get('prefix', '')}"
 
 
 def parse_ref(text):
     """A service reference typed by the user: `monitoring/prometheus-server:80`, optionally followed by a path prefix such as
     `/select/0/prometheus` (VictoriaMetrics cluster) and optionally starting with `https:`. Returns the ref dict; ValueError says what is wrong."""
+    if re.match(r"\s*https?://", str(text), re.I):
+        return parse_url(text)
     match = re.fullmatch(r"\s*(?:(https?):)?([a-z0-9][a-z0-9.-]*)/([a-z0-9][a-z0-9.-]*):(\d{1,5})(/[^\s]*)?\s*", str(text), re.I)
     if not match:
         raise ValueError("Write it as namespace/service:port, for example monitoring/prometheus-server:80 "
@@ -84,6 +90,35 @@ def candidates(services):
     return [ref for _score, ref in sorted(found, key=lambda p: (-p[0], p[1]["namespace"], p[1]["name"]))]
 
 
+def parse_url(text):
+    """A URL source typed as `https://host[:port][/path prefix]`, for example https://vm.example.com/select/0/prometheus. It is called
+    directly from this computer (not through the cluster). No user name or password in the URL: the auth option keeps those out of the
+    settings file. ValueError says what is wrong."""
+    parts = urlsplit(str(text).strip())
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("A URL must be http:// or https:// with a host name, for example https://vm.example.com/select/0/prometheus")
+    if parts.username or parts.password or "@" in parts.netloc:
+        raise ValueError("Leave the user name and password out of the URL: choose the authentication option instead.")
+    if parts.query or parts.fragment:
+        raise ValueError("Leave out the query and the fragment: only the host and an optional path prefix are needed.")
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError as error:
+        raise ValueError("The port must be a number between 1 and 65535.") from error
+    prefix = parts.path.rstrip("/")
+    origin = f"{parts.scheme}://{parts.netloc}"
+    return {"url": f"{origin}{prefix}", "origin": origin, "namespace": "", "name": parts.hostname, "port": port,
+            "scheme": parts.scheme, "prefix": prefix}
+
+
+def with_auth(ref, auth="", auth_env="", auth_user=""):
+    """`ref` with the authentication of a URL source: `auth` is one of AUTH_KINDS, `auth_env` the environment variable that holds the
+    token (bearer) or the password (basic), `auth_user` the user name for basic. The secret itself is never stored here."""
+    if not ref.get("url") or auth not in AUTH_KINDS or not auth:
+        return ref
+    return {**ref, "auth": auth, "auth_env": str(auth_env or "").strip(), "auth_user": str(auth_user or "").strip()}
+
+
 def proxy_path(ref, api_path):
     """The API server path that reaches `api_path` (such as `/api/v1/query_range`) on the service."""
     target = f"{ref.get('scheme') + ':' if ref.get('scheme') else ''}{ref['name']}:{ref['port']}"
@@ -93,6 +128,8 @@ def proxy_path(ref, api_path):
 def reach_path(ref, api_path):
     """Where `api_path` is asked for: the API server proxy path, or, when `ref` carries `local_port` (a port-forward Klotse started), the
     path on that local address (the service's own path prefix, no proxy)."""
+    if ref.get("url"):
+        return f"{ref.get('prefix', '')}{api_path}"  # a URL source is called directly: the path prefix is part of its URL
     if ref.get("local_port"):
         return f"{ref.get('prefix', '')}{api_path}"
     return proxy_path(ref, api_path)

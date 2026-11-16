@@ -153,4 +153,4 @@ def test_deleting_an_hpa_goes_through_the_autoscaling_api_with_the_uid_precondit
     [(args, kw)] = calls
     assert args == ("web", "shop") and kw["body"].preconditions.uid == "uid-1"
     with pytest.raises(ValueError):
-        svc.delete_resource("Lease", "x", "kube-node-lease", "u")  # not deletable here
+        svc.delete_resource("Pod", "x", "kube-node-lease", "u")  # Pods keep their own terminate action (#503)

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from .awscreds import CredentialSource, CredentialsError
 from .ec2 import Ec2Error, Ec2Unavailable, boto3_session
 from .native import AwsHttpError, _strip_namespaces, _text, post
-from .safe import ParseError, parse_xml, valid_region
+from .safe import ParseError, endpoint_override, parse_xml, valid_region
 from .sigv4 import sign
 
 STS_VERSION = "2011-06-15"
@@ -20,6 +20,9 @@ STS_VERSION = "2011-06-15"
 def _endpoint(region):
     if not valid_region(region):
         raise Ec2Error("not a valid AWS region name")
+    override = endpoint_override()  # AWS_ENDPOINT_URL (a local emulator), as for EC2
+    if override:
+        return override
     return f"https://sts.{region}.amazonaws.com{'.cn' if region.startswith('cn-') else ''}/"
 
 

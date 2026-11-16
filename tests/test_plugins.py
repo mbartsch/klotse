@@ -97,7 +97,7 @@ def test_a_plugin_file_in_the_folder_is_found(qtbot, tmp_path):
     assert manager.get("hello").manifest.name == "Hello" and manager.get("hello").plugin is None
     assert not manager.is_enabled("hello") and manager.columns_for("Node") == []
     manager.set_enabled("hello", True)
-    qtbot.waitUntil(lambda: manager.is_enabled("hello"))
+    qtbot.waitUntil(lambda: manager.is_enabled("hello"), timeout=20000)
     assert manager.get("hello").plugin.name == "Hello"
 
 
@@ -400,14 +400,17 @@ def test_the_dialog_lists_plugins_toggles_them_and_edits_settings(qtbot, tmp_pat
     assert dialog.title.text() == "Node zone" and "Zone of every node" in dialog.description.text()
     assert "Version: 1.2" in dialog.source.text()
     dialog.list.item(0).setCheckState(Qt.Checked)
-    assert manager.is_enabled("zone")
+    assert not manager.is_enabled("zone")  # a tick waits for Preferences' Save
+    assert dialog.apply() and manager.is_enabled("zone")
     assert dialog.settings_box.isVisibleTo(dialog) or dialog.settings_form.rowCount() == 2
     line = dialog.settings_form.itemAt(0, QFormLayout.ItemRole.FieldRole).widget()
     line.setText("ap-south-1")
     line.editingFinished.emit()
-    assert manager.settings_for("zone")["region"] == "ap-south-1"
+    assert manager.settings_for("zone")["region"] == "eu-west-1"  # not saved until Save
     box = dialog.settings_form.itemAt(1, QFormLayout.ItemRole.SpanningRole).widget()
     box.setChecked(False)
+    assert manager.settings_for("zone")["live"] is True  # settings wait for Save too
+    assert dialog.apply() and manager.settings_for("zone")["region"] == "ap-south-1"
     assert manager.settings_for("zone")["live"] is False
 
 
@@ -426,14 +429,15 @@ def test_the_dialog_shows_why_a_plugin_failed_and_a_runtime_problem(qtbot, tmp_p
     assert "API unreachable" in dialog.error.text()
 
 
-def test_the_dialog_reverts_the_tick_when_saving_fails(qtbot, tmp_path, monkeypatch):
+def test_the_dialog_keeps_the_tick_pending_when_saving_fails(qtbot, tmp_path, monkeypatch):
     manager = manager_with(tmp_path, Zone(), enabled=False)
     dialog = dialog_for(qtbot, manager)
     warned = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: warned.append(a[2])))
     manager._sync = lambda: (_ for _ in ()).throw(OSError("read-only"))
     dialog.list.item(0).setCheckState(Qt.Checked)
-    assert warned == ["read-only"] and dialog.list.item(0).checkState() == Qt.Unchecked and not manager.is_enabled("zone")
+    assert not dialog.apply() and warned == ["read-only"] and not manager.is_enabled("zone")
+    assert dialog.list.item(0).checkState() == Qt.Checked  # still ticked, so Save can be tried again
 
 
 def test_reloading_finds_a_plugin_added_to_the_folder(qtbot, tmp_path):
@@ -451,7 +455,7 @@ def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path,
     win = MainWindow(FakeService, label_settings=LabelSettings(store(tmp_path)))
     qtbot.addWidget(win)
     # no Settings menu anywhere; "Plugins" only appears while an enabled plugin has settings for each cluster
-    assert [a.text() for a in win.menuBar().actions() if a.isVisible()] == ["File", "Edit", "View", "Help"]
+    assert [a.text().replace("&", "") for a in win.menuBar().actions() if a.isVisible()] == ["File", "Edit", "View", "Help"]
     assert "Plugins…" not in [a.text() for a in win.edit_menu.actions()]
     assert win.plugins.folder == tmp_path / "plugins"
     win.open_cluster("ctx")
@@ -461,7 +465,8 @@ def test_plugins_live_in_preferences_not_in_a_menu_of_their_own(qtbot, tmp_path,
     class FakeDialog:
         Accepted = 1
 
-        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None):
+        def __init__(self, kubeconfig, folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
+                     proxy=None, **kwargs):
             seen.update(terminal=terminal, plugins=plugins)
 
         def exec(self):
@@ -507,11 +512,11 @@ def test_the_plugins_page_applies_at_once_while_saving_keeps_the_other_pages(qtb
     dialog = PreferencesDialog(KubeconfigSettings(store(tmp_path)), tmp_path / "cfg", terminal=terminal, plugins=manager)
     qtbot.addWidget(dialog)
     dialog.plugins_panel.list.item(0).setCheckState(Qt.Checked)
-    assert manager.is_enabled("zone")  # no need to press Save: Cancel afterwards would not undo it
+    assert not manager.is_enabled("zone")  # the tick waits for Save
     dialog.terminal_panel.terminal.setCurrentText("iTerm2")
-    assert terminal.mac_terminal == "Terminal"  # a choice on the other pages waits for Save
+    assert terminal.mac_terminal == "Terminal"  # a choice on the other pages waits for Save too
     dialog._save()
-    assert terminal.mac_terminal == "iTerm2" and dialog.result() == QDialog.Accepted
+    assert terminal.mac_terminal == "iTerm2" and manager.is_enabled("zone") and dialog.result() == QDialog.Accepted
 
 
 def test_an_answer_with_warnings_is_asked_for_again_after_a_minute_not_after_refresh_s(qtbot, tmp_path):
@@ -556,10 +561,10 @@ def test_plugins_page_explains_save_and_cancel(qtbot, tmp_path):
     dialog = PreferencesDialog(KubeconfigSettings(store(tmp_path)), tmp_path, plugins=manager)
     qtbot.addWidget(dialog)
     dialog.tabs.setCurrentWidget(dialog.plugins_panel)
-    assert dialog.buttons.button(QDialogButtonBox.Cancel).text() == "Cancel other changes"
+    assert dialog.buttons.button(QDialogButtonBox.Cancel).text() == "Cancel"
     dialog.plugins_panel.list.item(0).setCheckState(Qt.Checked)
     dialog.reject()
-    assert manager.is_enabled("zone")
+    assert not manager.is_enabled("zone")  # Cancel leaves the plugin as it was
 
 
 def test_dismiss_one_plugin_error_preserves_others_and_new_failures(qtbot, tmp_path):

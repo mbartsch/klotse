@@ -1,26 +1,31 @@
+import base64
 import datetime
 import functools
 import http.client
+import os
 import ssl
 import itertools
 import inspect
 import json
 import threading
-from urllib.parse import urlencode
+import urllib.error
+import urllib.request
+from urllib.parse import urlencode, urlsplit
 import time
 from concurrent.futures import ThreadPoolExecutor
 from heapq import heappush, heapreplace
 
 from kubernetes import client, config, watch
 from kubernetes.client.exceptions import ApiException
+from kubernetes.client.rest import should_bypass_proxies
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, metrics_history, preflight, prometheus, related, rollout, search, trivy
+from . import connect_help, helm, metrics_history, preflight, prometheus, process_env, related, rollout, search, trivy
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
-from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, map_custom_object, map_helm_release
+from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, WORKLOAD_DELETE_KINDS, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata, NOT_APPLICABLE
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
 from .selectors import cronjob_job_uids, cronjob_pod_info
 
@@ -32,6 +37,30 @@ FAILING_STATES = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "Inval
 
 HUGE_PODS = 5000  # big-cluster mode: from this many pods the Overview counts by pod phase instead of reading every pod
 MAX_PROMETHEUS_BODY = 64 * 1024 * 1024  # most bytes read from a Prometheus answer through a port-forward
+
+
+class MetricsRedirectPolicy(urllib.request.HTTPRedirectHandler):
+    """Keep credentials on their original origin and never downgrade TLS, on every redirect hop."""
+
+    @staticmethod
+    def _refuse(fp, message):
+        if fp is not None:
+            fp.close()
+        raise prometheus.PrometheusError(message) from None
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            old, new = urlsplit(req.full_url), urlsplit(newurl)
+            old_origin = (old.scheme.lower(), old.hostname, old.port or (443 if old.scheme == "https" else 80))
+            new_origin = (new.scheme.lower(), new.hostname, new.port or (443 if new.scheme == "https" else 80))
+        except ValueError:
+            self._refuse(fp, "the metrics source redirected to an invalid address")
+        authenticated = any(key.lower() == "authorization" for key in req.headers)
+        if (new.scheme not in ("http", "https") or not new.hostname or new.username is not None
+                or (old.scheme == "https" and new.scheme != "https")
+                or (authenticated and old_origin != new_origin)):
+            self._refuse(fp, "the metrics source redirected outside the allowed origin or transport")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 OVERVIEW_LIST_CAP = 500  # most rows the overview keeps per drill-down list (pending pods, failed pods, warnings)
 
 
@@ -288,6 +317,8 @@ class KubeService:
         self.page_size = PAGE_SIZE
         self.audit = None  # set by the workspace: fn(action, target, result, detail) writes the local change log
         self.kubeconfig = kubeconfig or None  # path of a custom kubeconfig; None = KUBECONFIG / ~/.kube/config
+        self._secrets = {}  # file path -> (modification time, value), see _secret
+        self.proxy, self.no_proxy = None, []  # the app's proxy (Preferences > Network), used when the kubeconfig names none
         self._core = None
         self._apps = None
         self._custom = None
@@ -395,22 +426,59 @@ class KubeService:
             return [], None
         return [c["name"] for c in contexts], (active or {}).get("name")
 
-    def connect(self, context):
+    def is_connected(self):
+        """True once connect() has succeeded for this service."""
+        return self._core is not None
+
+    def connect(self, context, variables=None):
         """Connect to a context. A failure is put into plain words (`connect_help.explain`): a sign-in helper that needs a terminal,
-        a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one)."""
+        a helper that is not installed, or an unreachable server (naming the kubeconfig's proxy-url when there is one).
+        `variables` are the enabled plugins' variables for this cluster (`ClusterWorkspace.process_variables`); they reach the
+        kubeconfig's sign-in helper (for example `aws eks get-token`) and nothing else."""
         connect_help.guard_helper_stdin()
+        info = connect_help.auth_info(self.kubeconfig, context)
+        if connect_help.missing_helper(info):  # say what to install; do not send a request that the cluster would refuse with 401
+            raise ConnectionError(connect_help.explain(FileNotFoundError(2, "No such file or directory", info["exec"]), info))
         try:
             with timings.timed("connect", "connect"):
-                self._connect(context)
+                self._connect(context, variables or {})
         except Exception as error:  # noqa: BLE001 - re-raised, only the wording changes
             text = connect_help.explain(error, connect_help.auth_info(self.kubeconfig, context))
             if text == str(error):
                 raise
             raise ConnectionError(text) from error
 
-    def _connect(self, context):
+    def apply_proxy(self, cfg, context):
+        """Use the app's proxy for this context, unless its kubeconfig cluster names a proxy-url of its own (that one wins)."""
+        if not self.proxy or connect_help.auth_info(self.kubeconfig, context).get("proxy"):
+            return
+        cfg.proxy = self.proxy
+        cfg.no_proxy = ",".join(self.no_proxy or []) or None
+
+    def _load_kube_config(self, context, cfg, variables):
+        """Load `context` from the kubeconfig into `cfg`. The kubernetes client starts an exec helper with a copy of this
+        process's environment, so the variables are added to the helper's `env` entries of this context's user instead: they
+        reach no other process, are never written back to the file and never logged. Without an exec helper (or without
+        variables) the kubeconfig is loaded as before."""
+        path = self.kubeconfig or config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION
+        merged = config.kube_config.KubeConfigMerger(path).config if variables else None  # a ConfigNode, as the client reads it
+        exec_block = None
+        if merged is not None and merged.safe_get("contexts") and merged.safe_get("users"):
+            ctx = merged["contexts"].get_with_name(context, safe=True)
+            user_name = ctx["context"].safe_get("user") if ctx else None
+            user = merged["users"].get_with_name(user_name, safe=True) if user_name else None
+            exec_block = user["user"].safe_get("exec") if user else None  # the dict itself: changing it changes the kubeconfig data
+        if exec_block is None:
+            config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
+            return
+        env = [item for item in exec_block.get("env") or [] if item.get("name") not in variables]
+        exec_block["env"] = env + [{"name": name, "value": value} for name, value in variables.items()]
+        config.load_kube_config_from_dict(merged, context=context, client_configuration=cfg, persist_config=False)
+
+    def _connect(self, context, variables=None):
         cfg = client.Configuration()
-        config.load_kube_config(config_file=self.kubeconfig, context=context, client_configuration=cfg)
+        self._load_kube_config(context, cfg, variables or {})
+        self.apply_proxy(cfg, context)
         cfg.retries = 1  # the default (3 retries with backoff) makes a dead cluster take ~9s to report
         api = client.ApiClient(cfg)
         # Pod manifests (especially managedFields) can make list responses huge.
@@ -421,6 +489,20 @@ class KubeService:
             core.get_api_resources(_request_timeout=10)  # fail fast on bad creds/unreachable
         except MaxRetryError as e:
             raise ConnectionError(f"Cannot reach the API server at {cfg.host}") from e
+        try:
+            # Discovery can answer without a token on some clusters, so a rejected token would only show on the first list.
+            # An access review needs a valid token and no extra rights (every signed-in user may create one), so a 401 here
+            # fails the connection and the user sees the sign-in advice. Other answers are not treated as failures.
+            client.AuthorizationV1Api(api).create_self_subject_access_review(
+                {"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+                 "spec": {"resourceAttributes": {"verb": "list", "resource": "namespaces"}}}, _request_timeout=10)
+        except ApiException as e:
+            if e.status == 401:
+                helper = connect_help.auth_info(self.kubeconfig, context).get("exec") or ""
+                how = (f"Sign in to the cluster again with its sign-in helper (`{helper}`), then connect"
+                       if helper else "Sign in to the cluster again, then connect")
+                raise ConnectionError(f"The cluster did not accept the credentials (401 Unauthorized). {how}. "
+                                      "Klotse does not run the sign-in: run it in a terminal first.") from e
         self._api_client = api
         self._core = core
         self._apps = client.AppsV1Api(api)
@@ -951,20 +1033,26 @@ class KubeService:
                 for c in found.items or []]
 
     @mutating
-    def delete_resource(self, kind, name, namespace, uid):
-        """Delete a deletable registry kind (the RBAC ones). The UID precondition keeps a replacement object that
-        reused the name from being deleted."""
+    def delete_resource(self, kind, name, namespace, uid, propagation=None):
+        """Delete a deletable registry kind. The UID precondition keeps a replacement object that reused the name from being
+        deleted. `propagation` ("Background", "Foreground" or "Orphan") says what happens to the objects it owns: a Job's pods
+        are kept by default ("Orphan") unless the user asked for them to go too."""
         spec = SPEC_BY_KIND.get(kind)
-        if spec is None or not spec.deletable:
+        if spec is not None and spec.deletable:
+            api_key, snake, namespaced = spec.api, spec.snake, spec.namespaced
+        elif kind in WORKLOAD_DELETE_KINDS:
+            api_key, snake, namespaced = "apps", {"Deployment": "deployment", "StatefulSet": "stateful_set",
+                                                  "ReplicaSet": "replica_set"}[kind], True
+        else:
             raise ValueError(f"Deleting {kind} is not supported")
         if not uid:
             raise ValueError(f"{kind} UID is missing; refresh the list first")
-        api = self._apis[spec.api]
-        body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid))
-        if spec.namespaced:
-            getattr(api, f"delete_namespaced_{spec.snake}")(name, namespace, body=body, _request_timeout=15)
+        api = self._apis[api_key]
+        body = client.V1DeleteOptions(preconditions=client.V1Preconditions(uid=uid), propagation_policy=propagation)
+        if namespaced:
+            getattr(api, f"delete_namespaced_{snake}")(name, namespace, body=body, _request_timeout=15)
         else:
-            getattr(api, f"delete_{spec.snake}")(name, body=body, _request_timeout=15)
+            getattr(api, f"delete_{snake}")(name, body=body, _request_timeout=15)
 
     @mutating
     def create_custom(self, group, version, plural, namespaced, body):
@@ -1116,10 +1204,74 @@ class KubeService:
         """One range query through the API server's service proxy: {line: [(t, value)]}."""
         return prometheus.parse_matrix(self._prometheus_get(ref, prometheus.range_path(ref, promql, start, end, step), 60), label)
 
+    def _secret(self, source):
+        """The token or password a URL source names. `source` is an environment variable name, or `file:` + a path. An environment
+        variable is read on each request (an in-memory lookup). A file is read on first use and kept with its modification time; it is
+        read again only when that time changes. The value is never stored in the settings or logged."""
+        if source.startswith("file:"):
+            path = source[len("file:"):]
+            try:
+                stamp = os.stat(path).st_mtime_ns
+            except OSError as error:
+                raise prometheus.PrometheusError(f"the secret file {path} cannot be read ({error.strerror or error})") from error
+            kept = self._secrets.get(path)
+            if kept is not None and kept[0] == stamp:
+                return kept[1]
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    value = handle.read().strip()
+            except (OSError, UnicodeDecodeError) as error:
+                raise prometheus.PrometheusError(f"the secret file {path} cannot be read ({getattr(error, 'strerror', None) or error})") from error
+            self._secrets[path] = (stamp, value)
+            return value
+        return os.environ.get(source, "")
+
+    def _direct_get(self, ref, path, timeout):
+        """A GET from this computer to a URL source (`origin` + path), with its authentication (see _secret). The app's HTTP(S) proxy is used
+        unless the address is on its bypass list. Raises PrometheusError saying which step failed."""
+        kind, source = ref.get("auth", ""), ref.get("auth_env", "")
+        headers = {"Accept": "application/json"}
+        if kind:
+            if not source:
+                raise prometheus.PrometheusError("no secret is named for this source's authentication")
+            secret = self._secret(source)
+            if not secret:
+                where = source[len("file:"):] if source.startswith("file:") else f"the environment variable {source}"
+                raise prometheus.PrometheusError(f"{where} is empty or not set, so the source cannot be asked")
+            if kind == "bearer":
+                headers["Authorization"] = f"Bearer {secret}"
+            else:
+                pair = f"{ref.get('auth_user', '')}:{secret}".encode("utf-8")
+                headers["Authorization"] = "Basic " + base64.b64encode(pair).decode("ascii")
+        url = ref["origin"] + path
+        proxy, bypass = process_env.app_proxy()
+        if proxy and proxy.lower().startswith("socks"):
+            raise prometheus.PrometheusError("a SOCKS proxy is not used for URL sources (use an HTTP(S) proxy, or none)")
+        if proxy and not should_bypass_proxies(url, ",".join(bypass)):
+            handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+        else:
+            handler = urllib.request.ProxyHandler({}) if proxy else urllib.request.ProxyHandler()
+        opener = urllib.request.build_opener(handler, MetricsRedirectPolicy())
+        try:
+            # nosec B310 - the address is the one the user typed for this source; only http and https are allowed (prometheus.parse_url)
+            with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
+                body = response.read(MAX_PROMETHEUS_BODY + 1)
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise prometheus.PrometheusError(f"{ref['origin']} refused the query (HTTP {error.code}); check the authentication and the path prefix") from None
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            # Transport errors may quote server-controlled text or credential-bearing redirect URLs.
+            raise prometheus.PrometheusError(f"could not reach {ref['origin']} ({type(error).__name__})") from None
+        if len(body) > MAX_PROMETHEUS_BODY:
+            raise prometheus.PrometheusError("the answer is too large")
+        return body.decode("utf-8", "replace")
+
     def _prometheus_get(self, ref, path, timeout):
         """The answer text for `path`: through the API server proxy, or, for a ref with `local_port` (a port-forward Klotse started), a GET to
         127.0.0.1 on that port: plain HTTP, or https when `scheme` is "https" (certificate errors are ignored only when `insecure` is set).
         Raises PrometheusError saying which step failed."""
+        if ref.get("url"):
+            return self._direct_get(ref, path, timeout)
         port = ref.get("local_port")
         if not port:
             return self._get_text(path, "application/json", timeout)
@@ -1450,10 +1602,24 @@ class KubeService:
                                                     field_selector=",".join(selectors), **options)]
         return self._with_usage(rows, label_selector=label_selector) if rows else rows
 
-    def read_pod_log(self, namespace, pod, container, tail=500, previous=False):
+    def read_pod_log(self, namespace, pod, container, tail=500, previous=False, *, limit_bytes=None):
         """The last `tail` lines of one container's log as text (not streamed), or of its previous run. Looking only."""
-        return self._core.read_namespaced_pod_log(pod, namespace, container=container, tail_lines=tail, previous=previous,
-                                                  _request_timeout=60) or ""
+        options = dict(container=container, tail_lines=tail, previous=previous, _request_timeout=60)
+        if limit_bytes is None:
+            return self._core.read_namespaced_pod_log(pod, namespace, **options) or ""
+        if not isinstance(limit_bytes, int) or limit_bytes <= 0:
+            raise ValueError("limit_bytes must be a positive integer")
+        response = self._core.read_namespaced_pod_log(pod, namespace, limit_bytes=limit_bytes,
+                                                      _preload_content=False, **options)
+        try:
+            # Even a server ignoring limit_bytes must not make the client allocate an unbounded body.
+            data = response.read(limit_bytes + 1)
+            truncated = len(data) > limit_bytes
+            text = data[:limit_bytes].decode("utf-8", "replace")
+            return text + ("\n[later bytes cut: the server exceeded the log limit]\n" if truncated else "")
+        finally:
+            response.close()
+            response.release_conn()
 
     def rbac_data(self):
         """{roles, clusterroles, rolebindings, clusterrolebindings: [manifests], missing: [kinds that could not be read]} for the
@@ -1604,10 +1770,64 @@ class KubeService:
         return self._list_apps(a.list_stateful_set_for_all_namespaces, a.list_namespaced_stateful_set, map_statefulset, namespace,
                                label_selector, field_selector)
 
+    SECRET_METADATA_ACCEPT = "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json"
+
+    def _secret_metadata(self, namespace, label_selector=None, field_selector=None):
+        """The Secrets' metadata (names, labels, annotations, owners, creation time) as plain dicts: requested as
+        PartialObjectMetadataList, so no Secret data or type is transferred. Paged like the other lists."""
+        core = self._core
+        fn, args = ((core.list_namespaced_secret, (namespace,)) if namespace else (core.list_secret_for_all_namespaces, ()))
+        options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        items, token = [], None
+        while True:
+            reply = fn(*args, limit=500, _continue=token, _request_timeout=30, _preload_content=False,
+                       _headers={"Accept": self.SECRET_METADATA_ACCEPT}, **options)
+            page = json.loads(reply.data)
+            items += page.get("items") or []
+            token = (page.get("metadata") or {}).get("continue")
+            if not token:
+                return items
+
+    def _secret_table(self, namespace, label_selector=None, field_selector=None):
+        """Secrets as the server's Table, the columns `kubectl get secrets` prints: name, type, data count, age. The API server
+        reads each object but sends only these cells, never the data. Returns [{"metadata", "type", "keys"}]; raises when the
+        Table cannot be read (the caller falls back to the metadata list)."""
+        path = f"/api/v1/namespaces/{namespace}/secrets" if namespace else "/api/v1/secrets"
+        params = {k: v for k, v in (("labelSelector", label_selector), ("fieldSelector", field_selector)) if v}
+        entries = []
+        for names, rows in self._table_pages(path, params, 500, with_meta=True):
+            column = {name: index for index, name in enumerate(names)}
+            for cells, metadata in rows:
+                entries.append({"metadata": metadata, "type": cells[column["Type"]], "keys": cells[column["Data"]]})
+        return entries
+
+    def _secret_rows(self, namespace, **options):
+        """The Secret rows of a list: type and key count from the server's Table when it can be read, else the metadata list
+        (where they show as --). The data itself is never transferred for the list."""
+        try:
+            entries = self._secret_table(namespace, **options)
+        except (ApiException, ValueError, KeyError):  # an old server, or a proxy that strips the Table Accept header: the metadata list
+            return [map_secret_metadata(item) for item in self._secret_metadata(namespace, **options)]
+        rows = []
+        for entry in entries:
+            row = map_secret_metadata({"metadata": entry["metadata"]})
+            row.type = str(entry["type"] or "")
+            row.keys = int(entry["keys"]) if str(entry["keys"]).isdigit() else UNKNOWN_CELL
+            if row.type != "kubernetes.io/tls":  # known from the type alone, so it stays n/a after the Secret is opened too
+                row.expires = row.subject = NOT_APPLICABLE
+            rows.append(row)
+        return rows
+
+    def read_secret(self, namespace, name):
+        """One Secret in full (data and type), for Details, decode and edit. The list only has the metadata."""
+        return map_secret(self._core.read_namespaced_secret(name, namespace, _request_timeout=30))
+
     def list_resource(self, key, namespace=None, label_selector=None, field_selector=None):
         """Generic list for the specs in resources.py; events come back newest first."""
         spec = SPEC_BY_KEY[key]
         options = {k: v for k, v in (("label_selector", label_selector), ("field_selector", field_selector)) if v}
+        if key == "secrets":  # the list reads metadata only; a Secret's data is read when it is opened (read_secret)
+            return self._secret_rows(namespace, **options)
         rows = [spec.mapper(i) for i in self._resource_items(key, namespace, **options)]
         if key == "events":
             rows.sort(key=lambda r: r.ts, reverse=True)

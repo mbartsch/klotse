@@ -3,7 +3,7 @@
   "id": "aws",
   "name": "AWS Plugin",
   "version": "0.1",
-  "requires_api": 10,
+  "requires_api": 12,
   "description": "Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. China region prices use the AWS Price List API and need AWS credentials with pricing:GetProducts permission.",
   "columns": [
     {
@@ -193,6 +193,16 @@
       "multi": true,
       "confirm": null,
       "dangerous": false
+    },
+    {
+      "key": "sign-in",
+      "title": "Sign in to AWS for this cluster…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
     }
   ],
   "overview_cards": [
@@ -311,6 +321,24 @@
       "help": "Which account a cluster is in, one per line as context = 123456789012. Only needed when the context is not the EKS ARN that 'aws eks update-kubeconfig' creates (it contains the account id).",
       "pattern": "",
       "section": "Per-cluster overrides"
+    },
+    {
+      "key": "pass_environment",
+      "label": "Pass the AWS profile or access key to kubectl, helm and the terminals Klotse opens",
+      "default": true,
+      "kind": "bool",
+      "help": "Sets variables in the environment of those commands, so the kubeconfig's 'aws eks get-token' and the aws CLI in a shell Klotse opens can sign in. A cluster with its own profile (Plugins menu, or 'AWS profile for each cluster') gets AWS_PROFILE and never the typed access key. Any other cluster gets the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs.",
+      "pattern": "",
+      "section": "Commands and terminals"
+    },
+    {
+      "key": "extra_environment",
+      "label": "Extra variables for those commands",
+      "default": "",
+      "kind": "multiline",
+      "help": "One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs.",
+      "pattern": "",
+      "section": "Commands and terminals"
     }
   ],
   "cluster_settings": [

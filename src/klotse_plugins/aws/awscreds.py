@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from klotse.k8s.aws_config import mfa_serial, sign_in_argv, sso_login_argv  # noqa: F401 (shared with the core sign-in)
+
 REFRESH_BEFORE_S = 300  # credentials are fetched again this long before they expire
 DEFAULT_LIFETIME_S = 900  # for credentials that say nothing about their expiry (static keys never expire)
 
@@ -64,6 +66,9 @@ def _run_cli(profile, run, which, environ):
         lines = (done.stderr or "").strip().splitlines()
         reason = lines[-1][:200] if lines else f"exit status {done.returncode}"
         where = f" for the profile {profile}" if profile else ""
+        if mfa_serial(profile, environ):
+            raise CredentialsError(f"the profile {profile or 'default'} needs an MFA code, which Klotse cannot ask for: sign in with "
+                                   "'Sign in to AWS for this cluster' (the code is typed in the terminal), then connect again")
         raise CredentialsError(f"the AWS CLI has no credentials{where}: {reason}")
     try:
         data = json.loads(done.stdout)

@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from kubernetes import client
 
 from klotse.k8s.client import format_age, map_node, map_pod, pod_buckets
 from klotse.k8s.resources import Row
+from klotse.k8s.timing import timings
 from klotse.k8s.models import (DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
                                 StatefulSetRow)
 from klotse.ui import theme as theme_module
@@ -37,6 +39,21 @@ def test_right_clicking_the_navigator_logo_does_not_open_the_main_window_popup(q
     assert title.contextMenuPolicy() == Qt.NoContextMenu
     QApplication.sendEvent(logo, QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(8, 8)))
     assert opened == []
+
+
+def test_debug_status_shows_aggregate_cluster_worker_usage(qtbot, monkeypatch):
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    pool = SimpleNamespace(activeThreadCount=lambda: 1, maxThreadCount=lambda: 2)
+    win.workspaces["ctx"] = SimpleNamespace(pool=pool, _workers={object(), object(), object()}, shutdown=lambda: None)
+    monkeypatch.setattr(timings, "enabled", True)
+
+    win._sync_thread_status()
+
+    assert win.thread_status.text() == "Threads: 1/2 · queued 2"
+    monkeypatch.setattr(timings, "enabled", False)
+    win._sync_thread_status()
+    assert win.thread_status.isHidden()
 
 
 def test_map_pod_waiting_reason_and_ready():
@@ -114,7 +131,7 @@ class FakeService:
     def list_configmap_names(namespace):
         return []
 
-    def connect(self, ctx):
+    def connect(self, ctx, variables=None):
         pass
 
     def list_namespaces(self):
@@ -451,7 +468,7 @@ class MultiService(FakeService):
         self.context = None
         MultiService.instances.append(self)
 
-    def connect(self, ctx):
+    def connect(self, ctx, variables=None):
         if ctx == "bad":
             raise RuntimeError("unreachable")
         self.context = ctx
@@ -623,7 +640,7 @@ def test_cancelling_inflight_retry_drops_late_failure(qtbot):
     started, release = Event(), Event()
 
     class SlowService(MultiService):
-        def connect(self, ctx):
+        def connect(self, ctx, variables=None):
             started.set()
             release.wait(5)
             raise RuntimeError("late failure")
@@ -919,7 +936,7 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     nav._on_click(group.child(0), 0)
     assert clicks == [("a", "workloads")]
     nav._on_click(nav.cluster_item("a"), 0)
-    assert clicks == [("a", "workloads")]  # selecting a cluster never starts a connection
+    assert clicks == [("a", "workloads"), "a"]  # a connected cluster is brought to the front; it never starts a connection
 
 
 def test_double_click_connects_disconnected_cluster_only(qtbot):
@@ -1000,7 +1017,7 @@ def test_disconnect_while_connecting_drops_late_result(qtbot):
     gate = threading.Event()
 
     class SlowService(MultiService):
-        def connect(self, ctx):
+        def connect(self, ctx, variables=None):
             gate.wait(5)  # the connection is "in flight" until released
             super().connect(ctx)
 

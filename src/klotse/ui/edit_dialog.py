@@ -34,6 +34,7 @@ class EditDialog(QDialog):
         self.result_body = None
         self.wants_form, self.pending_body = False, None
         self.editor = QPlainTextEdit(dump_manifest(raw))
+        self._as_opened = self.editor.toPlainText()
         self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.editor.setLineWrapMode(QPlainTextEdit.NoWrap)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -74,6 +75,14 @@ class EditDialog(QDialog):
             QMessageBox.warning(self, "Invalid YAML", str(e))
             return None
         return body
+
+    def reject(self):
+        """Esc, the window's X and Cancel ask before dropping edits (default No keeps them). Edit in form… leaves on purpose."""
+        if not self.wants_form and self.editor.toPlainText() != self._as_opened and QMessageBox.question(
+                self, "Discard changes", "Discard the changes to this object?", QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No) != QMessageBox.Yes:
+            return
+        super().reject()
 
     def _to_form(self):
         body = self._parse()

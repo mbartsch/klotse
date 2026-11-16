@@ -61,8 +61,13 @@ def profile_for(context, settings):
     keys = keys_from(settings)
     if keys is not None:
         return keys
-    return (str(settings.get("cluster_profile") or "").strip() or parse_pairs(settings.get("profile_map")).get(context)
-            or str(settings.get("aws_profile") or ""))
+    return cluster_profile_for(context, settings) or str(settings.get("aws_profile") or "")
+
+
+def cluster_profile_for(context, settings):
+    """The profile chosen for this cluster only: set in the Plugins menu, else its entry in "AWS profile for each cluster";
+    "" when the cluster has none (it then uses the typed access key or the default profile)."""
+    return str(settings.get("cluster_profile") or "").strip() or parse_pairs(settings.get("profile_map")).get(context) or ""
 
 
 def account_for(context, settings):

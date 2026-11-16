@@ -25,6 +25,7 @@ class Relation:
     name: str
     depth: int = 0  # indentation under the entry above (an owner's owner, a ReplicaSet's pods)
     note: str = ""
+    more: tuple = ()  # for the "... and N more" note: the entries it stands for (kept in memory, nothing read again)
     url: str = ""  # an outside link (the AWS console); empty for objects in the cluster
 
 
@@ -135,22 +136,25 @@ def pod_references(spec):
 
 
 def _cap(relations):
-    """At most SHOWN entries of each (relation, kind, depth); a counted note takes the place of the rest."""
-    kept, counts, extra = [], {}, {}
+    """At most SHOWN entries of each (relation, kind, depth); a counted note takes the place of the rest, and keeps those entries
+    so the Related view can show them on request (they are already read; nothing is fetched again)."""
+    kept, hidden = [], {}
+    counts = {}
     for r in relations:
         key = (r.relation, r.kind, r.depth)
         counts[key] = counts.get(key, 0) + 1
         if counts[key] <= SHOWN:
             kept.append(r)
         else:
-            extra[key] = extra.get(key, 0) + 1
+            hidden.setdefault(key, []).append(r)
     result, emitted = [], {}
     for r in kept:
         result.append(r)
         key = (r.relation, r.kind, r.depth)
         emitted[key] = emitted.get(key, 0) + 1
-        if key in extra and emitted[key] == SHOWN:
-            result.append(Relation(r.relation, r.kind, "", f"… and {extra[key]} more", r.depth, "more"))
+        if key in hidden and emitted[key] == SHOWN:
+            rest = tuple(hidden[key])
+            result.append(Relation(r.relation, r.kind, "", f"… and {len(rest)} more", r.depth, "more", rest))
     return result
 
 
@@ -245,7 +249,7 @@ def related(kind, raw, fetch):
         volume = ebs_volume(raw)
         if volume:
             region, volume_id = volume
-            out.append(Relation("Backed by", "AWS EBS volume", "", volume_id, 0, region, ebs_console_url(region, volume_id)))
+            out.append(Relation("Backed by", "AWS EBS volume", "", volume_id, 0, region, url=ebs_console_url(region, volume_id)))
     elif kind == "Node":
         for pod in fetch.list("Pod", "", field_selector=f"spec.nodeName={name}"):
             add("Runs", "Pod", pod)

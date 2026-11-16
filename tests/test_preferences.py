@@ -4,7 +4,7 @@ import sys
 import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QGuiApplication, QKeySequence
-from PySide6.QtWidgets import QDialog, QLineEdit, QMessageBox, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox, QPlainTextEdit
 
 from klotse.k8s import client as client_module
 from klotse.k8s.client import KubeService
@@ -41,7 +41,7 @@ def kubeconfig_file(tmp_path, name="other-config"):
 # ---- Edit menu ---------------------------------------------------------------------------------
 def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path):
     win = window(qtbot, tmp_path)
-    assert [a.text() for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]
+    assert [a.text().replace("&", "") for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]
     texts = [a.text() for a in win.edit_menu.actions() if not a.isSeparator()]
     assert texts == ["Undo", "Redo", "Cut", "Copy", "Paste", "Select All", "Preferences…"]
     assert win.edit_actions.actions["copy"].shortcut().toString()
@@ -93,8 +93,11 @@ def test_table_copy_gives_selected_rows_as_tab_separated_text(qtbot):
     assert len(lines) == 2 and lines[0].split("\t")[:2] == ["a", "ns"] and lines[1].split("\t")[3] == "Pending"
 
 
-def test_menu_acts_on_the_last_used_widget_and_enables_by_context(qtbot, tmp_path):
+def test_menu_acts_on_the_last_used_widget_and_enables_by_context(qtbot, tmp_path, monkeypatch):
     win = window(qtbot, tmp_path)
+    # The menu has focus, so the target is the remembered box. Without this, whichever text box the window
+    # happens to focus (depends on window activation) would be the target instead, and the test would flake.
+    monkeypatch.setattr(QApplication, "focusWidget", staticmethod(lambda: None))
     box = QLineEdit("abc")
     qtbot.addWidget(box)
     win.edit_actions._last = box  # what focus tracking records when a menu takes focus
@@ -238,6 +241,9 @@ def test_preferences_action_applies_the_dialog_choice(qtbot, tmp_path, monkeypat
 
         def chosen_kubeconfig(self):
             return path
+
+        def chosen_write_main(self):
+            return False
 
         def deleteLater(self):
             pass

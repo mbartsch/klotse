@@ -20,10 +20,18 @@ from .customizations import ANNOTATION_KINDS, LabelColumnsDialog, LabelSettings
 from .edit_menu import EditActions
 from .log_view import shutdown_all
 from .navigator import Navigator
+from ..k8s.process_env import set_app_proxy
+from ..k8s.proxy_settings import ProxySettings
+from ..k8s.connect_help import auth_info
+from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
-from .metrics_sources import ForwardDefaults
+from ..workers import Worker
+from .terminal import open_terminal
+from .metrics_sources import ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
+from .cloud_clusters_dialog import CloudClustersDialog
+from ..k8s.cloud_clusters import default_generated_path, main_kubeconfig_path
 from .big_clusters import NOTICE_TEXT, BigClusters
 from .multi_cluster import MultiClusterDialog
 from .palette import Entry
@@ -35,6 +43,8 @@ from . import branding, embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
+from .status_line import StatusLine
+from .wording import menu_text
 
 
 def _shortcut_tooltip(action, text):
@@ -109,7 +119,10 @@ class MainWindow(QMainWindow):
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
             QTimer.singleShot(1500, embedded_terminal.warm_up)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
+        self.proxy_settings = ProxySettings(self.label_settings.store)  # Preferences > Network: used when a kubeconfig names no proxy-url
+        self.apply_app_proxy()
         self.big_clusters = BigClusters(self.label_settings.store)  # clusters read in the lighter big-cluster way
+        self.context_files = {}  # context name -> kubeconfig file it came from (None = default); see _load_contexts
         self.read_only_clusters = ReadOnlyClusters(self.label_settings.store)  # contexts marked read-only, kept across starts
         self.debug_settings = DebugSettings(self.label_settings.store)  # Preferences > Debug: the timing log
         self.apply_timing_log()
@@ -123,42 +136,47 @@ class MainWindow(QMainWindow):
             self.label_settings.store, folder=Path(self.label_settings.store.fileName()).parent / "plugins", parent=self)
         self.setWindowTitle("Klotse")
         self.resize(1500, 850)
+        self._restore_geometry()  # the window opens where it was closed (#501); Qt keeps it on a screen that exists
         if sys.platform == "darwin":
             self.menuBar().setNativeMenuBar(True)
         self._shutting_down = False
         self.exit_action = QAction("Exit", self)
-        self.exit_action.setShortcut(QKeySequence.Quit)
+        self.exit_action.setShortcut(QKeySequence.Quit if sys.platform == "darwin" else QKeySequence("Ctrl+Q"))  # Windows has none otherwise
         _shortcut_tooltip(self.exit_action, "Exit Klotse")
         self.exit_action.setMenuRole(QAction.QuitRole)
         self.exit_action.triggered.connect(self.close)
-        file_menu = self.menuBar().addMenu("File")
+        file_menu = self.menuBar().addMenu("&File")
         self.apply_action = QAction("Apply YAML…", self)
         self.apply_action.setToolTip("Paste or open manifests and apply them to the cluster in front")
         self.apply_action.triggered.connect(self.show_apply_yaml)
         file_menu.addAction(self.apply_action)
+        self.cloud_clusters_action = QAction("Add clusters from the cloud…", self)
+        self.cloud_clusters_action.setToolTip("List EKS, GKE, AKS or OKE clusters with the provider's CLI and add them to a kubeconfig file")
+        self.cloud_clusters_action.triggered.connect(self.add_clusters_from_cloud)
+        file_menu.addAction(self.cloud_clusters_action)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
         file_menu.aboutToShow.connect(lambda: self.apply_action.setEnabled(self.clusters.currentWidget() is not None))
-        self.edit_menu = self.menuBar().addMenu("Edit")
+        self.edit_menu = self.menuBar().addMenu("&Edit")
         self.edit_actions = EditActions(self.edit_menu, self)  # Undo / Redo / Cut / Copy / Paste / Select All
         self.edit_menu.addSeparator()
         self.preferences_action = QAction("Preferences…", self)
         # Qt moves PreferencesRole into the macOS application menu (under Klotse);
         # on Windows and Linux it remains in Edit.
         self.preferences_action.setMenuRole(QAction.PreferencesRole)
-        self.preferences_action.setShortcut(QKeySequence.Preferences)
+        self.preferences_action.setShortcut(QKeySequence.Preferences if sys.platform == "darwin" else QKeySequence("Ctrl+,"))
         _shortcut_tooltip(self.preferences_action, "Open preferences")
         self.preferences_action.triggered.connect(lambda: QTimer.singleShot(0, self.open_preferences))
         self.edit_menu.addAction(self.preferences_action)
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
-        view_menu = self.menuBar().addMenu("View")
-        navigate_menu = view_menu.addMenu("Navigate")
-        insights_menu = view_menu.addMenu("Insights")
-        operations_menu = view_menu.addMenu("Operations")
-        self.panels_menu = view_menu.addMenu("Panels")
+        view_menu = self.menuBar().addMenu("&View")
+        navigate_menu = view_menu.addMenu("&Navigate")
+        insights_menu = view_menu.addMenu("&Insights")
+        operations_menu = view_menu.addMenu("&Operations")
+        self.panels_menu = view_menu.addMenu("&Panels")
         self.panels_menu.aboutToShow.connect(self._fill_workspace_panels_menu)
-        settings_menu = view_menu.addMenu("Settings")
+        settings_menu = view_menu.addMenu("&Settings")
         # Prevent macOS's text heuristic from promoting View > Settings into
         # the application Preferences menu; that slot belongs to the explicit
         # PreferencesRole action in Edit.
@@ -202,6 +220,11 @@ class MainWindow(QMainWindow):
         self.port_forwards_action.triggered.connect(self.show_port_forwards)
         operations_menu.addAction(self.port_forwards_action)
         operations_menu.aboutToShow.connect(lambda: self.port_forwards_action.setEnabled(self.clusters.currentWidget() is not None))
+        self.activity_action = QAction("Activity…", self)
+        self.activity_action.setToolTip("What the actions on the cluster in front did this session: results, and errors in full")
+        self.activity_action.triggered.connect(self.show_activity)
+        operations_menu.addAction(self.activity_action)
+        operations_menu.aboutToShow.connect(lambda: self.activity_action.setEnabled(self.clusters.currentWidget() is not None))
         self.rightsizing_action = QAction("Right-sizing…", self)
         self.rightsizing_action.setToolTip("Requests and limits against current usage, per workload, with advice")
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
@@ -217,7 +240,7 @@ class MainWindow(QMainWindow):
         self.review_action.setChecked(str(self.label_settings.store.value("edit/review_changes", "true")).lower() != "false")
         self.review_action.toggled.connect(self.set_review_changes)
         settings_menu.addAction(self.review_action)
-        self.multi_action = QAction("Multi Cluster…", self)
+        self.multi_action = QAction("Several clusters…", self)  # the name the docs use (#500)
         self.multi_action.setShortcut(QKeySequence("Ctrl+Shift+M"))
         _shortcut_tooltip(self.multi_action, "One list of a kind (Pods, Deployments, Nodes, ...) from several open clusters, with a Cluster column")
         self.multi_action.triggered.connect(self.show_multi)
@@ -284,13 +307,14 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.managed_fields_action)
         settings_menu.aboutToShow.connect(self._sync_big_action)
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
-        self.plugins_menu = self.menuBar().addMenu("Plugins")
+        self.plugins_menu = self.menuBar().addMenu("&Plugins")
         self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
         self.plugins.changed.connect(self._update_plugins_menu)
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        self.menuBar().addMenu("Help").addAction(self.about_action)
+        self.menuBar().addMenu("&Help").addAction(self.about_action)
+        self._show_menu_tooltips(self.menuBar())  # the entries' tooltips say what they do and their shortcut (#501)
 
         self.clusters = QTabWidget()
         self.clusters.setDocumentMode(True)
@@ -349,14 +373,19 @@ class MainWindow(QMainWindow):
         heading_font.setBold(True)
         cluster_heading.setFont(heading_font)
         theme.muted(cluster_heading)
-        nav_layout.addWidget(cluster_heading)
-        nav_layout.addWidget(self.cluster_picker)
-        search_clusters = QToolButton()
+        search_clusters = QToolButton()  # on the heading line, away from the switcher, so the pair is not read as one field
         search_clusters.setIcon(action_icon("search"))
         search_clusters.setAccessibleName("Search clusters")
         search_clusters.setToolTip("Show or hide cluster search")
         search_clusters.setCheckable(True)
         self._cluster_search_button = search_clusters
+        heading_row = QHBoxLayout()
+        heading_row.setSpacing(5)
+        heading_row.addWidget(cluster_heading)
+        heading_row.addStretch(1)
+        heading_row.addWidget(search_clusters)
+        nav_layout.addLayout(heading_row)
+        nav_layout.addWidget(self.cluster_picker)
         self.cluster_search = QLineEdit()
         self.cluster_search.setObjectName("clusterSearch")
         self.cluster_search.setAccessibleName("Search clusters")
@@ -371,11 +400,7 @@ class MainWindow(QMainWindow):
             else:
                 self.cluster_search.clear()
         search_clusters.toggled.connect(toggle_cluster_search)
-        search_row = QHBoxLayout()  # the search box, and its button on the right of it
-        search_row.setSpacing(5)
-        search_row.addWidget(self.cluster_search, 1)
-        search_row.addWidget(search_clusters)
-        nav_layout.addLayout(search_row)
+        nav_layout.addWidget(self.cluster_search)
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
@@ -394,8 +419,20 @@ class MainWindow(QMainWindow):
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
+        self.nav.sign_in_requested.connect(self.sign_in)
+        self.nav.config_requested.connect(self.show_context_entry)
+        self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
+        self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
 
         self.status = self.statusBar()
+        self.status_line = StatusLine(self.status)  # action results are held here; load chatter waits (#497)
+        self.thread_status = QLabel(self)
+        self.thread_status.setAccessibleName("Background thread status")
+        self.thread_status.setToolTip("Background workers across open clusters (debug)")
+        self.status.addPermanentWidget(self.thread_status)
+        self._thread_status_timer = QTimer(self, interval=500)
+        self._thread_status_timer.timeout.connect(self._sync_thread_status)
+        self._thread_status_timer.start()
         self.plugin_errors_button = QToolButton(self)
         self.plugin_errors_button.setObjectName("pluginErrorsStatus")
         self.plugin_errors_button.setText("Plugin error")
@@ -407,7 +444,7 @@ class MainWindow(QMainWindow):
         self._sync_plugin_error_status()
         # Nothing connects by itself: the kubeconfig's current-context is not opened any more. Clusters the user asked
         # to remember when exiting come back through restore_clusters(), which the entry point calls.
-        self.contexts, _ = self.new_service().load_contexts()
+        self.contexts = self._load_contexts()
         self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
         self._sync_cluster_picker()
         self._update_plugins_menu()
@@ -424,6 +461,34 @@ class MainWindow(QMainWindow):
             self.groups.save()
         except OSError as error:
             QMessageBox.warning(self, "Cannot save the cluster groups", str(error))
+
+    def sign_in(self, context):
+        """Run the kubeconfig's sign-in helper in a terminal the user can answer (after a Yes); connect again afterwards."""
+        argv = sign_in_argv(auth_info(self.context_file(context), context))
+        if not argv:
+            QMessageBox.information(self, "Sign in", f"The kubeconfig entry for {context} names no sign-in helper.")
+            return
+        shown = " ".join(argv)
+        if QMessageBox.question(self, "Sign in", f"Klotse will open a terminal and run:\n\n{shown}\n\n"
+                                "Finish the sign-in there, then connect to this cluster again. Run it?",
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+            return
+        worker = Worker(open_terminal, argv, self.terminal_settings.mac_terminal)
+        worker.setAutoDelete(False)  # kept until the terminal has been asked to open
+        self._sign_in_workers = getattr(self, "_sign_in_workers", []) + [worker]
+        worker.signals.error.connect(lambda message: QMessageBox.warning(self, "Sign in", f"The terminal could not be opened.\n\n{message}"))
+        QThreadPool.globalInstance().start(worker)
+    def show_context_entry(self, context):
+        """Read-only: what the kubeconfig says about this context (names, server, sign-in kind; no secret values)."""
+        from ..k8s.context_entry import entry_lines
+        from .context_dialog import ContextEntryDialog
+        dialog = ContextEntryDialog(context, entry_lines(self.context_file(context), context), self)
+        dialog.exec()
+
+    def context_file(self, context):
+        """The kubeconfig file a context was read from (None = the default one): a context from the kubeconfig list, such as the
+        one "Add clusters from the cloud" writes, is not in the main file."""
+        return self.context_files[context] if context in self.context_files else self.kubeconfig_settings.path
 
     def rename_cluster_alias(self, context):
         current = self.aliases.display(context)
@@ -444,12 +509,69 @@ class MainWindow(QMainWindow):
             self._update_scope_title(ws)
         return True
 
-    def new_service(self):
-        """A fresh service for one cluster, reading the custom kubeconfig when one is selected in Preferences."""
+    def apply_app_proxy(self):
+        """Hand the Preferences > Network proxy to the kubectl, helm and terminal processes started from now on."""
+        set_app_proxy(self.proxy_settings.url, self.proxy_settings.no_proxy)
+
+    def new_service(self, context=None):
+        """A fresh service for one cluster. It reads the kubeconfig file the context came from (see _load_contexts), else the
+        main one: the custom kubeconfig selected in Preferences, or the default (None)."""
         service = self.factory()
-        if self.kubeconfig_settings.path:
-            service.kubeconfig = self.kubeconfig_settings.path
+        path = self.context_files[context] if context in self.context_files else self.kubeconfig_settings.path
+        if path:
+            service.kubeconfig = path
+        service.proxy, service.no_proxy = self.proxy_settings.url, list(self.proxy_settings.no_proxy)
         return service
+
+    def _load_contexts(self):
+        """Context names from the main kubeconfig and then the kubeconfig list. A name in an earlier file wins; the file each
+        context came from is kept in `context_files` (None = the default kubeconfig)."""
+        sources, names = {}, []
+        for path in [self.kubeconfig_settings.path] + self.kubeconfig_settings.extra_paths():
+            service = self.factory()
+            if path:
+                service.kubeconfig = path
+            found, _active = service.load_contexts()
+            for name in found:
+                if name not in sources:
+                    sources[name] = path
+                    names.append(name)
+        self.context_files = sources
+        return names
+
+    # ---- clusters from a cloud account ---------------------------------
+    def add_clusters_from_cloud(self):
+        """File > Add clusters from the cloud…"""
+        sources = self.plugins.cluster_sources()
+        if not sources:  # the cluster listing belongs to the cloud plugins: say what to enable
+            QMessageBox.information(self, "Add clusters from the cloud",
+                                    "No cloud plugin is enabled. Enable one in Plugins (for example Google Cloud (GKE) Plugin, "
+                                    "AWS Plugin, Azure (AKS) Plugin or Oracle Cloud (OKE) Plugin), then try again.")
+            return
+        dialog = CloudClustersDialog(self.cloud_target, sources, self)
+        dialog.clusters_added.connect(self._cloud_clusters_added)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def cloud_target(self):
+        """(path, is_main) for clusters from the cloud: the main kubeconfig when Preferences says so (off by default), else the
+        generated klotse-cloud.klotse file."""
+        if self.kubeconfig_settings.write_main:
+            return self.kubeconfig_settings.path or str(main_kubeconfig_path()), True
+        return str(default_generated_path()), False
+
+    def _cloud_clusters_added(self, path, is_main, contexts):
+        if not is_main:
+            try:
+                self.kubeconfig_settings.add_extra(path)  # the generated file joins the kubeconfig list
+            except (ValueError, OSError) as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
+        self.contexts = self._load_contexts()
+        states = self.nav.state_snapshot()  # set_contexts rebuilds the rows; open clusters must stay Connected
+        self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
+        self.nav.restore_states(states)
+        self._sync_cluster_picker()
+        self.status.showMessage(f"Added {len(contexts)} cluster(s) to {path}")
 
     def _no_contexts_message(self):
         path = self.kubeconfig_settings.path
@@ -463,10 +585,8 @@ class MainWindow(QMainWindow):
         for context in contexts:  # shown by alias; the context name is the item's data, which is what selecting it uses
             self.cluster_picker.addItem(self.aliases.display(context), context)
         if not contexts:  # nothing connected: say so, and open the search so a cluster can be found and connected
-            self.cluster_picker.addItem("No Cluster", "")
+            self.cluster_picker.addItem("No cluster connected", "")
             self.cluster_picker.setEnabled(False)
-            self.cluster_search.setVisible(True)
-            self._cluster_search_button.setChecked(True)
         else:
             self.cluster_picker.setEnabled(True)
         current = preferred
@@ -535,7 +655,8 @@ class MainWindow(QMainWindow):
         self.clusters.removeTab(index)
         window = DetachedClusterWindow()
         window.setAttribute(Qt.WA_DeleteOnClose)
-        window.setWindowTitle(f"{self.aliases.display(ws.context)} ({ws.context}) — Klotse")
+        shown = self.aliases.display(ws.context)
+        window.setWindowTitle(f"{shown} — Klotse" if shown == ws.context else f"{shown} ({ws.context}) — Klotse")  # no "prod (prod)" (#500)
         window.setCentralWidget(ws)
         ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
         self._detached[ws.context] = window
@@ -574,13 +695,14 @@ class MainWindow(QMainWindow):
         if ctx in self.workspaces:
             self.clusters.setCurrentWidget(self.workspaces[ctx])
             return
-        ws = ClusterWorkspace(self.new_service(), ctx, label_settings=self.label_settings,
+        ws = ClusterWorkspace(self.new_service(ctx), ctx, label_settings=self.label_settings,
                               terminal_settings=self.terminal_settings, plugins=self.plugins, audit_log=self.audit_log)
         self.workspaces[ctx] = ws
         self._apply_global_auto_pause(ws)
         ws.detail.set_show_managed_fields(self.managed_fields_action.isChecked())
         self.managed_fields_action.toggled.connect(ws.detail.set_show_managed_fields)
-        ws.message.connect(self.status.showMessage)
+        ws.message.connect(lambda text, line=self.status_line: line.show_chatter(text))
+        ws.result.connect(lambda text, line=self.status_line: line.show_result(text))
         ws.state.connect(lambda s, c=ctx: self._on_state(c, s))
         ws.failed.connect(lambda m, c=ctx: self._on_failed(c, m))
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
@@ -605,6 +727,12 @@ class MainWindow(QMainWindow):
         """The cluster's tab title: its name, then 🔒 for read-only and (big) for big-cluster mode."""
         marks = (" 🔒" if ws.read_only else "") + (" (big)" if ws.big else "")
         self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(ws.context) + marks)
+        self.nav.set_read_only(ws.context, ws.read_only)
+
+    def _cluster_names(self, context):
+        """(short name, full name) of a cluster for messages: the alias, and the kubeconfig context in brackets when they differ."""
+        short = self.aliases.display(context)
+        return short, (short if short == context else f"{short} ({context})")
 
     def _found_big(self, ws, nodes, pods):
         """The Overview showed a big cluster. Unless the user chose before, remember it, switch the lighter mode on and say so."""
@@ -615,18 +743,22 @@ class MainWindow(QMainWindow):
         if news:
             ws.set_big(True)
             self._maybe_big_notice(ws)
-            self.status.showMessage(f"{ws.context}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
+            _short, full = self._cluster_names(ws.context)
+            self.status.showMessage(f"{full}: {nodes} nodes, {pods} pods, so big-cluster mode is on (View > Big cluster mode). "
                                     "The Overview now shows Warning events only and reloads less often.", 15000)
 
     def _maybe_big_notice(self, ws):
         """Tell the user, once per connection, that a big cluster is read in a lighter way and what that changes, unless they ticked
-        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown."""
+        "Don't show this again" for this cluster. Not modal (the window stays usable); nothing appears in a window that is not shown.
+        The name of the cluster is in the text, not only in the title (some platforms do not show a dialog's title)."""
         if ws is None or not ws.big or not self.isVisible() or self.big_clusters.notice_hidden(ws.context):
             return
         shown = self.__dict__.setdefault("_big_notices", {})
         if ws.context in shown:
             return
-        box = QMessageBox(QMessageBox.Information, f"{ws.context}: big cluster", NOTICE_TEXT, QMessageBox.Ok, self)
+        short, full = self._cluster_names(ws.context)
+        text = NOTICE_TEXT.replace("This cluster is big", f"{full} is big", 1)
+        box = QMessageBox(QMessageBox.Information, f"{short}: big cluster", text, QMessageBox.Ok, self)
         again = QCheckBox("Don't show this again for this cluster")
         box.setCheckBox(again)
         box.setModal(False)
@@ -707,6 +839,22 @@ class MainWindow(QMainWindow):
         blocker = QSignalBlocker(self.pause_auto_refresh_all_action)
         self.pause_auto_refresh_all_action.setChecked(False)
         del blocker
+
+    def _navigator_auto_refresh(self, choice):
+        """The CONNECTED section's menu: the same actions as View > Settings > Auto-refresh across clusters."""
+        if choice == "pause":
+            self.pause_auto_refresh_all_action.setChecked(True)
+        elif choice == "enable":
+            self._enable_auto_refresh_all()
+        elif choice == "restore":
+            self._restore_global_auto_refresh()
+
+    def _set_clusters_auto_refresh(self, contexts, enabled):
+        """The cluster menu: turn auto-refresh on or off for the given connected clusters, through their own toggle (so a global pause still wins)."""
+        for context in contexts:
+            workspace = self.workspaces.get(context)
+            if workspace is not None:
+                workspace.auto_action.setChecked(bool(enabled))
 
     def _sync_global_auto_actions(self):
         available = bool(self.workspaces) or self._global_auto_snapshot is not None
@@ -797,6 +945,7 @@ class MainWindow(QMainWindow):
         """View > Search objects…, for the cluster in front; False when no cluster is open."""
         ws = self.clusters.currentWidget()
         if ws is None:
+            self.status.showMessage("Open a cluster first: Search objects looks in the cluster in front (Ctrl+Shift+F).", 6000)  # #498
             return False
         ws.show_search()
         return True
@@ -840,6 +989,14 @@ class MainWindow(QMainWindow):
         ws.show_rightsizing()
         return True
 
+    def show_activity(self):
+        """View > Operations > Activity…: the Activity tab of the cluster in front; False when no cluster is open."""
+        ws = self.clusters.currentWidget()
+        if ws is None:
+            return False
+        ws.show_activity()
+        return True
+
     def show_port_forwards(self):
         """View > Operations > Port forwards…: the Port forwards tab of the cluster in front; False when no cluster is open."""
         ws = self.clusters.currentWidget()
@@ -872,10 +1029,10 @@ class MainWindow(QMainWindow):
                                          lambda k=key, w=ws: self._goto_view(w, k), f"view:{ws.context}:{key}"))
             for name in getattr(ws, "_ns_names", []):
                 if name != "All namespaces":
-                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.set_namespace(n),
+                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.choose_namespace(n),
                                          f"namespace:{ws.context}:{name}"))
             entries.append(Entry("Namespace", "All namespaces", ws.context,
-                                 lambda w=ws: w.set_namespace("All namespaces"), f"namespace:{ws.context}:All namespaces"))
+                                 lambda w=ws: w.choose_namespace("All namespaces"), f"namespace:{ws.context}:All namespaces"))
         for ctx in self.contexts:
             if ctx in self.workspaces:
                 entries.append(Entry("Cluster", ctx, "switch to it", lambda c=ctx: self._focus_workspace(self.workspaces[c]),
@@ -885,17 +1042,18 @@ class MainWindow(QMainWindow):
         def add_menu_actions(menu, path):
             menu.aboutToShow.emit()  # menus enable their entries lazily, when they are about to show
             for action in menu.actions():
-                text = action.text().replace("&", "").replace("…", "").strip()
+                text = menu_text(action.text()).replace("…", "").strip()
                 if action.isSeparator() or not text or action is self.palette_action:
                     continue
                 if action.menu() is not None:
                     add_menu_actions(action.menu(), f"{path} · {text}")
                 elif action.isEnabled():
                     entries.append(Entry("Action", text, f"{path} menu" + (" · checked" if action.isCheckable() and action.isChecked() else ""), action.trigger))
+            menu.aboutToHide.emit()  # the Edit menu restores its shortcuts when hidden; the scan must not leave them off (#498)
 
         for menu_action in self.menuBar().actions():
             if menu_action.menu() is not None:
-                add_menu_actions(menu_action.menu(), menu_action.text().replace("&", ""))
+                add_menu_actions(menu_action.menu(), menu_text(menu_action.text()))
         recent_keys = self._recent_palette_keys()
         available = {entry.key: entry for entry in entries if entry.key}
         # Recent targets can belong to another open workspace. Resolve them against every live workspace, while
@@ -914,10 +1072,10 @@ class MainWindow(QMainWindow):
                 if name != "All namespaces":
                     target_key = f"namespace:{other.context}:{name}"
                     available[target_key] = Entry("Namespace", name, other.context,
-                                                   lambda n=name, w=other: (self._focus_workspace(w), w.set_namespace(n)), target_key)
+                                                   lambda n=name, w=other: (self._focus_workspace(w), w.choose_namespace(n)), target_key)
             target_key = f"namespace:{other.context}:All namespaces"
             available[target_key] = Entry("Namespace", "All namespaces", other.context,
-                                           lambda w=other: (self._focus_workspace(w), w.set_namespace("All namespaces")), target_key)
+                                           lambda w=other: (self._focus_workspace(w), w.choose_namespace("All namespaces")), target_key)
         recent = []
         kept = [key for key in recent_keys if key in available][:8]
         if kept != recent_keys:
@@ -1004,6 +1162,7 @@ class MainWindow(QMainWindow):
         """View > Several clusters…: one list of a kind from several open clusters. A new window each time, so it lists the clusters that are
         open now; False when no cluster is open."""
         if not self.workspaces:
+            self.status.showMessage("Open a cluster first: Several clusters lists the kind from the open clusters (Ctrl+Shift+M).", 6000)
             return False
         old = getattr(self, "_multi_dialog", None)
         if old is not None:
@@ -1096,12 +1255,11 @@ class MainWindow(QMainWindow):
         return True
 
     def open_metrics_source(self, context):
-        """Cluster list > Metrics source…: the Prometheus / VictoriaMetrics source of usage history for that cluster (the same dialog as
-        Usage history > Source…). False when the cluster is not open."""
-        ws = self.workspaces.get(context)
-        if ws is None:
+        """Cluster list > Metrics source…: Preferences > Metrics with the Add dialog for that cluster (its Edit… dialog when it already
+        has a source). False when the cluster is not open."""
+        if self.workspaces.get(context) is None:
             return False
-        ws.configure_metrics_source()
+        self.open_preferences(metrics_add=context)
         return True
 
     def open_cluster_settings(self, plugin_id, context=None):
@@ -1113,6 +1271,8 @@ class MainWindow(QMainWindow):
             return False
         dialog = ClusterSettingsDialog(self.plugins, plugin, ws.context, self)
         accepted = dialog.exec() == QDialog.Accepted
+        if accepted:
+            self.apply_app_proxy()
         dialog.deleteLater()
         return accepted
 
@@ -1125,12 +1285,31 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
-    def open_preferences(self, plugin_id=None):
+    def _test_metrics_source(self, context, text, done, auth=("", "", "")):
+        """Preferences > Metrics Test: runs on a connected cluster (the default uses the first connected one), else says to connect."""
+        ws = self.workspaces.get(context) if context else next(
+            (w for w in self.workspaces.values() if w.service.is_connected()), None)
+        if ws is None or not ws.service.is_connected():
+            done("Connect the cluster first, then Test again.")
+            return
+        ws.check_metrics_source(text, done, auth)
+
+    def _discover_metrics_sources(self, context, done):
+        """Preferences > Metrics Add: done(list of services found) for a connected cluster, done(None) when it is not connected."""
+        ws = self.workspaces.get(context)
+        if ws is None or not ws.service.is_connected():
+            done(None)
+            return
+        ws.find_metrics_sources(done)
+
+    def open_preferences(self, plugin_id=None, metrics_add=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
                                    terminal=self.terminal_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
-                                   forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store))
+                                   forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
+                                   proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store),
+                                   metrics_test=self._test_metrics_source, metrics_discover=self._discover_metrics_sources)
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):
@@ -1138,9 +1317,17 @@ class MainWindow(QMainWindow):
                 if item.data(Qt.UserRole).id == plugin_id:
                     dialog.plugins_panel.list.setCurrentRow(index)
                     break
+        if metrics_add and dialog.metrics_panel is not None:
+            dialog.tabs.setCurrentWidget(dialog.metrics_panel)
+            QTimer.singleShot(0, lambda: dialog.metrics_panel.add_source(metrics_add))  # opens once the window is showing
         accepted = dialog.exec() == PreferencesDialog.Accepted
         self.apply_timing_log()
         chosen = dialog.chosen_kubeconfig()
+        if accepted and dialog.chosen_write_main() != self.kubeconfig_settings.write_main:
+            try:
+                self.kubeconfig_settings.set_write_main(dialog.chosen_write_main())
+            except OSError as error:
+                QMessageBox.warning(self, "Cannot save preferences", str(error))
         chosen_theme = dialog.chosen_theme()
         dialog.deleteLater()
         if accepted and self.terminal_settings.embedded:
@@ -1157,6 +1344,23 @@ class MainWindow(QMainWindow):
         """Switch the timing log on or off to match the Debug preference (or KLOTSE_TIMINGS=1)."""
         from .. import __display_version__
         timings.configure(self.timing_log_path(), self.debug_settings.timings, __display_version__)
+        self._sync_thread_status()
+
+    def _sync_thread_status(self):
+        """Show aggregate per-cluster worker usage only while debug timing is enabled."""
+        if not hasattr(self, "thread_status"):
+            return
+        visible = timings.enabled
+        self.thread_status.setVisible(visible)
+        if not visible:
+            return
+        pools = [workspace.pool for workspace in self.workspaces.values() if hasattr(workspace, "pool")]
+        active = sum(pool.activeThreadCount() for pool in pools)
+        capacity = sum(pool.maxThreadCount() for pool in pools)
+        queued = sum(max(0, len(getattr(workspace, "_workers", ())) - pool.activeThreadCount())
+                     for workspace, pool in ((workspace, workspace.pool) for workspace in self.workspaces.values()
+                                             if hasattr(workspace, "pool")))
+        self.thread_status.setText(f"Threads: {active}/{capacity} · queued {queued}")
 
     def apply_theme(self, name):
         """Save the chosen theme and apply it to the running application (no restart)."""
@@ -1169,6 +1373,7 @@ class MainWindow(QMainWindow):
         for workspace in self.workspaces.values():
             workspace.overview.refresh_theme()
             workspace.wl_overview.refresh_theme()
+        self.nav.refresh_theme()  # the navigator's headings and folders (#501)
         return True
 
     def apply_kubeconfig(self, path):
@@ -1188,7 +1393,7 @@ class MainWindow(QMainWindow):
             self._clear_connection_prompt(ctx)
         for ctx in list(self.workspaces):
             self._discard(ctx)
-        contexts, _ = self.new_service().load_contexts()
+        contexts = self._load_contexts()
         self.contexts = contexts
         self.nav.set_contexts(contexts, self.groups, self.aliases.aliases)
         self.status.showMessage(
@@ -1357,6 +1562,7 @@ class MainWindow(QMainWindow):
         if self._shutting_down:
             return
         self._shutting_down = True
+        self._thread_status_timer.stop()
         for ctx in list(self._connection_retries):
             self._cancel_connection_retry(ctx)
         for ctx in list(self._connection_prompts):
@@ -1397,9 +1603,30 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save the session", str(error))
         return True
 
+    @classmethod
+    def _show_menu_tooltips(cls, owner):
+        """Every menu, submenus included, shows its entries' tooltips (QMenuBar has no such setting; QMenu does)."""
+        for action in owner.actions():
+            if action.menu() is not None:
+                action.menu().setToolTipsVisible(True)
+                cls._show_menu_tooltips(action.menu())
+
+    GEOMETRY_KEY = "window/geometry"
+
+    def _restore_geometry(self):
+        geometry = self.label_settings.store.value(self.GEOMETRY_KEY)  # a QByteArray from QSettings; empty when never saved
+        if geometry:
+            self.restoreGeometry(geometry)
+
+    def _remember_geometry(self):
+        """Keep the window's size and place for the next start. A save error is not fatal: the window just opens at its default."""
+        self.label_settings.store.setValue(self.GEOMETRY_KEY, self.saveGeometry())
+        self.label_settings.store.sync()
+
     def closeEvent(self, event):
         if not self._shutting_down and not self.confirm_exit():
             event.ignore()
             return
+        self._remember_geometry()
         self.shutdown()
         super().closeEvent(event)

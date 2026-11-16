@@ -115,6 +115,8 @@ class LoadingPane(QWidget):
 
     def _copy_error(self):
         QApplication.clipboard().setText(self._error)
+        self.buttons["Copy error"].setText("Copied")  # #497: the button says so for a moment
+        QTimer.singleShot(1200, self, lambda: self.buttons["Copy error"].setText("Copy error"))
 
     def set_actions(self, actions, error=""):
         self._error = error

@@ -43,7 +43,7 @@ class PrometheusSourceDialog(QDialog):
         self.local = QLineEdit()
         self.local.setPlaceholderText("empty: a free port on 127.0.0.1")
         self.candidates = QToolButton()
-        self.candidates.setText("Candidates ▾")
+        self.candidates.setText("Candidates")  # the arrow Qt draws is enough (#500)
         self.candidates.setPopupMode(QToolButton.InstantPopup)
         self.candidates_menu = QMenu(self.candidates)
         self.candidates_menu.addAction("Looking for services…").setEnabled(False)
@@ -152,7 +152,7 @@ class PrometheusSourceDialog(QDialog):
             text, via, _local = self.values()
             if text:
                 prometheus.parse_ref(text)
-            elif via != AUTO:
+            elif not self.auto.isChecked():
                 raise ValueError("Write the service as namespace/service:port, for example monitoring/prometheus-server:80.")
         except ValueError as error:
             QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))

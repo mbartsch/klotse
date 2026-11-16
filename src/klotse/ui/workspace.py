@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDoc
 from shiboken6 import isValid
 
 from ..k8s.api_index import ApiIndex
+from ..k8s.process_env import environment
 from ..k8s.permissions import Permissions
 from ..k8s.helm import HelmError, helm_uninstall_args
 from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPEC_BY_KIND, SPECS, crd_groups,
@@ -31,14 +32,17 @@ from . import big_clusters
 from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from ..k8s.client import HUGE_PODS
+from .activity_log import Activity, ActivityPanel
 from .compare_dialog import CompareDialog
+from .crd_delete_dialog import CrdDeleteDialog
+from .wording import counted, plural_label
 from .diagnostics_dialog import DiagnosticsDialog
 from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
 from .review_dialog import CANCEL, EDIT, SAVE, ReviewDialog, diff_text
 from .metrics_dialog import MetricsDialog
-from .metrics_sources import ForwardDefaults, MetricsSources
+from .metrics_sources import METRICS_SERVER, ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .metrics_query_dialog import MetricsQueryDialog
 from .prometheus_source_dialog import FORWARD, PrometheusSourceDialog
@@ -51,7 +55,7 @@ from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
-from .load_errors import explain
+from .load_errors import brief, describe, explain
 from .log_view import LogView
 from .multi_log import MultiLogView
 from ..k8s.selectors import selector_text, valid_selector
@@ -95,6 +99,11 @@ NODE_PODS_TTL_S = 20  # a node on screen is not recounted more often than this
 NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
 POD_IDLE_S = 1.5  # the paged Pods list keeps loading the next page after this much quiet
 NODE_PODS_BIG_REFRESH_MS = 300_000  # the same in big-cluster mode: the count reads every pod
+CLUSTER_WORKER_THREADS = 2  # isolate a slow cluster without creating one thread per refresh
+CLUSTER_WORKER_MAX_THREADS = 4
+CLUSTER_WORKER_QUEUE_HIGH = 2  # queued jobs before a busy pool is considered under pressure
+CLUSTER_WORKER_SCALE_UP_TICKS = 3  # seconds of sustained pressure before adding one worker
+CLUSTER_WORKER_SCALE_DOWN_TICKS = 10  # seconds idle before removing one worker
 
 
 def parse_scale(text, current):
@@ -143,7 +152,8 @@ class ClusterWorkspace(QMainWindow):
     Embedded as a tab of the main window, so several clusters can be open side by side.
     """
 
-    message = Signal(str)  # status-bar text for the shell
+    message = Signal(str)  # status-bar text for the shell (progress and load messages)
+    result = Signal(str)  # an action's outcome: the shell keeps it on the status bar for a while (#497)
     state = Signal(str)  # connecting | connected | failed
     failed = Signal(str)  # connection error text; the shell closes this workspace
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
@@ -157,6 +167,9 @@ class ClusterWorkspace(QMainWindow):
 
     def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None, audit_log=None):
         super().__init__(parent)
+        self._helm_running, self._rolling_back = set(), set()  # (namespace, name) with an action in progress
+        self.activity = Activity()  # results and errors of this session's actions (Logs & activity > Activity)
+        self.result.connect(lambda text: self.activity.add(True, text))
         self.service = service
         self.audit_log = audit_log  # the local change log (ui/audit_log.AuditLog) or None
         self.context = context
@@ -169,7 +182,15 @@ class ClusterWorkspace(QMainWindow):
         self._schemas = {}  # OpenAPI document path -> the document, for the YAML editor's schema help
         self._prometheus = None  # None = not looked for yet, False = none found, else the ref that answered
         self.refresh_settings = RefreshSettings(self.label_settings.store)  # which lists reload only on request
-        self.pool = QThreadPool.globalInstance()
+        # Keep a slow or unreachable cluster from occupying the application's shared worker pool. Two workers
+        # preserve enough concurrency for an overview's independent reads while keeping this experiment bounded.
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(CLUSTER_WORKER_THREADS)
+        self._pool_scale_up_ticks = 0
+        self._pool_idle_ticks = 0
+        self._pool_tuner = QTimer(self, interval=1000)
+        self._pool_tuner.timeout.connect(self._tune_pool)
+        self._pool_tuner.start()
         self._workers = set()
         self._loads = {}  # view -> latest requested namespace
         self._load_serial = {}  # view -> number of the newest load; results of older (abandoned) loads are dropped
@@ -178,11 +199,11 @@ class ClusterWorkspace(QMainWindow):
         self._closed = False
         self.read_only = False  # read-only mode: every change is refused (see set_read_only)
         self.helm_runner = subprocess.run  # how `helm uninstall` is run (tests replace it)
-        self.port_forwards = PortForwards(parent=self)  # the kubectl port-forward processes of this cluster
+        self.port_forwards = PortForwards(parent=self, variables=lambda _context: self.process_variables())  # the kubectl port-forward processes of this cluster
         self._source_forward = None  # the forward a usage history window reads Prometheus through, while it runs
         self._forward_users = set()  # the usage windows using it; the forward stops when the last one closes
         self._terminal_hosts = []  # embedded terminal sessions: each in its own window, or docked in this one
-        self.file_copies = FileCopies(parent=self)  # the kubectl cp processes of this cluster
+        self.file_copies = FileCopies(parent=self, variables=lambda _context: self.process_variables())  # the kubectl cp processes of this cluster
         self.permissions = None  # the user's rules in the namespace in front (k8s.permissions.Permissions), or None when unknown
         self._opened_default = False
         self.review_changes = True  # View > Review changes before saving: a server dry run and a diff before an edit is stored
@@ -320,6 +341,7 @@ class ClusterWorkspace(QMainWindow):
                 widget.pods_table.port_forward_requested.connect(self.start_port_forward)
                 widget.pods_table.duplicate_requested.connect(self.copy_resource)
                 widget.pods_table.copy_files_requested.connect(self.copy_files)
+                self._wire_pod_list_extras(widget.pods_table)
             if isinstance(widget, ResourceTable):
                 if widget.kind in (*CREATABLE_KINDS, *DATA_KINDS, *NETWORK_KINDS):  # these kinds can be created from their list
                     widget.enable_new()
@@ -348,7 +370,8 @@ class ClusterWorkspace(QMainWindow):
                                                  "HelmRelease": self._helm_action, "CronJob": self._cronjob_action,
                                                  "PersistentVolumeClaim": lambda _action, row: self.browse_claim(row),
                                                  **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
-                                                    for k in DELETABLE_KINDS}}.get(widget.kind, self.pod_action))
+                                                    for k in DELETABLE_KINDS if k != "CustomResourceDefinition"}}.get(
+                                                     widget.kind, self.pod_action))  # CRDs: their own action (open, delete)
         self.ns_table.new_requested.connect(self.new_namespace)
         self.node_table.visible_changed.connect(self._update_node_pods)
 
@@ -469,7 +492,9 @@ class ClusterWorkspace(QMainWindow):
         """Connect; called by the shell after it has hooked up the signals."""
         self.state.emit("connecting")
         self.message.emit(f"Connecting to {self.context}…")
-        self._run(self.service.connect, lambda _: self._connected(), self.context, on_error=self._connect_failed)
+        # the plugins' variables for this cluster are asked here, on the GUI thread, and used for the sign-in helper only
+        self._run(self.service.connect, lambda _: self._connected(), self.context, self.process_variables(),
+                  on_error=self._connect_failed)
 
     def _build_views(self):
         T = ResourceTable
@@ -487,6 +512,7 @@ class ClusterWorkspace(QMainWindow):
                                ("Up-to-date", "up_to_date"), ("Available", "available"), ("Age", "age")], "Deployment")
         self.sts_table = T([("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Age", "age")], "StatefulSet")
         self.overview = OverviewView(CLUSTER_CARDS, context=self.context)
+        self.overview.retry_requested.connect(lambda: self.load_view("overview"))
         self.wl_overview = OverviewView(WORKLOAD_CARDS)
         self._overview_namespace_pending = None
         self.overview.node_selected.connect(self._overview_node_selected)
@@ -692,6 +718,10 @@ class ClusterWorkspace(QMainWindow):
         self.overview.set_plugin_values(self.plugin_host.overview_values())
 
     def _hook_table(self, table):
+        table.selection_count_changed.connect(lambda count, t=table: self._show_detail_row(t, None) if count > 1 else None)
+        self._hook_table_plugins(table)
+
+    def _hook_table_plugins(self, table):
         """Let plugins add columns to this table (only the customizable lists, not the Overview's drill-downs) and
         ask them for values whenever rows arrive."""
         if self.plugin_host is None or table.customize_button is None or getattr(table, "_plugin_hooked", False):
@@ -706,11 +736,32 @@ class ClusterWorkspace(QMainWindow):
             lambda plugin_id, key, rows, t=table: self.plugin_runner.run(plugin_id, key, rows, t.kind))
 
     def _show_detail_row(self, table, row):
+        count = len(table.selected_rows()) if table is not None else 0
+        if count > 1:  # several rows: no single-object actions in Details (#503)
+            self._detail_row = None
+            self.detail.show_many(count)
+            return
         if row is None:
+            self._detail_row = None
             self.detail.clear_row()
             return
+        self._detail_row = row
         self.detail.show_row(row)
         self.detail.set_object_actions(table.row_actions(row))
+        if table.kind == "Secret" and not getattr(row, "secret_loaded", True):
+            # the list only had its metadata: show what is known, then the whole Secret once it is read (if still selected)
+            self._load_secret(row, lambda loaded, t=table: self._show_detail_row(t, loaded) if self._detail_row is loaded else None)
+
+    def _load_secret(self, row, then):
+        """A Secret from the list has only its metadata: read the whole object in the background, copy it into `row`, then call
+        `then(row)`. A failed read is shown in the status line and `then` is not called."""
+        def loaded(full, r=row):
+            r.raw, r.type, r.keys = full.raw, full.type, full.keys
+            r.expires, r.subject, r.secret_data, r.secret_loaded = full.expires, full.subject, full.secret_data, True
+            then(r)
+        self._run(self.service.read_secret, loaded, row.namespace, row.name,
+                  on_error=lambda msg: self.message.emit(f"Could not read the Secret {row.name}: {msg}"))
+
 
     def _sync_details_to_tab(self, widget):
         """Show the active resource tab's current selection, or its clear empty state."""
@@ -834,6 +885,14 @@ class ClusterWorkspace(QMainWindow):
         if key == "pods" and self.big and self.huge and "pods" not in self.refresh_settings.overrides():
             return True  # reloading would throw away the pages the user loaded
         return is_manual(key, self.refresh_settings.overrides())
+
+    def _wire_pod_list_extras(self, table):
+        """The usage, log and compare entries of a Pod list (node pods tab, pending pods on the overview)."""
+        table.metrics_requested.connect(self.show_metrics)
+        table.metrics_query_requested.connect(self.show_metrics_query)
+        table.metrics_many_requested.connect(self.show_metrics_many)
+        table.multi_logs_requested.connect(self.multi_logs)
+        table.compare_requested.connect(self.compare_objects)
 
     def _wire_refresh(self, table):
         """Give a list its right-click Refresh and Refresh automatically entries and the manual-refresh note."""
@@ -1036,6 +1095,8 @@ class ClusterWorkspace(QMainWindow):
             self.open_custom_resources(row)
         elif action == "open-crd-group":
             self.open_crd_group(row.name)
+        elif action == "delete":
+            self.delete_resource("CustomResourceDefinition", row)  # one at a time: each one lists its objects first
 
     def _helm_action(self, action, row):
         if action == "helm-details":
@@ -1075,12 +1136,16 @@ class ClusterWorkspace(QMainWindow):
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
 
+        if (row.namespace, row.name) in self._helm_running:
+            return
+        self._helm_running.add((row.namespace, row.name))
         self.record_change("helm uninstall", f"{row.namespace}/{row.name}")
+        env = environment(self.process_variables())  # asked here, on the GUI thread
 
         def run():
             flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # no console window flashing up
             try:
-                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, **flags)  # no console: see remote_files
+                done = self.helm_runner(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=env, **flags)  # no console: see remote_files
             except FileNotFoundError:
                 raise RuntimeError("The helm command was not found. Install Helm and make sure it is on the PATH.") from None
             except subprocess.TimeoutExpired:
@@ -1091,8 +1156,11 @@ class ClusterWorkspace(QMainWindow):
             return (done.stdout or "").strip()
 
         self.message.emit(f"{self.context}: uninstalling Helm release {row.name}…")
-        self._run(run, lambda out: self._helm_uninstalled(row, dialog),
-                  on_error=(lambda msg: dialog.show_status(f"✖ {msg}")) if dialog is not None else None)
+        def finished():
+            self._helm_running.discard((row.namespace, row.name))
+
+        self._run(run, lambda out: (finished(), self._helm_uninstalled(row, dialog)),
+                  on_error=lambda msg: (finished(), dialog.show_status(f"✖ {msg}") if dialog is not None else None))
 
     def _helm_uninstalled(self, row, dialog):
         self.message.emit(f"{self.context}: uninstalled Helm release {row.name}")
@@ -1170,7 +1238,7 @@ class ClusterWorkspace(QMainWindow):
     @staticmethod
     def plural_label(kind):
         """'NodePool' -> 'NodePools', 'EC2NodeClass' -> 'EC2NodeClasses'."""
-        return kind + ("es" if kind.endswith("s") else "s")
+        return plural_label(kind)
 
     def _find_karpenter(self):
         """Ask (in the background, quietly) whether the cluster runs Karpenter; if it does the navigator gets a Karpenter
@@ -1285,8 +1353,8 @@ class ClusterWorkspace(QMainWindow):
                     self.message.emit(f"{self.context} / {title}: {data.splitlines()[0] if data else ''}")
                 else:
                     sink(data)
-                    count = f"{len(data):,} rows, " if isinstance(data, list) else ""
-                    self.message.emit(f"{self.context} / {title}: {count}{perf_counter() - started:.1f}s")
+                    count = f"{len(data):,} rows" if isinstance(data, list) else "loaded"
+                    self.message.emit(f"{self.context} / {title}: {count}")  # no timing: it stayed on the status bar (#497)
             if key in self._pending_loads:
                 self._pending_loads.discard(key)
                 self.load_view(key)
@@ -1391,6 +1459,7 @@ class ClusterWorkspace(QMainWindow):
     def shutdown(self):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
+        self._pool_tuner.stop()
         for timer in self._reload_timers.values():
             timer.stop()
         self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
@@ -1451,6 +1520,29 @@ class ClusterWorkspace(QMainWindow):
         w.signals.error.connect(lambda m: done(on_error or self._on_error, m))
         self.pool.start(w)
 
+    def _tune_pool(self):
+        """Adapt this cluster's pool to sustained pressure without unbounded thread growth."""
+        if self._closed:
+            return
+        active = self.pool.activeThreadCount()
+        queued = max(0, len(self._workers) - active)
+        limit = self.pool.maxThreadCount()
+        if queued >= CLUSTER_WORKER_QUEUE_HIGH and active >= limit and limit < CLUSTER_WORKER_MAX_THREADS:
+            self._pool_scale_up_ticks += 1
+            self._pool_idle_ticks = 0
+            if self._pool_scale_up_ticks >= CLUSTER_WORKER_SCALE_UP_TICKS:
+                self.pool.setMaxThreadCount(limit + 1)
+                self._pool_scale_up_ticks = 0
+        elif queued == 0 and active < limit and limit > CLUSTER_WORKER_THREADS:
+            self._pool_idle_ticks += 1
+            self._pool_scale_up_ticks = 0
+            if self._pool_idle_ticks >= CLUSTER_WORKER_SCALE_DOWN_TICKS:
+                self.pool.setMaxThreadCount(limit - 1)
+                self._pool_idle_ticks = 0
+        else:
+            self._pool_scale_up_ticks = 0
+            self._pool_idle_ticks = 0
+
     def port_forward_dialog(self, kind, row):
         return PortForwardDialog(kind, row.name, row.namespace, forward_ports(kind, row.raw), self)
 
@@ -1499,7 +1591,7 @@ class ClusterWorkspace(QMainWindow):
         base = kubectl_base(self.context, self.kubeconfig)
         return lambda container, path, ok, bad: self._run(
             remote_files.list_directory, lambda result: ok(*result), base, namespace, pod, container, path,
-            on_error=lambda message: bad(message.split(": ", 1)[-1]))
+            subprocess.run, self.process_variables(), on_error=lambda message: bad(message.split(": ", 1)[-1]))
 
     def browse_files(self, row, container=None, path="/"):
         """Right-click > Browse files… on a pod: look through the files of a container. Download… hands the chosen path to
@@ -1823,6 +1915,13 @@ class ClusterWorkspace(QMainWindow):
         """Find the source the query window reads: the one set for this cluster (through its port-forward when it is one), else the first
         candidate that answers. The window shows what it found, or why nothing was found."""
         typed = self.metrics_sources.get(self.context)
+        if typed == METRICS_SERVER:
+            holder["ref"] = None
+            try:
+                dialog.set_source("metrics-server only", "Prometheus is not used for this cluster (Preferences > Metrics).")
+            except RuntimeError:
+                pass
+            return
 
         def found(ref):
             holder["ref"] = ref
@@ -1861,7 +1960,7 @@ class ClusterWorkspace(QMainWindow):
         def find_source():
             """(ref, [what failed]) of the first source that answers the Prometheus API; runs on a worker."""
             notes = []
-            candidates = [prometheus.parse_ref(typed)] if typed else (self.service.find_prometheus() or [])[:3]
+            candidates = [prometheus.with_auth(prometheus.parse_ref(typed), *self.metrics_sources.get_auth(self.context))] if typed else (self.service.find_prometheus() or [])[:3]
             for ref in candidates:
                 try:
                     self.service.prometheus_check(ref)
@@ -1948,7 +2047,7 @@ class ClusterWorkspace(QMainWindow):
             return None
         picked = list(rows)
         if len(picked) > metrics_history.MAX_OBJECTS:
-            self.message.emit(f"Usage history shows the first {metrics_history.MAX_OBJECTS} of the {len(picked)} {kind}s selected")
+            self.message.emit(f"Usage history shows the first {metrics_history.MAX_OBJECTS} of the {counted(len(picked), kind)} selected")
             picked = picked[:metrics_history.MAX_OBJECTS]
         targets = []
         for row in picked:
@@ -1973,7 +2072,7 @@ class ClusterWorkspace(QMainWindow):
             return metrics_history.combine([(label, sample(kind, ns, name, sel)) for label, (ns, name, sel) in zip(labels, targets)])
 
         available = getattr(self.service, "metrics_available", lambda: True)()
-        title = f"Usage history: {len(targets)} {kind}s ({self.context})"
+        title = f"Usage history: {counted(len(targets), kind)} ({self.context})"
         object_options = {label: f"{kind} {label}" for label in labels}
         dialog = MetricsDialog(title, read, None, available, parent=self, allow_source=False,
                                object_options=object_options)
@@ -2003,8 +2102,12 @@ class ClusterWorkspace(QMainWindow):
         if find is None or check is None:
             return
         manual = self.metrics_sources.get(self.context)
+        if manual == METRICS_SERVER:
+            dialog.set_source_note("Prometheus is not used for this cluster (Preferences > Metrics chooses metrics-server only).")
+            return
         try:
-            typed = forwarded or (prometheus.parse_ref(manual) if manual else None)
+            typed = forwarded or (prometheus.with_auth(prometheus.parse_ref(manual), *self.metrics_sources.get_auth(self.context))
+                                  if manual else None)
         except ValueError as error:
             dialog.set_source_note(f"The saved Prometheus address is not valid: {error}")
             return
@@ -2046,6 +2149,28 @@ class ClusterWorkspace(QMainWindow):
 
         self._run(work, done, on_error=lambda _message: None)
 
+    def find_metrics_sources(self, done):
+        """Preferences > Metrics Add: the Prometheus / VictoriaMetrics services found on this cluster, as address texts, best first;
+        done([]) when none is found. Runs in the background and saves nothing."""
+        def work():
+            return [prometheus.ref_text(ref) for ref in self.service.find_prometheus()]
+
+        self._run(work, done, on_error=lambda _message: done([]))
+
+    def check_metrics_source(self, text, done, auth=("", "", "")):
+        """Preferences > Metrics Test: check `text` (a Prometheus / VictoriaMetrics address, or metrics-server) on this cluster in the
+        background, then call done(message). Nothing is saved."""
+        def work():
+            if text == METRICS_SERVER:
+                if self.service.metrics_available():
+                    return "metrics-server answered: the metrics.k8s.io API is served here."
+                raise RuntimeError("metrics-server is not installed on this cluster (metrics.k8s.io is not served).")
+            ref = prometheus.with_auth(prometheus.parse_ref(text), *auth)
+            self.service.prometheus_check(ref)
+            return f"{prometheus.ref_text(ref)} answered the Prometheus API."
+
+        self._run(work, done, on_error=done)
+
     def _forward_options(self, context=None):
         """(tls, insecure) for the port-forward of a cluster: its own choice, else the Preferences setting."""
         context = context or self.context
@@ -2057,7 +2182,8 @@ class ClusterWorkspace(QMainWindow):
         """The Source… dialog: (text, via, local, tls, insecure) to keep for this cluster, or None when cancelled (text "" = look for one
         automatically). Test checks the chosen settings; a forward it starts is stopped again when the dialog is cancelled."""
         sources, defaults = self.metrics_sources, self.forward_defaults
-        dialog = PrometheusSourceDialog(sources.get(self.context), sources.get_via(self.context), sources.get_local(self.context),
+        own = sources.own(self.context) or {}  # the dialog edits this cluster's own entry, not the default it inherits
+        dialog = PrometheusSourceDialog(own.get("ref", ""), own.get("via", "proxy"), own.get("local", 0),
                                         sources.get_tls(self.context), sources.get_insecure(self.context), defaults.tls, defaults.insecure, self)
         asked = []
 
@@ -2194,7 +2320,9 @@ class ClusterWorkspace(QMainWindow):
                 QMessageBox.warning(self, "Prometheus or VictoriaMetrics", str(error))
                 return False
         try:
-            self.metrics_sources.set(self.context, text, via, local, tls, insecure)
+            own = self.metrics_sources.own(self.context) or {}  # the Source… dialog keeps the URL authentication already saved
+            self.metrics_sources.set(self.context, text, via, local, tls, insecure, own.get("auth", ""), own.get("auth_env", ""),
+                                     own.get("auth_user", ""))
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
             return False
@@ -2393,15 +2521,41 @@ class ClusterWorkspace(QMainWindow):
         self._load_health()
         return dialog
 
+    def _analysis_scope(self):
+        return "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+
+    def _bump_analysis(self, key):
+        """A new load of an analysis window: returns its serial. An answer for an older serial is dropped, so a slow answer
+        cannot replace a newer one (#499)."""
+        serials = self.__dict__.setdefault("_analysis_serials", {})
+        serials[key] = serials.get(key, 0) + 1
+        return serials[key]
+
+    def _analysis_current(self, key, serial):
+        return self.__dict__.get("_analysis_serials", {}).get(key) == serial
+
     def _load_health(self):
         dialog = self._health_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
         dialog.summary.setText("Checking…")
+        dialog.header.setText(f"<b>{self.context}</b> · {self._analysis_scope()}")  # the heading follows the scope of this load
+        dialog.reload_button.setEnabled(False)
+        serial = self._bump_analysis("health")
 
         def read():
             data, problems = self.service.health_data(namespace)
             return health.check(data), problems
-        self._run(read, lambda result: dialog.show_findings(*result), on_error=dialog.show_error)
+
+        def done(result):
+            if self._analysis_current("health", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_findings(*result)
+
+        def failed(message):
+            if self._analysis_current("health", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_error(message)
+        self._run(read, done, on_error=failed)
 
     def show_capacity(self):
         """View > Capacity…: nodes and every pod are read on a worker (looking only) and shown per node and per namespace. The
@@ -2418,11 +2572,23 @@ class ClusterWorkspace(QMainWindow):
     def _load_capacity(self):
         dialog = self._capacity_dialog
         dialog.summary.setText("Loading nodes and pods…")
+        dialog.reload_button.setEnabled(False)  # not clickable while its answer is on the way (#499)
+        serial = self._bump_analysis("capacity")
 
         def read():
             both = getattr(self.service, "capacity_data", None)
             return both() if both is not None else (self.service.list_nodes(), self.service.list_pods(None))
-        self._run(read, lambda data: dialog.show_data(*data), on_error=dialog.show_error)
+
+        def done(data):
+            if self._analysis_current("capacity", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_data(*data)
+
+        def failed(message):
+            if self._analysis_current("capacity", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_error(message)
+        self._run(read, done, on_error=failed)
 
     def show_permissions(self):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
@@ -2507,8 +2673,24 @@ class ClusterWorkspace(QMainWindow):
         self.views[key][0].select_when_loaded(name, namespace)
 
     def _on_error(self, msg):
-        self.message.emit(f"{self.context}: {msg}")
-        QMessageBox.warning(self, "Kubernetes error", f"{self.context}\n\n{msg}")
+        """A failed action: a readable sentence in a box titled by where it went wrong (the cluster, the network, a local check),
+        and the complete text in Logs & activity > Activity, where it can be copied."""
+        title, text = describe(msg)
+        first = (text.splitlines() or [""])[0]
+        self.message.emit(f"{self.context}: {first}")
+        self.activity.add(False, first, str(msg))
+        more = "\n\nThe complete error is in View > Operations > Activity." if str(msg).strip() != text.strip() else ""
+        QMessageBox.warning(self, title, f"{self.context}\n\n{text}{more}")
+
+    def show_activity(self):
+        """Bring the Activity tab of the Logs & activity dock to the front, creating it on first use."""
+        for i in range(self.log_tabs.count()):
+            if getattr(self.log_tabs.widget(i), "key", None) == ActivityPanel.key:
+                self.log_tabs.setCurrentIndex(i)
+                break
+        else:
+            self.log_tabs.setCurrentIndex(self.log_tabs.addTab(ActivityPanel(self.activity), "Activity"))
+        self._show_log_dock()
 
     # ---- actions -------------------------------------------------------
     def api_loader(self):
@@ -2614,6 +2796,10 @@ class ClusterWorkspace(QMainWindow):
         return [self.ns_combo.itemText(i) for i in range(self.ns_combo.count()) if self.ns_combo.itemText(i) != ALL_NS]
 
     def edit_resource(self, kind, row):
+        if kind == "Secret" and not getattr(row, "secret_loaded", True):
+            # never edit from metadata alone: the data must be read first (or the edit would drop it)
+            self._load_secret(row, lambda loaded: self.edit_resource(kind, loaded))
+            return
         self._edit_flow(kind, row.raw, row.name, getattr(row, "namespace", ""),
                         secret_data=getattr(row, "secret_data", None))
 
@@ -2643,12 +2829,13 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Copy of {kind} {row.name}: " + "; ".join(notes))
         self._edit_flow(kind, body, "", "", creating=True)
 
-    def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None):
+    def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None, pending=None):
         """The form and the YAML editor are two views of one manifest: each hands its current (pending) changes to the
-        other, until one of them saves or the user cancels."""
+        other, until one of them saves or the user cancels. `pending` reopens the editor with a save's refused text (#496);
+        `raw` stays the object as it was read, so the review still shows the whole change."""
         if not self._writable("create or edit objects"):
             return
-        current, from_yaml, stay_yaml = raw, False, False
+        current, from_yaml, stay_yaml = (pending if pending is not None else raw), False, False
         while True:
             form = None
             if self._has_form(kind, current) and not stay_yaml:
@@ -2667,7 +2854,8 @@ class ClusterWorkspace(QMainWindow):
                 if accepted:
                     verdict = self._review(kind, name, form.result_body, raw, creating)
                     if verdict == SAVE:
-                        self._submit(kind, name, form.result_body, creating, namespace)
+                        self._submit(kind, name, form.result_body, creating, namespace, on_refused=self._reopener(
+                            kind, raw, name, namespace, creating, secret_data))
                         return
                     if verdict == CANCEL:
                         return
@@ -2689,7 +2877,8 @@ class ClusterWorkspace(QMainWindow):
                     return
                 verdict = self._review(kind, name, dlg.result_body, raw, creating)
                 if verdict == SAVE:
-                    self._submit(kind, name, dlg.result_body, creating)
+                    self._submit(kind, name, dlg.result_body, creating, on_refused=self._reopener(
+                        kind, raw, name, namespace, creating, secret_data))
                     return
                 if verdict == CANCEL:
                     return
@@ -2757,11 +2946,31 @@ class ClusterWorkspace(QMainWindow):
         dialog.deleteLater()
         return verdict
 
-    def _submit(self, kind, name, body, creating, namespace=""):
+    def _reopener(self, kind, raw, name, namespace, creating, secret_data):
+        """What to do with a save the server refused: offer to open the editor again with the same changes (#496)."""
+        return lambda body: self._edit_flow(kind, raw, name, namespace, creating, secret_data, pending=body)
+
+    def _submit(self, kind, name, body, creating, namespace="", on_refused=None):
         name = name or (body.get("metadata") or {}).get("name", "")
+
+        def failed(message):
+            # The editor has closed; the typed changes are not lost: the user may open it again with them (#496)
+            self._on_error(message)
+            if on_refused is not None and QMessageBox.question(
+                    self, "Changes not saved", "Open the editor again with the changes you made?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+                on_refused(body)
+
+        on_error = failed if on_refused is not None else self._on_error
+
+        def run(fn, ok, *args):
+            if on_refused is None:  # the usual call, as it always was
+                self._run(fn, ok, *args)
+            else:
+                self._run(fn, ok, *args, on_error=on_error)
         if kind == "Secret" and not creating:  # the form hands over a patch with only what changed, never the whole Secret
             self.message.emit(f"Saving Secret {name}…")
-            self._run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)
+            run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)
             return
         custom = self._custom_kinds.get(kind)
         if custom is not None:  # a Gateway API object: the dynamic custom-object calls
@@ -2769,23 +2978,27 @@ class ClusterWorkspace(QMainWindow):
             ns = (body.get("metadata") or {}).get("namespace") or ""
             if creating:
                 self.message.emit(f"Creating {kind} {name}…")
-                self._run(self.service.create_custom, lambda _: self._created(kind, name), group, version, plural, namespaced, body)
+                run(self.service.create_custom, lambda _: self._created(kind, name), group, version, plural, namespaced, body)
             else:
                 self.message.emit(f"Saving {kind} {name}…")
-                self._run(self.service.replace_custom, lambda _: self._saved(kind, name), group, version, plural, namespaced, ns, name, body)
+                run(self.service.replace_custom, lambda _: self._saved(kind, name), group, version, plural, namespaced, ns, name, body)
             return
         if creating:
             self.message.emit(f"Creating {kind} {name}…")
-            self._run(self.service.create, lambda _: self._created(kind, name), kind, body)
+            run(self.service.create, lambda _: self._created(kind, name), kind, body)
             return
         self.message.emit(f"Saving {kind} {name}…")
-        self._run(self.service.replace, lambda _: self._saved(kind, name), kind, body)
+        run(self.service.replace, lambda _: self._saved(kind, name), kind, body)
 
     def _created(self, kind, name):
         self.message.emit(f"Created {kind} {name}")
         self.refresh()
 
     DELETE_NOTES = {
+        "CustomResourceDefinition": "Every object of this kind in the cluster is deleted with it.",
+        "Deployment": "Its pods are removed by the garbage collector; the Service and other objects stay.",
+        "StatefulSet": "Its pods are removed; their volume claims stay unless deleted separately.",
+        "ReplicaSet": "Its pods are removed unless a Deployment owns the ReplicaSet and creates a new one.",
         "ClusterRole": "Bindings that refer to it stop granting anything; aggregated roles are rebuilt by the controller.",
         "Role": "Bindings that refer to it stop granting anything.",
         "ServiceAccount": "Pods that use it can no longer be created, and its tokens stop working.",
@@ -2798,15 +3011,24 @@ class ClusterWorkspace(QMainWindow):
     }
 
     def delete_resource(self, kind, row):
-        """Delete one RBAC object after a Yes/No question (default No); the UID precondition guards against a replacement."""
+        """Delete one object after a Yes/No question (default No); the UID precondition guards against a replacement."""
         if not self._writable("delete objects"):
+            return
+        if kind == "CustomResourceDefinition":
+            self._delete_crd(row)
             return
         where = f" in namespace {row.namespace}" if row.namespace else ""
         extra = care_warnings(kind, row.raw)
         note = "\n\n".join(n for n in [self.DELETE_NOTES.get(kind, ""), *extra] if n)
-        if QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
-                                + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
-                                QMessageBox.No) != QMessageBox.Yes:
+        propagation = None
+        if kind == "Job":
+            # A Job's pods outlive the Job unless asked; the user chooses, and Cancel is the default
+            propagation = self._ask_job_pods(row, where)
+            if propagation is None:
+                return
+        elif QMessageBox.question(self, f"Delete {kind}", f"Cluster: {self.context}\nDelete {kind} {row.name}{where}?"
+                                  + (f"\n{note}" if note else ""), QMessageBox.Yes | QMessageBox.No,
+                                  QMessageBox.No) != QMessageBox.Yes:
             return
         uid = (row.raw.get("metadata") or {}).get("uid")
         if not uid:
@@ -2819,10 +3041,82 @@ class ClusterWorkspace(QMainWindow):
             self._run(self.service.delete_custom, lambda _: self._deleted(kind, row.name), group, version, plural, namespaced,
                       row.namespace, row.name, uid)
             return
-        self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid)
+        self._run(self.service.delete_resource, lambda _: self._deleted(kind, row.name), kind, row.name, row.namespace, uid,
+                  propagation)
+
+    @staticmethod
+    def job_pods_choice_text(name, pods):
+        """The question asked before a Job is deleted, as one text (kept apart so it can be read and tested)."""
+        return (f"Delete the Job {name}?\n\n"
+                f"Its pods are not removed with it unless you say so. Pods that are still running keep running, and "
+                f"finished pods stay until someone deletes them.\n\n"
+                f"  Job and its pods: deletes the Job and every pod it owns ({pods}).\n"
+                f"  Job only: deletes the Job; its pods stay.\n"
+                f"  Cancel: nothing is deleted.")
+
+    def _ask_job_pods(self, row, where):
+        """Ask what happens to a Job's pods. Returns the propagation policy, or None to cancel. Cancel is the default button."""
+        box = QMessageBox(QMessageBox.Question, "Delete Job", f"Cluster: {self.context}\n" + self.job_pods_choice_text(
+            f"{row.name}{where}", self._job_pod_count(row)), parent=self)
+        with_pods = box.addButton("Job and its pods", QMessageBox.DestructiveRole)
+        job_only = box.addButton("Job only", QMessageBox.AcceptRole)
+        cancel = box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is with_pods:
+            return "Background"
+        if clicked is job_only:
+            return "Orphan"
+        return None
+
+    def _job_pod_count(self, row):
+        """How many pods the Job's status counts (a best effort; the pods themselves are not listed here)."""
+        count = (row.raw.get("status") or {}).get("active", 0) + (row.raw.get("status") or {}).get("succeeded", 0) + (
+            row.raw.get("status") or {}).get("failed", 0)
+        return str(count)  # what the Job status counts: its active, succeeded and failed pods
+
+    def _delete_crd(self, row):
+        """Deleting a CustomResourceDefinition deletes every object of its type in the cluster. Count them first, ask once with
+        the count, then show them in a scrollable list and ask again (#503)."""
+        spec = row.raw.get("spec") or {}
+        names = spec.get("names") or {}
+        group, plural = spec.get("group"), names.get("plural")
+        kind = names.get("kind") or row.name
+        versions = spec.get("versions") or []
+        version = (next((v.get("name") for v in versions if v.get("storage")), None)
+                   or next((v.get("name") for v in versions if v.get("served")), None)
+                   or (versions[0].get("name") if versions else None))
+        namespaced = spec.get("scope") == "Namespaced"
+        if not (group and plural and version):
+            self._on_error(f"{row.name} does not say which group, version and plural it uses; nothing was deleted.")
+            return
+        if not (row.raw.get("metadata") or {}).get("uid"):
+            self._on_error("CustomResourceDefinition UID is missing. Refresh the list before deleting.")
+            return
+        self.message.emit(f"Counting {kind} objects before deleting {row.name}…")
+        self._run(self.service.list_custom_objects,
+                  lambda objects: self._confirm_crd_delete(row, kind, objects),
+                  group, version, plural, namespaced, on_error=self._on_error)
+
+    def _confirm_crd_delete(self, row, kind, objects):
+        count = len(objects)
+        if QMessageBox.question(self, "Delete CustomResourceDefinition",
+                                f"Cluster: {self.context}\nDeleting {row.name} deletes all {count} {kind} object"
+                                f"{'s' if count != 1 else ''} in the cluster, in every namespace.\n\nNext: the list of them, "
+                                "and a second question.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        listed = [(o.namespace, o.name, (o.raw.get("metadata") or {}).get("creationTimestamp", "")) for o in objects]
+        dialog = CrdDeleteDialog(kind, row.name, listed, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        uid = (row.raw.get("metadata") or {}).get("uid")
+        self.message.emit(f"Deleting CustomResourceDefinition {row.name}…")
+        self._run(self.service.delete_resource, lambda _: self._deleted("CustomResourceDefinition", row.name),
+                  "CustomResourceDefinition", row.name, row.namespace, uid)
 
     def _deleted(self, kind, name):
-        self.message.emit(f"Deleted {kind} {name}")
+        self.result.emit(f"Deleted {kind} {name}")
         self.refresh()
 
     def scale_resource(self, kind, row):
@@ -2881,15 +3175,24 @@ class ClusterWorkspace(QMainWindow):
                 "(pods are replaced one by one) and becomes a new revision.",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
+        key = (row.namespace, row.name)
+        if key in self._rolling_back:  # a second click while the first rollback runs is ignored
+            return
+        self._rolling_back.add(key)
         dialog.show_status("Rolling back…")
 
+        def finished():
+            self._rolling_back.discard(key)
+
         def done(_):
+            finished()
             self.message.emit(f"Rolled {row.name} back to revision {revision['revision']}")
             dialog.show_status(f"✔ Rolled back to revision {revision['revision']}; the pods are being replaced.")
             self.refresh()
             self._run(self.service.deployment_history, dialog.set_revisions, row.namespace, row.name,
                       on_error=dialog.show_error)
-        self._run(self.service.rollback_deployment, done, row.namespace, row.name, revision["name"], on_error=dialog.show_error)
+        self._run(self.service.rollback_deployment, done, row.namespace, row.name, revision["name"],
+                  on_error=lambda msg: (finished(), dialog.show_error(msg)))
 
     def _cronjob_action(self, action, row):
         """CronJob right-click: Run now (a Job made from its template, like `kubectl create job --from`), Suspend and Resume."""
@@ -2902,7 +3205,7 @@ class ClusterWorkspace(QMainWindow):
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self.message.emit(f"Starting a Job from {row.name}…")
-            self._run(self.service.trigger_cronjob, lambda job: self._saved("Job", job), row.name, row.namespace)
+            self._run(self.service.trigger_cronjob, lambda job: self._saved("Job", job, "Started"), row.name, row.namespace)
         elif action in ("cronjob-suspend", "cronjob-resume"):
             suspend = action == "cronjob-suspend"
             if suspend and QMessageBox.question(self, "Suspend CronJob", f"Cluster: {self.context}\nSuspend CronJob {name}? "
@@ -2910,10 +3213,10 @@ class ClusterWorkspace(QMainWindow):
                                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self.message.emit(f"{'Suspending' if suspend else 'Resuming'} {row.name}…")
-            self._run(self.service.set_cronjob_suspended, lambda _: self._saved("CronJob", row.name), row.name, row.namespace, suspend)
+            self._run(self.service.set_cronjob_suspended, lambda _: self._saved("CronJob", row.name, "Suspended" if suspend else "Resumed"), row.name, row.namespace, suspend)
 
     def _restarted(self, kind, name):
-        self.message.emit(f"Restarted {kind} {name}: the pods are being replaced")
+        self.result.emit(f"Restarted {kind} {name}: the pods are being replaced")
         self.refresh()
 
     # ---- bulk actions (several rows selected) ---------------------------
@@ -2936,8 +3239,8 @@ class ClusterWorkspace(QMainWindow):
         elif action == "scale":
             olds = {id(r): (r.raw.get("spec") or {}).get("replicas", 1) for r in rows}
             text, ok = QInputDialog.getText(
-                self, f"Scale {n} {kind}s",
-                f"New replicas for each of the {n} {kind}s:\n{names}\n\n"
+                self, f"Scale {counted(n, kind)}",
+                f"New replicas for each of the {counted(n, kind)}:\n{names}\n\n"
                 "Enter a number, or change each one relative to its own count:\n"
                 "*2 double   /2 halve (rounds up)   +1 add one   -1 remove one", text=str(olds[id(rows[0])]))
             if not ok:
@@ -2947,14 +3250,16 @@ class ClusterWorkspace(QMainWindow):
             except ValueError as e:
                 QMessageBox.warning(self, "Scale", str(e))
                 return
-            self._bulk(f"Scaling {n} {kind}s ({text.strip()})", rows,
+            self._bulk(f"Scaling {counted(n, kind)} ({text.strip()})", rows,
                        lambda r: self.service.scale(kind, r.name, r.namespace, news[id(r)]),
                        lambda r: self._scaled(kind, r, olds[id(r)], news[id(r)]), refresh=False)
         elif action == "restart":
-            if QMessageBox.question(self, f"Restart {kind}s", f"Cluster: {self.context}\nRestart {n} {kind}s?\n\n{names}\n\n"
+            if QMessageBox.question(self, f"Restart {plural_label(kind)}", f"Cluster: {self.context}\nRestart {counted(n, kind)}?\n\n{names}\n\n"
                                     f"{self.RESTART_NOTE}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
-            self._bulk(f"Restarting {n} {kind}s", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
+            self._bulk(f"Restarting {counted(n, kind)}", rows, lambda r: self.service.restart(kind, r.name, r.namespace))
+        elif action == "delete" and kind == "CustomResourceDefinition":
+            self._on_error("Delete CustomResourceDefinitions one at a time: each one counts and lists its objects first.")
         elif action == "delete" and kind in DELETABLE_KINDS:
             missing = [r.name for r in rows if not (r.raw.get("metadata") or {}).get("uid")]
             if missing:
@@ -2964,10 +3269,10 @@ class ClusterWorkspace(QMainWindow):
             care = (f"\n\nTake care: {len(flagged)} of them are default (system) objects, feed an aggregated role "
                     f"(admin/edit/view) or grant cluster-admin:\n{self._names([r for r in rows if r.name in flagged])}"
                     ) if flagged else ""
-            if QMessageBox.question(self, f"Delete {kind}s", f"Cluster: {self.context}\nDelete {n} {kind}s?\n\n{names}{care}",
+            if QMessageBox.question(self, f"Delete {plural_label(kind)}", f"Cluster: {self.context}\nDelete {counted(n, kind)}?\n\n{names}{care}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
-            self._bulk(f"Deleting {n} {kind}s", rows, lambda r: self.service.delete_resource(
+            self._bulk(f"Deleting {counted(n, kind)}", rows, lambda r: self.service.delete_resource(
                 kind, r.name, r.namespace, r.raw["metadata"]["uid"]))
         elif action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
@@ -3018,17 +3323,22 @@ class ClusterWorkspace(QMainWindow):
                 for r in rows:
                     if id(r) not in bad:
                         on_each(r)
-            self.message.emit(f"{self.context}: {title}: {len(rows) - len(failed)} succeeded, {len(failed)} failed")
+            self.result.emit(f"{self.context}: {title}: {len(rows) - len(failed)} succeeded, {len(failed)} failed")
             if failed:
-                QMessageBox.warning(self, "Some actions failed", f"{self.context}\n\n" + "\n".join(
-                    f"{getattr(r, 'namespace', '') + '/' if getattr(r, 'namespace', '') else ''}{r.name}: {m}" for r, m in failed[:10]))
+                lines = [f"{getattr(r, 'namespace', '') + '/' if getattr(r, 'namespace', '') else ''}{r.name}: {brief(m)}"
+                         for r, m in failed]
+                for (_row, raw), line in zip(failed, lines):
+                    self.activity.add(False, f"{title}: {line}", raw)
+                shown = lines[:10] + ([f"…and {len(lines) - 10} more (all of them are in View > Operations > Activity)"]
+                                      if len(lines) > 10 else [])
+                QMessageBox.warning(self, "Some actions failed", f"{self.context}\n\n" + "\n".join(shown))
             if refresh or failed:
                 self.refresh()
 
         self._run(work, done)
 
     def _scaled(self, kind, row, old, new):
-        self.message.emit(f"Scaling {kind} {row.name}: {old} → {new}")
+        self.result.emit(f"Scaling {kind} {row.name}: {old} → {new}")
         self.open_scale_monitor(kind, row, old, new)
         self.refresh()
 
@@ -3138,7 +3448,7 @@ class ClusterWorkspace(QMainWindow):
             return
         for node in nodes:
             self.record_change("drain", node)
-        view = CommandView(dialog.command())
+        view = CommandView(dialog.command(), variables=self.process_variables())
         view.key = ("drain", nodes[0] if len(nodes) == 1 else nodes)
         view.drain_nodes = nodes
         title = nodes[0] if len(nodes) == 1 else f"{len(nodes)} nodes"
@@ -3152,7 +3462,7 @@ class ClusterWorkspace(QMainWindow):
     def _node_changed(self, name, message):
         if self._closed:
             return
-        self.message.emit(f"{self.context} / {name}: {message}")
+        self.result.emit(f"{self.context} / {name}: {message}")
         self.refresh()
         if self._node_bars and self.foreground_key() != "nodes":  # keep the node action bars current (cordoned, gone)
             self.load_view("nodes")
@@ -3196,6 +3506,7 @@ class ClusterWorkspace(QMainWindow):
             table.copy_files_requested.connect(self.copy_files)
             table.goto_requested.connect(self.go_to)
             table.bulk_requested.connect(self.bulk_action)
+            self._wire_pod_list_extras(table)
             self.views[key] = (table, f"Pods: {node} (all namespaces)")
             self.loaders[key] = (lambda _, **options: self.service.list_node_pods(node, **options), False,
                                  lambda rows, t=table, b=bar: (t.set_rows(rows), b.set_pods(rows)))
@@ -3231,7 +3542,7 @@ class ClusterWorkspace(QMainWindow):
                 return
             self.message.emit(f"Terminating {row.name}…")
             args = (row.name, row.namespace, True) if force else (row.name, row.namespace)
-            self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), *args)
+            self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Terminated"), *args)
             return
         containers = [c[0] for c in pod_containers(row.raw)]
         if action == "logs":
@@ -3275,7 +3586,12 @@ class ClusterWorkspace(QMainWindow):
         if ok != QMessageBox.Yes:
             return
         self.message.emit(f"Replacing {row.name}…")
-        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name), row.name, row.namespace)
+        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Deleted"), row.name, row.namespace)
+
+    def process_variables(self):
+        """What the enabled plugins add to the environment of the kubectl, helm and terminal processes of this cluster (for
+        example the AWS profile or keys); {} without plugins. Call it on the GUI thread, when the process starts."""
+        return self.plugins.process_environment(self.context) if self.plugins is not None else {}
 
     def _launch_terminal(self, argv, message, title=None):
         """Open an interactive kubectl session in the configured terminal."""
@@ -3296,13 +3612,18 @@ class ClusterWorkspace(QMainWindow):
                 )
                 if answer != QMessageBox.Yes:
                     return
+        variables = self.process_variables()
         self._run(open_terminal, lambda _: self.message.emit(message), argv,
-                  self.terminal_settings.mac_terminal)
+                  self.terminal_settings.mac_terminal, *([variables] if variables else []))
 
     def open_embedded_terminal(self, argv, message, title=None, session_factory=None):
         """A session in its own window (with a button to dock it into the cluster window); False when it could not start (the
         caller then uses the external terminal)."""
         name = title or message.replace("Opened ", "")
+        variables = self.process_variables()
+        if session_factory is None and variables:
+            def session_factory(argv, cols, rows):
+                return embedded_terminal.make_session(argv, cols, rows, variables)
         kwargs = {"session_factory": session_factory} if session_factory is not None else {}
         try:
             tab = embedded_terminal.TerminalTab(name, argv, **kwargs)
@@ -3329,6 +3650,7 @@ class ClusterWorkspace(QMainWindow):
         table = ResourceTable(CONTAINER_COLUMNS, "Container", editable=False)
         table.set_page_title(f"Containers in {row.name}")
         table.view_key = key
+        table.refresh_requested.connect(lambda k=key: self.load_view(k))  # the heading's Refresh button, as F5
         bar = PodActionBar()
         table.set_header_widget(bar)
         table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
@@ -3385,10 +3707,10 @@ class ClusterWorkspace(QMainWindow):
             return
         name = dlg.result_body["metadata"]["name"]
         self.message.emit(f"Creating namespace {name}…")
-        self._run(self.service.create_namespace, lambda _: self._saved("Namespace", name), dlg.result_body)
+        self._run(self.service.create_namespace, lambda _: self._saved("Namespace", name, "Created"), dlg.result_body)
 
-    def _saved(self, kind, name):
-        self.message.emit(f"Saved {kind} {name}")  # also used after create
+    def _saved(self, kind, name, verb="Saved"):
+        self.result.emit(f"{verb} {kind} {name}")  # also used after create
         self.refresh()
 
     # ---- connection / data ---------------------------------------------
@@ -3436,6 +3758,13 @@ class ClusterWorkspace(QMainWindow):
             self.ns_combo.setCurrentIndex(index)
             self.ns_combo.setEditText(name)
         return index >= 0
+
+    def choose_namespace(self, name):
+        """A namespace picked from the command palette: change the selector and reload the list in front, as the
+        selector itself does (set_namespace alone changes only the combo)."""
+        if self.set_namespace(name):
+            self.load_scoped()
+        return self.namespace() == name
 
     def _sync_pin_button(self):
         name = self.namespace()

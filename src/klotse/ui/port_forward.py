@@ -5,7 +5,9 @@ import re
 import webbrowser
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QObject, QProcess, Qt, Signal
+from PySide6.QtCore import QObject, QProcess, Qt, QTimer, Signal
+
+from ..k8s.process_env import qt_environment
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
                                QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
@@ -95,9 +97,10 @@ class PortForwards(QObject):
     """The forwards of one cluster workspace. `base(context, kubeconfig)` gives the kubectl command start (tests replace it)."""
     changed = Signal()
 
-    def __init__(self, base=kubectl_base, parent=None):
+    def __init__(self, base=kubectl_base, parent=None, variables=None):
         super().__init__(parent)
         self.base = base
+        self.variables = variables  # fn(context) -> what the plugins add to kubectl's environment for that cluster, or None
         self.items = []
         self._next = 1
 
@@ -110,6 +113,7 @@ class PortForwards(QObject):
         self._next += 1
         base = self.base(context, kubeconfig)
         process = QProcess(self)
+        process.setProcessEnvironment(qt_environment(self.variables(context) if self.variables else None))  # the app proxy and the plugins' variables, for kubectl (see k8s/process_env)
         process.setProgram(base[0])
         process.setArguments(base[1:] + ["-n", namespace, "port-forward", fw.target, f"{local or ''}:{remote}", "--address", "127.0.0.1"])
         process.readyReadStandardOutput.connect(lambda: self._output(fw, process, error=False))
@@ -208,7 +212,7 @@ class PortForwardPanel(QWidget):
         for button in (self.stop_button, self.stop_all_button, self.copy_button, self.open_button, self.save_button, self.clear_button):
             buttons.addWidget(button)
         self.saved_button = QToolButton()
-        self.saved_button.setText("Saved forwards ▾")
+        self.saved_button.setText("Saved forwards")  # the arrow Qt draws is enough (#500)
         self.saved_button.setPopupMode(QToolButton.InstantPopup)
         self.saved_menu = QMenu(self.saved_button)
         self.saved_menu.aboutToShow.connect(self._fill_saved)
@@ -290,6 +294,8 @@ class PortForwardPanel(QWidget):
         fw = self._selected()
         if fw is not None and fw.address:
             QGuiApplication.clipboard().setText(fw.address)
+            self.copy_button.setText("Copied")
+            QTimer.singleShot(1200, self, lambda: self.copy_button.setText("Copy address"))
 
     def _open(self):
         fw = self._selected()

@@ -24,7 +24,7 @@ class MultiClusterDialog(QDialog):
     def __init__(self, source, parent=None):
         super().__init__(parent)
         self.source = source
-        self.setWindowTitle("Multi Cluster")
+        self.setWindowTitle("Several clusters")
         resize_dialog(self, 1100, 600)
         self._serial = 0
         self._workers = set()
@@ -49,7 +49,7 @@ class MultiClusterDialog(QDialog):
             box.setChecked(True)
             picks.addWidget(box)
         picks.addStretch(1)
-        self.read_button = QPushButton("Read")
+        self.read_button = QPushButton("Refresh")  # one name for reloading in every analysis window (#499)
         self.read_button.setToolTip("Read the chosen kind from the chosen clusters (nothing reloads by itself)")
         self.read_button.clicked.connect(self.read)
         top = QHBoxLayout()
@@ -147,6 +147,7 @@ class MultiClusterDialog(QDialog):
         if key == "crds":
             self.table.filter.setPlaceholderText("Search CustomResourceDefinitions…")
         self.table.context_actions = self._context_actions
+        self.table.refresh_requested.connect(self.read)  # Refresh on an empty result reads again, as on the other lists
         self.table.view.doubleClicked.connect(lambda _index: self._open_selected())
         self.holder.addWidget(self.table, 1)
         self._rows, self._failed, self._pending = [], {}, set()

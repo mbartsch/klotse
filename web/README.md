@@ -21,6 +21,6 @@ From the checkout, run:
 PYTHONPATH=src python scripts/capture_guide_screenshots.py
 ```
 
-The script renders the main window, the Details YAML view, the Source… dialog, the Port forwards tab and the Metrics query window, offscreen and with invented data. It writes them to `web/screenshots/`. The older screenshots (`08`–`11`) are copies of the ones in `screens/`, which `scripts/capture_screenshots.py` produces.
+The script renders the main window, the Details YAML view, the Source… dialog, the Port forwards tab, the Metrics query window and the Add clusters from the cloud dialog, offscreen and with invented data. The cloud dialog uses a fake AWS CLI, so no cloud is contacted. It writes them to `web/screenshots/`. The older screenshots (`08`–`11`) are copies of the ones in `screens/`, which `scripts/capture_screenshots.py` produces.
 
 Screenshots of a real cluster would show real names and data, so keep them out of the repository.
