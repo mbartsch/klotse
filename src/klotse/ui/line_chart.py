@@ -9,7 +9,9 @@ from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from . import theme
 
-PALETTE = ("#2a9d8f", "#e76f51", "#457b9d", "#c99a1c", "#8d6bb8", "#5f8f3e", "#c2332e", "#7f7f7f", "#1d8fa8")
+PALETTE = ("#2a9d8f", "#e76f51", "#457b9d", "#c99a1c", "#8d6bb8", "#5f8f3e", "#c2332e", "#7f7f7f", "#1d8fa8")  # dark backgrounds
+# the same hues, darker, for light backgrounds: the bright set is hard to see on white (#501)
+PALETTE_LIGHT = ("#1f7a6f", "#b5492a", "#2f5f80", "#8a6510", "#64468f", "#4a6f2c", "#9c2622", "#5a5a5a", "#17708a")
 LEFT, RIGHT, TOP, BOTTOM = 66, 16, 30, 26
 
 
@@ -97,7 +99,10 @@ class LineChart(QWidget):
 
     @staticmethod
     def colour(index):
-        return QColor(PALETTE[index % len(PALETTE)])
+        """The series colour for `index`, from the set that reads on the current theme's background (#501)."""
+        light = QColor(theme.BG).lightnessF() > 0.5
+        palette = PALETTE_LIGHT if light else PALETTE
+        return QColor(palette[index % len(palette)])
 
     # ---- painting -------------------------------------------------------------------------------------------------
     def paintEvent(self, _event):

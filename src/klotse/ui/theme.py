@@ -174,13 +174,23 @@ def stylesheet(t):
     return _sheet(t) + close + "\n"
 
 
+
+def font_pt(px):
+    """A stylesheet font size in points: px scaled from the system font, so it grows with the user's font setting
+    (#501: fixed px did not). At the default 9 pt system font it is the same size as the px value at 96 dpi."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    system = app.font().pointSizeF() if app is not None else 0
+    base = system if system > 0 else 9.0
+    return f"{px * 0.75 * base / 9:.2f}pt"
+
 def _sheet(t):
     rail = _mix(t.bg, t.base, 0.45)
     return f"""
 QMainWindow {{ background: {t.base}; }}
 QDialog {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {t.bg},stop:1 {t.base}); }}
-QLabel#resourcePageTitle {{ font-size: 23px; font-weight: 600; padding: 0; }}
-QLabel#pageEyebrow {{ font-size: 10px; }}
+QLabel#resourcePageTitle {{ font-size: {font_pt(23)}; font-weight: 600; padding: 0; }}
+QLabel#pageEyebrow {{ font-size: {font_pt(10)}; }}
 QTableView#resourceGrid {{ background: transparent; border: 0; }}
 QTableView#resourceGrid::item {{ background: {t.bg}; }}
 QTableView#resourceGrid::item:selected {{ background: {t.selected_row}; }}
@@ -227,7 +237,7 @@ QTabWidget::pane {{ border: 0; border-top: 1px solid {t.border}; }}
 QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: {t.text}; border-bottom: 2px solid {t.accent_hi}; }}
 QTabBar::tab:hover {{ color: {t.text}; }}
-QTabWidget#workspaceTabs QTabBar::tab {{ padding: 4px 10px; font-size: 11px; }}
+QTabWidget#workspaceTabs QTabBar::tab {{ padding: 4px 10px; font-size: {font_pt(11)}; }}
 QLabel#scopeBreadcrumb {{ padding: 5px 10px; color: {t.muted}; }}
 QSplitter::handle {{ background: {t.border}; }}
 QSplitter::handle:hover {{ background: {t.accent_hi}; }}
