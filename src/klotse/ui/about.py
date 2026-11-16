@@ -6,7 +6,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout)
 
 from .. import __display_version__ as __version__  # what the app reports; plain X.Y.Z for a tagged release
-from . import branding
+from . import branding, theme
 from .dialog_sizing import resize_dialog
 
 NAME = "Klotse"
@@ -88,7 +88,7 @@ class AboutDialog(QDialog):
         layout.addWidget(self.info)
         trademark = QLabel(TRADEMARK_NOTE)
         trademark.setWordWrap(True)
-        trademark.setStyleSheet("color: gray; font-size: 11px;")
+        trademark.setStyleSheet(f"color: {theme.MUTED}; font-size: 11px;")  # the theme's muted colour (#501)
         layout.addWidget(trademark)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)

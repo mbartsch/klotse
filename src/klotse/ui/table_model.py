@@ -92,9 +92,21 @@ class TableModel(QAbstractTableModel):
         color = {"ok": theme.OK, "warn": theme.WARN, "bad": theme.BAD}.get(tone)
         return QBrush(QColor(color)) if color else None
 
+    def _alignment(self, index):
+        """Numbers read right-aligned in every list (#501); text and filled-in plugin or label cells stay left."""
+        col = self.columns[index.column()]
+        if col[1].startswith(("plugin:", "annotation:", "label:")):
+            return None
+        value = getattr(self.rows[index.row()], col[1], None)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return Qt.AlignRight | Qt.AlignVCenter
+        return None
+
     def data(self, index, role=Qt.DisplayRole):
         if role == Qt.ForegroundRole:
             return self._tone_brush(index) if index.isValid() else None
+        if role == Qt.TextAlignmentRole:
+            return self._alignment(index) if index.isValid() else None
         if not index.isValid() or role not in (Qt.DisplayRole, Qt.EditRole, Qt.ToolTipRole, self.SearchRole):
             return None
         col = self.columns[index.column()]
