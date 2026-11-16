@@ -2889,7 +2889,10 @@ class ClusterWorkspace(QMainWindow):
         on_error = failed if on_refused is not None else self._on_error
 
         def run(fn, ok, *args):
-            self._run(fn, ok, *args, on_error=on_error)
+            if on_refused is None:  # the usual call, as it always was
+                self._run(fn, ok, *args)
+            else:
+                self._run(fn, ok, *args, on_error=on_error)
         if kind == "Secret" and not creating:  # the form hands over a patch with only what changed, never the whole Secret
             self.message.emit(f"Saving Secret {name}…")
             run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)

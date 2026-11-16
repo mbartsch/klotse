@@ -64,7 +64,7 @@ def test_edit_node_reaches_yaml_and_replace(monkeypatch, workspaces):
 
     monkeypatch.setattr(mw, "EditDialog", Editor)
     monkeypatch.setattr(ws, "refresh", lambda: None)
-    monkeypatch.setattr(ws, "_run", lambda fn, cb, *args: cb(fn(*args)))
+    monkeypatch.setattr(ws, "_run", lambda fn, cb, *args, on_error=None: cb(fn(*args)))  # the real _run takes on_error too
     ws.node_table.edit_requested.emit("Node", row)
     assert calls == [("Node", body)]
     assert "namespace" not in body["metadata"]
@@ -111,7 +111,7 @@ def test_cordon_delete_and_cancel(qtbot, monkeypatch, workspaces):
                               delete_node=lambda *a: calls.append(("delete", *a)))
     ws = workspaces(service, "cluster-a")
     monkeypatch.setattr(ClusterWorkspace, "refresh", lambda self: None)
-    monkeypatch.setattr(ClusterWorkspace, "_run", lambda self, fn, cb, *args: cb(fn(*args)))
+    monkeypatch.setattr(ClusterWorkspace, "_run", lambda self, fn, cb, *args, on_error=None: cb(fn(*args)))
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.No)
     ws.node_table.action_requested.emit("cordon", node_row())
     assert calls == []
@@ -188,7 +188,7 @@ def test_node_shell_targets_context_and_host_namespaces(qtbot, monkeypatch, work
     ws = workspaces(SimpleNamespace(), "cluster-a")
     monkeypatch.setattr(NodeShellDialog, "exec", lambda d: QDialog.Accepted)
     monkeypatch.setattr(module, "open_terminal", lambda argv, terminal: opened.append(argv))
-    monkeypatch.setattr(ClusterWorkspace, "_run", lambda self, fn, cb, *args: cb(fn(*args)))
+    monkeypatch.setattr(ClusterWorkspace, "_run", lambda self, fn, cb, *args, on_error=None: cb(fn(*args)))
     ws.node_table.action_requested.emit("node-shell", node_row())
     assert opened == [node_shell_args("cluster-a", "node-a")]
     command = opened[0]
