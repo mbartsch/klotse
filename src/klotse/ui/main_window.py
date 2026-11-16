@@ -426,6 +426,13 @@ class MainWindow(QMainWindow):
 
         self.status = self.statusBar()
         self.status_line = StatusLine(self.status)  # action results are held here; load chatter waits (#497)
+        self.thread_status = QLabel(self)
+        self.thread_status.setAccessibleName("Background thread status")
+        self.thread_status.setToolTip("Background workers across open clusters (debug)")
+        self.status.addPermanentWidget(self.thread_status)
+        self._thread_status_timer = QTimer(self, interval=500)
+        self._thread_status_timer.timeout.connect(self._sync_thread_status)
+        self._thread_status_timer.start()
         self.plugin_errors_button = QToolButton(self)
         self.plugin_errors_button.setObjectName("pluginErrorsStatus")
         self.plugin_errors_button.setText("Plugin error")
@@ -1337,6 +1344,23 @@ class MainWindow(QMainWindow):
         """Switch the timing log on or off to match the Debug preference (or KLOTSE_TIMINGS=1)."""
         from .. import __display_version__
         timings.configure(self.timing_log_path(), self.debug_settings.timings, __display_version__)
+        self._sync_thread_status()
+
+    def _sync_thread_status(self):
+        """Show aggregate per-cluster worker usage only while debug timing is enabled."""
+        if not hasattr(self, "thread_status"):
+            return
+        visible = timings.enabled
+        self.thread_status.setVisible(visible)
+        if not visible:
+            return
+        pools = [workspace.pool for workspace in self.workspaces.values() if hasattr(workspace, "pool")]
+        active = sum(pool.activeThreadCount() for pool in pools)
+        capacity = sum(pool.maxThreadCount() for pool in pools)
+        queued = sum(max(0, len(getattr(workspace, "_workers", ())) - pool.activeThreadCount())
+                     for workspace, pool in ((workspace, workspace.pool) for workspace in self.workspaces.values()
+                                             if hasattr(workspace, "pool")))
+        self.thread_status.setText(f"Threads: {active}/{capacity} · queued {queued}")
 
     def apply_theme(self, name):
         """Save the chosen theme and apply it to the running application (no restart)."""
@@ -1538,6 +1562,7 @@ class MainWindow(QMainWindow):
         if self._shutting_down:
             return
         self._shutting_down = True
+        self._thread_status_timer.stop()
         for ctx in list(self._connection_retries):
             self._cancel_connection_retry(ctx)
         for ctx in list(self._connection_prompts):

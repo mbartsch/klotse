@@ -50,6 +50,47 @@ def test_pod_loading_and_errors_remain_visible_in_view(qtbot):
     assert not ws.pod_table._load_timer.isActive()
 
 
+def test_workspaces_use_private_bounded_worker_pools(qtbot):
+    first = ClusterWorkspace(None, 'first')
+    second = ClusterWorkspace(None, 'second')
+    qtbot.addWidget(first)
+    qtbot.addWidget(second)
+
+    assert first.pool is not second.pool
+    assert first.pool.maxThreadCount() == second.pool.maxThreadCount() == 2
+
+
+def test_busy_cluster_pool_scales_up_and_down(qtbot):
+    ws = ClusterWorkspace(None, 'test')
+    qtbot.addWidget(ws)
+
+    class Pool:
+        def __init__(self):
+            self.limit = 2
+            self.active = 2
+
+        def activeThreadCount(self):
+            return self.active
+
+        def maxThreadCount(self):
+            return self.limit
+
+        def setMaxThreadCount(self, limit):
+            self.limit = limit
+
+    ws.pool = Pool()
+    ws._workers = {object(), object(), object(), object()}
+    for _ in range(3):
+        ws._tune_pool()
+    assert ws.pool.limit == 3
+
+    ws._workers.clear()
+    ws.pool.active = 0
+    for _ in range(10):
+        ws._tune_pool()
+    assert ws.pool.limit == 2
+
+
 def test_pagination_keeps_scope_and_all_pages():
     calls = []
 

@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from kubernetes import client
 
 from klotse.k8s.client import format_age, map_node, map_pod, pod_buckets
 from klotse.k8s.resources import Row
+from klotse.k8s.timing import timings
 from klotse.k8s.models import (DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
                                 StatefulSetRow)
 from klotse.ui import theme as theme_module
@@ -37,6 +39,21 @@ def test_right_clicking_the_navigator_logo_does_not_open_the_main_window_popup(q
     assert title.contextMenuPolicy() == Qt.NoContextMenu
     QApplication.sendEvent(logo, QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(8, 8)))
     assert opened == []
+
+
+def test_debug_status_shows_aggregate_cluster_worker_usage(qtbot, monkeypatch):
+    win = MainWindow(FakeService)
+    qtbot.addWidget(win)
+    pool = SimpleNamespace(activeThreadCount=lambda: 1, maxThreadCount=lambda: 2)
+    win.workspaces["ctx"] = SimpleNamespace(pool=pool, _workers={object(), object(), object()}, shutdown=lambda: None)
+    monkeypatch.setattr(timings, "enabled", True)
+
+    win._sync_thread_status()
+
+    assert win.thread_status.text() == "Threads: 1/2 · queued 2"
+    monkeypatch.setattr(timings, "enabled", False)
+    win._sync_thread_status()
+    assert win.thread_status.isHidden()
 
 
 def test_map_pod_waiting_reason_and_ready():
