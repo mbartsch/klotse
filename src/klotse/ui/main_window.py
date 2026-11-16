@@ -3,13 +3,13 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
                                QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
 
-from .about import AboutDialog
+from .about import REPO_URL, AboutDialog
 from .first_run import FirstRunPage
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
@@ -315,7 +315,17 @@ class MainWindow(QMainWindow):
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        self.menuBar().addMenu("&Help").addAction(self.about_action)
+        help_menu = self.menuBar().addMenu("&Help")  # #501: the help was About alone; the guide and issues are one click away
+        help_menu.addAction(self.about_action)
+        help_menu.addSeparator()
+        self.guide_action = QAction("Guide and README on GitHub", self)
+        self.guide_action.setToolTip("Open the project page on GitHub: the README and guide")
+        self.guide_action.triggered.connect(lambda: self.open_url(REPO_URL))
+        help_menu.addAction(self.guide_action)
+        self.report_action = QAction("Report a problem on GitHub…", self)
+        self.report_action.setToolTip("Open GitHub's new-issue page for Klotse in the browser")
+        self.report_action.triggered.connect(lambda: self.open_url(REPO_URL + "/issues/new/choose"))
+        help_menu.addAction(self.report_action)
         self._show_menu_tooltips(self.menuBar())  # the entries' tooltips say what they do and their shortcut (#501)
 
         self.clusters = QTabWidget()
@@ -1296,6 +1306,10 @@ class MainWindow(QMainWindow):
     def config_folder(self):
         """Folder holding Klotse's settings file (see LabelSettings.store.fileName())."""
         return Path(self.label_settings.store.fileName()).parent
+
+    def open_url(self, url):
+        """Open a page in the browser (the Help menu's links)."""
+        QDesktopServices.openUrl(QUrl(url))
 
     def show_about(self):
         dialog = AboutDialog(self)
