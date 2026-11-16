@@ -1,6 +1,7 @@
 """Screen-aware initial sizing for resizable dialogs. A dialog's size is remembered per dialog class once the app's settings are
 set (#501: they were lost on every start)."""
 from PySide6.QtCore import QEvent, QObject
+from PySide6.QtWidgets import QWidget
 
 _settings = None  # the app's settings store (main window); None remembers nothing
 SIZE_KEY = "dialogs/size/"
@@ -62,7 +63,7 @@ def resize_dialog(dialog, width, height):
     if saved is not None and screen is not None:
         width, height = bounded_size(saved[0], saved[1], area.width(), area.height())
     dialog.resize(width, height)
-    if _settings is not None and not hasattr(dialog, "_size_memory"):
+    if _settings is not None and isinstance(dialog, QWidget) and not hasattr(dialog, "_size_memory"):
         dialog._size_memory = _SizeMemory(dialog)
         dialog.installEventFilter(dialog._size_memory)
     return width, height
