@@ -513,7 +513,7 @@ class OverviewView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # #501: with Details open the header and cards were clipped with no way to reach them
         content.setMinimumWidth(0)
         scroll.setWidget(content)
         layout = QVBoxLayout(self)

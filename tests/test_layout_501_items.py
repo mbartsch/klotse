@@ -62,3 +62,12 @@ def test_the_help_menu_links_to_the_guide_and_to_issues(qtbot, tmp_path, monkeyp
     win.guide_action.trigger()
     win.report_action.trigger()
     assert opened == ["https://github.com/mbartsch/klotse", "https://github.com/mbartsch/klotse/issues/new/choose"]
+def test_the_overview_scrolls_sideways_instead_of_clipping(qtbot, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QScrollArea
+
+    from test_app import open_active
+    win = window(tmp_path, qtbot)
+    open_active(win)
+    scroll = win.clusters.currentWidget().overview.findChildren(QScrollArea)[0]
+    assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAsNeeded
