@@ -984,7 +984,7 @@ class ResourceTable(QWidget):
             menu.addAction("Compare these two…", lambda: self.compare_requested.emit(self.kind, list(rows)))
         if self.kind in METRIC_KINDS:  # looking only
             separate(menu)
-            menu.addAction(f"Usage history of {counted(n, self.kind)}…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
+            menu.addAction(f"Usage history of {counted(n, self.kind).lower()}…", lambda: self.metrics_many_requested.emit(self.kind, list(rows)))
         if self.kind == "Pod":
             separate(menu)
         if self.kind == "Pod":
@@ -1056,11 +1056,11 @@ class ResourceTable(QWidget):
             add("shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row), permission="shell")
             add("attach", "Attach…", lambda: self.action_requested.emit("attach", row), permission="attach")
             add("debug", "Debug (ephemeral container)…", lambda: self.action_requested.emit("debug", row), permission="debug")
-            if ((getattr(row, "raw", {}) or {}).get("spec") or {}).get("ephemeralContainers"):
-                add("remove-debug", "Remove debug containers (recreate pod)…",
-                    lambda: self.action_requested.emit("remove-debug", row), permission="terminate")
             add("terminate", "Terminate…", lambda: self.action_requested.emit("terminate", row), dangerous=True, permission="terminate")
             add("force-terminate", "Force terminate…", lambda: self.action_requested.emit("force-terminate", row), dangerous=True, permission="terminate")
+            if ((getattr(row, "raw", {}) or {}).get("spec") or {}).get("ephemeralContainers"):
+                add("remove-debug", "Remove debug containers (recreate pod)…",
+                    lambda: self.action_requested.emit("remove-debug", row), dangerous=True, permission="terminate")
             add("browse-pod-files", "Browse files…", lambda: self.action_requested.emit("browse-files", row))
             add("copy-files", "Copy files…", lambda: self.copy_files_requested.emit(row))
         if self.kind == "Container":
@@ -1251,10 +1251,10 @@ class ResourceTable(QWidget):
                 add_shared("shell")
                 add_shared("attach")
                 add_shared("debug")
-                if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
-                    add_shared("remove-debug")
                 add_shared("terminate", destructive)
                 add_shared("force-terminate", destructive)
+                if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
+                    add_shared("remove-debug", destructive)
         if idx.isValid():
             self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
         if self.kind == "CustomResourceDefinition" and idx.isValid():
@@ -1272,6 +1272,8 @@ class ResourceTable(QWidget):
                 add_shared("diagnostics")
             menu.addAction(action_icon("create"), "New namespace…", self.new_requested.emit)
         if self.new_button is not None:
+            if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
+                menu.addSeparator()
             menu.addAction(action_icon("create"), self._hint(f"New {self.kind}…", "create", None), self.new_requested.emit)
         if self.refresh_mode is not None:
             if not menu.isEmpty():

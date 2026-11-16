@@ -75,7 +75,7 @@ class AuditDialog(QDialog):
                                          "Nothing found: no change has been made from Klotse on this computer."))
 
     def _clear(self):
-        if QMessageBox.question(self, "Clear change log", "Delete the whole change log on this computer? This cannot be undone.",
+        if QMessageBox.question(self, "Clear change log", "Clear the whole change log on this computer? This cannot be undone.",
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         try:

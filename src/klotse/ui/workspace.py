@@ -1681,7 +1681,7 @@ class ClusterWorkspace(QMainWindow):
         if direction == UPLOAD:
             if not self._writable("copy files into a container"):
                 return None
-            ask = QMessageBox.question(self, "Upload to container", f"Copy {local} to {row.name}:{remote}?\n\nAn existing file or "
+            ask = QMessageBox.question(self, "Upload to container", f"Cluster: {self.context}\nCopy {local} to {row.name}:{remote}?\n\nAn existing file or "
                                        "folder there is replaced.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if ask != QMessageBox.Yes:
                 return None
@@ -3313,7 +3313,7 @@ class ClusterWorkspace(QMainWindow):
             force = action == "force-terminate"
             note = "\nForce uses zero grace period; finalizers still apply." if force else "\nController-managed pods will be recreated."
             if QMessageBox.question(self, "Terminate pods", f"Cluster: {self.context}\n"
-                                    f"{'Force delete' if force else 'Delete'} {n} pods?{note}\n\n{names}",
+                                    f"{'Force terminate' if force else 'Terminate'} {n} pods?{note}\n\n{names}",
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             self._bulk(f"Terminating {n} pods", rows,
@@ -3567,7 +3567,7 @@ class ClusterWorkspace(QMainWindow):
             return
         if action in ("terminate", "force-terminate"):
             force = action == "force-terminate"
-            verb = "Force delete" if force else "Delete"
+            verb = "Force terminate" if force else "Terminate"
             warning = ("\nForce removes the pod with zero grace period. Its processes may keep running "
                        "until the kubelet catches up; finalizers still apply.") if force else ""
             ok = QMessageBox.question(self, "Terminate pod", f"Cluster: {self.context}\n{verb} pod {row.namespace}/{row.name}? "
@@ -3615,7 +3615,7 @@ class ClusterWorkspace(QMainWindow):
             return
         names = ", ".join(c.get("name", "?") for c in (row.raw.get("spec") or {}).get("ephemeralContainers") or [])
         ok = QMessageBox.question(self, "Remove debug containers", f"Cluster: {self.context}\nKubernetes cannot remove a debug container "
-                                  f"({names}) from a running pod. Delete pod {row.namespace}/{row.name} so its controller creates a "
+                                  f"({names}) from a running pod. Recreate pod {row.namespace}/{row.name}: it is deleted so its controller creates a "
                                   "fresh one without it?\n\nThe pod's processes stop and restart; connections drop.",
                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if ok != QMessageBox.Yes:
