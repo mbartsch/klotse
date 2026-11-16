@@ -46,3 +46,16 @@ def test_a_theme_change_restyles_the_navigator_headings(qtbot, monkeypatch):
     monkeypatch.setattr(theme, "MUTED", "#123456")
     nav.refresh_theme()
     assert header.foreground(0).color().name() == "#123456"
+
+
+def test_the_dock_layout_is_remembered_between_starts(qtbot, tmp_path):
+    from PySide6.QtWidgets import QDockWidget
+    from test_app import FakeService
+    settings = QSettings(str(tmp_path / "klotse.ini"), QSettings.IniFormat)
+    first = MainWindow(FakeService, label_settings=LabelSettings(settings))
+    qtbot.addWidget(first)
+    first.clusters_panel_action.setChecked(False)
+    first._remember_geometry()
+    second = MainWindow(FakeService, label_settings=LabelSettings(settings))
+    qtbot.addWidget(second)
+    assert second.findChild(QDockWidget, "clustersDock").isHidden()

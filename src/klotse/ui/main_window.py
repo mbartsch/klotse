@@ -475,6 +475,7 @@ class MainWindow(QMainWindow):
         self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
+        self._restore_dock_state()  # #501: the docks (navigator, Details, Logs) keep their places and sizes once they exist
 
     def createPopupMenu(self):  # noqa: N802
         """Suppress the default dock and toolbar menu; Klotse exposes those controls elsewhere."""
@@ -1654,9 +1655,18 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
+    STATE_KEY = "window/state"
+
+    def _restore_dock_state(self):
+        state = self.label_settings.store.value(self.STATE_KEY)  # empty when never saved; a bad value leaves the defaults
+        if state:
+            self.restoreState(state)
+
     def _remember_geometry(self):
-        """Keep the window's size and place for the next start. A save error is not fatal: the window just opens at its default."""
+        """Keep the window's size, place and dock layout for the next start. A save error is not fatal: the window just opens
+        at its default."""
         self.label_settings.store.setValue(self.GEOMETRY_KEY, self.saveGeometry())
+        self.label_settings.store.setValue(self.STATE_KEY, self.saveState())
         self.label_settings.store.sync()
 
     def closeEvent(self, event):
