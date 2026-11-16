@@ -330,7 +330,7 @@ class PortForwardDialog(QDialog):
         header = QLabel(f"Forward <b>{kind.lower()} {_plain(namespace)}/{_plain(name)}</b> to this computer (127.0.0.1 only).")
         header.setTextFormat(Qt.RichText)
         form = QFormLayout()
-        form.addRow("Remote port", self.remote)
+        form.addRow("Remote port *", self.remote)  # required (#500)
         form.addRow("Local port", self.local)
         self.remember = QCheckBox("Remember this forward (Port forwards tab > Saved forwards)")
         form.addRow(self.remember)

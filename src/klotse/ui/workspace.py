@@ -495,7 +495,7 @@ class ClusterWorkspace(QMainWindow):
     def start(self):
         """Connect; called by the shell after it has hooked up the signals."""
         self.state.emit("connecting")
-        self.message.emit(f"Connecting to {self.context}…")
+        self.message.emit(f"Connecting to {self.cluster_label()}…")
         # the plugins' variables for this cluster are asked here, on the GUI thread, and used for the sign-in helper only
         self._run(self.service.connect, lambda _: self._connected(), self.context, self.process_variables(),
                   on_error=self._connect_failed)
@@ -650,7 +650,7 @@ class ClusterWorkspace(QMainWindow):
         def failed(message):
             pager.busy = False
             self.pod_table.more_button.setEnabled(True)
-            self.message.emit(f"{self.context} / Pods: {message.splitlines()[0] if message else 'could not load more'}")
+            self.message.emit(f"{self.cluster_label()} / Pods: {message.splitlines()[0] if message else 'could not load more'}")
 
         self._run(pager.next, got, on_error=failed)
 
@@ -685,7 +685,7 @@ class ClusterWorkspace(QMainWindow):
         if not self.big and big_clusters.looks_big(counts.get("nodes", 0), counts.get("pods", 0)):
             self.big_detected.emit(counts.get("nodes", 0), counts.get("pods", 0))
         if counts.get("by_phase"):
-            self.message.emit(f"{self.context}: {counts.get('pods', 0):,} pods, so the Overview counts them by phase (a crash-looping pod "
+            self.message.emit(f"{self.cluster_label()}: {counts.get('pods', 0):,} pods, so the Overview counts them by phase (a crash-looping pod "
                               "still counts as running; Health check finds those)")
         self.overview.set_data(data)
         self.overview_updated.emit(data)
@@ -1118,7 +1118,7 @@ class ClusterWorkspace(QMainWindow):
     def show_helm_release(self, row):
         """Details and history of a Helm release (reads that release's few storage Secrets in the background). Looking is
         allowed on a read-only cluster; values stay hidden in the dialog until the user shows them."""
-        self.message.emit(f"{self.context}: reading Helm release {row.name}…")
+        self.message.emit(f"{self.cluster_label()}: reading Helm release {row.name}…")
         self._run(self.service.helm_release, lambda data: self._helm_ready(row, data), row.namespace, row.name)
 
     def helm_dialog(self, row, data):
@@ -1166,7 +1166,7 @@ class ClusterWorkspace(QMainWindow):
                 raise RuntimeError(lines[-1] if lines else "helm failed")
             return (done.stdout or "").strip()
 
-        self.message.emit(f"{self.context}: uninstalling Helm release {row.name}…")
+        self.message.emit(f"{self.cluster_label()}: uninstalling Helm release {row.name}…")
         def finished():
             self._helm_running.discard((row.namespace, row.name))
 
@@ -1174,7 +1174,7 @@ class ClusterWorkspace(QMainWindow):
                   on_error=lambda msg: (finished(), dialog.show_status(f"✖ {msg}") if dialog is not None else None))
 
     def _helm_uninstalled(self, row, dialog):
-        self.message.emit(f"{self.context}: uninstalled Helm release {row.name}")
+        self.message.emit(f"{self.cluster_label()}: uninstalled Helm release {row.name}")
         if dialog is not None:
             dialog.accept()
         self.refresh()
@@ -1292,7 +1292,7 @@ class ClusterWorkspace(QMainWindow):
             if self.set_namespace(name):
                 self.open_view("pods")
             else:
-                self.message.emit(f"{self.context}: namespace {name} is not in the list (refresh and try again)")
+                self.message.emit(f"{self.cluster_label()}: namespace {name} is not in the list (refresh and try again)")
 
     def _namespace_action(self, action, row):
         if action == "open-namespace":  # double-click / "Show pods": scope the toolbar to it and open its pods
@@ -1341,7 +1341,7 @@ class ClusterWorkspace(QMainWindow):
             table.set_loading()
         started = perf_counter()
         self._last_load[key] = self._clock()
-        self.message.emit(f"{self.context} / {title}: Loading…")
+        self.message.emit(f"{self.cluster_label()} / {title}: Loading…")
 
         def finished(data, error=False):
             if self._load_serial.get(key) != serial:  # abandoned by a newer load of this view: ignore it entirely
@@ -1361,11 +1361,11 @@ class ClusterWorkspace(QMainWindow):
                     data = explain(data, title)
                     if table is not None:
                         table.set_error(data)
-                    self.message.emit(f"{self.context} / {title}: {data.splitlines()[0] if data else ''}")
+                    self.message.emit(f"{self.cluster_label()} / {title}: {data.splitlines()[0] if data else ''}")
                 else:
                     sink(data)
                     count = f"{len(data):,} rows" if isinstance(data, list) else "loaded"
-                    self.message.emit(f"{self.context} / {title}: {count}")  # no timing: it stayed on the status bar (#497)
+                    self.message.emit(f"{self.cluster_label()} / {title}: {count}")  # no timing: it stayed on the status bar (#497)
             if key in self._pending_loads:
                 self._pending_loads.discard(key)
                 self.load_view(key)
@@ -1592,7 +1592,7 @@ class ClusterWorkspace(QMainWindow):
         if not accepted:
             return None
         forward = self.port_forwards.start(self.context, row.namespace, kind, row.name, remote, local, kubeconfig=self.kubeconfig)
-        self.message.emit(f"{self.context}: forwarding {forward.target} port {remote}…")
+        self.message.emit(f"{self.cluster_label()}: forwarding {forward.target} port {remote}…")
         if getattr(dialog, "remember", None) is not None and remembered:
             try:
                 SavedForwards(self.label_settings.store).add(SavedForwards.make(self.context, kind, row.namespace, row.name, remote, local))
@@ -1605,7 +1605,7 @@ class ClusterWorkspace(QMainWindow):
         """A forward kept earlier (Port forwards tab > Saved forwards): started again with the same ports."""
         forward = self.port_forwards.start(self.context, entry["ns"], entry["kind"], entry["name"], entry["remote"], entry["local"],
                                            kubeconfig=self.kubeconfig)
-        self.message.emit(f"{self.context}: forwarding {forward.target} port {entry['remote']}…")
+        self.message.emit(f"{self.cluster_label()}: forwarding {forward.target} port {entry['remote']}…")
         return forward
 
     def show_port_forwards(self):
@@ -1645,7 +1645,7 @@ class ClusterWorkspace(QMainWindow):
     def browse_claim(self, row):
         """Right-click > Browse files… on a PersistentVolumeClaim: through a running pod that already mounts it. Nothing is
         started in the cluster, so a claim no pod uses says so."""
-        self.message.emit(f"{self.context}: looking for a pod that uses {row.name}…")
+        self.message.emit(f"{self.cluster_label()}: looking for a pod that uses {row.name}…")
         self._run(lambda: [p.raw for p in self.service.list_pods(row.namespace)], lambda pods: self._claim_found(row, pods))
 
     def _claim_found(self, row, pods):
@@ -1719,7 +1719,7 @@ class ClusterWorkspace(QMainWindow):
             return None
         if direction == UPLOAD:
             self.record_change("copy files to pod", f"{row.namespace}/{row.name} {remote}")
-        self.message.emit(f"{self.context}: copying {copy.description}…")
+        self.message.emit(f"{self.cluster_label()}: copying {copy.description}…")
         self.show_file_copies()
         return copy
 
@@ -1747,7 +1747,7 @@ class ClusterWorkspace(QMainWindow):
         dialog.set_read_only(self.read_only)
 
         def run(docs, dry_run):
-            self.message.emit(f"{self.context}: {'checking' if dry_run else 'applying'} {len(docs)} object(s)…")
+            self.message.emit(f"{self.cluster_label()}: {'checking' if dry_run else 'applying'} {len(docs)} object(s)…")
             self._run(self.service.apply_documents, lambda results: dialog.show_results(results, dry_run), docs, ns, dry_run,
                       on_error=dialog.show_error)
         dialog.run_requested.connect(run)
@@ -1906,7 +1906,7 @@ class ClusterWorkspace(QMainWindow):
         when no source is set: its Source… button picks one (the same dialog as Usage history and the cluster menu). A source set to a
         port-forward is reached through that forward (started here if needed). Looking only. Non-modal, one per object."""
         if getattr(self.service, "prometheus_query", None) is None:
-            self.message.emit(f"{self.context}: this service cannot run metric queries")
+            self.message.emit(f"{self.cluster_label()}: this service cannot run metric queries")
             return None
         if kind is None or row is None:
             kind, namespace, name = "Cluster", "", ""
@@ -2021,7 +2021,7 @@ class ClusterWorkspace(QMainWindow):
         if not QueryDefaults(self.label_settings.store).autocomplete or getattr(self.service, "prometheus_metric_names", None) is None:
             return
         self._run(self.service.prometheus_metric_names, lambda names: dialog.set_metric_names(names), ref,
-                  on_error=lambda message: self.message.emit(f"{self.context}: metric names for autocomplete: {message}"))
+                  on_error=lambda message: self.message.emit(f"{self.cluster_label()}: metric names for autocomplete: {message}"))
 
     def _change_query_source(self, dialog, holder):
         """Source… in the query window: the same choice as Usage history's, saved for this cluster, then the window reads from it."""
@@ -2036,7 +2036,7 @@ class ClusterWorkspace(QMainWindow):
         window per object (asking again brings it forward); all are closed with the cluster."""
         sample = getattr(self.service, "metrics_sample", None)
         if sample is None:
-            self.message.emit(f"{self.context}: this service cannot read metrics")
+            self.message.emit(f"{self.cluster_label()}: this service cannot read metrics")
             return None
         selector = ""
         if kind in ("Deployment", "StatefulSet", "DaemonSet"):
@@ -2080,7 +2080,7 @@ class ClusterWorkspace(QMainWindow):
         only. Non-modal; asking again for the same objects brings the window forward."""
         sample = getattr(self.service, "metrics_sample", None)
         if sample is None:
-            self.message.emit(f"{self.context}: this service cannot read metrics")
+            self.message.emit(f"{self.cluster_label()}: this service cannot read metrics")
             return None
         picked = list(rows)
         if len(picked) > metrics_history.MAX_OBJECTS:
@@ -2262,7 +2262,7 @@ class ClusterWorkspace(QMainWindow):
             ref = prometheus.parse_ref(text)
             SavedForwards(self.label_settings.store).add(SavedForwards.make(self.context, "Service", ref["namespace"], ref["name"], ref["port"], local))
         except (ValueError, OSError) as error:
-            self.message.emit(f"{self.context}: the forward was not kept in Saved forwards: {error}")
+            self.message.emit(f"{self.cluster_label()}: the forward was not kept in Saved forwards: {error}")
 
     def _test_source(self, dialog):
         """Test in Source…: check the typed service with the chosen settings, before anything is saved. Through a port-forward this starts
@@ -2400,7 +2400,7 @@ class ClusterWorkspace(QMainWindow):
                 dialog.set_source_note(message)
             except RuntimeError:
                 return
-            self.message.emit(f"{self.context}: {message}")
+            self.message.emit(f"{self.cluster_label()}: {message}")
 
         self._ensure_source_forward(ref, ready, fail, start=start)
 
@@ -2441,7 +2441,7 @@ class ClusterWorkspace(QMainWindow):
     def _open_trivy_report(self, key, row):
         """Double-click on a row: read that whole report and show its findings."""
         title = f"{trivy.KINDS[key][1]}: {row['workload_kind']}/{row['workload']} {row['container']}".strip()
-        self.message.emit(f"{self.context}: reading the report of {row['workload'] or row['report']}…")
+        self.message.emit(f"{self.cluster_label()}: reading the report of {row['workload'] or row['report']}…")
 
         def show(report):
             headings, rows = trivy.details(key, report)
@@ -2643,7 +2643,7 @@ class ClusterWorkspace(QMainWindow):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check. Non-modal, one per
         workspace (#499: it was modal and opened after a background read, interrupting whatever came next)."""
         ns = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
-        self.message.emit(f"{self.context}: reading your permissions in {ns}…")
+        self.message.emit(f"{self.cluster_label()}: reading your permissions in {ns}…")
         self._run(self.service.my_permissions, lambda perms: self._permissions_ready(ns, perms), ns)
 
     def permissions_dialog(self, ns, perms):
@@ -2726,10 +2726,10 @@ class ClusterWorkspace(QMainWindow):
                            "EC2NodeClass": "cr:ec2nodeclasses.karpenter.k8s.aws"}
             key = custom_keys.get(kind)
         if key is None or key not in self.views:
-            self.message.emit(f"{self.context}: there is no list for {kind} to go to")
+            self.message.emit(f"{self.cluster_label()}: there is no list for {kind} to go to")
             return
         if namespace and self.namespace() not in (ALL_NS, namespace) and not self.set_namespace(namespace):
-            self.message.emit(f"{self.context}: namespace {namespace} is not in the list (refresh and try again)")
+            self.message.emit(f"{self.cluster_label()}: namespace {namespace} is not in the list (refresh and try again)")
         self.open_view(key)
         self.views[key][0].select_when_loaded(name, namespace)
 
@@ -2738,7 +2738,7 @@ class ClusterWorkspace(QMainWindow):
         and the complete text in Logs & activity > Activity, where it can be copied."""
         title, text = describe(msg)
         first = (text.splitlines() or [""])[0]
-        self.message.emit(f"{self.context}: {first}")
+        self.message.emit(f"{self.cluster_label()}: {first}")
         self.activity.add(False, first, str(msg))
         more = "\n\nThe complete error is in View > Operations > Activity." if str(msg).strip() != text.strip() else ""
         QMessageBox.warning(self, title, f"{self.context}\n\n{text}{more}")
@@ -3211,7 +3211,7 @@ class ClusterWorkspace(QMainWindow):
     def show_rollout_history(self, kind, row):
         """The revisions of a Deployment, with a way back to an earlier one. Looking is always allowed; rolling back is not
         on a read-only cluster."""
-        self.message.emit(f"{self.context}: reading the rollout history of {row.name}…")
+        self.message.emit(f"{self.cluster_label()}: reading the rollout history of {row.name}…")
         self._run(self.service.deployment_history, lambda revisions: self._history_ready(row, revisions), row.namespace, row.name)
 
     def rollout_dialog(self, row, revisions):
@@ -3781,7 +3781,7 @@ class ClusterWorkspace(QMainWindow):
 
     def _connected(self):
         self.state.emit("connected")
-        self.message.emit(f"Connected to {self.context}")
+        self.message.emit(f"Connected to {self.cluster_label()}")
         if not self._opened_default:
             self._opened_default = True
             self._show_view("overview")  # refresh() below loads it
@@ -3887,6 +3887,6 @@ class ClusterWorkspace(QMainWindow):
             if self.set_namespace(pending):
                 self.open_view("pods")
             else:
-                self.message.emit(f"{self.context}: namespace {pending} is not in the list")
+                self.message.emit(f"{self.cluster_label()}: namespace {pending} is not in the list")
         if keep != previous:
             self.load_scoped()
