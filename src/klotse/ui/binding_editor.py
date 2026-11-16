@@ -199,7 +199,7 @@ class BindingEditDialog(DiscardGuard, QDialog):
         self.hint.setWordWrap(True)
 
         self.add_kind = QComboBox()
-        self.add_kind.addItems(["User", "Group", "Service account"])
+        self.add_kind.addItems(["User", "Group", "ServiceAccount"])  # the kind's name, as the rest of the app writes it
         self.name_edit = QLineEdit(placeholderText="User name as your authenticator reports it")
         self.name_completer = QCompleter([n for n, _d in WELL_KNOWN_GROUPS], self)
         self.name_completer.setCaseSensitivity(Qt.CaseInsensitive)

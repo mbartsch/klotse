@@ -81,7 +81,7 @@ def test_remove_debug_containers_sits_with_the_destructive_entries(qtbot):
     force = seen.index("Force terminate…")
     logs = seen.index("Logs")
     assert logs < force < remove
-    assert seen.index("Connect (shell)…") < force
+    assert seen.index("Shell…") < force
 
 
 def test_new_kind_entry_is_separated_from_the_go_to_entries(qtbot):
@@ -103,7 +103,7 @@ def test_a_pod_menu_marks_entries_the_user_may_not_do(qtbot):
     seen = _popup_entries(qtbot, table, [_pod()])
     assert any(t and t.startswith("Copy files…") and "not allowed" in t for t in seen)
     assert any(t and t.startswith("Port forward…") and "not allowed" in t for t in seen)
-    assert any(t and t.startswith("Connect (shell)") and "not allowed" in t for t in seen)
+    assert any(t and t.startswith("Shell…") and "not allowed" in t for t in seen)
 
 
 def test_a_bulk_menu_marks_entries_the_user_may_not_do(qtbot):
@@ -155,6 +155,8 @@ def test_auto_refresh_wording_is_one_family_in_view_and_navigator(qtbot, tmp_pat
     win = MainWindow(FakeService, label_settings=LabelSettings(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat)))
     qtbot.addWidget(win)
     open_active(win)
+    ctx_ws = win.clusters.currentWidget()
+    qtbot.waitUntil(lambda: ctx_ws._ready, timeout=5000)  # let the background connect finish before teardown
     texts = [a.text() for a in win.auto_refresh_menu.actions()]
     assert "Turn auto-refresh off for all clusters" in texts and "Turn auto-refresh on for all clusters" in texts
     ctx = win.clusters.currentWidget().context
@@ -220,3 +222,34 @@ def test_gateway_objects_can_be_deleted_in_bulk(qtbot):
     table.view.selectAll()
     table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
     assert any(t.startswith("Delete 2 ") for t in seen)
+
+
+
+def test_a_yaml_error_names_the_line_and_moves_the_cursor(qtbot, monkeypatch):
+    # #500 (finish): PyYAML's raw text is replaced by the line and column, and the cursor goes there
+    from PySide6.QtWidgets import QMessageBox, QPlainTextEdit
+    from klotse.ui import edit_dialog
+    dialog = edit_dialog.EditDialog.__new__(edit_dialog.EditDialog)
+    dialog.editor = QPlainTextEdit("metadata:\n  name: ok\n  bad: [\n")
+    qtbot.addWidget(dialog.editor)
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    assert dialog._parse() is None
+    assert shown and shown[0].startswith("Line 4, column ")
+    assert dialog.editor.textCursor().blockNumber() == 3
+
+
+def test_a_plugin_setting_error_shows_the_help_not_the_regular_expression(qtbot, monkeypatch):
+    from types import SimpleNamespace as NS
+    from PySide6.QtWidgets import QMessageBox
+    from klotse.ui.cluster_settings_dialog import ClusterSettingsDialog
+    setting = NS(key="region", label="Region", pattern=r"[a-z]{2}-\w+-\d", help="for example eu-west-1")
+    plugin = NS(id="aws", name="AWS", cluster_settings=[setting])
+    manager = NS(cluster_settings_for=lambda plugin_id, context: {})
+    dialog = ClusterSettingsDialog(manager, plugin, "prod")
+    qtbot.addWidget(dialog)
+    dialog.fields["region"].setText("Europe")
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    dialog.save()
+    assert shown and "for example eu-west-1" in shown[0] and r"[a-z]" not in shown[0]

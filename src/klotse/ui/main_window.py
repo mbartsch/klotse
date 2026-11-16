@@ -1639,9 +1639,9 @@ class MainWindow(QMainWindow):
             return
         ctxs = list(failed)
         if len(ctxs) == 1:
-            text, title = f"{ctxs[0]}\n\n{failed[ctxs[0]]}", "Cannot connect"
+            text, title = f"{self.aliases.display(ctxs[0])}\n\n{failed[ctxs[0]]}", "Cannot connect"
         else:
-            text = "\n".join(f"{c}: {m}" for c, m in failed.items())
+            text = "\n".join(f"{self.aliases.display(c)}: {m}" for c, m in failed.items())
             title = f"Cannot connect to {len(ctxs)} clusters"
         box = QMessageBox(QMessageBox.Warning, title, text, parent=self)
         retry = box.addButton("Retry now", QMessageBox.AcceptRole)
@@ -1845,7 +1845,7 @@ class MainWindow(QMainWindow):
                 self.session.forget()
                 return True
             front = self.clusters.currentWidget()
-            names = ", ".join(opened)
+            names = ", ".join(self.aliases.display(c) for c in opened)  # the alias, as in the tab (#500)
             answer = QMessageBox.question(
                 self, "Exit Klotse",
                 "\n".join(["Reconnect to the open cluster(s) the next time Klotse starts?", "", names, "",

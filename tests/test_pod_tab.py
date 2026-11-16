@@ -144,4 +144,4 @@ def test_container_context_menu_has_logs_shell_attach(qtbot):
 
     QTimer.singleShot(200, grab)
     table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
-    assert labels == ["Copy cell value", "Filter by this value", "Logs", "Connect (shell)…", "Attach…"]
+    assert labels == ["Copy cell value", "Filter by this value", "Logs", "Shell…", "Attach…"]

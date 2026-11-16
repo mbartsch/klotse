@@ -166,7 +166,7 @@ def test_menu_entries_the_rules_forbid_say_so_and_the_rest_do_not(qtbot):
     ws.pod_table.set_rows([pod()])
     texts = menu_texts(ws.pod_table)
     assert "Logs  (not allowed for you)" in texts  # get on pods is granted, get on pods/log is a separate permission
-    assert "Connect (shell)…" in texts  # pods/exec create is granted
+    assert "Shell…" in texts  # pods/exec create is granted
     assert "Terminate…  (not allowed for you)" in texts and "Force terminate…  (not allowed for you)" in texts
     assert "Attach…  (not allowed for you)" in texts
 

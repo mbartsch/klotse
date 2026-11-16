@@ -48,7 +48,8 @@ class ClusterSettingsDialog(QDialog):
         for setting in self.plugin.cluster_settings:
             value = values[setting.key]
             if value and setting.pattern and not re.fullmatch(setting.pattern, value):
-                QMessageBox.warning(self, "Cannot save", f"{setting.label}: “{value}” is not valid ({setting.help or setting.pattern})")
+                hint = setting.help or "it does not match the format this plugin expects"  # never the raw regular expression (#500)
+                QMessageBox.warning(self, "Cannot save", f"{setting.label}: “{value}” is not valid ({hint})")
                 return
         try:
             self.manager.set_cluster_settings(self.plugin.id, self.context, values)
