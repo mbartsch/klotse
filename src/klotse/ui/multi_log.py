@@ -242,9 +242,9 @@ class MultiLogView(QWidget):
         cursor = QTextCursor(self.text.document())  # separate cursor: leaves the user's selection alone
         cursor.movePosition(QTextCursor.End)
         cursor.insertText(line + "\n")
-        if not self._dropping and self.text.document().blockCount() >= MAX_LINES:
+        if not self._dropping and self.text.document().blockCount() >= self.text.maximumBlockCount():
             self._dropping = True
-            self.status.setText(f"Only the newest {MAX_LINES:,} lines are kept; the older ones are gone from this view.")
+            self.status.setText(f"Only the newest {self.text.maximumBlockCount():,} lines are kept; the older ones are gone from this view.")
         if self.follow.isChecked():
             bar = self.text.verticalScrollBar()
             bar.setValue(bar.maximum())
@@ -301,6 +301,7 @@ class MultiLogView(QWidget):
     def clear(self):
         self.lines.clear()
         self.text.clear()
+        self._dropping = False
 
     def visible_text(self):
         return self.text.toPlainText()

@@ -17,6 +17,13 @@ def test_an_api_error_keeps_the_status_and_the_server_sentence_and_loses_the_hea
     assert "Refresh" in text  # the hint for 409
 
 
+def test_a_server_error_is_not_described_as_a_refusal():
+    title, text = describe("ApiException: (503)\nReason: Service Unavailable")
+    assert title == "Kubernetes error"
+    assert text.startswith("The cluster returned an error (503 Service Unavailable).")
+    assert "Try again shortly" in text
+
+
 def test_an_unreachable_cluster_is_titled_as_such_with_the_network_hint():
     title, text = describe("MaxRetryError: HTTPSConnectionPool(host='x', port=443): Max retries exceeded")
     assert title == "Cannot reach the cluster" and "VPN" in text

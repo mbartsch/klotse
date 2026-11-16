@@ -129,6 +129,7 @@ class LogView(QWidget):
 
         clear.clicked.connect(self.text.clear)
         self.search.returnPressed.connect(self.find_next)
+        self.search.textChanged.connect(lambda _text: self.no_match.hide())
         self.container.currentTextChanged.connect(lambda _: self.start())
         self.tail.editingFinished.connect(self.start)
         self.wrap.toggled.connect(self._set_wrap)
