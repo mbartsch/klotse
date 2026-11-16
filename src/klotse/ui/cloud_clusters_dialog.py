@@ -7,6 +7,7 @@ No) and keeps a .bak copy. Commands run on the thread pool, never on the GUI thr
 import os
 import shutil
 
+from .dialog_sizing import resize_dialog
 from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
@@ -32,7 +33,7 @@ class CloudClustersDialog(QDialog):
     def __init__(self, target, sources, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add clusters from the cloud")
-        self.resize(720, 560)
+        resize_dialog(self, 720, 560)
         self.target_path, self.is_main = target()
         self.sources = list(sources)
         self._clusters = []

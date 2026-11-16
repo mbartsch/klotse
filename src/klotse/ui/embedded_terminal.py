@@ -14,6 +14,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal, Sl
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
+from .dialog_sizing import resize_dialog
 from . import theme
 from ..k8s.process_env import environment
 from .pty_session import PtySession
@@ -269,7 +270,7 @@ class TerminalHost(QObject):
         """Show the window (first time: near `near`, a QWidget). It appears once xterm.js is ready, so no blank window flashes
         up and the main window is not disturbed while the page loads; after `wait_s` seconds it is shown anyway."""
         window = self.window
-        window.resize(900, 560)
+        resize_dialog(window, 900, 560)
         if near is not None:
             window.move(near.mapToGlobal(near.rect().topLeft()) + QPoint(80, 80))
         done = []
