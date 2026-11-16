@@ -85,3 +85,11 @@ def test_the_metrics_query_window_has_a_close_button_and_closes_on_escape(qtbot)
     assert any(b.text() == "Close" for b in dialog.findChildren(QPushButton))
     QTest.keyClick(dialog, Qt.Key_Escape)
     assert not dialog.isVisible()
+
+
+def test_the_analysis_windows_all_call_the_reload_button_refresh(qtbot):
+    from klotse.ui.security_dialog import SecurityDialog
+    from klotse.ui.preflight_dialog import PreflightDialog
+    for dialog in (SecurityDialog("ctx", "namespace shop"), PreflightDialog("ctx", "namespace shop")):
+        qtbot.addWidget(dialog)
+        assert dialog.reload_button.text() == "Refresh"
