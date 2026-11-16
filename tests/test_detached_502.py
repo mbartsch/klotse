@@ -83,3 +83,12 @@ def test_closing_a_cluster_without_forwards_does_not_ask(qtbot, tmp_path, monkey
     monkeypatch.setattr(QMessageBox, "question", lambda *a: (_ for _ in ()).throw(AssertionError("asked")))
     win._close_cluster_tab(win.clusters.indexOf(ws))
     assert ws.context not in win.workspaces
+
+
+def test_a_size_filter_without_its_dialog_ignores_events_instead_of_raising():
+    # #502 CI: a stale size filter raised AttributeError inside Qt's event loop, which failed whatever test ran next
+    from PySide6.QtCore import QEvent, QObject
+    from klotse.ui.dialog_sizing import _SizeMemory
+    filter_ = _SizeMemory.__new__(_SizeMemory)
+    QObject.__init__(filter_)
+    assert filter_.eventFilter(QObject(), QEvent(QEvent.Hide)) is False
