@@ -105,7 +105,7 @@ def test_help_menu_opens_the_about_dialog(qtbot, monkeypatch):
     monkeypatch.setattr(main_module, "AboutDialog", FakeDialog)
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
-    help_menu = next(a for a in win.menuBar().actions() if a.text() == "Help").menu()
+    help_menu = next(a for a in win.menuBar().actions() if a.text().replace("&", "") == "Help").menu()
     assert win.about_action in help_menu.actions() and win.about_action.text() == "About Klotse"
     win.about_action.trigger()
     assert shown == [win]
@@ -114,8 +114,8 @@ def test_help_menu_opens_the_about_dialog(qtbot, monkeypatch):
 def test_view_menu_groups_actions_by_task_and_preserves_action_objects(qtbot):
     win = MainWindow(FakeService)
     qtbot.addWidget(win)
-    view = next(a.menu() for a in win.menuBar().actions() if a.text() == "View")
-    groups = {a.text(): a.menu() for a in view.actions() if a.menu()}
+    view = next(a.menu() for a in win.menuBar().actions() if a.text().replace("&", "") == "View")
+    groups = {a.text().replace("&", ""): a.menu() for a in view.actions() if a.menu()}  # the mnemonic marker is not part of the name
     assert set(groups) == {"Navigate", "Insights", "Operations", "Panels", "Settings"}
     assert groups["Panels"] is win.panels_menu
     open_active(win)

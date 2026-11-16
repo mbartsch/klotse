@@ -111,6 +111,7 @@ class Navigator(QTreeWidget):
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
         self.itemDoubleClicked.connect(self._on_double_click)
+        self.itemActivated.connect(self._on_activate)  # Enter on a row (#498: keyboard use of the navigator)
 
     def _style_item(self, item, kind):
         """Give each navigation level a theme-aware cue while keeping leaf rows compact."""
@@ -674,6 +675,16 @@ class Navigator(QTreeWidget):
         elif kind == "view":
             cluster = self._cluster_of(item)  # views live under groups under the cluster item
             self.view_requested.emit(cluster.data(0, self.ROLE_KEY), item.data(0, self.ROLE_KEY))
+
+    def _on_activate(self, item, col):
+        if item.data(0, self.ROLE_KIND) == "cluster":
+            name = item.data(0, self.ROLE_KEY)
+            if self._states.get(name) in ACTIVE_STATES:
+                self.context_clicked.emit(name)
+            else:
+                self.connect_requested.emit(name)
+        else:
+            self._on_click(item, col)
 
     def _on_double_click(self, item, _col):
         if item.data(0, self.ROLE_KIND) != "cluster":
