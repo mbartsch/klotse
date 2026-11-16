@@ -4,6 +4,8 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QFontMetrics
 from PySide6.QtWidgets import QLabel, QMenu, QSizePolicy, QToolButton
 
+from .action_icons import action_icon
+
 
 class ElidedLabel(QLabel):
     """A one-line label that cuts its text with … when there is not enough room (the whole text stays in `text()` and in the
@@ -41,6 +43,10 @@ class ElidedLabel(QLabel):
         painter.drawText(self.rect(), int(Qt.AlignVCenter | Qt.AlignLeft), shown)
 
 
+DESTRUCTIVE_NAMES = frozenset({"terminate", "force-terminate", "delete", "delete-node", "force-delete-node", "helm-uninstall",
+                               "remove-debug"})
+
+
 def actions_button(entries, emit, text="Actions"):
     """A button that opens a menu of `entries`, a list of (label, action name) pairs or None for a separator. Choosing one calls
     emit(action name). Returns (button, [QAction in menu order, separators left out]) so callers can enable or rename them."""
@@ -57,6 +63,8 @@ def actions_button(entries, emit, text="Actions"):
             continue
         label, name = entry
         action = QAction(label, menu)
+        if name in DESTRUCTIVE_NAMES:  # the same trash mark as the row menus (#500)
+            action.setIcon(action_icon("delete"))
         action.setData(name)
         action.triggered.connect(lambda _checked=False, n=name: emit(n))
         menu.addAction(action)

@@ -1175,8 +1175,8 @@ class ResourceTable(QWidget):
                     menu.exec(self.view.viewport().mapToGlobal(pos))
                 return
             if len(rows) > 1:
-                self._plugin_menu(menu, rows)
                 self._bulk_menu(menu, rows)
+                self._plugin_menu(menu, rows)  # plugin entries come last (#500)
                 if not menu.isEmpty():
                     menu.exec(self.view.viewport().mapToGlobal(pos))
                 return
@@ -1284,13 +1284,13 @@ class ResourceTable(QWidget):
             auto.setChecked(not self.refresh_mode())
             auto.setToolTip("Off: this list reloads only when you press Refresh")
             auto.triggered.connect(lambda checked: self.refresh_mode_requested.emit(bool(checked)))
-        if idx.isValid():  # plugin entries come last, after the built-in ones
-            self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
         if not destructive.isEmpty():
             if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
                 menu.addSeparator()
             for action in destructive.actions():
                 menu.addAction(action)
+        if idx.isValid():  # plugin entries come last, after the built-in and the destructive ones (#500)
+            self._plugin_menu(menu, [self.model.rows[self.proxy.mapToSource(idx).row()]])
         if not menu.isEmpty():
             menu.exec(self.view.viewport().mapToGlobal(pos))
 

@@ -3740,6 +3740,10 @@ class ClusterWorkspace(QMainWindow):
         row = self._pod_tabs[key]["row"]
         if action == "edit":
             self.edit_resource("Pod", row)
+        elif action == "copy":
+            self.copy_resource("Pod", row)
+        elif action == "port-forward":
+            self.start_port_forward("Pod", row)
         elif action == "copy-files":
             self.copy_files(row)
         else:

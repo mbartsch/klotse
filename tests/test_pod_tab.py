@@ -60,12 +60,15 @@ def test_pod_bar_actions(qtbot, monkeypatch):
     ws.pod_action = lambda action, row: seen.append((action, row.name))
     ws.edit_resource = lambda kind, row: seen.append(("edit", kind, row.name))
     ws.copy_files = lambda row: seen.append(("copy-files", row.name))
+    ws.copy_resource = lambda kind, row: seen.append(("copy", kind, row.name))  # #500 part 19: the pod bar's Copy as new…
+    ws.start_port_forward = lambda kind, row: seen.append(("port-forward", kind, row.name))
     ws.open_pod_tab(pod())
     bar = ws._pod_tabs["pod:team/web"]["bar"]
     bar.logs_button.click()
     for button in bar.items:
         button.trigger()
-    assert seen == [("logs", "web"), ("edit", "Pod", "web"), ("copy-files", "web"), ("terminate", "web"), ("force-terminate", "web")]
+    assert seen == [("logs", "web"), ("edit", "Pod", "web"), ("copy", "Pod", "web"), ("copy-files", "web"), ("browse-files", "web"),
+                    ("port-forward", "Pod", "web"), ("debug", "web"), ("terminate", "web"), ("force-terminate", "web")]
 
 
 def test_tab_refreshes_containers_and_handles_deleted_pod(qtbot):
