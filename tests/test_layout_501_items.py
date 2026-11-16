@@ -49,3 +49,14 @@ def test_numbers_are_right_aligned_and_text_stays_left(qapp):
     assert model.index(0, 1).data(Qt.TextAlignmentRole) == (Qt.AlignRight | Qt.AlignVCenter)
     assert model.index(0, 0).data(Qt.TextAlignmentRole) is None
     assert model.index(1, 1).data(Qt.TextAlignmentRole) is None
+
+
+def test_the_overview_scrolls_sideways_instead_of_clipping(qtbot, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QScrollArea
+
+    from test_app import open_active
+    win = window(tmp_path, qtbot)
+    open_active(win)
+    scroll = win.clusters.currentWidget().overview.findChildren(QScrollArea)[0]
+    assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAsNeeded
