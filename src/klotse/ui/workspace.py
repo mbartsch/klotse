@@ -100,6 +100,10 @@ NODE_PODS_REFRESH_MS = 60_000  # background recount of every node
 POD_IDLE_S = 1.5  # the paged Pods list keeps loading the next page after this much quiet
 NODE_PODS_BIG_REFRESH_MS = 300_000  # the same in big-cluster mode: the count reads every pod
 CLUSTER_WORKER_THREADS = 2  # isolate a slow cluster without creating one thread per refresh
+CLUSTER_WORKER_MAX_THREADS = 4
+CLUSTER_WORKER_QUEUE_HIGH = 2  # queued jobs before a busy pool is considered under pressure
+CLUSTER_WORKER_SCALE_UP_TICKS = 3  # seconds of sustained pressure before adding one worker
+CLUSTER_WORKER_SCALE_DOWN_TICKS = 10  # seconds idle before removing one worker
 
 
 def parse_scale(text, current):
@@ -182,6 +186,11 @@ class ClusterWorkspace(QMainWindow):
         # preserve enough concurrency for an overview's independent reads while keeping this experiment bounded.
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(CLUSTER_WORKER_THREADS)
+        self._pool_scale_up_ticks = 0
+        self._pool_idle_ticks = 0
+        self._pool_tuner = QTimer(self, interval=1000)
+        self._pool_tuner.timeout.connect(self._tune_pool)
+        self._pool_tuner.start()
         self._workers = set()
         self._loads = {}  # view -> latest requested namespace
         self._load_serial = {}  # view -> number of the newest load; results of older (abandoned) loads are dropped
@@ -1450,6 +1459,7 @@ class ClusterWorkspace(QMainWindow):
     def shutdown(self):
         """Stop every log stream; the shell calls this before discarding the workspace."""
         self._closed = True
+        self._pool_tuner.stop()
         for timer in self._reload_timers.values():
             timer.stop()
         self.port_forwards.stop_all()  # no kubectl port-forward may outlive the window
@@ -1509,6 +1519,29 @@ class ClusterWorkspace(QMainWindow):
         w.signals.result.connect(lambda r: done(on_result, r))
         w.signals.error.connect(lambda m: done(on_error or self._on_error, m))
         self.pool.start(w)
+
+    def _tune_pool(self):
+        """Adapt this cluster's pool to sustained pressure without unbounded thread growth."""
+        if self._closed:
+            return
+        active = self.pool.activeThreadCount()
+        queued = max(0, len(self._workers) - active)
+        limit = self.pool.maxThreadCount()
+        if queued >= CLUSTER_WORKER_QUEUE_HIGH and active >= limit and limit < CLUSTER_WORKER_MAX_THREADS:
+            self._pool_scale_up_ticks += 1
+            self._pool_idle_ticks = 0
+            if self._pool_scale_up_ticks >= CLUSTER_WORKER_SCALE_UP_TICKS:
+                self.pool.setMaxThreadCount(limit + 1)
+                self._pool_scale_up_ticks = 0
+        elif queued == 0 and active < limit and limit > CLUSTER_WORKER_THREADS:
+            self._pool_idle_ticks += 1
+            self._pool_scale_up_ticks = 0
+            if self._pool_idle_ticks >= CLUSTER_WORKER_SCALE_DOWN_TICKS:
+                self.pool.setMaxThreadCount(limit - 1)
+                self._pool_idle_ticks = 0
+        else:
+            self._pool_scale_up_ticks = 0
+            self._pool_idle_ticks = 0
 
     def port_forward_dialog(self, kind, row):
         return PortForwardDialog(kind, row.name, row.namespace, forward_ports(kind, row.raw), self)
