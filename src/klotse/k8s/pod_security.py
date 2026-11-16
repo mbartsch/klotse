@@ -5,7 +5,9 @@ enforces. Two profiles are checked:
     default set, unconfined seccomp or AppArmor, custom SELinux, unmasked /proc, unsafe sysctls;
   * **restricted**, the hardened set on top of it: no privilege escalation, running as non-root with a non-zero user, a seccomp profile,
     all capabilities dropped (NET_BIND_SERVICE may be added) and only the safe volume types.
-Pods are grouped by what runs them (a Deployment with 300 pods is one finding with a count). Advice, not a verdict: networking and
+Pods are grouped by their known immediate controller (a ReplicaSet with 300 pods is one finding with a count). These are advisory
+modern PSS checks, including the v1.25+ OS-dependent Restricted controls, not namespace-policy-version admission emulation.
+Advice, not a verdict: networking and
 storage components in kube-system and similar namespaces legitimately need more. Only manifests are read."""
 from .rightsizing import owner_of
 
@@ -70,6 +72,7 @@ def baseline_reasons(pod):
 def restricted_reasons(pod):
     """What a pod does that the restricted profile (on top of baseline) forbids."""
     spec = pod.get("spec") or {}
+    linux = (spec.get("os") or {}).get("name") != "windows"
     psc = spec.get("securityContext") or {}
     reasons = []
     if any(key not in RESTRICTED_VOLUMES and key != "hostPath" for v in spec.get("volumes") or [] for key in v):
@@ -77,7 +80,7 @@ def restricted_reasons(pod):
     containers = _containers(spec)
     for c in containers:
         sc = c.get("securityContext") or {}
-        if sc.get("allowPrivilegeEscalation") is not False:
+        if linux and sc.get("allowPrivilegeEscalation") is not False:
             reasons.append("privilege escalation allowed")
         non_root = sc.get("runAsNonRoot", psc.get("runAsNonRoot"))
         if non_root is not True:
@@ -85,12 +88,12 @@ def restricted_reasons(pod):
         if sc.get("runAsUser", psc.get("runAsUser")) == 0:
             reasons.append("runs as user 0")
         seccomp = (sc.get("seccompProfile") or psc.get("seccompProfile") or {}).get("type")
-        if seccomp not in ("RuntimeDefault", "Localhost"):
+        if linux and seccomp not in ("RuntimeDefault", "Localhost"):
             reasons.append("no seccomp profile")
         caps = sc.get("capabilities") or {}
-        if "ALL" not in {str(d).upper() for d in caps.get("drop") or []}:
+        if linux and "ALL" not in {str(d).upper() for d in caps.get("drop") or []}:
             reasons.append("does not drop all capabilities")
-        if {str(a).upper() for a in caps.get("add") or []} - {"NET_BIND_SERVICE"}:
+        if linux and {str(a).upper() for a in caps.get("add") or []} - {"NET_BIND_SERVICE"}:
             reasons.append("adds capabilities beyond NET_BIND_SERVICE")
     return list(dict.fromkeys(reasons))
 

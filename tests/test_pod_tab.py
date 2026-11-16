@@ -1,6 +1,7 @@
 """Double-clicking a pod opens its own tab (containers, per-container actions, pod actions)."""
 from types import SimpleNamespace as NS
 
+import pytest
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtWidgets import QMessageBox
 
@@ -8,9 +9,9 @@ from klotse.k8s.models import PodRow
 from klotse.ui.workspace import ClusterWorkspace
 
 
-def pod(name="web", status="Running", restarts=0):
+def pod(name="web", status="Running", restarts=0, uid="pod-uid"):
     return PodRow(name, "team", "1/2", status, restarts, "node-a", "1d", {
-        "kind": "Pod", "metadata": {"name": name, "namespace": "team"},
+        "kind": "Pod", "metadata": {"name": name, "namespace": "team", "uid": uid},
         "spec": {"containers": [{"name": "app", "image": "app:1"}, {"name": "sidecar", "image": "proxy:2"}]},
         "status": {"containerStatuses": [
             {"name": "app", "ready": True, "restartCount": restarts, "state": {"running": {}}},
@@ -95,8 +96,10 @@ def test_tab_refreshes_containers_and_handles_deleted_pod(qtbot):
     assert not any(b.isEnabled() for b in tab["bar"].items) and "no longer" in tab["bar"].state.text()
     assert len(tab["table"].model.rows) == 2  # last known containers stay visible
 
-    state["pod"] = pod()  # a pod with the same name came back (e.g. StatefulSet): actions work again
+    state["pod"] = pod(uid="replacement")  # a replacement is accepted only by explicitly reopening it
     sink(fetch(None))
+    assert not any(b.isEnabled() for b in tab["bar"].items)
+    ws.open_pod_tab(state["pod"])
     assert all(b.isEnabled() for b in tab["bar"].items)
 
 
@@ -145,3 +148,53 @@ def test_container_context_menu_has_logs_shell_attach(qtbot):
     QTimer.singleShot(200, grab)
     table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
     assert labels == ["Copy cell value", "Filter by this value", "Logs", "Shell…", "Attach…"]
+
+
+@pytest.mark.parametrize("fresh", [None, "different-uid", "missing-uid"])
+def test_unavailable_pod_disables_header_container_and_double_click_actions(qtbot, fresh):
+    ws = make_ws(qtbot)
+    dispatched = []
+    ws._container_action = lambda *args: dispatched.append(args)
+    ws.pod_action = lambda *args: dispatched.append(args)
+    ws.edit_resource = lambda *args: dispatched.append(args)
+    ws.copy_files = lambda *args: dispatched.append(args)
+    ws.open_pod_tab(pod())
+    key = "pod:team/web"
+    tab = ws._pod_tabs[key]
+    replacement = None if fresh is None else pod(uid=None if fresh == "missing-uid" else fresh)
+    ws._set_pod_tab(key, replacement)
+    table = tab["table"]
+    table.action_requested.emit("shell", table.model.rows[0])
+    table.view.doubleClicked.emit(table.proxy.index(0, 0))
+    for action in ("logs", "copy-files", "edit", "terminate"):
+        tab["bar"].action_requested.emit(action)
+    assert dispatched == [] and not table.view.isEnabled()
+    assert tab["row"].raw["metadata"]["uid"] == "pod-uid"
+    # Even a later matching response cannot silently reenable a tab marked unavailable.
+    ws._set_pod_tab(key, pod())
+    assert not tab["available"]
+    ws.open_pod_tab(pod(uid="explicit-replacement"))
+    assert tab["available"] and table.view.isEnabled()
+    table.view.doubleClicked.emit(table.proxy.index(0, 0))
+    assert len(dispatched) == 1
+
+
+def test_explicit_reopen_invalidates_inflight_old_identity_results(qtbot):
+    ws = make_ws(qtbot, read_pod=lambda *a: pod())
+    ws.open_pod_tab(pod())
+    key = "pod:team/web"
+    pending = []
+    ws._run = lambda fn, done, *args, **kw: pending.append((fn, done, args))
+    ws.load_view = ClusterWorkspace.load_view.__get__(ws)
+    ws.load_view(key)
+    previous = pending[0]
+    ws.open_pod_tab(pod(uid="explicit-replacement"))
+    previous[1](previous[0](*previous[2]))
+    assert ws._pod_tabs[key]["available"] and ws._pod_tabs[key]["uid"] == "explicit-replacement"
+
+
+def test_pod_without_uid_is_visible_but_cannot_dispatch_actions(qtbot):
+    ws = make_ws(qtbot)
+    ws.open_pod_tab(pod(uid=None))
+    tab = ws._pod_tabs["pod:team/web"]
+    assert len(tab["table"].model.rows) == 2 and not tab["available"]

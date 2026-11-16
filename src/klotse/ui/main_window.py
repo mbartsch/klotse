@@ -47,7 +47,7 @@ from .read_only import ReadOnlyClusters
 from . import branding, embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
-from .workspace import ClusterWorkspace
+from .workspace import ClusterWorkspace, _PodLoad
 from .cluster_overview import ClusterOverview
 from .status_line import StatusLine
 from .wording import menu_text
@@ -100,7 +100,13 @@ class _MultiSource:
             return gone
         if key == "pods" and ws.big and ws.huge and hasattr(ws.service, "pod_pager"):  # a huge cluster: its first page, and the window's own pager
             return lambda namespace: ws.service.pod_pager(namespace).next()
-        return ws.loaders[key][0]
+        loader = ws.loaders[key][0]
+        if key != "pods":
+            return loader
+        def rows_only(namespace):  # the workspace's pod loader also returns its pager; a multi-cluster read wants rows
+            result = loader(namespace)
+            return result.rows if isinstance(result, _PodLoad) else result
+        return rows_only
 
 
 class MainWindow(QMainWindow):

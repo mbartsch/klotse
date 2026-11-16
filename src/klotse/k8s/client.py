@@ -381,7 +381,10 @@ class KubeService:
         meta, spec, status = pod.get("metadata") or {}, pod.get("spec") or {}, pod.get("status") or {}
         return {"metadata": {k: meta[k] for k in ("name", "namespace", "uid", "ownerReferences") if k in meta},
                 "spec": {"nodeName": spec.get("nodeName"),
-                         "containers": [{"name": c.get("name"), "resources": c.get("resources") or {}} for c in spec.get("containers") or []]},
+                         "containers": [{"name": c.get("name"), "resources": c.get("resources") or {}} for c in spec.get("containers") or []],
+                         "initContainers": [{k: c[k] for k in ("name", "resources", "restartPolicy") if k in c}
+                                            for c in spec.get("initContainers") or []],
+                         **{k: spec[k] for k in ("resources", "overhead") if k in spec}},
                 "status": {"phase": status.get("phase")}}
 
     def list_pods_for_analysis(self, namespace=None, full=False):

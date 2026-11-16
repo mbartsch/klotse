@@ -11,7 +11,7 @@ from test_app import FakeService, FakeStream, open_active
 
 def pod():
     return PodRow("web", "team-a", "1/2", "Running", 1, "node-a", "1d", {
-        "kind": "Pod", "spec": {
+        "kind": "Pod", "metadata": {"name": "web", "namespace": "team-a", "uid": "uid-web"}, "spec": {
             "containers": [{"name": "app", "image": "app:1"}, {"name": "sidecar", "image": "proxy:2"}],
             "initContainers": [{"name": "setup", "image": "setup:1"}],
             "ephemeralContainers": [{"name": "debugger", "image": "debug:1"}],

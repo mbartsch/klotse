@@ -18,16 +18,16 @@ CPU_FLOOR, MEM_FLOOR = 0.010, 32.0
 
 
 def owner_of(pod):
-    """(kind, name) of what runs a pod: its controller, with a ReplicaSet's hash cut off to name the Deployment; a bare pod is its own."""
+    """(kind, name) of the immediate controller recorded in ownerReferences, or the bare pod itself.
+
+    Names do not establish controller ancestry: a standalone ReplicaSet or Job can look like a Deployment/CronJob child.
+    """
     meta = (pod.raw or {}).get("metadata") or {}
     for ref in meta.get("ownerReferences") or []:
         if ref.get("controller"):
             kind, name = ref.get("kind", ""), ref.get("name", "")
-            if kind == "ReplicaSet" and name.count("-") >= 1:
-                return "Deployment", name.rsplit("-", 1)[0]
-            if kind == "Job" and name.count("-") >= 1 and name.rsplit("-", 1)[1].isdigit():
-                return "CronJob", name.rsplit("-", 1)[0]
-            return kind, name
+            if kind and name:
+                return kind, name
     return "Pod", pod.name
 
 
