@@ -27,7 +27,7 @@ from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow,
 from .api_index import ApiResource
 from .resources import MIN_TS, SPEC_BY_KEY, SPEC_BY_KIND, WORKLOAD_DELETE_KINDS, UNKNOWN as UNKNOWN_CELL, map_custom_object, map_helm_release, map_secret, map_secret_metadata, NOT_APPLICABLE
 from .util import format_age, to_dict as _raw  # format_age is re-exported for callers/tests
-from .selectors import cronjob_job_uids, cronjob_pod_info
+from .selectors import cronjob_job_uids, cronjob_pod_info, selector_text
 
 
 # pod states that mean a pod will not become ready without intervention
@@ -2038,7 +2038,13 @@ class KubeService:
                 "StatefulSet": apps.read_namespaced_stateful_set}[kind]
         obj = read(name, namespace, _request_timeout=15)
         st = obj.status
-        selector = ",".join(f"{k}={v}" for k, v in (obj.spec.selector.match_labels or {}).items())
+        # matchLabels and matchExpressions both select the pods (#654): an expression-only selector used to select none
+        sel = obj.spec.selector
+        selector = selector_text({
+            "matchLabels": dict(sel.match_labels or {}) if sel else {},
+            "matchExpressions": [{"key": e.key, "operator": e.operator, "values": list(e.values or [])}
+                                 for e in (sel.match_expressions or [])] if sel else [],
+        })
         items = self._core.list_namespaced_pod(namespace, label_selector=selector, _request_timeout=15).items if selector else []
         pods = []
         for p in items:
