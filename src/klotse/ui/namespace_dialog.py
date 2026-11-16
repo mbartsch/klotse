@@ -17,7 +17,7 @@ def parse_pairs(text):
             continue
         key, sep, value = line.partition("=")
         if not sep or not key.strip():
-            raise ValueError(f"Expected key=value, got: {line!r}")
+            raise ValueError(f"Expected key=value, got: {line}")
         out[key.strip()] = value.strip()
     return out
 
@@ -38,7 +38,7 @@ class NamespaceDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("New namespace")
+        self.setWindowTitle("New Namespace")
         resize_dialog(self, 480, 420)
         self.result_body = None
         self.name = QLineEdit(placeholderText="my-namespace")

@@ -136,3 +136,28 @@ def test_duration_and_ratio_columns_sort_by_value_not_as_text():
     ready = [model.index(i, 1).data(Qt.EditRole) for i in range(2)]
     assert ready[0] > ready[1]
     assert age_sort_value("1d2h") == 93600 and age_sort_value("nope") == -1 and ratio_sort_value("Ready") == -1
+
+
+def test_a_namespace_label_error_shows_the_line_without_python_quotes():
+    # #500 part 18: the error showed the line as a Python repr ('oops'), not as the user typed it
+    import pytest
+    from klotse.ui.namespace_dialog import parse_pairs
+    with pytest.raises(ValueError) as error:
+        parse_pairs("oops")
+    assert str(error.value) == "Expected key=value, got: oops"
+
+
+def test_auto_refresh_wording_is_one_family_in_view_and_navigator(qtbot, tmp_path):
+    from PySide6.QtCore import QSettings
+    from klotse.ui.customizations import LabelSettings
+    from klotse.ui.main_window import MainWindow
+    from test_app import FakeService, open_active
+    win = MainWindow(FakeService, label_settings=LabelSettings(QSettings(str(tmp_path / "k.ini"), QSettings.IniFormat)))
+    qtbot.addWidget(win)
+    open_active(win)
+    texts = [a.text() for a in win.auto_refresh_menu.actions()]
+    assert "Turn auto-refresh off for all clusters" in texts and "Turn auto-refresh on for all clusters" in texts
+    ctx = win.clusters.currentWidget().context
+    menu = win.nav.menu_for(win.nav._clusters[ctx])
+    labels = [a.text() for a in menu.actions() if a.text().startswith(("Turn", "Disable", "Enable"))]
+    assert labels == ["Turn off auto-refresh"]  # the cluster is running with an interval: only the change that applies
