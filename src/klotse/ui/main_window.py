@@ -117,6 +117,8 @@ class MainWindow(QMainWindow):
         self.workspaces = {}  # context name -> ClusterWorkspace
         self._connection_retries = {}  # context -> (timer, attempts started)
         self._connection_prompts = {}  # context -> non-modal failure dialog
+        self._failures = {}  # failed connections that the next notice lists together (#502)
+        self._failure_notice_pending = False
         self._detached = {}  # context name -> top-level window containing its workspace
         self._all_clusters_detached = None
         self._global_auto_paused = False
@@ -706,6 +708,9 @@ class MainWindow(QMainWindow):
                 super().focusInEvent(event)
 
             def closeEvent(window, event):  # noqa: N802
+                link = getattr(window, "_message_link", None)
+                if link is not None:
+                    link[0].message.disconnect(link[1])  # its messages go back to the main status bar only
                 workspace = window.takeCentralWidget()
                 if workspace is not None:
                     workspace.setParent(owner.clusters)
@@ -721,6 +726,17 @@ class MainWindow(QMainWindow):
         window.setWindowTitle(f"{shown} — Klotse" if shown == ws.context else f"{shown} ({ws.context}) — Klotse")  # no "prod (prod)" (#500)
         window.setCentralWidget(ws)
         ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
+        # the window has its own status bar and the window-level shortcuts of the main menus (#502)
+        window.statusBar()
+
+        def show_here(text, w=window):
+            w.statusBar().showMessage(text, 6000)
+
+        ws.message.connect(show_here)
+        window._message_link = (ws, show_here)
+        for action in self.findChildren(QAction):
+            if not action.shortcut().isEmpty():
+                window.addAction(action)
         self._detached[ws.context] = window
         self._update_scope_title(ws)
         self._sync_cluster_picker(ws.context)
@@ -1467,7 +1483,8 @@ class MainWindow(QMainWindow):
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
                                    forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
                                    proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store),
-                                   metrics_test=self._test_metrics_source, metrics_discover=self._discover_metrics_sources)
+                                   metrics_test=self._test_metrics_source, metrics_discover=self._discover_metrics_sources,
+                                   confirm_kubeconfig=self._confirm_kubeconfig_change)
         if plugin_id and dialog.plugins_panel is not None:
             dialog.tabs.setCurrentWidget(dialog.plugins_panel)
             for index in range(dialog.plugins_panel.list.count()):
@@ -1493,7 +1510,7 @@ class MainWindow(QMainWindow):
         if accepted and chosen_theme and chosen_theme != self.theme_settings.selected().name:
             self.apply_theme(chosen_theme)
         if accepted and chosen != self.kubeconfig_settings.path:
-            self.apply_kubeconfig(chosen)
+            self.apply_kubeconfig(chosen, asked=True)
 
     def timing_log_path(self):
         return os.path.join(os.path.dirname(self.label_settings.store.fileName()), "timings.log")
@@ -1537,11 +1554,17 @@ class MainWindow(QMainWindow):
         self._sync_plugin_error_status()  # the plugin-error button takes the new error colour (#501)
         return True
 
-    def apply_kubeconfig(self, path):
-        """Switch to another kubeconfig (None = default): close open clusters, then reload the context list."""
-        if self.workspaces and QMessageBox.question(
-                self, "Change kubeconfig", "Changing the kubeconfig closes all open clusters. Continue?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+    def _confirm_kubeconfig_change(self):
+        """Asked while Preferences is still open, before anything is saved (#502). True when no cluster would close."""
+        if not self.workspaces:
+            return True
+        return QMessageBox.question(self, "Change kubeconfig", "Changing the kubeconfig closes all open clusters. Continue?",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+
+    def apply_kubeconfig(self, path, asked=False):
+        """Switch to another kubeconfig (None = default): close open clusters, then reload the context list. `asked`: the
+        question was already answered in Preferences."""
+        if not asked and self.workspaces and not self._confirm_kubeconfig_change():
             return False
         try:
             self.kubeconfig_settings.set_path(path)
@@ -1579,6 +1602,9 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
     def reconnect_cluster(self, ctx):
+        ws = self.workspaces.get(ctx)
+        if ws is not None and not self._confirm_stop_work(ws, "reconnect"):
+            return
         self._discard(ctx)
         self.open_cluster(ctx)
 
@@ -1599,29 +1625,51 @@ class MainWindow(QMainWindow):
             return
         if self._shutting_down:
             return
-        box = QMessageBox(QMessageBox.Warning, "Cannot connect", f"{ctx}\n\n{msg}", parent=self)
+        self._failures[ctx] = msg
+        if not self._failure_notice_pending:
+            self._failure_notice_pending = True
+            QTimer.singleShot(0, self._show_failures)  # the clusters that fail together share one notice (#502)
+
+    def _show_failures(self):
+        """One notice for every cluster that failed to connect (restoring several with the VPN down, or Connect all)."""
+        self._failure_notice_pending = False
+        failed, self._failures = self._failures, {}
+        if not failed or self._shutting_down:
+            return
+        ctxs = list(failed)
+        if len(ctxs) == 1:
+            text, title = f"{ctxs[0]}\n\n{failed[ctxs[0]]}", "Cannot connect"
+        else:
+            text = "\n".join(f"{c}: {m}" for c, m in failed.items())
+            title = f"Cannot connect to {len(ctxs)} clusters"
+        box = QMessageBox(QMessageBox.Warning, title, text, parent=self)
         retry = box.addButton("Retry now", QMessageBox.AcceptRole)
         later = box.addButton("Retry in background", QMessageBox.ActionRole)
         box.addButton(QMessageBox.Cancel)
         box.setDefaultButton(QMessageBox.Cancel)
         box.setModal(False)
-        self._connection_prompts[ctx] = box
+        for ctx in ctxs:
+            self._connection_prompts[ctx] = box
 
         def answered(_result):
-            if self._connection_prompts.get(ctx) is not box:
+            mine = [c for c in ctxs if self._connection_prompts.get(c) is box]
+            if not mine:
                 return
-            self._connection_prompts.pop(ctx, None)
+            for c in mine:
+                self._connection_prompts.pop(c, None)
             clicked = box.clickedButton()
             box.deleteLater()
             if self._shutting_down:
                 return
             if clicked is retry:
-                self.open_cluster(ctx)
+                for c in mine:
+                    self.open_cluster(c)
             elif clicked is later:
-                timer = QTimer(self, singleShot=True)
-                timer.timeout.connect(lambda: self._retry_connection(ctx))
-                self._connection_retries[ctx] = (timer, 0)
-                self._schedule_connection_retry(ctx)
+                for c in mine:
+                    timer = QTimer(self, singleShot=True)
+                    timer.timeout.connect(lambda c=c: self._retry_connection(c))
+                    self._connection_retries[c] = (timer, 0)
+                    self._schedule_connection_retry(c)
 
         box.finished.connect(answered)
         box.show()
@@ -1669,21 +1717,29 @@ class MainWindow(QMainWindow):
             self._discard(ctx)
         self.status.showMessage(f"{ctx}: background connection retry cancelled")
 
-    def _confirm_stop_forwards(self, ws):
-        """Closing or disconnecting a cluster stops its port forwards. Ask first (default No) when there are some; True otherwise."""
-        active = ws.port_forwards.active()
-        if not active:
+    def _confirm_stop_work(self, ws, action):
+        """Closing, disconnecting or reconnecting a cluster stops its port forwards, log streams and open tool windows. Ask
+        first (default No) when there is any; True otherwise (#502)."""
+        forwards, streams, windows = ws.running_work()
+        if not (forwards or streams or windows):
             return True
-        names = "\n".join(f"{fw.namespace}/{fw.name} port {fw.remote}" for fw in active)
-        answer = QMessageBox.question(self, "Stop port forwards?",
-                                      f"Cluster: {ws.context}\n{len(active)} port forward(s) are running:\n{names}\n\n"
-                                      "Closing this cluster stops them. Continue?",
+        parts = []
+        if forwards:
+            names = "\n".join(f"  {fw.namespace}/{fw.name} port {fw.remote}" for fw in forwards)
+            parts.append(f"{len(forwards)} port forward(s):\n{names}")
+        if streams:
+            parts.append(f"{streams} log stream(s)")
+        if windows:
+            parts.append(f"{len(windows)} open window(s)")
+        answer = QMessageBox.question(self, f"{action.capitalize()} {ws.context}?",
+                                      f"Cluster: {ws.context}\nRunning: " + "; ".join(parts)
+                                      + f"\n\n{action.capitalize()} stops them. Continue?",
                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         return answer == QMessageBox.Yes
 
     def _disconnect_clicked(self, ctx):
         ws = self.workspaces.get(ctx)
-        if ws is not None and not self._confirm_stop_forwards(ws):
+        if ws is not None and not self._confirm_stop_work(ws, "disconnect"):
             return
         self._discard(ctx)
 
@@ -1691,7 +1747,7 @@ class MainWindow(QMainWindow):
         ws = self.clusters.widget(index)
         if ws is self.cluster_overview:
             return
-        if not self._confirm_stop_forwards(ws):
+        if not self._confirm_stop_work(ws, "close"):
             return
         self._discard(ws.context)
 

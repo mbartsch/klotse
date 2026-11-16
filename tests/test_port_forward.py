@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from klotse.ui.port_forward import (Forward, PortForwardDialog, PortForwardPanel, PortForwards, forward_ports, valid_port)
 from klotse.ui.workspace import ClusterWorkspace
@@ -327,6 +327,8 @@ def test_closing_the_tab_stops_the_forwards(qtbot, monkeypatch):
     accept_with(monkeypatch, (0, 80))
     fw = ws.start_port_forward("Pod", row())
     wait_for(qtbot, fw, "active")
+    # #502: closing the tab with a running forward asks first; the answer here is Yes
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
     ws._close_log_tab(0)
     wait_for(qtbot, fw, "stopped")
     assert ws.log_tabs.count() == 0
