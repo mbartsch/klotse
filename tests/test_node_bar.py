@@ -31,7 +31,7 @@ def test_pods_tab_has_node_action_bar(qtbot):
     table = ws.views["node-pods:n1"][0]
     bar = ws._node_bars["n1"][0]
     assert bar.parent() is table and bar.title.text() == "Node n1"
-    assert texts(bar) == ["Cordon…", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete…"]
+    assert texts(bar) == ["Cordon…", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete node…"]
     assert "Ready" in bar.state.text()
 
 

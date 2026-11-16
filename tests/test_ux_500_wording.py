@@ -200,3 +200,23 @@ def test_destructive_bar_entries_carry_the_trash_mark(qtbot):
     button, items = actions_button([("Terminate…", "terminate"), ("Edit…", "edit")], lambda name: None)
     qtbot.addWidget(button)
     assert not items[0].icon().isNull() and items[1].icon().isNull()
+
+
+def test_gateway_objects_can_be_deleted_in_bulk(qtbot):
+    # #500 (all remaining): Gateway API objects were deletable one at a time only
+    table = ResourceTable([("Name", "name")], "HTTPRoute")
+    qtbot.addWidget(table)
+    table.deletable = True
+    table.set_rows([SimpleNamespace(name="a", namespace="shop", raw={"metadata": {"name": "a", "namespace": "shop"}, "spec": {}}),
+                    SimpleNamespace(name="b", namespace="shop", raw={"metadata": {"name": "b", "namespace": "shop"}, "spec": {}})])
+    seen = []
+
+    def read():
+        menu = QApplication.activePopupWidget()
+        seen.extend(a.text() for a in menu.actions())
+        menu.close()
+
+    QTimer.singleShot(200, read)
+    table.view.selectAll()
+    table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
+    assert any(t.startswith("Delete 2 ") for t in seen)

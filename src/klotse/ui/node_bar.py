@@ -23,7 +23,8 @@ class NodeActionBar(QWidget):
         # "cordon" is a toggle: the entry is renamed and sends "uncordon" while the node is cordoned
         self.menu_button, self.items = actions_button(
             [("Cordon…", "cordon"), ("Drain…", "drain"), ("Shell (nsenter)…", "node-shell"), None,
-             ("Delete node…", "delete-node"), ("Force delete…", "force-delete-node")], self._emit)
+             ("Delete node…", "delete-node"), ("Force delete node…", "force-delete-node")], self._emit,
+            text="More…")  # the same "More…" button as the pod bar and Details (#500)
         self.cordon = self.items[0]
         self.overview = NodeOverview()
         self._row, self._pods = None, None  # the node row and the pods listed in the tab (None until they arrive)
