@@ -260,7 +260,12 @@ class DataEditor(QWidget):
 
     def _add(self):
         key = self.new_key.text().strip()
-        if not key or any(e["key"] == key for e in self.entries):
+        if not key:
+            QMessageBox.warning(self, "Add key", "Type a name for the new key first.")  # #496: said nothing before
+            return
+        if any(e["key"] == key for e in self.entries):
+            QMessageBox.warning(self, "Add key", f"A key named “{key}” already exists here. Choose another name, "
+                                "or select it and change its value.")
             return
         self.entries.append({"key": key, "stored": None, "text": "", "shown_text": None, "revealed": True,
                              "binary": False, "new": True})
@@ -294,6 +299,9 @@ class DataEditor(QWidget):
             self._loading = True
             item.setText(entry["key"])  # an empty or repeated name is not accepted
             self._loading = False
+            if key != entry["key"]:
+                why = "is empty" if not key else f"“{key}” already exists here"
+                QMessageBox.warning(self, "Rename key", f"The key was not renamed: the new name {why}.")  # #496: said nothing
 
     # ---- result ----
     def keys_in_use(self):

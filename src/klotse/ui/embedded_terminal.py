@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from . import theme
 from ..k8s.process_env import environment
@@ -245,6 +245,12 @@ class TerminalHost(QObject):
     def _make_window(self):
         class Window(QWidget):
             def closeEvent(w, event):  # noqa: N805
+                # Closing the window ends a live shell: ask first, default No (#496). An ended session closes at once.
+                if not self.tab.ended and QMessageBox.question(
+                        w, "End the terminal", "This terminal is still running. Closing it ends the shell and any program in it.",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                    event.ignore()
+                    return
                 self._end()
                 event.accept()
         window = Window()  # no parent: a parented window stays above its owner on Windows
