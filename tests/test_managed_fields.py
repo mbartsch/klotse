@@ -56,4 +56,4 @@ def test_view_menu_option_applies_to_open_and_new_workspaces(qtbot):
     assert not ws.detail.show_managed_fields
     action.setChecked(True)
     assert ws.detail.show_managed_fields
-    assert [a.text() for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]
+    assert [a.text().replace("&", "") for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]

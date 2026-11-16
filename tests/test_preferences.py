@@ -41,7 +41,7 @@ def kubeconfig_file(tmp_path, name="other-config"):
 # ---- Edit menu ---------------------------------------------------------------------------------
 def test_edit_menu_has_the_traditional_commands_and_preferences(qtbot, tmp_path):
     win = window(qtbot, tmp_path)
-    assert [a.text() for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]
+    assert [a.text().replace("&", "") for a in win.menuBar().actions()][:3] == ["File", "Edit", "View"]
     texts = [a.text() for a in win.edit_menu.actions() if not a.isSeparator()]
     assert texts == ["Undo", "Redo", "Cut", "Copy", "Paste", "Select All", "Preferences…"]
     assert win.edit_actions.actions["copy"].shortcut().toString()
