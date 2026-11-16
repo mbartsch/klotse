@@ -17,6 +17,32 @@ from .customizations import ANNOTATION_KINDS
 from .loading_pane import LoadingPane
 from .table_model import TableModel, age_sort_value
 
+# Column widths are remembered per list kind, in the app's settings (#501). The main window passes its store; a table built
+# on its own (tests) remembers nothing.
+_settings = None
+WIDTHS_KEY = "columns/widths/"
+
+
+def use_settings(store):
+    global _settings
+    _settings = store
+
+
+def _load_widths(kind):
+    if _settings is None:
+        return {}
+    widths = {}
+    for entry in str(_settings.value(WIDTHS_KEY + kind, "") or "").split(" | "):
+        attr, sep, width = entry.rpartition(" -> ")
+        if sep and attr and width.isdigit():
+            widths[attr] = int(width)
+    return widths
+
+
+def _save_widths(kind, widths):
+    if _settings is not None:
+        _settings.setValue(WIDTHS_KEY + kind, " | ".join(f"{attr} -> {width}" for attr, width in widths.items()))
+
 
 METRIC_KINDS = {"Pod", "Node", "Deployment", "StatefulSet", "DaemonSet"}  # have a usage history chart
 METRIC_QUERY_KINDS = {"Pod", "Node", "Deployment", "StatefulSet", "DaemonSet"}  # Metrics query… (PromQL about the object)
@@ -131,7 +157,8 @@ class ResourceTable(QWidget):
         self._loaded_at = ""
         self._last_error = ""
         self._sized_columns = False
-        self._column_widths = {}  # widths keyed by attribute, including temporarily hidden plugin columns
+        self._column_widths = _load_widths(kind)  # widths keyed by attribute, including temporarily hidden plugin columns
+        self._width_guard = False  # set while the table sizes its own columns: those widths are not the user's
         self._has_loaded = False
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
@@ -201,6 +228,7 @@ class ResourceTable(QWidget):
         # window or the set of plugin columns changes.
         self.view.horizontalHeader().setStretchLastSection(False)
         self.view.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.view.horizontalHeader().sectionResized.connect(self._section_resized)
         # Column sizing runs on the GUI thread. Sample a bounded number of rows.
         self.view.horizontalHeader().setResizeContentsPrecision(100)
         self.view.verticalHeader().hide()
@@ -776,9 +804,23 @@ class ResourceTable(QWidget):
             selection.blockSignals(was_blocked)
         self.view.verticalScrollBar().setValue(scroll)
 
+    def _section_resized(self, index, _old, new):
+        """A width the user dragged is remembered for this list kind, so the next start keeps it (#501)."""
+        if self._width_guard or index >= len(self.model.columns):
+            return
+        self._column_widths[self.model.columns[index][1]] = new
+        _save_widths(self.kind, self._column_widths)
+
     def fit_columns(self):
         """Fit visible columns, limiting long plugin values to a practical width."""
-        self.view.resizeColumnsToContents()
+        self._width_guard = True
+        try:
+            self.view.resizeColumnsToContents()
+            for index, column in enumerate(self.model.columns):
+                if column[1] in self._column_widths:  # a width the user set wins over the fit (#501)
+                    self.view.setColumnWidth(index, self._column_widths[column[1]])
+        finally:
+            self._width_guard = False
         for index, column in enumerate(self.model.columns):
             if column[1].startswith("plugin:") and self.view.columnWidth(index) > 240:
                 self.view.setColumnWidth(index, 240)
@@ -871,13 +913,17 @@ class ResourceTable(QWidget):
             self._refresh_filter_completions()
             new_sort = next((i for i, col in enumerate(columns) if col[1] == sort_attr), -1)
             self.view.sortByColumn(new_sort, sort_order)
-            for i, col in enumerate(columns):
-                if col[1] in self._column_widths:
-                    self.view.setColumnWidth(i, self._column_widths[col[1]])
-                else:
-                    self.view.resizeColumnToContents(i)
-                    if col[1].startswith("plugin:") and self.view.columnWidth(i) > 240:
-                        self.view.setColumnWidth(i, 240)
+            self._width_guard = True
+            try:
+                for i, col in enumerate(columns):
+                    if col[1] in self._column_widths:
+                        self.view.setColumnWidth(i, self._column_widths[col[1]])
+                    else:
+                        self.view.resizeColumnToContents(i)
+                        if col[1].startswith("plugin:") and self.view.columnWidth(i) > 240:
+                            self.view.setColumnWidth(i, 240)
+            finally:
+                self._width_guard = False
             self._restore_selection(*kept)
             self.view.horizontalScrollBar().setValue(horizontal_scroll)
         finally:
