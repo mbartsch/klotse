@@ -1,5 +1,6 @@
-"""#499 analysis windows, captured offscreen with invented data (no cluster). Usage:
-  QT_QPA_PLATFORM=offscreen PYTHONPATH=<tree>/src python capture_499.py OUTDIR"""
+"""#499 analysis windows, captured with the Windows platform (text renders) and invented data (no cluster). Before = master's src,
+after = this branch's src. Usage:
+  QT_QPA_PLATFORM=windows PYTHONPATH=<tree>/src python docs/ux-review/499/capture_analysis_windows.py OUTDIR"""
 import os
 import sys
 from types import SimpleNamespace as NS
