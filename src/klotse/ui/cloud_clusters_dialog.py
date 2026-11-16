@@ -243,7 +243,7 @@ class CloudClustersDialog(QDialog):
     def _added(self, result):
         added, skipped, errors = result
         self._set_busy(False)
-        lines = [f"Added {len(added)} context(s)."]
+        lines = [f"Added {len(added)} cluster(s)."]
         if skipped:
             lines.append("Already in the file, not changed: " + ", ".join(skipped))
         lines += [f"Failed: {error}" for error in errors]

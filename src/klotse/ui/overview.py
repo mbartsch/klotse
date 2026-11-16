@@ -320,7 +320,7 @@ class OverviewView(QWidget):
         self.quick_actions_button.setPopupMode(QToolButton.InstantPopup)
         self.quick_actions_button.setAccessibleName("More cluster actions")
         menu = QMenu(self.quick_actions_button)
-        for label, action in (("Node capacity…", "capacity"), ("Health check…", "health"),
+        for label, action in (("Capacity…", "capacity"), ("Health check…", "health"),
                               ("My permissions…", "permissions")):
             menu.addAction(label, lambda key=action: self.action_requested.emit(key))
         self.quick_actions_button.setMenu(menu)

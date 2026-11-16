@@ -369,5 +369,5 @@ def test_the_bulk_menu_offers_usage_history_for_several_pods(qtbot):
     ws.show()
     ws.pod_table.set_rows([row_pod(), row_pod()])
     ws.pod_table.view.selectAll()
-    assert "Usage history of 2 Pods…" in menu_texts(ws.pod_table)
+    assert "Usage history of 2 pods…" in menu_texts(ws.pod_table)
     ws.shutdown()

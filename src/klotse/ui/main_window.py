@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
         self.metrics_query_action.triggered.connect(self.show_cluster_metrics_query)
         insights_menu.addAction(self.metrics_query_action)
         insights_menu.aboutToShow.connect(lambda: self.metrics_query_action.setEnabled(self.workspace() is not None))
-        self.port_forwards_action = QAction("Port forwards…", self)
+        self.port_forwards_action = QAction("Port forwards", self)  # opens a tab, not a dialog: no ellipsis
         self.port_forwards_action.setToolTip("The kubectl port-forwards of the cluster in front: state, address, save, stop")
         self.port_forwards_action.triggered.connect(self.show_port_forwards)
         operations_menu.addAction(self.port_forwards_action)
