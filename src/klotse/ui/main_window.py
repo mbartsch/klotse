@@ -322,7 +322,7 @@ class MainWindow(QMainWindow):
         self.clusters.setDocumentMode(True)
         self.clusters.setAccessibleName("Open cluster workspaces")
         self.clusters.setTabBar(ScrollableTabBar())
-        self.clusters.setTabBarAutoHide(True)
+        self.clusters.setTabBarAutoHide(False)  # #501: with one cluster open the tab bar kept its Close and Detach controls hidden
         self.clusters.setTabsClosable(True)
         self.clusters.tabCloseRequested.connect(self._close_cluster_tab)
         self.clusters.setContextMenuPolicy(Qt.CustomContextMenu)

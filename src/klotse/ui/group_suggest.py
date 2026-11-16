@@ -147,7 +147,7 @@ class SuggestGroupsDialog(QDialog):
         self.ignore_case = QCheckBox("Ignore case")
         self.ignore_case.setChecked(True)
         self.regex_error = QLabel()
-        self.regex_error.setStyleSheet("color: #e5484d;")
+        self.regex_error.setStyleSheet(f"color: {theme.BAD};")  # the theme's error colour (#501)
         self.regex_error.setWordWrap(True)
         hint = QLabel(r"Example: eks-prod-eu-1 with ^([a-z]+)-([a-z]+)-([a-z]+) gives the groups eks, eks/prod and "
                       r"eks/prod/eu. Names that do not match stay ungrouped.")
