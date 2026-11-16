@@ -1,6 +1,6 @@
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QDialog, QFrame, QInputDialog, QMenu, QMessageBox, QSizePolicy, QTreeWidget, QTreeWidgetItem
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QInputDialog, QMenu, QMessageBox, QSizePolicy, QTreeWidget, QTreeWidgetItem
 
 from .cluster_groups import clean_path, inside, leaf_name, parent_path
 from .group_suggest import SuggestGroupsDialog
@@ -10,6 +10,13 @@ ACTIVE_STATES = ("connecting", "connected")  # shown in the Connected section
 def state_color(state):
     """A state's dot colour, read from the current theme when drawn (#501: the fixed hex values ignored a theme change)."""
     return {"idle": theme.MUTED, "connecting": theme.WARN, "connected": theme.OK, "failed": theme.BAD}[state]
+
+def row_height(px):
+    """A tree row is never shorter than its text plus a margin, so a larger system font does not clip it (#501)."""
+    app = QApplication.instance()
+    text = QFontMetrics(app.font()).height() + 8 if app is not None else 0
+    return max(px, text)
+
 STATE_SHAPES = {"idle": "hollow", "connecting": "ring", "connected": "dot", "failed": "square"}  # not colour alone (#498)
 
 # Shown under the connected cluster, Lens order. A leaf is (key, label); a group is
@@ -140,18 +147,18 @@ class Navigator(QTreeWidget):
             font.setBold(True)
             font.setPointSizeF(max(font.pointSizeF(), 9.0))
             item.setForeground(0, QBrush(QColor(theme.MUTED)))
-            item.setSizeHint(0, QSize(0, 30))
+            item.setSizeHint(0, QSize(0, row_height(30)))
         elif kind in (self.RESOURCE_GROUP, "gateway", "karpenter"):
             font.setBold(True)
             font.setPointSizeF(max(font.pointSizeF(), 9.0))
             item.setForeground(0, QBrush(QColor(theme.MUTED)))
-            item.setSizeHint(0, QSize(0, 28))
+            item.setSizeHint(0, QSize(0, row_height(28)))
         elif kind == "group":
             font.setBold(True)
             item.setForeground(0, QBrush(QColor(theme.MUTED)))
-            item.setSizeHint(0, QSize(0, 24))
+            item.setSizeHint(0, QSize(0, row_height(24)))
         elif kind == "view":
-            item.setSizeHint(0, QSize(0, 24))
+            item.setSizeHint(0, QSize(0, row_height(24)))
         item.setFont(0, font)
 
     def mouseMoveEvent(self, event):
