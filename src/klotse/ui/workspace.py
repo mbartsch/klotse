@@ -138,6 +138,7 @@ KIND_VIEW = {"Deployment": "deployments", "ReplicaSet": "replicasets", "Stateful
 class _PodLoad:
     rows: list
     pager: object = None
+    refused: tuple = ()  # (namespace, explanation) for each chosen namespace that could not be read (#525)
 
 
 class _InputFilter(QObject):
@@ -603,6 +604,17 @@ class ClusterWorkspace(QMainWindow):
             pager = make(namespace, **options)
             return _PodLoad(pager.next(), pager)
         return _PodLoad(self.service.list_pods(namespace, **options))
+
+    def _read_pods_many(self, namespaces, **options):
+        """Pods of several namespaces in one list (#525). Each namespace is read on its own: a refused or failing one is
+        listed in `refused` and the rest still show. Rows keep their namespace, so the namespace column tells them apart."""
+        rows, refused = [], []
+        for namespace in namespaces:
+            try:
+                rows.extend(self.service.list_pods(namespace, **options))
+            except Exception as error:  # one namespace must not hide the others; its reason is shown in the list's status
+                refused.append((namespace, explain(str(error), "Pods")))
+        return _PodLoad(rows, refused=tuple(refused))
 
     def _pods_loaded(self, result):
         # The serial-validated GUI sink owns both rows and pager; abandoned workers never publish shared state.
