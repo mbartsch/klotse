@@ -2754,12 +2754,13 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"Copy of {kind} {row.name}: " + "; ".join(notes))
         self._edit_flow(kind, body, "", "", creating=True)
 
-    def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None):
+    def _edit_flow(self, kind, raw, name, namespace, creating=False, secret_data=None, pending=None):
         """The form and the YAML editor are two views of one manifest: each hands its current (pending) changes to the
-        other, until one of them saves or the user cancels."""
+        other, until one of them saves or the user cancels. `pending` reopens the editor with a save's refused text (#496);
+        `raw` stays the object as it was read, so the review still shows the whole change."""
         if not self._writable("create or edit objects"):
             return
-        current, from_yaml, stay_yaml = raw, False, False
+        current, from_yaml, stay_yaml = (pending if pending is not None else raw), False, False
         while True:
             form = None
             if self._has_form(kind, current) and not stay_yaml:
@@ -2778,7 +2779,8 @@ class ClusterWorkspace(QMainWindow):
                 if accepted:
                     verdict = self._review(kind, name, form.result_body, raw, creating)
                     if verdict == SAVE:
-                        self._submit(kind, name, form.result_body, creating, namespace)
+                        self._submit(kind, name, form.result_body, creating, namespace, on_refused=self._reopener(
+                            kind, raw, name, namespace, creating, secret_data))
                         return
                     if verdict == CANCEL:
                         return
@@ -2800,7 +2802,8 @@ class ClusterWorkspace(QMainWindow):
                     return
                 verdict = self._review(kind, name, dlg.result_body, raw, creating)
                 if verdict == SAVE:
-                    self._submit(kind, name, dlg.result_body, creating)
+                    self._submit(kind, name, dlg.result_body, creating, on_refused=self._reopener(
+                        kind, raw, name, namespace, creating, secret_data))
                     return
                 if verdict == CANCEL:
                     return
@@ -2868,11 +2871,28 @@ class ClusterWorkspace(QMainWindow):
         dialog.deleteLater()
         return verdict
 
-    def _submit(self, kind, name, body, creating, namespace=""):
+    def _reopener(self, kind, raw, name, namespace, creating, secret_data):
+        """What to do with a save the server refused: offer to open the editor again with the same changes (#496)."""
+        return lambda body: self._edit_flow(kind, raw, name, namespace, creating, secret_data, pending=body)
+
+    def _submit(self, kind, name, body, creating, namespace="", on_refused=None):
         name = name or (body.get("metadata") or {}).get("name", "")
+
+        def failed(message):
+            # The editor has closed; the typed changes are not lost: the user may open it again with them (#496)
+            self._on_error(message)
+            if on_refused is not None and QMessageBox.question(
+                    self, "Changes not saved", "Open the editor again with the changes you made?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+                on_refused(body)
+
+        on_error = failed if on_refused is not None else self._on_error
+
+        def run(fn, ok, *args):
+            self._run(fn, ok, *args, on_error=on_error)
         if kind == "Secret" and not creating:  # the form hands over a patch with only what changed, never the whole Secret
             self.message.emit(f"Saving Secret {name}…")
-            self._run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)
+            run(self.service.patch_secret, lambda _: self._saved(kind, name), namespace, name, body)
             return
         custom = self._custom_kinds.get(kind)
         if custom is not None:  # a Gateway API object: the dynamic custom-object calls
@@ -2880,17 +2900,17 @@ class ClusterWorkspace(QMainWindow):
             ns = (body.get("metadata") or {}).get("namespace") or ""
             if creating:
                 self.message.emit(f"Creating {kind} {name}…")
-                self._run(self.service.create_custom, lambda _: self._created(kind, name), group, version, plural, namespaced, body)
+                run(self.service.create_custom, lambda _: self._created(kind, name), group, version, plural, namespaced, body)
             else:
                 self.message.emit(f"Saving {kind} {name}…")
-                self._run(self.service.replace_custom, lambda _: self._saved(kind, name), group, version, plural, namespaced, ns, name, body)
+                run(self.service.replace_custom, lambda _: self._saved(kind, name), group, version, plural, namespaced, ns, name, body)
             return
         if creating:
             self.message.emit(f"Creating {kind} {name}…")
-            self._run(self.service.create, lambda _: self._created(kind, name), kind, body)
+            run(self.service.create, lambda _: self._created(kind, name), kind, body)
             return
         self.message.emit(f"Saving {kind} {name}…")
-        self._run(self.service.replace, lambda _: self._saved(kind, name), kind, body)
+        run(self.service.replace, lambda _: self._saved(kind, name), kind, body)
 
     def _created(self, kind, name):
         self.message.emit(f"Created {kind} {name}")
