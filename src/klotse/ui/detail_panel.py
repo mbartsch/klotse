@@ -501,6 +501,8 @@ class DetailPanel(QWidget):
                     menu.addSeparator()
                     dangerous_started = True
                 item = menu.addAction(action.title)
+                if action.dangerous:
+                    item.setIcon(action_icon("delete"))  # the same trash mark as the row menus (#500)
                 item.setToolTip(action.title)
                 item.triggered.connect(action.callback)
             button = QToolButton(text="More…")

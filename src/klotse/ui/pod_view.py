@@ -52,7 +52,9 @@ class PodActionBar(QWidget):
         self.logs_button.setToolTip("Show logs for this pod")
         self.logs_button.clicked.connect(lambda: self.action_requested.emit("logs"))
         self.menu_button, self.items = actions_button(
-            [("Edit…", "edit"), ("Copy files…", "copy-files"), None, ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
+            [("Edit…", "edit"), ("Copy as new…", "copy"), ("Copy files…", "copy-files"), ("Browse files…", "browse-files"),
+             ("Port forward…", "port-forward"), ("Debug (ephemeral container)…", "debug"), None,
+             ("Terminate…", "terminate"), ("Force terminate…", "force-terminate")],
             self.action_requested.emit, text="More…")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)

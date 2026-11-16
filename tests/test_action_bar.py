@@ -15,7 +15,8 @@ def test_the_pod_bar_keeps_logs_visible_and_secondary_actions_in_more(qtbot):
     assert bar.menu_button.text() == "More…"
     assert bar.logs_button.text() == "Logs"
     labels = [a.text() for a in bar.menu_button.menu().actions() if not a.isSeparator()]
-    assert labels == ["Edit…", "Copy files…", "Terminate…", "Force terminate…"]
+    assert labels == ["Edit…", "Copy as new…", "Copy files…", "Browse files…", "Port forward…", "Debug (ephemeral container)…",
+                      "Terminate…", "Force terminate…"]  # #500 part 19: the pod bar offers the pod row's entries
     assert sum(1 for a in bar.menu_button.menu().actions() if a.isSeparator()) == 1  # the destructive ones are set apart
 
 

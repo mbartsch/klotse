@@ -161,3 +161,42 @@ def test_auto_refresh_wording_is_one_family_in_view_and_navigator(qtbot, tmp_pat
     menu = win.nav.menu_for(win.nav._clusters[ctx])
     labels = [a.text() for a in menu.actions() if a.text().startswith(("Turn", "Disable", "Enable"))]
     assert labels == ["Turn off auto-refresh"]  # the cluster is running with an interval: only the change that applies
+
+
+def test_plugin_entries_come_last_for_one_row_and_for_several(qtbot):
+    # #500 part 19: plugin entries were first for several rows and before the destructive group for one row
+    from types import SimpleNamespace as NS
+    table = ResourceTable([("Name", "name")], "Pod")
+    qtbot.addWidget(table)
+    action = NS(title="Scan image", key="scan", dangerous=False)
+    table.plugin_actions = lambda kind, rows: [("Scanner", "scanner", [action])]
+    one = _popup_entries(qtbot, table, [_pod()])
+    assert one.index("Scan image") > one.index("Force terminate…")
+    table.set_rows([_pod("web-1"), _pod("web-2")])
+    seen = []
+
+    def read():
+        menu = QApplication.activePopupWidget()
+        seen.extend(a.text() for a in menu.actions())
+        menu.close()
+
+    QTimer.singleShot(200, read)
+    table.view.selectAll()
+    table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
+    assert seen.index("Scan image") > seen.index("Force terminate 2 pods…")
+
+
+def test_the_pod_bar_offers_the_same_entries_as_the_pod_row(qtbot):
+    from klotse.ui.pod_view import PodActionBar
+    bar = PodActionBar()
+    qtbot.addWidget(bar)
+    texts = [a.text() for a in bar.items]
+    for label in ("Port forward…", "Browse files…", "Debug (ephemeral container)…", "Copy as new…"):
+        assert label in texts
+
+
+def test_destructive_bar_entries_carry_the_trash_mark(qtbot):
+    from klotse.ui.action_bar import actions_button
+    button, items = actions_button([("Terminate…", "terminate"), ("Edit…", "edit")], lambda name: None)
+    qtbot.addWidget(button)
+    assert not items[0].icon().isNull() and items[1].icon().isNull()
