@@ -51,6 +51,17 @@ def test_numbers_are_right_aligned_and_text_stays_left(qapp):
     assert model.index(1, 1).data(Qt.TextAlignmentRole) is None
 
 
+def test_the_help_menu_links_to_the_guide_and_to_issues(qtbot, tmp_path, monkeypatch):
+    from klotse.ui import main_window as mw
+    opened = []
+    monkeypatch.setattr(mw.QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
+    win = window(tmp_path, qtbot)
+    help_menu = next(a.menu() for a in win.menuBar().actions() if a.text() == "&Help")
+    texts = [a.text() for a in help_menu.actions() if a.text()]
+    assert "Guide and README on GitHub" in texts and "Report a problem on GitHub…" in texts
+    win.guide_action.trigger()
+    win.report_action.trigger()
+    assert opened == ["https://github.com/mbartsch/klotse", "https://github.com/mbartsch/klotse/issues/new/choose"]
 def test_the_overview_scrolls_sideways_instead_of_clipping(qtbot, tmp_path):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QScrollArea

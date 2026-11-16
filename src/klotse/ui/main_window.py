@@ -3,13 +3,13 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
                                QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
 
-from .about import AboutDialog
+from .about import REPO_URL, AboutDialog
 from .shortcuts_dialog import ShortcutsDialog, shortcut_rows
 from .first_run import FirstRunPage
 from .cluster_settings_dialog import ClusterSettingsDialog
@@ -316,10 +316,20 @@ class MainWindow(QMainWindow):
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        help_menu = self.menuBar().addMenu("&Help")
-        help_menu.addAction(self.about_action)
+        help_menu = self.menuBar().addMenu("&Help")  # #501: the help was About alone; the guide and issues are one click away
         self.shortcuts_action = QAction("Keyboard shortcuts…", self)  # #501: the list is read from the menus
         self.shortcuts_action.triggered.connect(self.show_shortcuts)
+        help_menu.addAction(self.about_action)
+        help_menu.addSeparator()
+        self.guide_action = QAction("Guide and README on GitHub", self)
+        self.guide_action.setToolTip("Open the project page on GitHub: the README and guide")
+        self.guide_action.triggered.connect(lambda: self.open_url(REPO_URL))
+        help_menu.addAction(self.guide_action)
+        self.report_action = QAction("Report a problem on GitHub…", self)
+        self.report_action.setToolTip("Open GitHub's new-issue page for Klotse in the browser")
+        self.report_action.triggered.connect(lambda: self.open_url(REPO_URL + "/issues/new/choose"))
+        help_menu.addAction(self.report_action)
+        help_menu.addSeparator()
         help_menu.addAction(self.shortcuts_action)
         self._show_menu_tooltips(self.menuBar())  # the entries' tooltips say what they do and their shortcut (#501)
 
@@ -418,7 +428,7 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
-        nav_dock.setMaximumWidth(360)
+        nav_dock.setMaximumWidth(520)  # #501: was 360, so an "alias [long context]" row was cut off; still dragged, not hidden
         self.addDockWidget(Qt.LeftDockWidgetArea, nav_dock)
         self.resizeDocks([nav_dock], [234], Qt.Horizontal)
         self.nav.context_clicked.connect(self.open_cluster)
@@ -1301,6 +1311,10 @@ class MainWindow(QMainWindow):
     def config_folder(self):
         """Folder holding Klotse's settings file (see LabelSettings.store.fileName())."""
         return Path(self.label_settings.store.fileName()).parent
+
+    def open_url(self, url):
+        """Open a page in the browser (the Help menu's links)."""
+        QDesktopServices.openUrl(QUrl(url))
 
     def show_shortcuts(self):
         dialog = ShortcutsDialog(shortcut_rows(self.menuBar()), self)
