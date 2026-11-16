@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDoc
                                QVBoxLayout, QWidget)
 
 from .about import AboutDialog
+from .shortcuts_dialog import ShortcutsDialog, shortcut_rows
 from .first_run import FirstRunPage
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
@@ -315,7 +316,11 @@ class MainWindow(QMainWindow):
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        self.menuBar().addMenu("&Help").addAction(self.about_action)
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.about_action)
+        self.shortcuts_action = QAction("Keyboard shortcuts…", self)  # #501: the list is read from the menus
+        self.shortcuts_action.triggered.connect(self.show_shortcuts)
+        help_menu.addAction(self.shortcuts_action)
         self._show_menu_tooltips(self.menuBar())  # the entries' tooltips say what they do and their shortcut (#501)
 
         self.clusters = QTabWidget()
@@ -1296,6 +1301,11 @@ class MainWindow(QMainWindow):
     def config_folder(self):
         """Folder holding Klotse's settings file (see LabelSettings.store.fileName())."""
         return Path(self.label_settings.store.fileName()).parent
+
+    def show_shortcuts(self):
+        dialog = ShortcutsDialog(shortcut_rows(self.menuBar()), self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def show_about(self):
         dialog = AboutDialog(self)
