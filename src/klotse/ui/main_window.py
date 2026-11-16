@@ -423,7 +423,7 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
-        nav_dock.setMaximumWidth(360)
+        nav_dock.setMaximumWidth(520)  # #501: was 360, so an "alias [long context]" row was cut off; still dragged, not hidden
         self.addDockWidget(Qt.LeftDockWidgetArea, nav_dock)
         self.resizeDocks([nav_dock], [234], Qt.Horizontal)
         self.nav.context_clicked.connect(self.open_cluster)
