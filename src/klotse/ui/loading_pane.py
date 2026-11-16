@@ -92,7 +92,7 @@ class LoadingPane(QWidget):
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setWordWrap(True)
         theme.muted(self.label)
-        self.label.setStyleSheet("font-size: 22px; font-weight: 600;")
+        self.label.setStyleSheet(f"font-size: {theme.font_pt(22)}; font-weight: 600;")
         self.actions = QHBoxLayout()
         self.buttons = {}
         self.copy_button = self._button("Copy error", self._copy_error)  # _button already puts it in the row

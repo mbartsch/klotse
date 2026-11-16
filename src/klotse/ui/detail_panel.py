@@ -104,7 +104,7 @@ class DetailPanel(QWidget):
         self.identity_title = QLabel()
         self.identity_title.setWordWrap(True)
         self.identity_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
+        self.identity_title.setStyleSheet(f"font-size: {theme.font_pt(16)}; font-weight: 600")
         self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.identity_status = QLabel()
         self.identity_status.setAccessibleName("Object status")
