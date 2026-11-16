@@ -480,6 +480,7 @@ class MainWindow(QMainWindow):
         self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
+        self._restore_dock_state()  # #501: the docks (navigator, Details, Logs) keep their places and sizes once they exist
 
     def createPopupMenu(self):  # noqa: N802
         """Suppress the default dock and toolbar menu; Klotse exposes those controls elsewhere."""
@@ -1419,7 +1420,10 @@ class MainWindow(QMainWindow):
         for workspace in self.workspaces.values():
             workspace.overview.refresh_theme()
             workspace.wl_overview.refresh_theme()
+            workspace.refresh_theme()  # the read-only banner (#501)
+            workspace.detail.refresh_theme()  # the object status in Details (#501)
         self.nav.refresh_theme()  # the navigator's headings and folders (#501)
+        self._sync_plugin_error_status()  # the plugin-error button takes the new error colour (#501)
         return True
 
     def apply_kubeconfig(self, path):
@@ -1664,9 +1668,18 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
+    STATE_KEY = "window/state"
+
+    def _restore_dock_state(self):
+        state = self.label_settings.store.value(self.STATE_KEY)  # empty when never saved; a bad value leaves the defaults
+        if state:
+            self.restoreState(state)
+
     def _remember_geometry(self):
-        """Keep the window's size and place for the next start. A save error is not fatal: the window just opens at its default."""
+        """Keep the window's size, place and dock layout for the next start. A save error is not fatal: the window just opens
+        at its default."""
         self.label_settings.store.setValue(self.GEOMETRY_KEY, self.saveGeometry())
+        self.label_settings.store.setValue(self.STATE_KEY, self.saveState())
         self.label_settings.store.sync()
 
     def closeEvent(self, event):
