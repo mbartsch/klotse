@@ -1458,8 +1458,28 @@ class ClusterWorkspace(QMainWindow):
         self._show_log_dock()
         return view
 
+    def running_work(self):
+        """What closing this cluster would stop (#502): (port forwards running, log streams running, tool windows open)."""
+        forwards = self.port_forwards.active()
+        streams = 0
+        for index in range(self.log_tabs.count()):
+            view = self.log_tabs.widget(index)
+            if isinstance(view, PortForwardPanel):
+                continue
+            streams += len(getattr(view, "streams", None) or {}) if hasattr(view, "streams") else (
+                1 if getattr(view, "_streamer", None) is not None else 0)
+        windows = [w for w in self.findChildren(QWidget) if w.isWindow() and w is not self and w.isVisible()]
+        return forwards, streams, windows
+
     def _close_log_tab(self, index):
         view = self.log_tabs.widget(index)
+        if isinstance(view, PortForwardPanel):
+            active = self.port_forwards.active()
+            if active and QMessageBox.question(
+                    self, "Stop port forwards?", f"Cluster: {self.context}\n{len(active)} port forward(s) are running. "
+                    "Closing the Port forwards tab stops every forward. Continue?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
         self.log_tabs.removeTab(index)
         view.stop()
         view.deleteLater()

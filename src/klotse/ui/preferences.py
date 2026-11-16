@@ -114,9 +114,12 @@ class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
     def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
-                 proxy=None, metrics=None, metrics_test=None, metrics_discover=None):
+                 proxy=None, metrics=None, metrics_test=None, metrics_discover=None, confirm_kubeconfig=None):
         super().__init__(parent)
         self.debug = debug
+        # asked before any page is written: changing the kubeconfig closes the open clusters (#502)
+        self.confirm_kubeconfig = confirm_kubeconfig
+        self._initial_kubeconfig = kubeconfig.path or None
         self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
         self.kubeconfig, self.config_folder = kubeconfig, Path(config_folder)
         self.theme_settings = themes
@@ -330,47 +333,59 @@ class PreferencesDialog(QDialog):
         """Whether clusters from the cloud go into the main kubeconfig (off unless ticked)."""
         return self.write_main_box.isChecked()
 
+    def _pages(self):
+        """(page, check, save) for every page that writes, in the order they are saved. A check raises ValueError for a value
+        that cannot be saved and writes nothing: every check runs before the first page is written (#502)."""
+        pages = []
+        if self.terminal_panel is not None:
+            pages.append(("Terminal", None, self.terminal_panel.save))
+        if self.proxy_settings is not None:
+            pages.append(("Proxy", lambda: type(self.proxy_settings).check(self.proxy_url.text()),
+                          lambda: self.proxy_settings.set(self.proxy_url.text(), self.no_proxy_edit.text())))
+        if self.timing_box is not None:
+            pages.append(("Debug", None, lambda: self.debug.set_timings(self.timing_box.isChecked())))
+        if self.forward_tls_box is not None:
+            pages.append(("Usage history forward", None,
+                          lambda: self.forward.set(self.forward_tls_box.isChecked(), self.forward_insecure_box.isChecked())))
+        if self.metrics_panel is not None:
+            pages.append(("Metrics sources", self.metrics_panel.check, self.metrics_panel.save))
+        if self.query_autocomplete_box is not None:
+            pages.append(("Metric queries", None, lambda: self.query_defaults.set(self.query_autocomplete_box.isChecked())))
+        return pages
+
+    def _confirm_kubeconfig_change(self):
+        """A changed kubeconfig closes the open clusters: ask here, before any page is saved. True when nothing changes."""
+        if self.confirm_kubeconfig is None or self.chosen_kubeconfig() == self._initial_kubeconfig:
+            return True
+        return self.confirm_kubeconfig()
+
     def _save(self):
         chosen = self.chosen_kubeconfig()
         if chosen and not Path(chosen).is_file():
-            QMessageBox.warning(self, "Cannot save preferences", f"Kubeconfig file not found: {chosen}")
+            QMessageBox.warning(self, "Cannot save preferences", f"Kubeconfig: file not found: {chosen}\n\nNothing was saved.")
             return
-        if self.terminal_panel is not None:
+        pages = self._pages()
+        for page, check, _save in pages:
+            if check is None:
+                continue
             try:
-                self.terminal_panel.save()
-            except (ValueError, OSError) as error:
-                QMessageBox.warning(self, "Cannot save preferences", str(error))
-                return
-        if self.proxy_settings is not None:
-            try:
-                self.proxy_settings.set(self.proxy_url.text(), self.no_proxy_edit.text())
+                check()
             except ValueError as error:
-                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                QMessageBox.warning(self, "Cannot save preferences", f"{page}: {error}\n\nNothing was saved.")
                 return
-        if self.timing_box is not None:
+        if not self._confirm_kubeconfig_change():
+            return
+        saved = []
+        for page, _check, save in pages:
             try:
-                self.debug.set_timings(self.timing_box.isChecked())
-            except OSError as error:
-                QMessageBox.warning(self, "Cannot save preferences", str(error))
-                return
-        if self.forward_tls_box is not None:
-            try:
-                self.forward.set(self.forward_tls_box.isChecked(), self.forward_insecure_box.isChecked())
-            except OSError as error:
-                QMessageBox.warning(self, "Cannot save preferences", str(error))
-                return
-        if self.metrics_panel is not None:
-            try:
-                self.metrics_panel.save()
+                save()
             except (ValueError, OSError) as error:
-                QMessageBox.warning(self, "Cannot save preferences", str(error))
+                done = ", ".join(saved) or "nothing"
+                QMessageBox.warning(self, "Cannot save preferences",
+                                    f"{page}: {error}\n\nSaved before this page: {done}. The pages after {page} were not saved.")
                 return
-        if self.query_autocomplete_box is not None:
-            try:
-                self.query_defaults.set(self.query_autocomplete_box.isChecked())
-            except OSError as error:
-                QMessageBox.warning(self, "Cannot save preferences", str(error))
-                return
+            saved.append(page)
         if self.plugins_panel is not None and not self.plugins_panel.apply():
             return  # a plugin could not be enabled or disabled: stay here, the other pages are saved
+        self.accept()  # the caller saves and applies the kubeconfig (its change was confirmed above)
         self.accept()  # the caller saves and applies the kubeconfig (closing open clusters needs confirmation first)

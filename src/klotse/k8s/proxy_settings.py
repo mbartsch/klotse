@@ -14,16 +14,23 @@ class ProxySettings:
         self.url = str(store.value("network/proxy", "") or "").strip() or None
         self.no_proxy = _as_list(store.value("network/no_proxy", []))
 
-    def set(self, url, no_proxy):
-        """Save the proxy address and the bypass list; raises ValueError for an address that cannot be used."""
+    @staticmethod
+    def check(url):
+        """Raise ValueError for a proxy address that cannot be used; writes nothing (Preferences checks every page first, #502)."""
         url = str(url or "").strip()
-        bypass = [item.strip() for item in str(no_proxy or "").replace(";", ",").split(",") if item.strip()]
         if url:
             parts = urlsplit(url)
             if parts.scheme not in PROXY_SCHEMES or not parts.hostname:
                 raise ValueError("The proxy must be an http://, https://, socks5:// or socks5h:// address with a host name, for example http://proxy.corp:3128 or socks5://proxy.corp:1080.")
             if parts.username or parts.password or "@" in parts.netloc:
                 raise ValueError("Leave the user name and password out of the proxy address.")
+
+    def set(self, url, no_proxy):
+        """Save the proxy address and the bypass list; raises ValueError for an address that cannot be used."""
+        url = str(url or "").strip()
+        bypass = [item.strip() for item in str(no_proxy or "").replace(";", ",").split(",") if item.strip()]
+        if url:
+            self.check(url)
             self.store.setValue("network/proxy", url)
             self.store.setValue("network/no_proxy", bypass)
         else:

@@ -513,14 +513,23 @@ class MetricsPanel(QWidget):
             raise ValueError("Type the service or URL for the default, or choose Find it automatically.")
         return valid_source(text)  # ValueError says what is wrong
 
+    def check(self):
+        """Raise ValueError for a value that cannot be saved (an unaccepted plain-http authentication); writes nothing, so
+        Preferences can check every page before it saves any (#502)."""
+        default = self._chosen_default()
+        if self._default_needs_ack() and not self.default_ack.isChecked():
+            raise ValueError("Tick the plain-http box for the default first: the token or password would be sent unencrypted.")
+        for name, entry in self.changes.items():
+            if entry is not None and plain_http_with_auth(entry["ref"], entry.get("auth", "")) and not entry.get("ack_http"):
+                raise ValueError(f"Accept the plain-http warning for {name} first (use Edit…).")
+
     def save(self):
         """Write the default and the staged per-cluster changes. Raises ValueError for a bad address or an unaccepted plain-http
         authentication, OSError when not written."""
+        self.check()
         default = self._chosen_default()
         auth = self._chosen_auth() if default and default != METRICS_SERVER else NO_AUTH
         ack = bool(default and self.default_ack.isChecked() and plain_http_with_auth(default, auth[0]))
-        if self._default_needs_ack() and not self.default_ack.isChecked():
-            raise ValueError("Tick the plain-http box for the default first: the token or password would be sent unencrypted.")
         if (default, auth, ack) != (self.default_ref, self.default_auth, self.metrics.get_default_ack()):
             keep = bool(default) and default != METRICS_SERVER
             self.metrics.set_default(default, via=self.default_via if keep else "proxy", local=self.default_local if keep else 0,
