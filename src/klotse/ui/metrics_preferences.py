@@ -124,7 +124,7 @@ class AddSourceDialog(QDialog):
         self.status = QLabel("")
         self.status.setWordWrap(True)
         form = QFormLayout()
-        form.addRow("Cluster", self.cluster)
+        form.addRow("Cluster *", self.cluster)  # required: named in a box on OK (#500)
         form.addRow("Service or URL", self.service)
         self.auth_box, self.auth_env, self.auth_user = _auth_widgets(form, auth)
         self.ack_box = QCheckBox(HTTP_ACK)

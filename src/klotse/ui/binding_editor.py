@@ -360,6 +360,7 @@ class BindingEditDialog(DiscardGuard, QDialog):
     def _add_named(self):
         name = self.name_edit.text().strip()
         if not name:
+            QMessageBox.warning(self, "Add subject", "Enter the user or group name first, or pick one from the list.")
             return
         self._add([{"kind": GROUP if self.add_kind.currentIndex() == 1 else USER, "name": name}])
         self.name_edit.clear()

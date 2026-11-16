@@ -292,3 +292,18 @@ def test_a_cluster_is_named_by_its_alias_with_the_context_when_they_differ(qtbot
     assert ws.cluster_label() == "Production EU (arn:aws:eks:eu-west-1:111:cluster/prod)"
     ws.display_name = ws.context
     assert ws.cluster_label() == ws.context
+
+
+def test_an_empty_subject_name_is_said_in_a_box_on_add(qtbot, monkeypatch):
+    # #500 (forms review): Add with no name used to do nothing; it now says what to enter
+    from PySide6.QtWidgets import QMessageBox
+    from klotse.ui import binding_editor
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    dialog = binding_editor.BindingEditDialog.__new__(binding_editor.BindingEditDialog)
+    from PySide6.QtWidgets import QComboBox, QLineEdit
+    dialog.name_edit = QLineEdit("   ")
+    dialog.add_kind = QComboBox()
+    dialog._add = lambda subjects: shown.append("added")
+    dialog._add_named()
+    assert shown == ["Enter the user or group name first, or pick one from the list."]
