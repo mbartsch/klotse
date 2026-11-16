@@ -280,6 +280,7 @@ class MultiLogView(QWidget):
             except re.error as error:
                 box.setStyleSheet(theme.warning_style())
                 box.setToolTip(f"Not a valid regular expression: {error}")
+                self.status.setText(f"Filter not valid: {error}")  # the words, not only the colour (#498)
                 compiled.append(None)  # a bad expression filters nothing until it is fixed
         self._regex, self._exclude = compiled
 

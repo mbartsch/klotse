@@ -717,6 +717,7 @@ class MainWindow(QMainWindow):
         """The cluster's tab title: its name, then 🔒 for read-only and (big) for big-cluster mode."""
         marks = (" 🔒" if ws.read_only else "") + (" (big)" if ws.big else "")
         self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(ws.context) + marks)
+        self.nav.set_read_only(ws.context, ws.read_only)
 
     def _cluster_names(self, context):
         """(short name, full name) of a cluster for messages: the alias, and the kubeconfig context in brackets when they differ."""
@@ -1038,6 +1039,7 @@ class MainWindow(QMainWindow):
                     add_menu_actions(action.menu(), f"{path} · {text}")
                 elif action.isEnabled():
                     entries.append(Entry("Action", text, f"{path} menu" + (" · checked" if action.isCheckable() and action.isChecked() else ""), action.trigger))
+            menu.aboutToHide.emit()  # the Edit menu restores its shortcuts when hidden; the scan must not leave them off (#498)
 
         for menu_action in self.menuBar().actions():
             if menu_action.menu() is not None:

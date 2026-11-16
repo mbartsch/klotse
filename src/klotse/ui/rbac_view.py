@@ -21,7 +21,7 @@ def _list(values, empty="–", warn=None):
     parts = []
     for v in values:
         text = _e(v if v != "" else "(core)")
-        parts.append(f"<b style='color:{theme.WARN}'>{text}</b>" if warn and warn(v) else text)
+        parts.append(f"<b style='color:{theme.WARN}'>⚠ {text}</b>" if warn and warn(v) else text)
     return ", ".join(parts)
 
 
@@ -90,7 +90,7 @@ def _rules(raw):
     if not rows:
         return _section("Rules", f"<span style='color:{theme.MUTED}'>No rules: this grants nothing by itself.</span>")
     note = (f"<p style='color:{theme.MUTED}; margin:2px 0'>{len(rules)} rule(s). "
-            f"<b style='color:{theme.WARN}'>Highlighted</b>: wildcards, secrets and verbs that change things.</p>")
+            f"<b style='color:{theme.WARN}'>Highlighted with ⚠ and bold</b>: wildcards, secrets and verbs that change things.</p>")
     return _section("Rules", note + _table(("API groups", "Resources / URLs", "Resource names", "Verbs"), rows))
 
 

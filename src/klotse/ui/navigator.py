@@ -8,6 +8,7 @@ from . import theme
 
 ACTIVE_STATES = ("connecting", "connected")  # shown in the Connected section
 STATE_COLORS = {"idle": "#6b7280", "connecting": "#f5a524", "connected": "#2fbf71", "failed": "#e5484d"}
+STATE_SHAPES = {"idle": "hollow", "connecting": "ring", "connected": "dot", "failed": "square"}  # not colour alone (#498)
 
 # Shown under the connected cluster, Lens order. A leaf is (key, label); a group is
 # (label, [leaves], expanded_by_default).
@@ -36,14 +37,29 @@ VIEWS = [
 ]
 
 
-def dot_icon(color):
+def dot_icon(color, shape="dot"):
+    """A state mark: the colour, and a shape of its own so the state is not colour alone (#498): dot (connected), ring
+    (connecting), hollow (disconnected), square (failed)."""
     pm = QPixmap(12, 12)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setBrush(QBrush(QColor(color)))
-    p.setPen(Qt.NoPen)
-    p.drawEllipse(1, 1, 10, 10)
+    if shape == "ring":
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(color), 2))
+        p.drawEllipse(2, 2, 8, 8)
+    elif shape == "hollow":
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(color), 1.5))
+        p.drawEllipse(2, 2, 8, 8)
+    elif shape == "square":
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.NoPen)
+        p.drawRect(1, 1, 10, 10)
+    else:
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(1, 1, 10, 10)
     p.end()
     return QIcon(pm)
 
@@ -107,6 +123,7 @@ class Navigator(QTreeWidget):
         self._collapsed_clusters = None  # cluster name -> expanded before collapse_clusters, while collapsed
         self._connected_hdr = self._idle_hdr = None
         self._filter_text = ""
+        self._read_only = set()  # contexts marked read-only: shown with a lock word, not only in the tab title (#498)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
         self.itemClicked.connect(self._on_click)
@@ -183,7 +200,7 @@ class Navigator(QTreeWidget):
             it = QTreeWidgetItem()
             it.setData(0, self.ROLE_KIND, "cluster")
             it.setData(0, self.ROLE_KEY, n)
-            it.setIcon(0, dot_icon(STATE_COLORS["idle"]))
+            it.setIcon(0, dot_icon(STATE_COLORS["idle"], STATE_SHAPES["idle"]))
             self._clusters[n] = it
             self._states[n] = "idle"
         self._layout_idle()
@@ -245,8 +262,18 @@ class Navigator(QTreeWidget):
                  "connected": "Connected", "failed": "Failed"}.get(state, state.title())
         alias = self._aliases.get(name) or name
         identity = alias if alias == name else f"{alias}  [{name}]"
+        if name in self._read_only:  # a lock beside the name; the tooltip says read-only (#498)
+            identity += "  🔒"
         item.setText(0, identity)
         item.setData(0, Qt.AccessibleDescriptionRole, label)
+
+    def set_read_only(self, name, on):
+        """The cluster's read-only mode changed: its row says so (its text carries the word)."""
+        if on:
+            self._read_only.add(name)
+        else:
+            self._read_only.discard(name)
+        self._refresh_cluster_text(name)
 
     def _group_of(self, name):
         return self.groups.group_of(name) if self.groups is not None else ""
@@ -346,7 +373,7 @@ class Navigator(QTreeWidget):
         self._states[name] = state
         self._failures[name] = str(error).strip() if state == "failed" and error else ""
         self._refresh_cluster_text(name)
-        item.setIcon(0, dot_icon(STATE_COLORS[state]))
+        item.setIcon(0, dot_icon(STATE_COLORS[state], STATE_SHAPES[state]))
         want = self._connected_hdr if state in ACTIVE_STATES else self._idle_parent(name)
         if item.parent() is want:
             self._update_headers()
