@@ -1338,8 +1338,8 @@ class ClusterWorkspace(QMainWindow):
         api_options = widget.api_filter_options() if isinstance(widget, ResourceTable) else {}
         if api_options:
             fetch = lambda ns, f=fetch, options=api_options: f(ns, **options)
-        ns = self.namespace()
-        namespace = None if (not scoped or ns == ALL_NS) else ns
+        chosen = self.namespaces()
+        namespace = None if (not scoped or chosen == (ALL_NS,)) else chosen[0]
         previous = self._loads.get(key, namespace)
         self._loads[key] = namespace
         if key in self._loading:
@@ -3856,6 +3856,11 @@ class ClusterWorkspace(QMainWindow):
     def namespace(self):
         """The namespace chosen in the selector (ALL_NS for all). Not the text being typed."""
         return self.ns_combo.itemText(self.ns_combo.currentIndex()) or ALL_NS
+
+    def namespaces(self):
+        """The namespaces the lists read, as a tuple. The selector is single-choice for now, so this is one name or
+        (ALL_NS,) for all of them. Several namespaces (#525) will return more names here."""
+        return (self.namespace(),)
 
     def set_namespace(self, name):
         index = self.ns_combo.findText(name, Qt.MatchExactly)
