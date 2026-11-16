@@ -1382,19 +1382,28 @@ class KubeService:
             raise
 
     def node_usage(self, label_selector=None):
-        """{node name: (cores, GiB)} currently in use."""
-        return {i["metadata"]["name"]: (float(parse_quantity(i["usage"].get("cpu", 0))),
-                                        float(parse_quantity(i["usage"].get("memory", 0))) / 2**30)
-                for i in self._metrics("nodes", label_selector=label_selector)}
+        """{node name: (cores, GiB)} currently in use. Usage is optional: a malformed sample is left out rather than failing
+        the list it belongs to (#653)."""
+        usage = {}
+        for i in self._metrics("nodes", label_selector=label_selector):
+            try:
+                usage[i["metadata"]["name"]] = (float(parse_quantity(i["usage"].get("cpu", 0))),
+                                                float(parse_quantity(i["usage"].get("memory", 0))) / 2**30)
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
+        return usage
 
     def pod_usage(self, namespace=None, label_selector=None):
         """{(namespace, pod): (cores, MiB)} summed over containers."""
         usage = {}
         for i in self._metrics("pods", namespace, label_selector):
-            containers = i.get("containers") or []
-            usage[(i["metadata"].get("namespace", ""), i["metadata"]["name"])] = (
-                sum(float(parse_quantity(c["usage"].get("cpu", 0))) for c in containers),
-                sum(float(parse_quantity(c["usage"].get("memory", 0))) for c in containers) / 2**20)
+            try:  # a malformed sample is left out, not allowed to fail the list (#653)
+                containers = i.get("containers") or []
+                usage[(i["metadata"].get("namespace", ""), i["metadata"]["name"])] = (
+                    sum(float(parse_quantity(c["usage"].get("cpu", 0))) for c in containers),
+                    sum(float(parse_quantity(c["usage"].get("memory", 0))) for c in containers) / 2**20)
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
         return usage
 
     def list_namespaces(self, label_selector=None, field_selector=None):
