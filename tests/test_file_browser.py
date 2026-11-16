@@ -176,7 +176,7 @@ def make_ws(qtbot, **service):
     return ws
 
 
-def test_the_browse_button_fills_the_path_and_typing_still_works(qtbot, monkeypatch):
+def test_the_browse_button_fills_the_path_and_typing_still_works(qtbot, monkeypatch, tmp_path):
     ws = make_ws(qtbot)
     monkeypatch.setattr(FileBrowserDialog, "exec", lambda self: (setattr(self, "chosen", ("app", "/etc/hosts")), QDialog.Accepted)[1])
     dialog = ws.file_copy_dialog(row())
@@ -185,7 +185,7 @@ def test_the_browse_button_fills_the_path_and_typing_still_works(qtbot, monkeypa
     dialog.browse_remote.click()
     assert dialog.remote.text() == "/etc/hosts"
     dialog.remote.setText("/typed/by/hand")  # the field stays an ordinary text box
-    dialog.local.setText("C:/tmp/x")
+    dialog.local.setText(str(tmp_path / "x"))  # the folder must exist: checked by the copy dialog (#496)
     assert dialog.values()[3] == "/typed/by/hand"
     plain = FileCopyDialog("p", "n", ["app"])
     qtbot.addWidget(plain)

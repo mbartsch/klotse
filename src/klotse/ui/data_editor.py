@@ -112,7 +112,7 @@ class DataEditor(QWidget):
         self._loading = False
         self.keys = QListWidget()
         self.keys.setMaximumWidth(260)
-        self.new_key = QLineEdit(placeholderText="New key")
+        self.new_key = _AddKeyLine(placeholderText="New key")
         self.add_button = QPushButton("Add")
         self.remove_button = QPushButton("Remove")
         self.summary = QLabel()
@@ -260,7 +260,12 @@ class DataEditor(QWidget):
 
     def _add(self):
         key = self.new_key.text().strip()
-        if not key or any(e["key"] == key for e in self.entries):
+        if not key:
+            QMessageBox.warning(self, "Add key", "Type a name for the new key first.")  # #496: said nothing before
+            return
+        if any(e["key"] == key for e in self.entries):
+            QMessageBox.warning(self, "Add key", f"A key named “{key}” already exists here. Choose another name, "
+                                "or select it and change its value.")
             return
         self.entries.append({"key": key, "stored": None, "text": "", "shown_text": None, "revealed": True,
                              "binary": False, "new": True})
@@ -294,6 +299,9 @@ class DataEditor(QWidget):
             self._loading = True
             item.setText(entry["key"])  # an empty or repeated name is not accepted
             self._loading = False
+            if key != entry["key"]:
+                why = "is empty" if not key else f"“{key}” already exists here"
+                QMessageBox.warning(self, "Rename key", f"The key was not renamed: the new name {why}.")  # #496: said nothing
 
     # ---- result ----
     def keys_in_use(self):
@@ -341,6 +349,18 @@ def validate_data(keys, total, new=None):
 
 
 # ---- the dialog ----------------------------------------------------------------------------
+class _AddKeyLine(QLineEdit):
+    """The add-key box: Enter adds the key and stops there. Without this, the event reaches the dialog and presses its Save
+    (#496)."""
+
+    def keyPressEvent(self, event):  # noqa: N802 - Qt name
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.returnPressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class DataEditDialog(QDialog):
     """Edit or create a ConfigMap or Secret. After Save, `result_body` is the manifest (a ConfigMap, or a new Secret); for an
     existing Secret it is the merge *patch* (`is_patch`), which may be empty when nothing changed."""
