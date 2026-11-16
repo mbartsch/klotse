@@ -6,9 +6,11 @@ from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
-                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from .about import AboutDialog
+from .first_run import FirstRunPage
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
 from .cluster_aliases import ClusterAliases
@@ -327,7 +329,14 @@ class MainWindow(QMainWindow):
         self.clusters.customContextMenuRequested.connect(self._cluster_tab_menu)
         self.clusters.currentChanged.connect(self._on_cluster_changed)
         self.clusters.currentChanged.connect(lambda _index: self._sync_cluster_picker())
-        self.setCentralWidget(self.clusters)
+        # #501: with no cluster open the centre shows a getting-started page instead of a blank area
+        self.first_run = FirstRunPage()
+        self.first_run.choose_kubeconfig.connect(self.open_preferences)
+        self.first_run.add_from_cloud.connect(self.add_clusters_from_cloud)
+        self.centre = QStackedWidget()
+        self.centre.addWidget(self.first_run)
+        self.centre.addWidget(self.clusters)
+        self.setCentralWidget(self.centre)
 
         self.nav = Navigator()
         nav_dock = QDockWidget(self)
@@ -578,7 +587,15 @@ class MainWindow(QMainWindow):
         return f"No kubeconfig contexts found in {path}" if path else "No kubeconfig contexts found"
 
     # ---- clusters ------------------------------------------------------
+    def _sync_centre(self):
+        """The getting-started page while no cluster tab is open; the tabs otherwise (#501)."""
+        if not hasattr(self, "centre"):
+            return
+        self.first_run.set_has_contexts(bool(self.contexts))
+        self.centre.setCurrentWidget(self.clusters if self.clusters.count() else self.first_run)
+
     def _sync_cluster_picker(self, preferred=None):
+        self._sync_centre()
         contexts = list(self.workspaces)
         self.cluster_picker.blockSignals(True)
         self.cluster_picker.clear()
