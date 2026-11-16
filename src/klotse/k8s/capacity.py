@@ -1,7 +1,55 @@
 """Requests, limits and usage against allocatable amounts, per node and per namespace (pure, no Qt, no network). CPU is in
 cores and memory in GiB; a usage of -1 means metrics-server did not answer. Pods that finished (Succeeded, Failed) hold nothing."""
+import math
+
+from kubernetes.utils import parse_quantity
 
 FINISHED = ("Succeeded", "Failed")
+
+
+def _amount(value):
+    try:
+        amount = float(parse_quantity(value or 0))
+        return amount if math.isfinite(amount) and amount >= 0 else 0.0
+    except (ValueError, TypeError, ArithmeticError):
+        return 0.0
+
+
+def effective_requests(pod):
+    """Spec-based (CPU cores, memory MiB) reservation, independently from application usage/right-sizing.
+
+    Follow Kubernetes v1.35 component-helpers/resource PodRequests: add restartable init sidecars to the running app sum,
+    take each init-stage peak including earlier sidecars, override specified pod-level resources, then add pod overhead.
+    Live in-place-resize status allocations are not modeled here.
+    """
+    spec = (pod or {}).get("spec") or {}
+    names = ("cpu", "memory")
+
+    def requests(container):
+        values = ((container.get("resources") or {}).get("requests") or {})
+        return [_amount(values.get(name)) for name in names]
+
+    running = [0.0, 0.0]
+    for container in spec.get("containers") or []:
+        running = [a + b for a, b in zip(running, requests(container))]
+    sidecars, peak = [0.0, 0.0], [0.0, 0.0]
+    for container in spec.get("initContainers") or []:
+        values = requests(container)
+        if container.get("restartPolicy") == "Always":
+            sidecars = [a + b for a, b in zip(sidecars, values)]
+            running = [a + b for a, b in zip(running, values)]
+            stage = sidecars
+        else:
+            stage = [a + b for a, b in zip(sidecars, values)]
+        peak = [max(a, b) for a, b in zip(peak, stage)]
+    effective = [max(a, b) for a, b in zip(running, peak)]
+    pod_requests = (spec.get("resources") or {}).get("requests") or {}
+    overhead = spec.get("overhead") or {}
+    for index, name in enumerate(names):
+        if name in pod_requests:
+            effective[index] = _amount(pod_requests[name])
+        effective[index] += _amount(overhead.get(name))
+    return effective[0], effective[1] / 2**20
 
 
 def _live(pods):
@@ -15,8 +63,9 @@ def _used(values):
 
 
 def _sums(pods):
-    return {"pods": len(pods), "cpu_req": sum(p.cpu_req for p in pods), "cpu_lim": sum(p.cpu_lim for p in pods),
-            "mem_req": sum(p.mem_req for p in pods) / 1024, "mem_lim": sum(p.mem_lim for p in pods) / 1024,
+    requests = [effective_requests(p.raw) for p in pods]
+    return {"pods": len(pods), "cpu_req": sum(cpu for cpu, _ in requests), "cpu_lim": sum(p.cpu_lim for p in pods),
+            "mem_req": sum(mem for _, mem in requests) / 1024, "mem_lim": sum(p.mem_lim for p in pods) / 1024,
             "cpu_used": _used([p.cpu_used for p in pods]),
             "mem_used": (lambda m: m / 1024 if m >= 0 else -1.0)(_used([p.mem_used for p in pods]))}
 

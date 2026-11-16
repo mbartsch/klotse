@@ -8,6 +8,7 @@ Two sources, chosen in the window:
 The caller gives the metrics-server `sample` and may add the Prometheus source later with `set_prometheus` once it has found and checked
 one; the window then switches to it. The charts show the object's request and limit (a pod) or allocatable amount (a node) as dashed lines."""
 import time
+from dataclasses import dataclass
 
 from PySide6.QtCore import QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMenu, QPushButton,
@@ -22,11 +23,22 @@ from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
 
 NOTE_SAMPLED = ("metrics-server keeps no history, so this chart starts when the window opens and is kept in memory only. "
+                "It retains up to 64 series, 4,000 samples per series and 24 hours of received samples. "
                 "Prometheus or VictoriaMetrics would show earlier data: use Source… to point Klotse at one.")
 NOTE_PROMETHEUS = ("History from the Prometheus or VictoriaMetrics service, read through the source chosen with Source… (the API server proxy, a port-forward or a URL). "
                    "It needs the kubelet cAdvisor metrics; an empty chart usually means they are not scraped or labelled differently.")
 SAMPLED, REMOTE = "sampled", "prometheus"
 REFRESH_S = 30
+
+
+@dataclass(frozen=True)
+class _Request:
+    generation: int
+    mode: str
+    fetch: object
+    label: str
+    seconds: object
+    range_label: str
 
 
 class MetricsDialog(QDialog):
@@ -43,6 +55,7 @@ class MetricsDialog(QDialog):
         self.sample_fn, self.refs, self.available, self.interval_s = sample, refs or {"cpu": {}, "mem": {}}, available, interval_s
         self.history, self.started = mh.History(), time.time()
         self._busy, self._closed, self._errors = False, False, 0
+        self._generation, self._pending, self._request = 0, False, None
         self.fetch_remote, self.remote_label, self.remote_note = None, "", ""
         self._status_text = ""
         self.object_options = dict(object_options or {})
@@ -110,7 +123,7 @@ class MetricsDialog(QDialog):
         self.mem_chart.hovered_line.connect(self._set_hovered_line)
         self.cpu_chart.line_activated.connect(self._activate_line)
         self.mem_chart.line_activated.connect(self._activate_line)
-        self.range_box.currentIndexChanged.connect(lambda _=None: self.query())
+        self.range_box.currentIndexChanged.connect(lambda _=None: self._range_changed())
         self._redraw()
         if available:
             self.timer.start()
@@ -149,20 +162,30 @@ class MetricsDialog(QDialog):
     def set_prometheus(self, label, fetch, select=True):
         """Offer the Prometheus / VictoriaMetrics source: `fetch(seconds)` returns ({line: [(t, cores)]}, {line: [(t, MiB)]}) and runs on a
         worker; `label` names the service. Replaces an earlier offer. Switches to it when `select`."""
-        self.clear_prometheus()
-        self.fetch_remote, self.remote_label = fetch, label
-        self.source_box.addItem(f"Prometheus / VictoriaMetrics · {label}", REMOTE)
-        if select:
-            self.source_box.setCurrentIndex(self.source_box.count() - 1)
+        blocked = self.source_box.blockSignals(True)
+        try:
+            index = self.source_box.findData(REMOTE)
+            if index >= 0:
+                self.source_box.removeItem(index)
+            self.fetch_remote, self.remote_label = fetch, label
+            self.source_box.addItem(f"Prometheus / VictoriaMetrics · {label}", REMOTE)
+            self.source_box.setCurrentIndex(self.source_box.count() - 1 if select else 0)
+        finally:
+            self.source_box.blockSignals(blocked)
+        self._source_changed()
 
     def clear_prometheus(self):
         """Stop offering the Prometheus source (back to metrics-server)."""
-        self.set_source_note("")
-        index = self.source_box.findData(REMOTE)
-        if index >= 0:
+        blocked = self.source_box.blockSignals(True)
+        try:
+            index = self.source_box.findData(REMOTE)
+            if index >= 0:
+                self.source_box.removeItem(index)
             self.source_box.setCurrentIndex(0)
-            self.source_box.removeItem(index)
-        self.fetch_remote, self.remote_label = None, ""
+            self.fetch_remote, self.remote_label = None, ""
+        finally:
+            self.source_box.blockSignals(blocked)
+        self._source_changed()
 
     def set_source_note(self, message):
         """Keep a source-validation problem visible while sampled readings continue to update the chart."""
@@ -176,6 +199,8 @@ class MetricsDialog(QDialog):
         self.status.setText(text)
 
     def _source_changed(self):
+        self._generation += 1
+        self.timer.stop()
         self.set_source_note("")
         remote = self.mode() == REMOTE
         self.range_box.setEnabled(remote)
@@ -186,34 +211,69 @@ class MetricsDialog(QDialog):
             self.timer.setInterval(REFRESH_S * 1000)
             if not self.pause_button.isChecked():
                 self.timer.start()
-            self.query()
+            self._waiting_remote()
         else:
             self.timer.setInterval(int(self.interval_s * 1000))
             if self.available and not self.pause_button.isChecked():
                 self.timer.start()
-                self.sample()
             self._redraw()
+            if not self.available:
+                self._set_status("This cluster does not serve the metrics API (metrics.k8s.io), so there is nothing to chart from metrics-server. "
+                                 "Install it, or use Source… to point at a Prometheus or VictoriaMetrics service.")
+        self._pending = True
+        self._request_current()
+
+    def _range_changed(self):
+        if self.mode() == REMOTE:
+            self._generation += 1
+            self._errors = 0
+            self._waiting_remote()
+            self._pending = True
+            self._request_current()
+
+    def _waiting_remote(self):
+        waiting = "Waiting for the selected source and time range…"
+        self.cpu_chart.set_data({}, self.refs.get("cpu"), placeholder=waiting)
+        self.mem_chart.set_data({}, self.refs.get("mem"), placeholder=waiting)
+        self._refresh_object_menu()
+        self._set_status(f"Asking {self.remote_label}…")
+
+    def _request_current(self):
+        """Coalesce selection changes while busy; explicit choices still fetch once when paused."""
+        if self._closed:
+            self._pending = False
+            return
+        if self._busy:
+            return
+        self._pending = False
+        self.query() if self.mode() == REMOTE else self.sample()
 
     def refresh(self):
         """The timer: read the current source again."""
+        if self.pause_button.isChecked():
+            return
         self.query() if self.mode() == REMOTE else self.sample()
 
     # ---- workers --------------------------------------------------------------------------------------------------
-    def _start(self, fn, got, failed):
+    def _start(self, fn):
         self._busy = True
-        self._asked = self.mode()  # the source this read is for; the user or a found Prometheus may switch before it answers
+        request = _Request(self._generation, self.mode(), self.fetch_remote if self.mode() == REMOTE else self.sample_fn,
+                           self.remote_label if self.mode() == REMOTE else "metrics-server",
+                           self.range_box.currentData() if self.mode() == REMOTE else None,
+                           self.range_box.currentText().lower() if self.mode() == REMOTE else "")
+        self._request = request
         worker = Worker(fn)
         worker.setAutoDelete(False)  # keep its signals alive until the queued answer arrives
         self._worker = worker
-        worker.signals.result.connect(got)
-        worker.signals.error.connect(failed)
+        worker.signals.result.connect(lambda answer: self._finished(request, answer))
+        worker.signals.error.connect(lambda message: self._finished(request, error=message))
         QThreadPool.globalInstance().start(worker)
 
     def sample(self):
         """Read metrics-server once on a worker (skipped while a read is running)."""
         if self._busy or self._closed or not self.available or self.mode() != SAMPLED:
             return
-        self._start(self.sample_fn, self._got, lambda message: self._failed("metrics-server", message))
+        self._start(self.sample_fn)
 
     def query(self):
         """Ask Prometheus / VictoriaMetrics for the chosen range on a worker."""
@@ -221,30 +281,32 @@ class MetricsDialog(QDialog):
             return
         seconds, fetch = self.range_box.currentData(), self.fetch_remote
         self._set_status(f"Asking {self.remote_label}…")
-        self._start(lambda: fetch(seconds), self._got_remote, lambda message: self._failed(self.remote_label, message))
+        self._start(lambda: fetch(seconds))
 
-    def _stale(self):
-        """The answer that just came is for a source that is no longer chosen. The switch could not start its own read, because
-        this one was still running, so start it now instead of leaving the chart empty until the timer fires."""
+    def _finished(self, request, answer=None, error=None):
+        if request is not self._request:
+            return
+        self._request = None
+        self._busy = False
         if self._closed:
-            return True
-        if getattr(self, "_asked", self.mode()) == self.mode():
-            return False
-        self.refresh()
-        return True
+            self._pending = False
+            return
+        if request.generation == self._generation:
+            if error is not None:
+                self._failed(request.label, error)
+            elif request.mode == SAMPLED:
+                self._got(answer)
+            else:
+                self._got_remote(answer, request)
+        if self._pending:
+            self._request_current()
 
     def _got(self, sample):
-        self._busy = False
-        if self._stale():
-            return
         self._errors = 0
         self.history.add(sample or {}, time.time())
         self._redraw()
 
-    def _got_remote(self, answer):
-        self._busy = False
-        if self._stale():
-            return
+    def _got_remote(self, answer, request):
         self._errors = 0
         cpu, mem = answer
         empty = "Prometheus answered with no data for this object. The kubelet cAdvisor metrics may not be scraped, or are labelled differently."
@@ -252,13 +314,10 @@ class MetricsDialog(QDialog):
         self.mem_chart.set_data(mem, self.refs.get("mem"), placeholder=empty)
         self._refresh_object_menu()
         points = max((len(p) for p in list(cpu.values()) + list(mem.values())), default=0)
-        self._set_status(f"Prometheus / VictoriaMetrics · {self.remote_label} · {self.range_box.currentText().lower()} · {points} points per line"
+        self._set_status(f"Prometheus / VictoriaMetrics · {request.label} · {request.range_label} · {points} points per line"
                             f" · every {REFRESH_S} s" + (" · paused" if self.pause_button.isChecked() else ""))
 
     def _failed(self, source, message):
-        self._busy = False
-        if self._stale():
-            return
         self._errors += 1
         self._set_status(f"Could not read {source}: {message.splitlines()[0] if message else 'failed'}")
 
@@ -292,5 +351,6 @@ class MetricsDialog(QDialog):
 
     def done(self, result):
         self._closed = True
+        self._pending = False
         self.timer.stop()
         super().done(result)

@@ -15,6 +15,8 @@ from kubernetes.utils import parse_quantity
 MAX_POINTS = 4000  # per line: about 16 hours at one sample a minute, 4 hours at 15 seconds
 MAX_LINES = 9  # lines on a chart: the total and the first few pods or containers
 MAX_OBJECTS = 12  # objects picked together in one usage window (one line each, plus a total)
+MAX_SERIES = 64  # includes recently disappeared pods; bounds churn, not only the current sample
+MAX_AGE_S = 24 * 60 * 60  # expire every line by receipt age, independently of server clock skew
 
 
 def _cores(value):
@@ -102,23 +104,52 @@ def combine(parts):
 
 
 class History:
-    """Points per line: `{line: deque of (t, cpu, mem)}`. A point with the same time as the line's last one is the same sample."""
+    """Bounded points per line: `{line: deque of (t, cpu, mem)}`; duplicate/older timestamps are ignored.
 
-    def __init__(self, max_points=MAX_POINTS):
-        self.max_points, self.lines = max_points, {}
+    Parallel receipt times bound the lifetime of every point, including inactive lines, without trusting the metrics clock."""
+
+    def __init__(self, max_points=MAX_POINTS, max_series=MAX_SERIES, max_age_s=MAX_AGE_S):
+        if max_points < 1 or max_series < 1 or max_age_s <= 0:
+            raise ValueError("History bounds must be positive")
+        self.max_points, self.max_series, self.max_age_s = max_points, max_series, max_age_s
+        self.lines, self._receipts, self._last_seen = {}, {}, {}
+        self._clock = None
 
     def add(self, sample, fallback_time):
         """Store `sample` ({line: (t, cpu, mem)}); `fallback_time` stands in for a sample without a timestamp. Returns how many lines
         got a new point."""
+        # Keep expiry on the computer's receipt clock. A metrics-server clock may lag or lead this computer.
+        now = fallback_time if self._clock is None else max(self._clock, fallback_time)
+        self._clock = now
+        cutoff = now - self.max_age_s
+        for name in list(self.lines):
+            points, receipts = self.lines[name], self._receipts[name]
+            while receipts and receipts[0] <= cutoff:
+                receipts.popleft()
+                points.popleft()
+            if not points:
+                self._remove(name)
         added = 0
-        for name, (t, cpu, mem) in sample.items():
+        for name, (t, cpu, mem) in sorted(sample.items()):
             t = t if t is not None else fallback_time
             points = self.lines.setdefault(name, deque(maxlen=self.max_points))
+            receipts = self._receipts.setdefault(name, deque(maxlen=self.max_points))
+            self._last_seen[name] = now
             if points and points[-1][0] >= t:
                 continue
             points.append((t, cpu, mem))
+            receipts.append(now)
             added += 1
+        while len(self.lines) > self.max_series:
+            # Prefer current lines and the total; then deterministically remove the least recently observed one.
+            victim = min(self.lines, key=lambda name: (name == "total", name in sample, self._last_seen[name], name))
+            self._remove(victim)
         return added
+
+    def _remove(self, name):
+        del self.lines[name]
+        del self._receipts[name]
+        del self._last_seen[name]
 
     def series(self, column):
         """{line: [(t, value)]} for `column` ("cpu" or "mem"), totals first."""
@@ -135,6 +166,7 @@ class History:
 
     def clear(self):
         self.lines = {}
+        self._receipts, self._last_seen, self._clock = {}, {}, None
 
 
 def reference_lines(kind, row):

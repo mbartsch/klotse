@@ -3,6 +3,7 @@ import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from time import monotonic, perf_counter
 
 from kubernetes.client.exceptions import ApiException
@@ -131,6 +132,12 @@ AUTO_REFRESH_MS = 10_000  # the foreground list reloads this often (default)
 WATCH_DEBOUNCE_MS = 800  # a burst of change events becomes one reload
 AUTO_REFRESH_CHOICES = [("5s", 5_000), ("10s", 10_000), ("30s", 30_000), ("60s", 60_000)]
 KIND_VIEW = {"Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
+
+
+@dataclass(frozen=True)
+class _PodLoad:
+    rows: list
+    pager: object = None
 
 
 class _InputFilter(QObject):
@@ -593,13 +600,14 @@ class ClusterWorkspace(QMainWindow):
         """The Pods list loader. A huge cluster gets its first page only (see PodPager); the rest comes with Load more."""
         make = getattr(self.service, "pod_pager", None)
         if self.big and self.huge and make is not None:
-            pager = self._pod_pager = make(namespace, **options)
-            return pager.next()
-        self._pod_pager = None
-        return self.service.list_pods(namespace, **options)
+            pager = make(namespace, **options)
+            return _PodLoad(pager.next(), pager)
+        return _PodLoad(self.service.list_pods(namespace, **options))
 
-    def _pods_loaded(self, rows):
-        self.pod_table.set_rows(rows)
+    def _pods_loaded(self, result):
+        # The serial-validated GUI sink owns both rows and pager; abandoned workers never publish shared state.
+        self._pod_pager = result.pager
+        self.pod_table.set_rows(result.rows)
         self._update_pod_paging()
         self._arm_pod_idle()
 
@@ -640,20 +648,23 @@ class ClusterWorkspace(QMainWindow):
     def load_more_pods(self):
         """Load more: the next page of pods, added to the list (a worker; a newer load of the list makes the answer stale)."""
         pager = self._pod_pager
-        if pager is None or pager.done or getattr(pager, "busy", False):
+        if self._closed or pager is None or pager.done or getattr(pager, "busy", False):
             return
         pager.busy = True
+        serial = self._load_serial.get("pods", 0)
         self.pod_table.more_button.setEnabled(False)
 
         def got(rows):
             pager.busy = False
-            if pager is self._pod_pager and not self._closed:
+            if pager is self._pod_pager and not self._closed and self._load_serial.get("pods", 0) == serial:
                 self.pod_table.append_rows(rows)
                 self._update_pod_paging()
                 self._arm_pod_idle()
 
         def failed(message):
             pager.busy = False
+            if pager is not self._pod_pager or self._closed or self._load_serial.get("pods", 0) != serial:
+                return
             self.pod_table.more_button.setEnabled(True)
             self.message.emit(f"{self.cluster_label()} / Pods: {message.splitlines()[0] if message else 'could not load more'}")
 
@@ -1339,6 +1350,11 @@ class ClusterWorkspace(QMainWindow):
             # is ignored, see the serial below) and start over now instead of waiting for it to finish.
             self._pending_loads.discard(key)
         serial = self._load_serial[key] = self._load_serial.get(key, 0) + 1
+        if key == "pods":
+            # Until this first page is accepted, no pager from the old scope may be used (even if this request fails).
+            self._pod_pager = None
+            self._pod_idle_timer.stop()
+            self.pod_table.set_paging("", False)
         self._loading.add(key)
         title = self.views[key][1]
         table = widget if isinstance(widget, (ResourceTable, OverviewView)) else None  # both show loading and errors
@@ -1369,7 +1385,8 @@ class ClusterWorkspace(QMainWindow):
                     self.message.emit(f"{self.cluster_label()} / {title}: {data.splitlines()[0] if data else ''}")
                 else:
                     sink(data)
-                    count = f"{len(data):,} rows" if isinstance(data, list) else "loaded"
+                    rows = data.rows if isinstance(data, _PodLoad) else data
+                    count = f"{len(rows):,} rows" if isinstance(rows, list) else "loaded"
                     self.message.emit(f"{self.cluster_label()} / {title}: {count}")  # no timing: it stayed on the status bar (#497)
             if key in self._pending_loads:
                 self._pending_loads.discard(key)
@@ -3706,7 +3723,14 @@ class ClusterWorkspace(QMainWindow):
         """Open (or focus) a tab for one pod: its containers, with Logs / Shell / Attach per container."""
         key = f"pod:{row.namespace}/{row.name}"
         if key in self._pod_tabs:
-            self._pod_tabs[key]["row"] = row
+            tab = self._pod_tabs[key]
+            tab["uid"] = (row.raw.get("metadata") or {}).get("uid")
+            tab["available"] = bool(tab["uid"])
+            # Explicitly reopening from the list accepts this identity and invalidates older reads of the tab.
+            self._load_serial[key] = self._load_serial.get(key, 0) + 1
+            self._loading.discard(key)
+            self._pending_loads.discard(key)
+            tab["table"].set_rows(container_rows(row.raw))
             self._set_pod_tab(key, row)
             self.open_view(key)
             return
@@ -3717,9 +3741,11 @@ class ClusterWorkspace(QMainWindow):
         bar = PodActionBar()
         table.set_header_widget(bar)
         table.selected.connect(lambda row, t=table: self._show_detail_row(t, row))
-        self._pod_tabs[key] = {"row": row, "bar": bar, "table": table}
+        uid = (row.raw.get("metadata") or {}).get("uid")
+        self._pod_tabs[key] = {"row": row, "uid": uid, "available": bool(uid), "bar": bar, "table": table}
+        table.set_rows(container_rows(row.raw))
         table.action_requested.connect(
-            lambda action, container, k=key: self._container_action(action, self._pod_tabs[k]["row"], container.name))
+            lambda action, container, k=key: self._pod_container_action(k, action, container.name))
         bar.action_requested.connect(lambda action, k=key: self._pod_tab_action(k, action))
         self.views[key] = (table, f"Pod: {row.name}")
 
@@ -3737,14 +3763,26 @@ class ClusterWorkspace(QMainWindow):
 
     def _set_pod_tab(self, key, row):
         tab = self._pod_tabs[key]
-        if row is None:  # the pod is gone: keep the last containers on screen, disable the actions
+        uid = ((row.raw.get("metadata") or {}).get("uid") if row is not None else None)
+        if not tab["available"] or not uid or uid != tab["uid"]:
+            # Keep the selected identity and its last rows. An automatic refresh must never accept a replacement by name.
+            tab["available"] = False
             tab["bar"].set_gone(tab["row"].name)
+            tab["table"].view.setEnabled(False)
             return
         tab["row"] = row
         tab["bar"].set_row(row)
+        tab["table"].view.setEnabled(True)
         tab["table"].set_rows(container_rows(row.raw))
 
+    def _pod_container_action(self, key, action, container):
+        tab = self._pod_tabs.get(key)
+        if tab is not None and tab["available"]:
+            self._container_action(action, tab["row"], container)
+
     def _pod_tab_action(self, key, action):
+        if not self._pod_tabs[key]["available"]:
+            return
         row = self._pod_tabs[key]["row"]
         if action == "edit":
             self.edit_resource("Pod", row)

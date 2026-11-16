@@ -52,12 +52,31 @@ def test_restricted_violations_and_what_counts_as_set_at_pod_level():
     assert ps.restricted_reasons(pod(volumes=[{"name": "v", "emptyDir": {}}, {"name": "s", "secret": {"secretName": "x"}}])) == []
 
 
+def test_windows_skips_linux_only_restricted_controls_but_retains_root_checks():
+    windows = pod(os={"name": "windows"}, containers=[{"name": "c", "securityContext": {"runAsNonRoot": True}}])
+    assert ps.restricted_reasons(windows) == []
+    windows["spec"]["containers"][0]["securityContext"] = {"runAsNonRoot": False, "runAsUser": 0}
+    assert ps.restricted_reasons(windows) == ["may run as root", "runs as user 0"]
+    # Every kind of container receives the same OS exemptions; disallowed volume types still count.
+    windows["spec"].update(initContainers=[{"name": "init", "securityContext": {"runAsNonRoot": True}}],
+                            ephemeralContainers=[{"name": "debug", "securityContext": {"runAsNonRoot": True}}])
+    assert ps.restricted_reasons(windows) == ["may run as root", "runs as user 0"]
+
+
+def test_linux_and_unspecified_os_still_require_all_restricted_controls():
+    for os_name in (None, "linux"):
+        p = pod(containers=[{"name": "c", "securityContext": {"runAsNonRoot": True}}])
+        if os_name:
+            p["spec"]["os"] = {"name": os_name}
+        assert ps.restricted_reasons(p) == ["privilege escalation allowed", "no seccomp profile", "does not drop all capabilities"]
+
+
 def test_findings_are_grouped_by_workload_with_a_count_and_graded():
     privileged = {"name": "c", "securityContext": {**HARDENED, "privileged": True}}
     pods = [pod(f"web-{i}", owner="web-abc12", containers=[privileged]) for i in range(3)]
     pods += [pod("db-1", owner="db-xyz", containers=[{"name": "c"}]), pod("job-1", owner=None, containers=[privileged], phase="Succeeded")]
     found = ps.check({"pods": pods, "namespaces": []})
-    assert [(f["severity"], f["kind"], f["name"]) for f in found] == [("error", "Deployment", "web"), ("info", "Deployment", "db")]
+    assert [(f["severity"], f["kind"], f["name"]) for f in found] == [("error", "ReplicaSet", "web-abc12"), ("info", "ReplicaSet", "db-xyz")]
     assert "privileged container (3 pods)" in found[0]["problem"] and "restricted" in found[1]["problem"]
     hostpath = pod("log-1", owner="log", owner_kind="DaemonSet", volumes=[{"name": "v", "hostPath": {"path": "/var/log"}}])
     assert ps.check({"pods": [hostpath], "namespaces": []})[0]["severity"] == "error"
@@ -102,7 +121,7 @@ def test_the_dialog_and_workspace(qtbot):
     dialog = ws.show_security()
     assert isinstance(dialog, SecurityDialog) and dialog.windowTitle() == "Pod security — ctx"
     qtbot.waitUntil(lambda: dialog.table.rowCount() == 1, timeout=5000)
-    assert dialog.table.item(0, 1).text() == "Deployment" and "privileged container" in dialog.table.item(0, 4).text()
+    assert dialog.table.item(0, 1).text() == "ReplicaSet" and "privileged container" in dialog.table.item(0, 4).text()
     ws.shutdown()
 
 

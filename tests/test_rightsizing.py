@@ -23,10 +23,10 @@ def by_name(rows):
     return {r["name"]: r for r in rows}
 
 
-def test_owner_names_the_deployment_cronjob_or_the_bare_pod():
-    assert rs.owner_of(pod("a", owner=("ReplicaSet", "api-7d9f"))) == ("Deployment", "api")
+def test_owner_names_only_the_known_controller_or_the_bare_pod():
+    assert rs.owner_of(pod("a", owner=("ReplicaSet", "api-7d9f"))) == ("ReplicaSet", "api-7d9f")
     assert rs.owner_of(pod("a", owner=("StatefulSet", "db"))) == ("StatefulSet", "db")
-    assert rs.owner_of(pod("a", owner=("Job", "nightly-29012345"))) == ("CronJob", "nightly")
+    assert rs.owner_of(pod("a", owner=("Job", "nightly-29012345"))) == ("Job", "nightly-29012345")
     assert rs.owner_of(pod("a", owner=("Job", "one-off"))) == ("Job", "one-off")
     assert rs.owner_of(pod("lone", owner=None)) == ("Pod", "lone")
 
@@ -54,8 +54,8 @@ def test_workloads_are_grouped_and_use_the_largest_pod():
     pods = [pod("api-1", used=(0.05, 60.0)), pod("api-2", used=(0.08, 100.0)), pod("api-3", used=(0.02, 40.0)),
             pod("db-0", owner=("StatefulSet", "db"), cpu=("1", "2"), mem=("1Gi", "2Gi"), used=(0.9, 900.0))]
     rows = by_name(rs.analyze(pods))
-    api = rows["api"]
-    assert api["kind"] == "Deployment" and api["pods"] == 3 and api["cpu_used"] == 0.08 and api["mem_used"] == 100.0
+    api = rows["api-7d9f"]
+    assert api["kind"] == "ReplicaSet" and api["pods"] == 3 and api["cpu_used"] == 0.08 and api["mem_used"] == 100.0
     assert api["cpu_verdict"] == rs.OVER and api["mem_verdict"] == rs.OVER
     assert abs(api["cpu_suggest"] - 0.10) < 1e-9 and api["mem_suggest"] == 128.0  # 0.08*1.25 -> 100m; 100*1.25=125 -> 128Mi
     assert abs(api["cpu_free"] - (0.5 - 0.10) * 3) < 1e-9 and abs(api["mem_free"] - (512 - 128) * 3 / 1024) < 1e-9
@@ -66,7 +66,7 @@ def test_finished_pods_are_ignored_and_attention_comes_first():
     pods = [pod("fine", owner=("ReplicaSet", "ok-1"), used=(0.25, 256.0)), pod("hog", owner=("ReplicaSet", "hog-1"), used=(0.99, 1000.0)),
             pod("done", phase="Succeeded", owner=("Job", "j"))]
     rows = rs.analyze(pods)
-    assert [r["name"] for r in rows] == ["hog", "ok"] and not any(r["name"] == "j" for r in rows)
+    assert [r["name"] for r in rows] == ["hog-1", "ok-1"] and not any(r["name"] == "j" for r in rows)
     assert rows[0]["cpu_verdict"] == rs.NEAR and rs.needs_attention(rows[0]) and not rs.needs_attention(rows[1])
 
 
@@ -85,21 +85,28 @@ def test_dialog_sorts_numbers_filters_and_navigates(qtbot):
             pod("hog-1", owner=("ReplicaSet", "hog-9"), used=(0.99, 1000.0))]
     dialog.show_pods(pods)
     shown = [dialog.table.item(r, 0).text() for r in range(dialog.table.rowCount()) if not dialog.table.isRowHidden(r)]
-    assert sorted(shown) == ["Deployment/api", "Deployment/hog"]  # "web" is fine and hidden by default
+    assert sorted(shown) == ["ReplicaSet/api-7d9f", "ReplicaSet/hog-9"]  # "web" is fine and hidden by default
     dialog.only_attention.setChecked(False)
     assert all(not dialog.table.isRowHidden(r) for r in range(3))
     dialog.filter.setText("hog")
-    assert [dialog.table.item(r, 0).text() for r in range(3) if not dialog.table.isRowHidden(r)] == ["Deployment/hog"]
+    assert [dialog.table.item(r, 0).text() for r in range(3) if not dialog.table.isRowHidden(r)] == ["ReplicaSet/hog-9"]
     dialog.filter.setText("")
     dialog.table.sortItems(4)  # CPU used, ascending: numbers, not text
-    assert [dialog.table.item(r, 0).text() for r in range(3)] == ["Deployment/api", "Deployment/web", "Deployment/hog"]
+    assert [dialog.table.item(r, 0).text() for r in range(3)] == ["ReplicaSet/api-7d9f", "ReplicaSet/web-1x", "ReplicaSet/hog-9"]
     got = []
     dialog.go_to_requested.connect(lambda *a: got.append(a))
     dialog._open_row(2, 0)
-    assert got == [("Deployment", "shop", "hog")]
-    assert "✖ Near its limit" in [c[0] for c in cells(next(r for r in dialog.rows if r["name"] == "hog"))]
+    assert got == [("ReplicaSet", "shop", "hog-9")]
+    assert "✖ Near its limit" in [c[0] for c in cells(next(r for r in dialog.rows if r["name"] == "hog-9"))]
     dialog.show_error("boom")
     assert "boom" in dialog.summary.text()
+
+
+def test_unrelated_standalone_controllers_with_similar_names_are_not_combined():
+    rows = rs.analyze([pod("a", owner=("ReplicaSet", "web-abc")), pod("b", owner=("ReplicaSet", "web-def")),
+                       pod("c", owner=("Job", "nightly-123")), pod("d", owner=("Job", "nightly-456"))])
+    assert {(r["kind"], r["name"], r["pods"]) for r in rows} == {
+        ("ReplicaSet", "web-abc", 1), ("ReplicaSet", "web-def", 1), ("Job", "nightly-123", 1), ("Job", "nightly-456", 1)}
 
 
 def test_workspace_reads_pods_in_a_worker(qtbot):

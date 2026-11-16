@@ -45,6 +45,64 @@ def test_zero_allocatable_is_not_a_percentage():
     assert capacity.percent(1.0, 0.0) == -1.0 and capacity.percent(-1.0, 4.0) == -1.0
 
 
+def container(cpu, mem, **fields):
+    return {"name": "c", "resources": {"requests": {"cpu": cpu, "memory": mem}}, **fields}
+
+
+def test_effective_requests_use_init_maximum_per_resource_and_add_overhead():
+    row = pod("a", "shop", "n1", cpu="100m", mem="100Mi")
+    row.raw["spec"].update(initContainers=[container("2", "20Mi"), container("1", "1Gi")],
+                            overhead={"cpu": "100m", "memory": "10Mi"})
+    assert capacity.effective_requests(row.raw) == (2.1, 1034.0)
+    by_node = capacity.by_node([node("n1")], [row])[0]
+    by_namespace = capacity.by_namespace([row])[0]
+    assert by_node["cpu_req"] == by_namespace["cpu_req"] == 2.1
+    assert by_node["mem_req"] == by_namespace["mem_req"] == 1034.0 / 1024
+    assert row.cpu_req == 0.1 and row.mem_req == 100  # right-sizing and pod table keep application semantics
+    assert by_node["cpu_lim"] == row.cpu_lim == 1.0
+
+
+def test_effective_requests_follow_restartable_init_sidecar_sequence():
+    spec = {"containers": [container("200m", "100Mi")], "initContainers": [
+        container("3", "20Mi"),
+        container("500m", "200Mi", restartPolicy="Always"),
+        container("1", "1Gi"),
+        container("250m", "50Mi", restartPolicy="Always"),
+        container("2", "30Mi")], "overhead": {"cpu": "100m", "memory": "10Mi"}}
+    # CPU peaks before sidecars (3), memory peaks during the second conventional init (200 + 1024).
+    assert capacity.effective_requests({"spec": spec}) == (3.1, 1234.0)
+    spec["containers"] = [container("4", "2Gi")]
+    # Steady state includes both restartable init containers plus the app.
+    assert capacity.effective_requests({"spec": spec}) == (4.85, 2308.0)
+
+
+def test_pod_level_requests_override_only_present_resources_before_overhead():
+    spec = {"containers": [container("200m", "100Mi")], "initContainers": [container("3", "1Gi")],
+            "resources": {"requests": {"cpu": "4"}}, "overhead": {"cpu": "100m", "memory": "10Mi"}}
+    assert capacity.effective_requests({"spec": spec}) == (4.1, 1034.0)
+    spec["resources"]["requests"] = {"cpu": "0", "memory": "2Gi"}
+    assert capacity.effective_requests({"spec": spec}) == (0.1, 2058.0)
+    assert capacity.effective_requests({}) == (0.0, 0.0)
+
+
+def test_completed_pods_do_not_reserve_init_resources_or_overhead():
+    row = pod("done", "shop", "n1", phase="Failed")
+    row.raw["spec"].update(initContainers=[container("10", "10Gi")], overhead={"cpu": "1", "memory": "1Gi"})
+    assert capacity.by_namespace([row]) == []
+    assert capacity.by_node([node("n1")], [row])[0]["cpu_req"] == 0
+
+
+def test_big_cluster_slim_manifest_preserves_effective_requests():
+    from klotse.k8s.client import KubeService
+    row = pod("a", "shop", "n1", cpu="100m", mem="100Mi")
+    row.raw["spec"].update(initContainers=[container("500m", "200Mi", restartPolicy="Always", image="synthetic-image"),
+                                        container("2", "1Gi", image="synthetic-image")],
+                            overhead={"cpu": "100m", "memory": "10Mi"}, resources={"requests": {"memory": "2Gi"}})
+    slim = KubeService._slim_pod(row.raw)
+    assert capacity.effective_requests(slim) == capacity.effective_requests(row.raw) == (2.6, 2058.0)
+    assert "image" not in str(slim)
+
+
 def test_number_and_percent_text():
     assert number(-1) == "" and number(0) == "0" and number(1.5) == "1.5" and number(2.0) == "2"
     assert percent_text(-1) == "" and percent_text(80) == "80%" and percent_text(120) == "120% over"
