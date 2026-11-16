@@ -10,7 +10,8 @@ from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QSize, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
-                               QStyle, QTabWidget, QToolBar, QSizePolicy, QWidget)
+                               QStyle, QTabWidget, QToolBar, QSizePolicy, QWidget,
+                               QDialogButtonBox, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout)
 from shiboken6 import isValid
 
 from ..k8s.api_index import ApiIndex
@@ -405,6 +406,7 @@ class ClusterWorkspace(QMainWindow):
         self.ns_combo.setAccessibleName("Filter resource lists by namespace")
         self.ns_combo.addItems([ALL_NS, DEFAULT_NS])
         self.ns_combo.setCurrentIndex(1)  # start in the "default" namespace; _set_namespaces falls back if it does not exist
+        self._chosen_namespaces, self._setting_chosen = (), False  # several namespaces (#525); () means the combo's one
         # Searchable like the label picker: type any part of a name to filter the list. Only the chosen item counts
         # (see namespace()), so a half-typed name never scopes a load.
         self.ns_combo.setEditable(True)
@@ -423,8 +425,14 @@ class ClusterWorkspace(QMainWindow):
         self.pin_button.setAutoRaise(True)
         self.pin_button.setAccessibleName("Pin current namespace")
         self.pin_button.clicked.connect(self.toggle_pin)
-        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button)]
+        self.several_button = QPushButton("Several…")
+        self.several_button.setAccessibleName("Choose several namespaces")
+        self.several_button.setToolTip("Pods of several namespaces in one list; other lists read the first one chosen")
+        self.several_button.clicked.connect(self.choose_several_namespaces)
+        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button),
+                            bar.addWidget(self.several_button)]
         self.ns_combo.currentIndexChanged.connect(lambda _=None: self._sync_pin_button())
+        self.ns_combo.currentIndexChanged.connect(lambda _=None: None if self._setting_chosen else self._forget_several())
         self._sync_pin_button()
         self.panes_button = QToolButton(text="Panels")
         self.panes_button.setAccessibleName("Show or hide workspace panels")
@@ -599,6 +607,8 @@ class ClusterWorkspace(QMainWindow):
 
     def _read_pods(self, namespace, **options):
         """The Pods list loader. A huge cluster gets its first page only (see PodPager); the rest comes with Load more."""
+        if isinstance(namespace, tuple):  # several namespaces chosen (#525)
+            return self._read_pods_many(namespace, **options)
         make = getattr(self.service, "pod_pager", None)
         if self.big and self.huge and make is not None:
             pager = make(namespace, **options)
@@ -620,6 +630,9 @@ class ClusterWorkspace(QMainWindow):
         # The serial-validated GUI sink owns both rows and pager; abandoned workers never publish shared state.
         self._pod_pager = result.pager
         self.pod_table.set_rows(result.rows)
+        if result.refused:
+            named = "; ".join(f"{ns} ({why.splitlines()[0] if why else 'not read'})" for ns, why in result.refused)
+            self.message.emit(f"{self.cluster_label()} / Pods: not read: {named}")
         self._update_pod_paging()
         self._arm_pod_idle()
 
@@ -1351,7 +1364,10 @@ class ClusterWorkspace(QMainWindow):
         if api_options:
             fetch = lambda ns, f=fetch, options=api_options: f(ns, **options)
         chosen = self.namespaces()
-        namespace = None if (not scoped or chosen == (ALL_NS,)) else chosen[0]
+        if key == "pods" and scoped and len(chosen) > 1:
+            namespace = chosen  # several namespaces (#525): the Pods loader reads each one
+        else:
+            namespace = None if (not scoped or chosen == (ALL_NS,)) else chosen[0]
         previous = self._loads.get(key, namespace)
         self._loads[key] = namespace
         if key in self._loading:
@@ -3865,6 +3881,53 @@ class ClusterWorkspace(QMainWindow):
             self.load_view(key)
         self._sync_watch()  # the watch follows the namespace
 
+    def set_chosen_namespaces(self, names):
+        """Pods of several namespaces at once (#525). Fewer than two names means the single selector again. The selector is
+        set to the first name, so the other lists read it."""
+        names = tuple(names)
+        self._chosen_namespaces = names if len(names) > 1 else ()
+        if names:
+            self._setting_chosen = True
+            try:
+                index = self.ns_combo.findText(names[0])
+                if index >= 0:
+                    self.ns_combo.setCurrentIndex(index)
+            finally:
+                self._setting_chosen = False
+        if self._ready and not self._closed:
+            self.load_view("pods")
+
+    def _forget_several(self):
+        """The user picked one namespace in the selector: the several-namespace choice ends."""
+        self._chosen_namespaces = ()
+
+    def _pick_namespaces(self, names, chosen):
+        """Checklist of namespaces; returns the ticked names in list order, or None when cancelled."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Namespaces")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Pods of every ticked namespace are listed together. Other lists read the first one."))
+        listing = QListWidget()
+        for name in names:
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if name in chosen else Qt.Unchecked)
+            listing.addItem(item)
+        layout.addWidget(listing)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.Accepted:
+            return None
+        return [listing.item(i).text() for i in range(listing.count()) if listing.item(i).checkState() == Qt.Checked]
+
+    def choose_several_namespaces(self):
+        names = [n for n in getattr(self, "_ns_names", []) if n != ALL_NS]
+        picked = self._pick_namespaces(names, self.namespaces() if self._chosen_namespaces else (self.namespace(),))
+        if picked is not None:
+            self.set_chosen_namespaces(picked)
+
     def namespace(self):
         """The namespace chosen in the selector (ALL_NS for all). Not the text being typed."""
         return self.ns_combo.itemText(self.ns_combo.currentIndex()) or ALL_NS
@@ -3872,7 +3935,7 @@ class ClusterWorkspace(QMainWindow):
     def namespaces(self):
         """The namespaces the lists read, as a tuple. The selector is single-choice for now, so this is one name or
         (ALL_NS,) for all of them. Several namespaces (#525) will return more names here."""
-        return (self.namespace(),)
+        return self._chosen_namespaces or (self.namespace(),)
 
     def set_namespace(self, name):
         index = self.ns_combo.findText(name, Qt.MatchExactly)
