@@ -23,7 +23,7 @@ Common states:
 - Refreshing a row refreshes only that cluster.
 - The page remains useful with zero, one or many connected clusters.
 
-## Option A — Operations table (recommended)
+## Option A — Operations table (selected direction)
 
 ![Option A — operations table](cluster-overview-option-a.svg)
 
@@ -32,16 +32,16 @@ Common states:
 │ ALL CLUSTERS                                      [Search…] [Refresh]         │
 │ 14 connected · 11 healthy · 2 warnings · 1 offline                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ HEALTH       NODES              PODS                 LAST UPDATE              │
-│ 11 healthy   1,284 ready        8,420 running        12s                      │
-│  2 warning       8 not ready       37 pending                                  │
+│ HEALTH       NODES READY/TOTAL   PODS RUNNING/PENDING   LAST UPDATE            │
+│ 11 healthy   1,284 / 1,292       8,420 / 37             12s                    │
+│  2 warning                                                                      │
 │  1 offline       4 failed          12 failed                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ Cluster              State       Nodes        Pods       Version     Updated  │
-│ prod-eu              ● Healthy   151/151      3,815      v1.31.4      8s     │
-│ prod-us              ● Warning   145/148      3,204      v1.30.8     12s     │
-│ staging              ● Healthy    24/24         612      v1.31.4     18s     │
-│ trial                ○ Offline     —            —          —           2m     │
+│ Cluster              State       Nodes ready/total  Pods run/pending  Updated │
+│ prod-eu              ● Healthy   151/151             3,815/0            8s    │
+│ prod-us              ● Warning   145/148             3,204/8           12s    │
+│ staging              ● Healthy    24/24                612/0           18s    │
+│ trial                ○ Offline     —/—                  —/—             2m    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,7 +94,7 @@ Trade-off: it consumes more horizontal space and makes the selected cluster feel
 
 ## Recommendation
 
-Choose **Option A** for the first implementation, with Option C's expandable detail treatment added only for the selected row. This preserves Klotse's table-first language, scales to the owner's larger context lists and avoids building a second full cluster workspace.
+Choose **Option A** with expandable detail. The fleet table shows Nodes as `ready / total` and Pods as `running / pending`; the selected row can add failed counts, metrics and actions. This preserves Klotse's table-first language, scales to the owner's larger context lists and avoids building a second full cluster workspace.
 
 Proposed entry points:
 
@@ -113,4 +113,4 @@ Proposed entry points:
 
 ## Review decision
 
-The implementation PR should begin only after choosing A, B or C. The recommendation is **A + expandable detail**.
+**Decision:** Option A + expandable detail. The implementation PR should use the paired `ready / total` and `running / pending` counts shown above.
