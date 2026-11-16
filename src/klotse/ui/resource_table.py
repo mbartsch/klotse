@@ -2,7 +2,8 @@ from dataclasses import dataclass
 import re
 import time
 
-from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
+from PySide6.QtCore import QElapsedTimer, QEvent, QItemSelectionModel, QStringListModel, QSortFilterProxyModel, Qt, Signal, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
@@ -213,6 +214,9 @@ class ResourceTable(QWidget):
         self.view.selectionModel().currentRowChanged.connect(self._on_row)
         self.view.selectionModel().selectionChanged.connect(self._update_selection_count)
         self.view.doubleClicked.connect(self._on_double_click)
+        # Enter opens the current row; Esc clears the filter; Ctrl+F moves to it (#498: the list works without the mouse)
+        self.view.installEventFilter(self)
+        self.filter.installEventFilter(self)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context_menu)
         top = QHBoxLayout()
@@ -1250,6 +1254,26 @@ class ResourceTable(QWidget):
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
                     "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group",
                     "HelmRelease": "helm-details"}
+
+    def _focus_filter(self):
+        self.filter.setFocus()
+        self.filter.selectAll()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.KeyPress and watched in (self.view, self.filter):
+            key, ctrl = event.key(), bool(event.modifiers() & Qt.ControlModifier)
+            if watched is self.view and key in (Qt.Key_Return, Qt.Key_Enter):
+                index = self.view.currentIndex()
+                if index.isValid() and self.DOUBLE_CLICK.get(self.kind):
+                    self._on_double_click(index)
+                    return True
+            if watched is self.filter and key == Qt.Key_Escape and self.filter.text():
+                self.filter.clear()
+                return True
+            if key == Qt.Key_F and ctrl:
+                self._focus_filter()
+                return True
+        return super().eventFilter(watched, event)
 
     def _on_double_click(self, index):
         action = self.DOUBLE_CLICK.get(self.kind)

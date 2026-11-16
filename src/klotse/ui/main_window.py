@@ -140,11 +140,11 @@ class MainWindow(QMainWindow):
             self.menuBar().setNativeMenuBar(True)
         self._shutting_down = False
         self.exit_action = QAction("Exit", self)
-        self.exit_action.setShortcut(QKeySequence.Quit)
+        self.exit_action.setShortcut(QKeySequence.Quit if sys.platform == "darwin" else QKeySequence("Ctrl+Q"))  # Windows has none otherwise
         _shortcut_tooltip(self.exit_action, "Exit Klotse")
         self.exit_action.setMenuRole(QAction.QuitRole)
         self.exit_action.triggered.connect(self.close)
-        file_menu = self.menuBar().addMenu("File")
+        file_menu = self.menuBar().addMenu("&File")
         self.apply_action = QAction("Apply YAML…", self)
         self.apply_action.setToolTip("Paste or open manifests and apply them to the cluster in front")
         self.apply_action.triggered.connect(self.show_apply_yaml)
@@ -156,26 +156,26 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
         file_menu.aboutToShow.connect(lambda: self.apply_action.setEnabled(self.clusters.currentWidget() is not None))
-        self.edit_menu = self.menuBar().addMenu("Edit")
+        self.edit_menu = self.menuBar().addMenu("&Edit")
         self.edit_actions = EditActions(self.edit_menu, self)  # Undo / Redo / Cut / Copy / Paste / Select All
         self.edit_menu.addSeparator()
         self.preferences_action = QAction("Preferences…", self)
         # Qt moves PreferencesRole into the macOS application menu (under Klotse);
         # on Windows and Linux it remains in Edit.
         self.preferences_action.setMenuRole(QAction.PreferencesRole)
-        self.preferences_action.setShortcut(QKeySequence.Preferences)
+        self.preferences_action.setShortcut(QKeySequence.Preferences if sys.platform == "darwin" else QKeySequence("Ctrl+,"))
         _shortcut_tooltip(self.preferences_action, "Open preferences")
         self.preferences_action.triggered.connect(lambda: QTimer.singleShot(0, self.open_preferences))
         self.edit_menu.addAction(self.preferences_action)
         self.managed_fields_action = QAction("Show managedFields in details", self, checkable=True, checked=False)
         self.managed_fields_action.setToolTip("Include metadata.managedFields in the Details pane (hidden by default)")
-        view_menu = self.menuBar().addMenu("View")
-        navigate_menu = view_menu.addMenu("Navigate")
-        insights_menu = view_menu.addMenu("Insights")
-        operations_menu = view_menu.addMenu("Operations")
-        self.panels_menu = view_menu.addMenu("Panels")
+        view_menu = self.menuBar().addMenu("&View")
+        navigate_menu = view_menu.addMenu("&Navigate")
+        insights_menu = view_menu.addMenu("&Insights")
+        operations_menu = view_menu.addMenu("&Operations")
+        self.panels_menu = view_menu.addMenu("&Panels")
         self.panels_menu.aboutToShow.connect(self._fill_workspace_panels_menu)
-        settings_menu = view_menu.addMenu("Settings")
+        settings_menu = view_menu.addMenu("&Settings")
         # Prevent macOS's text heuristic from promoting View > Settings into
         # the application Preferences menu; that slot belongs to the explicit
         # PreferencesRole action in Edit.
@@ -306,13 +306,13 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.managed_fields_action)
         settings_menu.aboutToShow.connect(self._sync_big_action)
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
-        self.plugins_menu = self.menuBar().addMenu("Plugins")
+        self.plugins_menu = self.menuBar().addMenu("&Plugins")
         self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
         self.plugins.changed.connect(self._update_plugins_menu)
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        self.menuBar().addMenu("Help").addAction(self.about_action)
+        self.menuBar().addMenu("&Help").addAction(self.about_action)
 
         self.clusters = QTabWidget()
         self.clusters.setDocumentMode(True)
@@ -934,6 +934,7 @@ class MainWindow(QMainWindow):
         """View > Search objects…, for the cluster in front; False when no cluster is open."""
         ws = self.clusters.currentWidget()
         if ws is None:
+            self.status.showMessage("Open a cluster first: Search objects looks in the cluster in front (Ctrl+Shift+F).", 6000)  # #498
             return False
         ws.show_search()
         return True
@@ -1149,6 +1150,7 @@ class MainWindow(QMainWindow):
         """View > Several clusters…: one list of a kind from several open clusters. A new window each time, so it lists the clusters that are
         open now; False when no cluster is open."""
         if not self.workspaces:
+            self.status.showMessage("Open a cluster first: Several clusters lists the kind from the open clusters (Ctrl+Shift+M).", 6000)
             return False
         old = getattr(self, "_multi_dialog", None)
         if old is not None:
