@@ -1270,7 +1270,7 @@ class ResourceTable(QWidget):
             if idx.isValid():
                 add_shared("namespace-pods")
                 add_shared("diagnostics")
-            menu.addAction(action_icon("create"), self._hint("New namespace…", "create", None, kind="Namespace"), self.new_requested.emit)
+            menu.addAction(action_icon("create"), self._hint("New Namespace…", "create", None, kind="Namespace"), self.new_requested.emit)
         if self.new_button is not None:
             if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
                 menu.addSeparator()

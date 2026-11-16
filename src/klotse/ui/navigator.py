@@ -543,6 +543,8 @@ class Navigator(QTreeWidget):
             item = item.parent()
         return item
 
+    auto_refresh_is_on = None  # callable(context) -> True / False / None (unknown), set by the main window
+
     def actions_for(self, name):
         """Context-menu entries for a cluster as (label, signal) pairs."""
         if self._states.get(name) in ACTIVE_STATES:
@@ -597,8 +599,12 @@ class Navigator(QTreeWidget):
             if self._states.get(name) in ACTIVE_STATES:
                 targets = self._auto_refresh_targets(cluster, name)
                 suffix = f" ({len(targets)})" if len(targets) > 1 else ""
-                menu.addAction(f"Disable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
-                menu.addAction(f"Enable auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
+                # one entry per state: only the change that applies to the clicked cluster, both when it is not known (#500)
+                is_on = self.auto_refresh_is_on(name) if self.auto_refresh_is_on is not None else None
+                if is_on is not False:
+                    menu.addAction(f"Turn off auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
+                if is_on is not True:
+                    menu.addAction(f"Turn on auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
             entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
             if self._states.get(name) in ACTIVE_STATES:
                 menu.addSeparator()

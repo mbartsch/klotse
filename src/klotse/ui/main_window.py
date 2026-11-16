@@ -307,7 +307,7 @@ class MainWindow(QMainWindow):
         self.big_action.triggered.connect(self.set_big_mode)
         settings_menu.addAction(self.big_action)
         self.auto_refresh_menu = settings_menu.addMenu("Auto-refresh across clusters")
-        self.pause_auto_refresh_all_action = QAction("Pause on all clusters", self, checkable=True)
+        self.pause_auto_refresh_all_action = QAction("Turn auto-refresh off for all clusters", self, checkable=True)
         self.pause_auto_refresh_all_action.setToolTip("Pause every open cluster and remember its current on/off state and interval")
         self.pause_auto_refresh_all_action.toggled.connect(self._set_global_auto_paused)
         self.auto_refresh_menu.addAction(self.pause_auto_refresh_all_action)
@@ -315,7 +315,7 @@ class MainWindow(QMainWindow):
         self.restore_auto_refresh_action.setToolTip("Restore each cluster's saved on/off state and refresh interval")
         self.restore_auto_refresh_action.triggered.connect(self._restore_global_auto_refresh)
         self.auto_refresh_menu.addAction(self.restore_auto_refresh_action)
-        self.enable_auto_refresh_all_action = QAction("Enable on all clusters", self)
+        self.enable_auto_refresh_all_action = QAction("Turn auto-refresh on for all clusters", self)
         self.enable_auto_refresh_all_action.setToolTip("Turn on auto-refresh for every open cluster, keeping its chosen interval")
         self.enable_auto_refresh_all_action.triggered.connect(self._enable_auto_refresh_all)
         self.auto_refresh_menu.addAction(self.enable_auto_refresh_all_action)
@@ -469,6 +469,7 @@ class MainWindow(QMainWindow):
         self.nav.sign_in_requested.connect(self.sign_in)
         self.nav.config_requested.connect(self.show_context_entry)
         self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
+        self.nav.auto_refresh_is_on = self._auto_refresh_is_on  # the cluster menu offers only the change that applies (#500)
         self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
 
         self.status = self.statusBar()
@@ -1770,6 +1771,13 @@ class MainWindow(QMainWindow):
         self.nav.set_state(ctx, "idle")
         self._sync_cluster_picker()
         self._sync_cluster_overview()
+
+    def _auto_refresh_is_on(self, ctx):
+        """Whether auto-refresh is on for an open cluster (its interval is not Off); None when it is not open."""
+        ws = self.workspaces.get(ctx)
+        if ws is None:
+            return None
+        return ws.auto_interval.currentData() not in (0, None)
 
     def _open_view(self, ctx, key):
         ws = self.workspaces.get(ctx)
