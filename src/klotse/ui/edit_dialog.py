@@ -1,5 +1,5 @@
 import yaml
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFontDatabase, QTextCursor
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
                                QTextBrowser, QVBoxLayout)
 
@@ -72,7 +72,18 @@ class EditDialog(QDialog):
             if not isinstance(body, dict) or not (body.get("metadata") or {}).get("name"):
                 raise ValueError("Manifest must be a mapping with metadata.name")
         except (yaml.YAMLError, ValueError) as e:
-            QMessageBox.warning(self, "Invalid YAML", str(e))
+            mark = getattr(e, "problem_mark", None)
+            if mark is not None:  # PyYAML's text with the line and column, and the cursor moved there (#500)
+                reason = getattr(e, "problem", None) or "invalid YAML"
+                cursor = self.editor.textCursor()
+                cursor.movePosition(QTextCursor.Start)
+                cursor.movePosition(QTextCursor.Down, QTextCursor.MoveAnchor, mark.line)
+                cursor.movePosition(QTextCursor.Right, QTextCursor.MoveAnchor, mark.column)
+                self.editor.setTextCursor(cursor)
+                self.editor.setFocus()
+                QMessageBox.warning(self, "Invalid YAML", f"Line {mark.line + 1}, column {mark.column + 1}: {reason}")
+            else:
+                QMessageBox.warning(self, "Invalid YAML", str(e))
             return None
         return body
 

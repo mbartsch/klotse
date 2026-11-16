@@ -1030,8 +1030,8 @@ class ResourceTable(QWidget):
         """Shared per-object actions for the Details header and the row context menu."""
         actions = []
 
-        def add(key, title, callback, primary=False, dangerous=False, permission=None):
-            shown = self._hint(title, permission, row) if permission else title
+        def add(key, title, callback, primary=False, dangerous=False, permission=None, kind=None):
+            shown = self._hint(title, permission, row, kind=kind) if permission else title
             actions.append(RowAction(key, shown, callback, primary, dangerous))
 
         if self.editable:
@@ -1053,7 +1053,7 @@ class ResourceTable(QWidget):
             add("metrics-query", "Metrics query…", lambda: self.metrics_query_requested.emit(self.kind, row))
         if self.kind == "Pod":
             add("logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True, permission="logs")
-            add("shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row), permission="shell")
+            add("shell", "Shell…", lambda: self.action_requested.emit("shell", row), permission="shell")
             add("attach", "Attach…", lambda: self.action_requested.emit("attach", row), permission="attach")
             add("debug", "Debug (ephemeral container)…", lambda: self.action_requested.emit("debug", row), permission="debug")
             add("terminate", "Terminate…", lambda: self.action_requested.emit("terminate", row), dangerous=True, permission="terminate")
@@ -1065,7 +1065,7 @@ class ResourceTable(QWidget):
             add("copy-files", "Copy files…", lambda: self.copy_files_requested.emit(row), permission="shell")
         if self.kind == "Container":
             add("container-logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True)
-            add("container-shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row))
+            add("container-shell", "Shell…", lambda: self.action_requested.emit("shell", row))
             add("container-attach", "Attach…", lambda: self.action_requested.emit("attach", row))
         if self.kind in ("Pod", "Service"):
             add("port-forward", "Port forward…", lambda: self.port_forward_requested.emit(self.kind, row),
@@ -1082,7 +1082,8 @@ class ResourceTable(QWidget):
             add("force-delete-node", "Force delete node…", lambda: self.action_requested.emit("force-delete-node", row),
                 dangerous=True, permission="delete-node")
         if self.kind == "CronJob":
-            add("cronjob-run", "Run now…", lambda: self.action_requested.emit("cronjob-run", row), primary=True)
+            add("cronjob-run", "Run now…", lambda: self.action_requested.emit("cronjob-run", row), primary=True,
+                permission="create", kind="Job")  # Run now creates a Job from the CronJob
             suspended = str(getattr(row, "suspend", "")) == "True"
             key, title = ("cronjob-resume", "Resume…") if suspended else ("cronjob-suspend", "Suspend…")
             add("cronjob-suspend", title, lambda a=key: self.action_requested.emit(a, row), permission="cronjob-suspend")
@@ -1096,7 +1097,8 @@ class ResourceTable(QWidget):
             add("crd-group", "Show CRDs of this group", lambda: self.action_requested.emit("open-crd-group", row), primary=True)
         if self.kind == "HelmRelease":
             add("helm-details", "Details / history…", lambda: self.action_requested.emit("helm-details", row), primary=True)
-            add("helm-uninstall", "Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row), dangerous=True)
+            add("helm-uninstall", "Uninstall…", lambda: self.action_requested.emit("helm-uninstall", row), dangerous=True,
+                permission="delete", kind="Secret")  # a Helm release is stored in Secrets: uninstall deletes them
         if self.kind == "Namespace":
             add("namespace-pods", "Show pods", lambda: self.action_requested.emit("open-namespace", row), primary=True)
             add("diagnostics", "Export diagnostics…", lambda: self.action_requested.emit("diagnostics", row))

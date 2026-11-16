@@ -857,7 +857,7 @@ class ClusterWorkspace(QMainWindow):
         if index >= 0:
             widget = self.tabs.widget(index)
             if hasattr(self, "scope_breadcrumb"):
-                self.scope_breadcrumb.setText(f"{self.context}  /  {self.tabs.tabText(index)}")
+                self.scope_breadcrumb.setText(f"{self.display_name}  /  {self.tabs.tabText(index)}")  # the alias, as in the tab (#500)
             self.view_opened.emit(widget.view_key)
             self._sync_ns_selector()
             self._sync_details_to_tab(widget)
