@@ -2484,15 +2484,41 @@ class ClusterWorkspace(QMainWindow):
         self._load_health()
         return dialog
 
+    def _analysis_scope(self):
+        return "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+
+    def _bump_analysis(self, key):
+        """A new load of an analysis window: returns its serial. An answer for an older serial is dropped, so a slow answer
+        cannot replace a newer one (#499)."""
+        serials = self.__dict__.setdefault("_analysis_serials", {})
+        serials[key] = serials.get(key, 0) + 1
+        return serials[key]
+
+    def _analysis_current(self, key, serial):
+        return self.__dict__.get("_analysis_serials", {}).get(key) == serial
+
     def _load_health(self):
         dialog = self._health_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
         dialog.summary.setText("Checking…")
+        dialog.header.setText(f"<b>{self.context}</b> · {self._analysis_scope()}")  # the heading follows the scope of this load
+        dialog.reload_button.setEnabled(False)
+        serial = self._bump_analysis("health")
 
         def read():
             data, problems = self.service.health_data(namespace)
             return health.check(data), problems
-        self._run(read, lambda result: dialog.show_findings(*result), on_error=dialog.show_error)
+
+        def done(result):
+            if self._analysis_current("health", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_findings(*result)
+
+        def failed(message):
+            if self._analysis_current("health", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_error(message)
+        self._run(read, done, on_error=failed)
 
     def show_capacity(self):
         """View > Capacity…: nodes and every pod are read on a worker (looking only) and shown per node and per namespace. The
@@ -2509,11 +2535,23 @@ class ClusterWorkspace(QMainWindow):
     def _load_capacity(self):
         dialog = self._capacity_dialog
         dialog.summary.setText("Loading nodes and pods…")
+        dialog.reload_button.setEnabled(False)  # not clickable while its answer is on the way (#499)
+        serial = self._bump_analysis("capacity")
 
         def read():
             both = getattr(self.service, "capacity_data", None)
             return both() if both is not None else (self.service.list_nodes(), self.service.list_pods(None))
-        self._run(read, lambda data: dialog.show_data(*data), on_error=dialog.show_error)
+
+        def done(data):
+            if self._analysis_current("capacity", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_data(*data)
+
+        def failed(message):
+            if self._analysis_current("capacity", serial):
+                dialog.reload_button.setEnabled(True)
+                dialog.show_error(message)
+        self._run(read, done, on_error=failed)
 
     def show_permissions(self):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""

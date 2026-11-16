@@ -16,7 +16,7 @@ class PreflightDialog(HealthDialog):
         self.setWindowTitle("Upgrade preflight")
         self.data = None
         self.problems = []
-        self.reload_button.setText("Read again")
+        self.reload_button.setText("Refresh")  # one name for reloading in every analysis window (#499)
         self.target = QSpinBox()
         self.target.setPrefix("1.")
         self.target.setRange(20, 99)

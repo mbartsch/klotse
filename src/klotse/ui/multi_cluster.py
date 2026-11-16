@@ -49,7 +49,7 @@ class MultiClusterDialog(QDialog):
             box.setChecked(True)
             picks.addWidget(box)
         picks.addStretch(1)
-        self.read_button = QPushButton("Read")
+        self.read_button = QPushButton("Refresh")  # one name for reloading in every analysis window (#499)
         self.read_button.setToolTip("Read the chosen kind from the chosen clusters (nothing reloads by itself)")
         self.read_button.clicked.connect(self.read)
         top = QHBoxLayout()
