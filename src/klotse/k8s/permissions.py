@@ -17,7 +17,8 @@ BUILT_IN = {"Pod": ("", "pods"), "Node": ("", "nodes"), "Namespace": ("", "names
 ACTIONS = {"edit": ("update", ""), "create": ("create", ""), "delete": ("delete", ""), "scale": ("update", "scale"),
            "restart": ("patch", ""), "terminate": ("delete", ""), "shell": ("create", "exec"), "attach": ("create", "attach"), "debug": ("patch", "ephemeralcontainers"),
            "cronjob-suspend": ("patch", ""),
-           "logs": ("get", "log"), "cordon": ("patch", ""), "delete-node": ("delete", "")}
+           "logs": ("get", "log"), "cordon": ("patch", ""), "delete-node": ("delete", ""),
+           "port-forward": ("create", "portforward")}
 
 
 def resource_for_kind(kind):

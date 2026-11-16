@@ -93,3 +93,46 @@ def test_new_kind_entry_is_separated_from_the_go_to_entries(qtbot):
     new_at = next(i for i, t in enumerate(seen) if t and t.startswith("New Deployment"))
     assert seen[new_at - 1] is None
     assert any(t and t.startswith("Go to namespace") for t in seen[:new_at])
+
+
+def test_a_pod_menu_marks_entries_the_user_may_not_do(qtbot):
+    # #500 part 17: "(not allowed for you)" on the single-row entries that were missing it
+    table = ResourceTable([("Name", "name")], "Pod")
+    qtbot.addWidget(table)
+    table.permission_check = lambda kind, action, row=None: False
+    seen = _popup_entries(qtbot, table, [_pod()])
+    assert any(t and t.startswith("Copy files…") and "not allowed" in t for t in seen)
+    assert any(t and t.startswith("Port forward…") and "not allowed" in t for t in seen)
+    assert any(t and t.startswith("Connect (shell)") and "not allowed" in t for t in seen)
+
+
+def test_a_bulk_menu_marks_entries_the_user_may_not_do(qtbot):
+    table = ResourceTable([("Name", "name")], "Pod")
+    qtbot.addWidget(table)
+    table.permission_check = lambda kind, action, row=None: False
+    table.set_rows([_pod("web-1"), _pod("web-2")])
+    seen = []
+
+    def read():
+        menu = QApplication.activePopupWidget()
+        seen.extend(a.text() for a in menu.actions())
+        menu.close()
+
+    QTimer.singleShot(200, read)
+    table.view.selectAll()
+    table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
+    assert any(t and t.startswith("Terminate 2 pods") and t.endswith("(not allowed for you)") for t in seen)
+
+
+def test_duration_and_ratio_columns_sort_by_value_not_as_text():
+    # #500 part 17: "10d" sorted before "2d" as text; ratios like "1/2" were text too
+    from PySide6.QtCore import Qt
+    from klotse.ui.table_model import TableModel, age_sort_value, ratio_sort_value
+    model = TableModel([("Last Seen", "last_seen"), ("Ready", "ready")])
+    rows = [SimpleNamespace(last_seen="10d", ready="2/2"), SimpleNamespace(last_seen="2d", ready="1/3")]
+    model.set_rows(rows) if hasattr(model, "set_rows") else setattr(model, "rows", rows)
+    seen = [model.index(i, 0).data(Qt.EditRole) for i in range(2)]
+    assert seen == [age_sort_value("10d"), age_sort_value("2d")] and seen[0] > seen[1]
+    ready = [model.index(i, 1).data(Qt.EditRole) for i in range(2)]
+    assert ready[0] > ready[1]
+    assert age_sort_value("1d2h") == 93600 and age_sort_value("nope") == -1 and ratio_sort_value("Ready") == -1

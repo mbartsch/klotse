@@ -991,26 +991,26 @@ class ResourceTable(QWidget):
             menu.addAction(f"Logs of {n} pods…", lambda: self.multi_logs_requested.emit("Pod", list(rows)))
         if self.kind in SCALABLE:
             separate(menu)
-            menu.addAction(f"Scale {counted(n, self.kind)}…", bulk("scale"))
+            menu.addAction(self._hint(f"Scale {counted(n, self.kind)}…", "scale", None), bulk("scale"))
         if self.kind in RESTARTABLE:
             separate(menu)
-            menu.addAction(f"Restart {counted(n, self.kind)}…", bulk("restart"))
+            menu.addAction(self._hint(f"Restart {counted(n, self.kind)}…", "restart", None), bulk("restart"))
         if self.kind == "Node":
             separate(menu)
-            menu.addAction(f"Cordon {n} nodes…", bulk("cordon"))
-            menu.addAction(f"Uncordon {n} nodes…", bulk("uncordon"))
-            menu.addAction(f"Drain {n} nodes…", bulk("drain"))
+            menu.addAction(self._hint(f"Cordon {n} nodes…", "cordon", None), bulk("cordon"))
+            menu.addAction(self._hint(f"Uncordon {n} nodes…", "cordon", None), bulk("uncordon"))
+            menu.addAction(self._hint(f"Drain {n} nodes…", "cordon", None), bulk("drain"))
         if self.kind == "Pod":
             separate(destructive)
-            destructive.addAction(action_icon("delete"), f"Terminate {n} pods…", bulk("terminate"))
-            destructive.addAction(action_icon("delete"), f"Force terminate {n} pods…", bulk("force-terminate"))
+            destructive.addAction(action_icon("delete"), self._hint(f"Terminate {n} pods…", "terminate", None), bulk("terminate"))
+            destructive.addAction(action_icon("delete"), self._hint(f"Force terminate {n} pods…", "terminate", None), bulk("force-terminate"))
         if self.kind in DELETABLE_KINDS:
             separate(destructive)
-            destructive.addAction(action_icon("delete"), f"Delete {counted(n, self.kind)}…", bulk("delete"))
+            destructive.addAction(action_icon("delete"), self._hint(f"Delete {counted(n, self.kind)}…", "delete", None), bulk("delete"))
         if self.kind == "Node":
             separate(destructive)
-            destructive.addAction(action_icon("delete"), f"Delete {n} nodes…", bulk("delete-node"))
-            destructive.addAction(action_icon("delete"), f"Force delete {n} nodes…", bulk("force-delete-node"))
+            destructive.addAction(action_icon("delete"), self._hint(f"Delete {n} nodes…", "delete-node", None), bulk("delete-node"))
+            destructive.addAction(action_icon("delete"), self._hint(f"Force delete {n} nodes…", "delete-node", None), bulk("force-delete-node"))
         if not destructive.isEmpty():
             separate(menu)
             for action in destructive.actions():
@@ -1062,14 +1062,14 @@ class ResourceTable(QWidget):
                 add("remove-debug", "Remove debug containers (recreate pod)…",
                     lambda: self.action_requested.emit("remove-debug", row), dangerous=True, permission="terminate")
             add("browse-pod-files", "Browse files…", lambda: self.action_requested.emit("browse-files", row))
-            add("copy-files", "Copy files…", lambda: self.copy_files_requested.emit(row))
+            add("copy-files", "Copy files…", lambda: self.copy_files_requested.emit(row), permission="shell")
         if self.kind == "Container":
             add("container-logs", "Logs", lambda: self.action_requested.emit("logs", row), primary=True)
             add("container-shell", "Connect (shell)…", lambda: self.action_requested.emit("shell", row))
             add("container-attach", "Attach…", lambda: self.action_requested.emit("attach", row))
         if self.kind in ("Pod", "Service"):
             add("port-forward", "Port forward…", lambda: self.port_forward_requested.emit(self.kind, row),
-                primary=self.kind == "Service")
+                primary=self.kind == "Service", permission="port-forward" if self.kind == "Pod" else None)
         if self.kind == "Node":
             add("node-pods", "List pods on this node", lambda: self.action_requested.emit("node-pods", row), primary=True)
             cordoned = ((getattr(row, "raw", {}) or {}).get("spec") or {}).get("unschedulable", False)
@@ -1077,7 +1077,7 @@ class ResourceTable(QWidget):
             add("cordon", "Uncordon…" if cordoned else "Cordon…",
                 lambda a=key: self.action_requested.emit(a, row), primary=True, permission="cordon")
             add("drain", "Drain…", lambda: self.action_requested.emit("drain", row), permission="cordon")
-            add("node-shell", "Shell (nsenter)…", lambda: self.action_requested.emit("node-shell", row))
+            add("node-shell", "Shell (nsenter)…", lambda: self.action_requested.emit("node-shell", row), permission="shell")
             add("delete-node", "Delete node…", lambda: self.action_requested.emit("delete-node", row), dangerous=True, permission="delete-node")
             add("force-delete-node", "Force delete node…", lambda: self.action_requested.emit("force-delete-node", row),
                 dangerous=True, permission="delete-node")
@@ -1270,7 +1270,7 @@ class ResourceTable(QWidget):
             if idx.isValid():
                 add_shared("namespace-pods")
                 add_shared("diagnostics")
-            menu.addAction(action_icon("create"), "New namespace…", self.new_requested.emit)
+            menu.addAction(action_icon("create"), self._hint("New namespace…", "create", None, kind="Namespace"), self.new_requested.emit)
         if self.new_button is not None:
             if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
                 menu.addSeparator()
