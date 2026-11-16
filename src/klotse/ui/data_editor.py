@@ -112,7 +112,7 @@ class DataEditor(QWidget):
         self._loading = False
         self.keys = QListWidget()
         self.keys.setMaximumWidth(260)
-        self.new_key = QLineEdit(placeholderText="New key")
+        self.new_key = _AddKeyLine(placeholderText="New key")
         self.add_button = QPushButton("Add")
         self.remove_button = QPushButton("Remove")
         self.summary = QLabel()
@@ -349,6 +349,18 @@ def validate_data(keys, total, new=None):
 
 
 # ---- the dialog ----------------------------------------------------------------------------
+class _AddKeyLine(QLineEdit):
+    """The add-key box: Enter adds the key and stops there. Without this, the event reaches the dialog and presses its Save
+    (#496)."""
+
+    def keyPressEvent(self, event):  # noqa: N802 - Qt name
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.returnPressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class DataEditDialog(QDialog):
     """Edit or create a ConfigMap or Secret. After Save, `result_body` is the manifest (a ConfigMap, or a new Secret); for an
     existing Secret it is the merge *patch* (`is_patch`), which may be empty when nothing changed."""
