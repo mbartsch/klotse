@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, Q
 
 from ..k8s.selectors import valid_selector
 from . import theme
+from .log_toolbar import find_next
 from .log_view import LogStreamer, _alive
 
 STREAM_END = "\n[stream ended]\n"  # what LogStreamer emits when a log stream closes by itself
@@ -63,6 +64,12 @@ class MultiLogView(QWidget):
         self.match.setAccessibleName("Show log lines matching a regular expression")
         self.drop = QLineEdit(placeholderText="hide lines matching", clearButtonEnabled=True)
         self.drop.setAccessibleName("Hide log lines matching a regular expression")
+        self.wrap = QCheckBox("Wrap")  # the same toolbar as a single pod's tab (#500)
+        self.wrap.setAccessibleName("Wrap long lines in multi-pod logs")
+        self.search = QLineEdit(placeholderText="Find in logs (Enter = next)", clearButtonEnabled=True)
+        self.search.setAccessibleName("Find in multi-pod logs")
+        self.no_match = QLabel("No match")
+        self.no_match.hide()
         self.ignore_case = QCheckBox("Ignore case")
         self.ignore_case.setAccessibleName("Ignore case in log filters")
         self.ignore_case.setChecked(True)
@@ -93,11 +100,17 @@ class MultiLogView(QWidget):
         second.addWidget(self.ignore_case)
         for w in (self.restart_button, self.clear_button, self.save_button):
             second.addWidget(w)
+        third = QHBoxLayout()
+        third.setContentsMargins(6, 0, 6, 0)
+        third.addWidget(self.search, 2)
+        third.addWidget(self.no_match)
+        third.addWidget(self.wrap)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.selector)
         lay.addLayout(first)
         lay.addLayout(second)
+        lay.addLayout(third)
         lay.addWidget(self.status)
         lay.addWidget(self.text, 1)
 
@@ -114,6 +127,9 @@ class MultiLogView(QWidget):
         self.restart_button.clicked.connect(self.start)
         self.clear_button.clicked.connect(self.clear)
         self.save_button.clicked.connect(self.save)
+        self.wrap.toggled.connect(lambda on: self.text.setLineWrapMode(QPlainTextEdit.WidgetWidth if on else QPlainTextEdit.NoWrap))
+        self.search.returnPressed.connect(lambda: find_next(self.text, self.search.text(), self.no_match))
+        self.search.textChanged.connect(lambda _text: self.no_match.hide())
         self._poll = QTimer(self, interval=RESOLVE_MS)
         self._poll.timeout.connect(self._poll_pods)
         self._poll.start()

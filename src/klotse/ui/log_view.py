@@ -1,10 +1,14 @@
 import codecs
 import socket
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QFontDatabase, QTextCursor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
                                QSpinBox, QVBoxLayout, QWidget)
+
+from .log_toolbar import compile_filters, find_next, line_shown, save_visible
+
+RAW_KEPT = 20000  # chunks of stream text kept so a filter can show them again (the same bound as the lines on screen)
 
 _alive = set()  # streamers still unwinding after stop(); keeps QThread objects from being collected mid-run
 
@@ -90,10 +94,26 @@ class LogView(QWidget):
         self.previous.setToolTip("Show the log of the container's previous run (for example after a crash)")
         self.tail = QSpinBox()
         self.tail.setAccessibleName("Number of log lines to load")
-        self.tail.setRange(10, 100000)
+        self.tail.setRange(0, 100000)
         self.tail.setSingleStep(100)
         self.tail.setValue(500)
-        self.search = QLineEdit(placeholderText="Search in logs (Enter = next)", clearButtonEnabled=True)
+        self.tail.setSpecialValueText("all")  # 0 = every line, as for several pods (#500)
+        self.match = QLineEdit(placeholderText="show only lines matching (regular expression)", clearButtonEnabled=True)
+        self.match.setAccessibleName(f"Show log lines matching a regular expression for pod {pod}")
+        self.drop = QLineEdit(placeholderText="hide lines matching", clearButtonEnabled=True)
+        self.drop.setAccessibleName(f"Hide log lines matching a regular expression for pod {pod}")
+        self.ignore_case = QCheckBox("Ignore case")
+        self.ignore_case.setAccessibleName(f"Ignore case in log filters for pod {pod}")
+        self.ignore_case.setChecked(True)
+        self.restart_button = QPushButton("Restart")
+        self.restart_button.setAccessibleName(f"Restart logs for pod {pod}")
+        self.save_button = QPushButton("Save…")
+        self.save_button.setAccessibleName(f"Save visible logs for pod {pod}")
+        self._raw = []  # the stream text as it arrived, so a filter can show it again
+        self._regex = self._exclude = None
+        self._filter_timer = QTimer(self, interval=300, singleShot=True)
+        self._filter_timer.timeout.connect(self.refilter)
+        self.search = QLineEdit(placeholderText="Find in logs (Enter = next)", clearButtonEnabled=True)
         self.search.setAccessibleName(f"Search logs for pod {pod}")
         clear = QPushButton("Clear")
         clear.setAccessibleName(f"Clear logs for pod {pod}")
@@ -120,14 +140,27 @@ class LogView(QWidget):
         bar.addWidget(self.no_match)
         bar.addWidget(self.reconnect)
         bar.addWidget(clear)
+        second = QHBoxLayout()
+        second.setContentsMargins(6, 0, 6, 4)
+        second.addWidget(self.match, 2)
+        second.addWidget(self.drop, 1)
+        second.addWidget(self.ignore_case)
+        for w in (self.restart_button, self.save_button):
+            second.addWidget(w)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(bar)
+        lay.addLayout(second)
         lay.addWidget(self.drop_note)
         lay.addWidget(self.text)
         self.reconnect.clicked.connect(self.start)
 
-        clear.clicked.connect(self.text.clear)
+        clear.clicked.connect(self.clear)
+        self.restart_button.clicked.connect(self.start)
+        self.save_button.clicked.connect(self.save)
+        self.match.textChanged.connect(lambda _text: self._filter_timer.start())
+        self.drop.textChanged.connect(lambda _text: self._filter_timer.start())
+        self.ignore_case.toggled.connect(lambda _on: self._filter_timer.start())
         self.search.returnPressed.connect(self.find_next)
         self.search.textChanged.connect(lambda _text: self.no_match.hide())
         self.container.currentTextChanged.connect(lambda _: self.start())
@@ -140,8 +173,9 @@ class LogView(QWidget):
     def start(self):
         self.stop()
         self.text.clear()
+        self._raw.clear()
         name = self.container.currentText() or None
-        tail = self.tail.value()
+        tail = self.tail.value() or None  # 0: every line
         extra = {}
         if self.timestamps.isChecked():
             extra["timestamps"] = True
@@ -168,11 +202,20 @@ class LogView(QWidget):
             s.stop()
 
     def _append(self, text):
+        self._raw.append(text)
+        if len(self._raw) > RAW_KEPT:
+            del self._raw[:len(self._raw) - RAW_KEPT]
+        if self.match.text() or self.drop.text():
+            self.refilter()  # only the lines that pass the filters are on screen
+        else:
+            self._show(text)
+        if text == "\n[stream ended]\n":
+            self.reconnect.show()
+
+    def _show(self, text):
         cur = QTextCursor(self.text.document())  # separate cursor: leaves the user's selection alone
         cur.movePosition(QTextCursor.End)
         cur.insertText(text)
-        if text == "\n[stream ended]\n":
-            self.reconnect.show()
         if not self._dropping and self.text.document().blockCount() >= self.text.maximumBlockCount():
             self._dropping = True
             self.drop_note.setText(f"Only the newest {self.text.maximumBlockCount():,} lines are kept here; Save keeps the rest.")
@@ -181,10 +224,27 @@ class LogView(QWidget):
             bar = self.text.verticalScrollBar()
             bar.setValue(bar.maximum())
 
+    def refilter(self):
+        """Show again only the lines that pass the current filters (all the stream text received is kept)."""
+        self._regex, self._exclude = compile_filters(self.match, self.drop, self.ignore_case, self.drop_note)
+        self.drop_note.hide()
+        shown = [line for line in "".join(self._raw).splitlines(True)
+                 if line_shown(line.rstrip("\r\n"), self._regex, self._exclude)]
+        self.text.setPlainText("".join(shown))
+        if self.follow.isChecked():
+            bar = self.text.verticalScrollBar()
+            bar.setValue(bar.maximum())
+
+    def clear(self):
+        self._raw.clear()
+        self.text.clear()
+        self._dropping = False
+
+    def save(self):
+        """Write the lines on screen to a file the user picks."""
+        path = save_visible(self, self.text.toPlainText(), self.drop_note)
+        if path:
+            self.drop_note.show()
+
     def find_next(self):
-        term = self.search.text()
-        if term and not self.text.find(term):
-            self.text.moveCursor(QTextCursor.Start)  # wrap around
-            self.no_match.setVisible(not self.text.find(term))
-        elif term:
-            self.no_match.hide()
+        find_next(self.text, self.search.text(), self.no_match)
