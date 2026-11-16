@@ -25,6 +25,8 @@ Common states:
 
 ## Option A — Operations table (recommended)
 
+![Option A — operations table](cluster-overview-option-a.svg)
+
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ ALL CLUSTERS                                      [Search…] [Refresh]         │
@@ -49,6 +51,8 @@ Trade-off: less visual emphasis per cluster. A selected row can expand inline to
 
 ## Option B — Cluster cards
 
+![Option B — cluster cards](cluster-overview-option-b.svg)
+
 ```text
 ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
 │ ● prod-eu   Healthy  │  │ ● prod-us   Warning  │  │ ○ trial     Offline  │
@@ -64,6 +68,8 @@ Best for 1–12 clusters and quick visual status recognition.
 Trade-off: cards become noisy and uneven when there are many clusters or when details vary by provider. Sorting and comparison are weaker than in a table.
 
 ## Option C — Split list and detail cockpit
+
+![Option C — split list and detail](cluster-overview-option-c.svg)
 
 ```text
 ┌────────────────────────────┬───────────────────────────────────────────────┐
