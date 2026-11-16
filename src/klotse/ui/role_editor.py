@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from . import theme
 from .edit_dialog import leave_for_yaml
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 RESULT_LIMIT = 200
 SEARCH_DELAY_MS = 150
@@ -315,7 +316,7 @@ class Picker(QWidget):
         self.query.clear()
 
 
-class RoleEditDialog(QDialog):
+class RoleEditDialog(DiscardGuard, QDialog):
     """Edit the rules of a Role/ClusterRole. After Save, `result_body` is the manifest with the new rules; if the user
     chose "Edit as YAML…" instead, `wants_yaml` is True and the dialog was rejected."""
 

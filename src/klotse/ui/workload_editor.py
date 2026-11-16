@@ -32,6 +32,7 @@ from .workload_model import (COMPLETION_MODES, CONCURRENCY, CREATABLE_KINDS, EDI
                              valid_count, valid_quantity, validate, workload_warnings)
 from .workload_widgets import ContainerForm, PodForm, TriCombo, page, scrolled
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 STRATEGY_TIPS = {
     "RollingUpdate": "Pods are replaced a few at a time.",
@@ -52,7 +53,7 @@ NEW_NOTE = ("Fill in the name and the containers. For workloads the selector and
             "Fields not in this form can be added with Edit as YAML… (the changes made here come along).")
 
 
-class WorkloadEditDialog(QDialog):
+class WorkloadEditDialog(DiscardGuard, QDialog):
     """Edit or create a Deployment, DaemonSet, StatefulSet or Pod. After Save, `result_body` is the manifest; "Edit as
     YAML…" sets `wants_yaml` (with the form's manifest in `pending`) and rejects the dialog."""
 

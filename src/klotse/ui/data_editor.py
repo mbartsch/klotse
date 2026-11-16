@@ -27,6 +27,7 @@ from . import theme
 from .edit_dialog import leave_for_yaml
 from .service_account_editor import ANNOTATION_SUGGESTIONS, LAST_APPLIED, KeyValueEditor, validate_pairs
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 DATA_KINDS = ("ConfigMap", "Secret")
 KEY_RULE = re.compile(r"[-._a-zA-Z0-9]+")
@@ -361,7 +362,7 @@ class _AddKeyLine(QLineEdit):
         super().keyPressEvent(event)
 
 
-class DataEditDialog(QDialog):
+class DataEditDialog(DiscardGuard, QDialog):
     """Edit or create a ConfigMap or Secret. After Save, `result_body` is the manifest (a ConfigMap, or a new Secret); for an
     existing Secret it is the merge *patch* (`is_patch`), which may be empty when nothing changed."""
 

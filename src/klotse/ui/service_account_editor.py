@@ -17,6 +17,7 @@ from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
 from . import theme
 from .edit_dialog import leave_for_yaml
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 ANNOTATION_SUGGESTIONS = (
@@ -305,7 +306,7 @@ class TextValueDialog(QDialog):
         return dlg.edit.toPlainText() if dlg.exec() == QDialog.Accepted else None
 
 
-class ServiceAccountEditDialog(QDialog):
+class ServiceAccountEditDialog(DiscardGuard, QDialog):
     """Edit a ServiceAccount. After Save, `result_body` is the new manifest; "Edit as YAML…" sets `wants_yaml` and
     rejects the dialog."""
 

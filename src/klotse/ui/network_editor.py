@@ -23,6 +23,7 @@ from .service_account_editor import ANNOTATION_SUGGESTIONS, LAST_APPLIED, KeyVal
 from .workload_model import validate_new
 from .workload_widgets import LinesEdit, RowsEditor, TriCombo, page, scrolled
 from .dialog_sizing import resize_dialog
+from .discard_guard import DiscardGuard
 
 SKELETONS = {"Service": service_skeleton, "Ingress": ingress_skeleton, "NetworkPolicy": policy_skeleton}
 INGRESS_ANNOTATIONS = ("nginx.ingress.kubernetes.io/rewrite-target", "nginx.ingress.kubernetes.io/ssl-redirect",
@@ -45,7 +46,7 @@ def muted(text):
     return label
 
 
-class ObjectDialog(QDialog):
+class ObjectDialog(DiscardGuard, QDialog):
     """Edit or create a Service, Ingress or NetworkPolicy. After Save, `result_body` is the manifest; "Edit as YAML…" sets
     `wants_yaml` (the form's manifest in `pending`) and rejects the dialog. Subclasses fill the tabs (`build_pages`), read
     them back (`collect`), and name the model functions (`validate`, `hints`, `build`)."""
