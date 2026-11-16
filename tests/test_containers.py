@@ -84,7 +84,7 @@ def test_workspace_container_logs_shell_and_force_delete(qtbot, monkeypatch):
     node = SimpleNamespace(name="node-a", raw={"metadata": {"uid": "uid-a"}})
     ws.node_action("force-delete-node", node)
     qtbot.waitUntil(lambda: len(calls) == 2)
-    assert ("pod", "web", "team-a", True) in calls
+    assert ("pod", "web", "team-a", True, (row.raw.get("metadata") or {}).get("uid", "")) in calls  # the uid of the row (#651)
     assert ("node", "node-a", "uid-a", True) in calls
     ws.pod_action("containers", row)  # double-click on a pod: its own tab, not a popup
     tab = ws._pod_tabs["pod:team-a/web"]
