@@ -340,6 +340,18 @@ class Navigator(QTreeWidget):
         h.setExpanded(True)
         return h
 
+    def refresh_theme(self):
+        """A theme change: every heading and folder takes the new colours (#501: they kept the old ones until a restart)."""
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            kind = item.data(0, self.ROLE_KIND)
+            if kind in ("header", self.RESOURCE_GROUP, "gateway", "karpenter"):
+                self._style_item(item, kind)
+            stack.extend(item.child(i) for i in range(item.childCount()))
+
     def _update_headers(self):
         idle = [name for name, state in self._states.items() if state not in ACTIVE_STATES]
         self._connected_hdr.setText(0, f"CONNECTED ({self._connected_hdr.childCount()})")

@@ -136,6 +136,7 @@ class MainWindow(QMainWindow):
             self.label_settings.store, folder=Path(self.label_settings.store.fileName()).parent / "plugins", parent=self)
         self.setWindowTitle("Klotse")
         self.resize(1500, 850)
+        self._restore_geometry()  # the window opens where it was closed (#501); Qt keeps it on a screen that exists
         if sys.platform == "darwin":
             self.menuBar().setNativeMenuBar(True)
         self._shutting_down = False
@@ -313,6 +314,7 @@ class MainWindow(QMainWindow):
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
         self.menuBar().addMenu("&Help").addAction(self.about_action)
+        self._show_menu_tooltips(self.menuBar())  # the entries' tooltips say what they do and their shortcut (#501)
 
         self.clusters = QTabWidget()
         self.clusters.setDocumentMode(True)
@@ -1347,6 +1349,7 @@ class MainWindow(QMainWindow):
         for workspace in self.workspaces.values():
             workspace.overview.refresh_theme()
             workspace.wl_overview.refresh_theme()
+        self.nav.refresh_theme()  # the navigator's headings and folders (#501)
         return True
 
     def apply_kubeconfig(self, path):
@@ -1575,9 +1578,30 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save the session", str(error))
         return True
 
+    @classmethod
+    def _show_menu_tooltips(cls, owner):
+        """Every menu, submenus included, shows its entries' tooltips (QMenuBar has no such setting; QMenu does)."""
+        for action in owner.actions():
+            if action.menu() is not None:
+                action.menu().setToolTipsVisible(True)
+                cls._show_menu_tooltips(action.menu())
+
+    GEOMETRY_KEY = "window/geometry"
+
+    def _restore_geometry(self):
+        geometry = self.label_settings.store.value(self.GEOMETRY_KEY)  # a QByteArray from QSettings; empty when never saved
+        if geometry:
+            self.restoreGeometry(geometry)
+
+    def _remember_geometry(self):
+        """Keep the window's size and place for the next start. A save error is not fatal: the window just opens at its default."""
+        self.label_settings.store.setValue(self.GEOMETRY_KEY, self.saveGeometry())
+        self.label_settings.store.sync()
+
     def closeEvent(self, event):
         if not self._shutting_down and not self.confirm_exit():
             event.ignore()
             return
+        self._remember_geometry()
         self.shutdown()
         super().closeEvent(event)
