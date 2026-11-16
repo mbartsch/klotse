@@ -23,8 +23,8 @@ def test_the_pod_bar_keeps_logs_visible_and_secondary_actions_in_more(qtbot):
 def test_the_node_bar_has_one_actions_button_and_cordon_toggles(qtbot):
     bar = NodeActionBar("n1")
     qtbot.addWidget(bar)
-    assert bar.menu_button.text() == "Actions"
-    assert [a.text() for a in bar.items] == ["Cordon…", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete…"]
+    assert bar.menu_button.text() == "More…"
+    assert [a.text() for a in bar.items] == ["Cordon…", "Drain…", "Shell (nsenter)…", "Delete node…", "Force delete node…"]
 
 
 def test_actions_button_emits_the_action_name(qtbot):

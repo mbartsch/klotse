@@ -1004,7 +1004,7 @@ class ResourceTable(QWidget):
             separate(destructive)
             destructive.addAction(action_icon("delete"), self._hint(f"Terminate {n} pods…", "terminate", None), bulk("terminate"))
             destructive.addAction(action_icon("delete"), self._hint(f"Force terminate {n} pods…", "terminate", None), bulk("force-terminate"))
-        if self.kind in DELETABLE_KINDS:
+        if self.kind in DELETABLE_KINDS or self.deletable:
             separate(destructive)
             destructive.addAction(action_icon("delete"), self._hint(f"Delete {counted(n, self.kind)}…", "delete", None), bulk("delete"))
         if self.kind == "Node":
