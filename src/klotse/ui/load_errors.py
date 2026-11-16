@@ -60,7 +60,8 @@ def describe(message):
         reason = _REASON.search(raw)
         said = _BODY_MESSAGE.search(raw)
         server = said.group(1).replace('\\"', '"').replace("\n", " ") if said else ""
-        head = "The cluster refused this" + (f" ({code}{' ' + reason.group(1).strip() if reason else ''})" if code else "") + "."
+        action = "The cluster refused this" if not code or int(code) < 500 else "The cluster returned an error"
+        head = action + (f" ({code}{' ' + reason.group(1).strip() if reason else ''})" if code else "") + "."
         return KUBERNETES, "\n".join(part for part in (head, f"Server: {server}" if server else "", _HINTS.get(code, "")) if part)
     prefix = _PREFIX.match(raw)
     name = prefix.group(1).rsplit(".", 1)[-1] if prefix else ""

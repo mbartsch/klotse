@@ -247,6 +247,17 @@ def test_save_writes_what_is_shown(qtbot, tmp_path, monkeypatch):
     teardown(view)
 
 
+def test_clearing_multi_pod_logs_allows_a_new_drop_notice(qtbot):
+    _, view = make(qtbot, [("web-1", ["app"])], {("web-1", "app"): []})
+    view.text.setMaximumBlockCount(3)
+    for i in range(5):
+        view._append(f"line {i}")
+    assert view._dropping
+    view.clear()
+    assert not view._dropping
+    teardown(view)
+
+
 def test_closing_the_view_stops_everything(qtbot):
     pods = [("web-1", ["app"])]
     service = Service({})

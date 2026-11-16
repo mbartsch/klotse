@@ -45,6 +45,19 @@ def test_a_log_stream_that_ended_can_be_reconnected(qtbot, monkeypatch):
     assert len(starts) == before + 1
 
 
+def test_clearing_a_log_search_clears_the_no_match_notice(qtbot, monkeypatch):
+    monkeypatch.setattr(LogView, "start", lambda self: None)
+    view = LogView(NS(), "shop", "web-1", ["app"])
+    qtbot.addWidget(view)
+    view.show()
+    view.text.setPlainText("ready\n")
+    view.search.setText("missing")
+    view.find_next()
+    assert not view.no_match.isHidden()
+    view.search.clear()
+    assert view.no_match.isHidden()
+
+
 def test_the_log_view_says_once_when_older_lines_start_to_fall_off(qtbot, monkeypatch):
     monkeypatch.setattr(LogView, "start", lambda self: None)
     view = LogView(NS(), "shop", "web-1", ["app"])
