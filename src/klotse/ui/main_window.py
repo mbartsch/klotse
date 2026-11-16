@@ -307,6 +307,9 @@ class MainWindow(QMainWindow):
         self.auto_refresh_menu.aboutToShow.connect(self._sync_global_auto_actions)
         view_menu.addSeparator()
         view_menu.addAction(self.managed_fields_action)
+        self.clusters_panel_action = QAction("Show clusters panel", self, checkable=True, checked=True)  # #501: the navigator could not be hidden
+        self.clusters_panel_action.setToolTip("Show or hide the cluster navigator on the left")
+        view_menu.addAction(self.clusters_panel_action)
         settings_menu.aboutToShow.connect(self._sync_big_action)
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
         self.plugins_menu = self.menuBar().addMenu("&Plugins")
@@ -415,6 +418,8 @@ class MainWindow(QMainWindow):
         nav_dock.setMinimumWidth(218)
         nav_dock.setMaximumWidth(360)
         self.addDockWidget(Qt.LeftDockWidgetArea, nav_dock)
+        self.clusters_panel_action.toggled.connect(nav_dock.setVisible)
+        nav_dock.visibilityChanged.connect(self.clusters_panel_action.setChecked)  # keeps the menu in step with the dock
         self.resizeDocks([nav_dock], [234], Qt.Horizontal)
         self.nav.context_clicked.connect(self.open_cluster)
         self.nav.connect_requested.connect(self.open_cluster)
