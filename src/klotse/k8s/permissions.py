@@ -40,7 +40,7 @@ def _resource_matches(listed, resource, subresource):
         return True
     if not subresource:
         return resource in listed
-    return f"{resource}/{subresource}" in listed or f"*/{subresource}" in listed or f"{resource}/*" in listed
+    return f"{resource}/{subresource}" in listed or f"*/{subresource}" in listed  # no "pods/*" wildcard (#655)
 
 
 class Permissions:

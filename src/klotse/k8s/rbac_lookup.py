@@ -33,8 +33,7 @@ def _resource_covers(rule_resource, resource):
     if rule_resource == "*" or rule_resource == resource:
         return True
     if "/" in resource:
-        if rule_resource.endswith("/*") and resource.startswith(rule_resource[:-1]):
-            return True  # "pods/*" covers "pods/log"
+        # Kubernetes has no "pods/*": a subresource is granted by "*", by its exact name, or by "*/<subresource>" (#655)
         if rule_resource.startswith("*/") and resource.endswith(rule_resource[1:]):
             return True  # "*/scale" covers "deployments/scale"
     return False

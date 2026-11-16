@@ -56,7 +56,7 @@ def test_rule_matching_verbs_groups_resources_subresources_and_names():
     assert rule_matches(rule(["*"], ["*"], groups=["*"]), "delete", "apps", "deployments") == "all"
     assert rule_matches(rule(["get"], ["pods"]), "get", "", "pods/log") is None          # a subresource needs its own rule
     assert rule_matches(rule(["get"], ["pods/log"]), "get", "", "pods/log") == "all"
-    assert rule_matches(rule(["get"], ["pods/*"]), "get", "", "pods/exec") == "all"
+    assert rule_matches(rule(["get"], ["pods/*"]), "get", "", "pods/exec") is None  # no pods/* wildcard (#655)
     assert rule_matches(rule(["update"], ["*/scale"], groups=["apps"]), "update", "apps", "deployments/scale") == "all"
     assert rule_matches(rule(["get"], ["pods"], groups=["apps"]), "get", "", "pods") is None
     named = rule(["get"], ["secrets"], names=["db-password"])
