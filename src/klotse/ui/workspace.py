@@ -32,6 +32,7 @@ from . import big_clusters
 from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from ..k8s.client import HUGE_PODS
+from .activity_log import Activity, ActivityPanel
 from .compare_dialog import CompareDialog
 from .crd_delete_dialog import CrdDeleteDialog
 from .wording import counted, plural_label
@@ -54,7 +55,7 @@ from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
 from .edit_dialog import EditDialog
-from .load_errors import explain
+from .load_errors import brief, describe, explain
 from .log_view import LogView
 from .multi_log import MultiLogView
 from ..k8s.selectors import selector_text, valid_selector
@@ -162,6 +163,8 @@ class ClusterWorkspace(QMainWindow):
     def __init__(self, service, context, parent=None, label_settings=None, terminal_settings=None, plugins=None, audit_log=None):
         super().__init__(parent)
         self._helm_running, self._rolling_back = set(), set()  # (namespace, name) with an action in progress
+        self.activity = Activity()  # results and errors of this session's actions (Logs & activity > Activity)
+        self.result.connect(lambda text: self.activity.add(True, text))
         self.service = service
         self.audit_log = audit_log  # the local change log (ui/audit_log.AuditLog) or None
         self.context = context
@@ -496,6 +499,7 @@ class ClusterWorkspace(QMainWindow):
                                ("Up-to-date", "up_to_date"), ("Available", "available"), ("Age", "age")], "Deployment")
         self.sts_table = T([("Name", "name"), ("Namespace", "namespace"), ("Ready", "ready"), ("Age", "age")], "StatefulSet")
         self.overview = OverviewView(CLUSTER_CARDS, context=self.context)
+        self.overview.retry_requested.connect(lambda: self.load_view("overview"))
         self.wl_overview = OverviewView(WORKLOAD_CARDS)
         self._overview_namespace_pending = None
         self.overview.node_selected.connect(self._overview_node_selected)
@@ -1336,8 +1340,8 @@ class ClusterWorkspace(QMainWindow):
                     self.message.emit(f"{self.context} / {title}: {data.splitlines()[0] if data else ''}")
                 else:
                     sink(data)
-                    count = f"{len(data):,} rows, " if isinstance(data, list) else ""
-                    self.message.emit(f"{self.context} / {title}: {count}{perf_counter() - started:.1f}s")
+                    count = f"{len(data):,} rows" if isinstance(data, list) else "loaded"
+                    self.message.emit(f"{self.context} / {title}: {count}")  # no timing: it stayed on the status bar (#497)
             if key in self._pending_loads:
                 self._pending_loads.discard(key)
                 self.load_view(key)
@@ -2594,8 +2598,24 @@ class ClusterWorkspace(QMainWindow):
         self.views[key][0].select_when_loaded(name, namespace)
 
     def _on_error(self, msg):
-        self.message.emit(f"{self.context}: {msg}")
-        QMessageBox.warning(self, "Kubernetes error", f"{self.context}\n\n{msg}")
+        """A failed action: a readable sentence in a box titled by where it went wrong (the cluster, the network, a local check),
+        and the complete text in Logs & activity > Activity, where it can be copied."""
+        title, text = describe(msg)
+        first = (text.splitlines() or [""])[0]
+        self.message.emit(f"{self.context}: {first}")
+        self.activity.add(False, first, str(msg))
+        more = "\n\nThe complete error is in View > Operations > Activity." if str(msg).strip() != text.strip() else ""
+        QMessageBox.warning(self, title, f"{self.context}\n\n{text}{more}")
+
+    def show_activity(self):
+        """Bring the Activity tab of the Logs & activity dock to the front, creating it on first use."""
+        for i in range(self.log_tabs.count()):
+            if getattr(self.log_tabs.widget(i), "key", None) == ActivityPanel.key:
+                self.log_tabs.setCurrentIndex(i)
+                break
+        else:
+            self.log_tabs.setCurrentIndex(self.log_tabs.addTab(ActivityPanel(self.activity), "Activity"))
+        self._show_log_dock()
 
     # ---- actions -------------------------------------------------------
     def api_loader(self):
@@ -3207,8 +3227,13 @@ class ClusterWorkspace(QMainWindow):
                         on_each(r)
             self.result.emit(f"{self.context}: {title}: {len(rows) - len(failed)} succeeded, {len(failed)} failed")
             if failed:
-                QMessageBox.warning(self, "Some actions failed", f"{self.context}\n\n" + "\n".join(
-                    f"{getattr(r, 'namespace', '') + '/' if getattr(r, 'namespace', '') else ''}{r.name}: {m}" for r, m in failed[:10]))
+                lines = [f"{getattr(r, 'namespace', '') + '/' if getattr(r, 'namespace', '') else ''}{r.name}: {brief(m)}"
+                         for r, m in failed]
+                for (_row, raw), line in zip(failed, lines):
+                    self.activity.add(False, f"{title}: {line}", raw)
+                shown = lines[:10] + ([f"…and {len(lines) - 10} more (all of them are in View > Operations > Activity)"]
+                                      if len(lines) > 10 else [])
+                QMessageBox.warning(self, "Some actions failed", f"{self.context}\n\n" + "\n".join(shown))
             if refresh or failed:
                 self.refresh()
 

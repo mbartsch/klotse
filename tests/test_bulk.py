@@ -100,7 +100,7 @@ def test_bulk_terminate_confirms_once_and_reports_failures(qtbot, monkeypatch):
     wait_idle(qtbot, ws)
     assert len(questions) == 1 and "3 pods" in questions[0]
     assert deleted == [("a", "ns", (True,)), ("c", "ns", (True,))]  # one failure does not stop the rest
-    assert len(warnings) == 1 and "ns/bad: RuntimeError: forbidden" in warnings[0]
+    assert len(warnings) == 1 and "ns/bad: forbidden" in warnings[0]
 
 
 def test_bulk_cancel_does_nothing(qtbot, monkeypatch):

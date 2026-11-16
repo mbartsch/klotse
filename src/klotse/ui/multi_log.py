@@ -32,6 +32,7 @@ class MultiLogView(QWidget):
         super().__init__(parent)
         self.service, self.namespace, self.resolver, self.run, self.fixed = service, namespace, resolver, run, fixed
         self.lines = deque(maxlen=MAX_LINES)  # every line received
+        self._dropping = False  # the 'older lines are gone' notice is said once
         self.streams, self.buffers, self.multi = {}, {}, set()  # (pod, container) -> streamer / partial line / pods with >1 container
         self._regex = self._exclude = None
         self._resolving = False
@@ -241,6 +242,9 @@ class MultiLogView(QWidget):
         cursor = QTextCursor(self.text.document())  # separate cursor: leaves the user's selection alone
         cursor.movePosition(QTextCursor.End)
         cursor.insertText(line + "\n")
+        if not self._dropping and self.text.document().blockCount() >= MAX_LINES:
+            self._dropping = True
+            self.status.setText(f"Only the newest {MAX_LINES:,} lines are kept; the older ones are gone from this view.")
         if self.follow.isChecked():
             bar = self.text.verticalScrollBar()
             bar.setValue(bar.maximum())

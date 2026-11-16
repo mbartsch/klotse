@@ -641,10 +641,12 @@ class OverviewView(QWidget):
     def _loading_tick(self):
         self.loading_label.setText(f"Loading cluster data… {self._load_clock.elapsed() // 1000}s")
 
+    retry_requested = Signal()  # the Retry button of a failed load (#497: Overview had no Retry or Copy error)
+
     def set_error(self, message):
         self._load_timer.stop()
         if self._data is None:
-            self.loading_page.show_failed(f"Load failed: {message}")
+            self.loading_page.show_failed(f"Load failed: {message}", [("Retry", self.retry_requested.emit)], str(message))
             self.stack.setCurrentWidget(self.loading_page)
 
     def set_plugin_cards(self, cards):
