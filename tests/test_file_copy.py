@@ -131,7 +131,7 @@ def test_the_panel_lists_copies_and_cancels(qtbot, copies, tmp_path):
     assert panel.table.rowCount() == 0
 
 
-def test_the_dialog_validates_and_reports_values(qtbot):
+def test_the_dialog_validates_and_reports_values(qtbot, tmp_path):
     d = FileCopyDialog("web-1", "shop", ["app", "side"])
     qtbot.addWidget(d)
     assert d.download.accessibleName() == "Download files from the container to this computer"
@@ -142,11 +142,13 @@ def test_the_dialog_validates_and_reports_values(qtbot):
     d._accept()
     assert d.result() != QDialog.Accepted and not d.note.isHidden()
     d.remote.setText("/data/")
-    d.local.setText("C:/tmp/x")
+    source = tmp_path / "x"
+    source.write_text("x")  # an upload source must exist: checked before the dialog closes (#496)
+    d.local.setText(str(source))
     d.container.setCurrentIndex(1)
     d.upload.setChecked(True)
     d._accept()
-    assert d.result() == QDialog.Accepted and d.result_values == ("upload", "side", "C:/tmp/x", "/data")
+    assert d.result() == QDialog.Accepted and d.result_values == ("upload", "side", str(source), "/data")
 
 
 # ---- the workspace ---------------------------------------------------------------------------------------------

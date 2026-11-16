@@ -21,6 +21,18 @@ STATE_TEXT = {"running": "… Copying", "stopping": "■ Cancelling", "done": "�
 UPLOAD, DOWNLOAD = "upload", "download"
 
 
+def check_local(direction, local):
+    """The local side of a copy, checked where the user is still looking at the dialog (#496: it used to be checked after the
+    dialog had closed and after the upload question): an upload source must exist, and the download's folder must exist."""
+    local = os.path.abspath(local)
+    if direction == UPLOAD and not os.path.exists(local):
+        raise ValueError(f"{local} does not exist.")
+    folder = os.path.dirname(local)
+    if not os.path.isdir(folder):
+        raise ValueError(f"The folder {folder} does not exist.")
+    return local
+
+
 def valid_remote(path):
     """The container path, trimmed and without trailing slashes; ValueError with a message when it is empty, has a control
     character, or is the root itself (copying `/` is never what is meant)."""
@@ -366,6 +378,7 @@ class FileCopyDialog(QDialog):
         local = self.local.text().strip()
         if not local:
             raise ValueError("Choose the file or folder on this computer.")
+        check_local(self.direction(), local)
         return self.direction(), self.container.currentText(), local, remote
 
     def _accept(self):
