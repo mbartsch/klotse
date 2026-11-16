@@ -12,6 +12,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView,
                                QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStyle,
                                QTableWidget, QTableWidgetItem, QToolButton, QToolTip, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QSizePolicy
 
 from .role_editor import AUTOUPDATE, RESULT_LIMIT, Picker, confirm_risky
 from . import theme
@@ -138,7 +139,8 @@ class KeyValueEditor(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setFixedHeight(height)
+        self.table.setMinimumHeight(height)  # #501: at least this tall, and it grows with the dialog (was fixed at 90 px)
+        self.table.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.key_box = QComboBox()
         self.key_box.setEditable(True)
         self.key_box.addItems(list(suggestions))
