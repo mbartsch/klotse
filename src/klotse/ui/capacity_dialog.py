@@ -1,13 +1,14 @@
 """View > Capacity…: what the pods request and may use against what each node can give, per node and per namespace
 (like kube-capacity). Numbers come from `k8s.capacity`; percentages are written out, so nothing depends on colour."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QPushButton, QTabWidget, QTableWidget, QVBoxLayout)
 
 from ..k8s import capacity
+from . import analysis_window as aw
 from . import theme
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
+from .analysis_window import Cell as _Item  # a cell that sorts by its number, not its text (Right-sizing uses it too)
 
 NODE_COLUMNS = ["Node", "Pods", "CPU alloc", "CPU req", "CPU req %", "CPU lim", "CPU used", "Mem alloc GiB", "Mem req GiB",
                 "Mem req %", "Mem lim GiB", "Mem used GiB"]
@@ -21,24 +22,6 @@ def number(value, digits=2):
 
 def percent_text(value):
     return "" if value < 0 else f"{value:.0f}%" + (" over" if value > 100 else "")
-
-
-class _Item(QTableWidgetItem):
-    """A cell that sorts by its number, not its text."""
-
-    def __init__(self, text, key):
-        super().__init__(text)
-        self._key = key
-        self.setFlags(self.flags() & ~Qt.ItemIsEditable)
-        if not isinstance(key, str):
-            self.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-    def __lt__(self, other):
-        mine, theirs = self._key, getattr(other, "_key", None)
-        try:
-            return mine < theirs
-        except TypeError:
-            return str(mine) < str(theirs)
 
 
 def node_cells(r):
@@ -79,11 +62,11 @@ def _fill(table, rows, cells):
 class CapacityDialog(QDialog):
     def __init__(self, context, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Capacity")
+        self.setWindowTitle(aw.title("Capacity", context))
         resize_dialog(self, 980, 560)
-        self.header = QLabel(f"<b>{_plain(context)}</b>")
+        self.header = QLabel(aw.heading(context))
         self.header.setTextFormat(Qt.RichText)
-        self.summary = QLabel("Loading nodes and pods…")
+        self.summary = QLabel(aw.LOADING)
         self.summary.setWordWrap(True)
         theme.muted(self.summary)
         self.nodes = _table(NODE_COLUMNS)
@@ -94,9 +77,13 @@ class CapacityDialog(QDialog):
         self.tabs.addTab(self.nodes, "Nodes")
         self.tabs.addTab(self.spaces, "Namespaces")
         self.reload_button = QPushButton("Refresh")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the table shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.tabs.currentWidget()))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
@@ -109,6 +96,9 @@ class CapacityDialog(QDialog):
         total = capacity.totals(node_rows)
         _fill(self.nodes, node_rows, node_cells)
         _fill(self.spaces, capacity.by_namespace(pods), space_cells)
+        if not node_rows:
+            self.summary.setText("Nothing found: the cluster returned no nodes.")
+            return
         self.summary.setText(
             f"Requested of allocatable: CPU {number(total['cpu_req'])} / {number(total['cpu_alloc'])} cores "
             f"({percent_text(total['cpu_req_pct']) or 'n/a'}), memory {number(total['mem_req'])} / {number(total['mem_alloc'])} GiB "
@@ -116,8 +106,4 @@ class CapacityDialog(QDialog):
             "did not answer. Click a heading to sort.")
 
     def show_error(self, message):
-        self.summary.setText(f"Could not load: {message}")
-
-
-def _plain(text):
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self.summary.setText(aw.error_text(message, "nodes and pods"))

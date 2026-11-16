@@ -3,11 +3,11 @@ Looking only: nothing is deleted from here. Double-click goes to the object."""
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QVBoxLayout)
 
 from ..k8s import unused
 from ..k8s.util import format_age
+from . import analysis_window as aw
 from . import theme
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
@@ -31,12 +31,12 @@ class UnusedDialog(QDialog):
 
     def __init__(self, context, scope, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Unused objects")
+        self.setWindowTitle(aw.title("Unused objects", context))
         resize_dialog(self, 900, 520)
         self.rows = []
-        self.header = QLabel(f"<b>{_plain(context)}</b> · {_plain(scope)}")
+        self.header = QLabel(aw.heading(context, scope))
         self.header.setTextFormat(Qt.RichText)
-        self.summary = QLabel("Looking…")
+        self.summary = QLabel(aw.LOADING)
         self.summary.setWordWrap(True)
         theme.muted(self.summary)
         self.kind_boxes = {}
@@ -58,32 +58,35 @@ class UnusedDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.cellDoubleClicked.connect(self._open_row)
+        self.found = QLabel("")
+        theme.muted(self.found)
         self.reload_button = QPushButton("Refresh")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the rows shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.table))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel(CAVEAT)
         note.setWordWrap(True)
         theme.muted(note)
         buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addLayout(options)
         lay.addWidget(self.table, 1)
+        lay.addWidget(self.found)
         lay.addWidget(note)
         lay.addWidget(buttons)
 
     def show_result(self, rows, judged, problems=()):
         self.rows = list(rows)
-        self.table.setRowCount(len(self.rows))
-        for index, row in enumerate(self.rows):
-            for column, text in enumerate((row["kind"], row["namespace"], row["name"], age_of(row["created"]), row["note"])):
-                item = QTableWidgetItem(text)
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                self.table.setItem(index, column, item)
-        self.table.resizeColumnsToContents()
-        text = unused.summary(self.rows, judged)
+        aw.fill(self.table, [[row["kind"], row["namespace"], row["name"], (age_of(row["created"]), str(row["created"])), row["note"]]
+                             for row in self.rows])
+        looked = ", ".join(f"{judged.get(kind, 0)} {label.lower()}" for kind, label in LABELS)
+        text = unused.summary(self.rows, judged) if self.rows else f"Nothing found among {looked}: each one is referred to."
         if problems:
             text += " Could not read: " + "; ".join(problems) + "."
         self.summary.setText(text)
@@ -93,22 +96,21 @@ class UnusedDialog(QDialog):
         """A list of what refers to objects could not be read: judging would call used objects unused, so no list is shown."""
         self.rows = []
         self.table.setRowCount(0)
+        self.found.setText("")
         self.summary.setText("Cannot tell what is unused: " + ", ".join(missing) + " could not be read (" + "; ".join(problems) + "). "
                              "Without them used objects would look unused, so no list is shown.")
 
     def show_error(self, message):
-        self.summary.setText(f"Could not look: {message}")
+        self.summary.setText(aw.error_text(message, "ConfigMaps, Secrets and claims"))
 
     def _apply_filter(self):
         words = self.filter.text().lower().split()
-        for index, row in enumerate(self.rows):
+        for index in range(self.table.rowCount()):
+            row = self.rows[aw.source_index(self.table, index)]
             line = " ".join((row["namespace"], row["name"], row["note"])).lower()
             self.table.setRowHidden(index, not self.kind_boxes[row["kind"]].isChecked() or not all(w in line for w in words))
+        self.found.setText(aw.found_text(len(self.rows), aw.hidden_count(self.table)) if self.rows else "")
 
     def _open_row(self, index, _column):
-        row = self.rows[index]
+        row = self.rows[aw.source_index(self.table, index)]
         self.go_to_requested.emit(row["kind"], row["namespace"], row["name"])
-
-
-def _plain(text):
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

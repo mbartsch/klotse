@@ -9,12 +9,13 @@ import shutil
 
 from .dialog_sizing import resize_dialog
 from PySide6.QtCore import QThreadPool, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-                               QScrollArea, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+                               QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ..k8s import cloud_clusters as cloud
 from ..plugins.api import CloudError
 from ..workers import Worker
+from .dialog_actions import action_box
 
 NO_PLUGIN_TEXT = ("No cloud plugin is enabled. Enable one in Plugins (for example Google Cloud (GKE) Plugin, AWS Plugin, "
                   "Azure (AKS) Plugin or Oracle Cloud (OKE) Plugin), then open this dialog again.")
@@ -62,13 +63,13 @@ class CloudClustersDialog(QDialog):
         self.add_button = QPushButton("Add selected clusters")
         self.add_button.setEnabled(False)
         self.add_button.clicked.connect(self._add)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.list_button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.add_button)
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.reject)
-        buttons.addWidget(self.close_button)
+        # the platform's own order, as in every other dialog (#499: this one built its own row)
+        buttons = QHBoxLayout()
+        buttons.addWidget(action_box(self, (self.list_button, QDialogButtonBox.ActionRole),
+                                     (self.add_button, QDialogButtonBox.AcceptRole),
+                                     (self.close_button, QDialogButtonBox.RejectRole)))
 
         # One large checkbox per cluster, named in full: a checkbox is far easier to see than a table's small indicator.
         self.list_holder = QWidget()

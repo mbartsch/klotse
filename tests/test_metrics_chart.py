@@ -292,7 +292,7 @@ def test_a_real_node_row_opens_the_window_it_has_no_namespace(qtbot):
     ws = make_ws(qtbot, metrics_sample=lambda *a: seen.append(a) or {"node": (1.0, 0.5, 100.0)}, metrics_available=lambda: True,
                  find_prometheus=lambda: [], prometheus_check=lambda ref: True)
     dialog = ws.show_metrics("Node", node)
-    assert dialog is not None and dialog.windowTitle() == "Usage history: Node n1 (ctx)"
+    assert dialog is not None and dialog.windowTitle() == "Usage history: Node n1 — ctx"
     qtbot.waitUntil(lambda: bool(seen), timeout=5000)
     assert seen[0] == ("Node", "", "n1", "") and dialog.cpu_chart.refs == {"allocatable": 4.0}
     assert ws.show_metrics("Node", node) is dialog

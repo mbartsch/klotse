@@ -74,7 +74,7 @@ def test_workspace_opens_the_dialog(qtbot, monkeypatch):
     seen = []
     monkeypatch.setattr(CompareDialog, "exec", lambda self: seen.append(self.windowTitle()))
     ws.compare_objects("Deployment", [dep("a", "x"), dep("b", "y")])
-    assert seen == ["Compare Deployments"]
+    assert seen == ["Compare Deployments — ctx"]  # the title names the cluster (#499)
 
 
 def test_cluster_labels_distinguish_same_named_objects_and_escape_markup(qtbot):

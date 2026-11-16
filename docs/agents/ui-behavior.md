@@ -8,6 +8,7 @@
 - The Details dock is capped at half the window (`_limit_dock`).
 - `overview_cluster` reads nodes, pods, events, namespaces, metrics in parallel. Keep overview lists bounded, serialization deferred and `include_raw=False` paths cheap; never serialize all events/pods just to count them.
 - Tables keep API order initially; column sizing samples at most 100 rows; filtering debounced 200 ms. Avoid unbounded GUI-thread work.
+- Analysis windows (Capacity, Health check, Pod security, Upgrade preflight, Right-sizing, Unused objects, RBAC lookup, Trivy, Search, Change log, My permissions, Export diagnostics, Several clusters) are non-modal, one per workspace (Export diagnostics: per namespace), and come back to the front with their data. Loads go through `ClusterWorkspace._analysis_load`: Refresh disabled until the answer, an older answer dropped by serial, the heading rewritten for the scope of that load. Titles are `{Window} — {alias}` (`ws.display_name`, set by MainWindow); wording, nothing-found line, sorting and Copy come from `ui/analysis_window.py`.
 - `ResourceTable.set_rows` remembers and silently restores selection, current row and scroll by uid (else namespace/name); a recreated object with a new uid is not the same selection. Initial loads distinguish progress, empty, filter-empty and failed (Retry, Copy error, View permissions for 401/403 via `ui/load_errors.explain`); a failed refresh keeps visible rows.
 
 ### Auto-refresh, watches, and metrics

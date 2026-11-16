@@ -1,10 +1,10 @@
 """View > Health check…: problems and risks found in the manifests of the namespace in front (or all namespaces), like k9s's Popeye.
 Looking only. Double-click a finding to go to the object."""
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QVBoxLayout)
 
 from ..k8s import health
+from . import analysis_window as aw
 from . import theme
 from .dialog_actions import action_box
 from .dialog_sizing import resize_dialog
@@ -17,12 +17,12 @@ class HealthDialog(QDialog):
 
     def __init__(self, context, scope, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Health check")
+        self.setWindowTitle(aw.title("Health check", context))
         resize_dialog(self, 1000, 560)
         self.findings = []
-        self.header = QLabel(f"<b>{_plain(context)}</b> · {_plain(scope)}")
+        self.header = QLabel(aw.heading(context, scope))
         self.header.setTextFormat(Qt.RichText)
-        self.summary = QLabel("Checking…")
+        self.summary = QLabel(aw.LOADING)
         self.summary.setWordWrap(True)
         theme.muted(self.summary)
         self.show_errors = QCheckBox(health.SYMBOLS[health.ERROR])
@@ -42,7 +42,12 @@ class HealthDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.cellDoubleClicked.connect(self._open_row)
+        self.found = QLabel("")
+        theme.muted(self.found)
         self.reload_button = QPushButton("Refresh")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the rows shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.table))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel("A finding is advice, not a verdict: a job may rightly have no probe and one replica may be on purpose. "
@@ -54,45 +59,40 @@ class HealthDialog(QDialog):
             options.addWidget(w)
         options.addWidget(self.filter, 1)
         buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addLayout(options)
         lay.addWidget(self.table, 1)
+        lay.addWidget(self.found)
         lay.addWidget(note)
         lay.addWidget(buttons)
 
     def show_findings(self, findings, problems=()):
         self.findings = list(findings)
-        self.table.setRowCount(len(self.findings))
-        for row, f in enumerate(self.findings):
-            for col, text in enumerate((health.SYMBOLS[f["severity"]], f["kind"], f["namespace"], f["name"], f["problem"], f["hint"])):
-                item = QTableWidgetItem(text)
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                self.table.setItem(row, col, item)
-        self.table.resizeColumnsToContents()
-        text = health.summary(self.findings)[1] + "."
+        aw.fill(self.table, [[(health.SYMBOLS[f["severity"]], health.ORDER[f["severity"]]), f["kind"], f["namespace"], f["name"],
+                              f["problem"], f["hint"]] for f in self.findings])
+        text = (health.summary(self.findings)[1] + ".") if self.findings else aw.NOTHING
         if problems:
             text += " Could not read: " + "; ".join(problems) + "."
         self.summary.setText(text)
         self._apply_filter()
 
     def show_error(self, message):
-        self.summary.setText(f"Could not check: {message}")
+        self.summary.setText(aw.error_text(message, "the manifests"))
 
     def _apply_filter(self):
         allowed = {health.ERROR: self.show_errors.isChecked(), health.WARN: self.show_warnings.isChecked(),
                    health.INFO: self.show_notes.isChecked()}
         words = self.filter.text().lower().split()
-        for row, f in enumerate(self.findings):
+        for row in range(self.table.rowCount()):
+            f = self.findings[aw.source_index(self.table, row)]
             line = " ".join((f["kind"], f["namespace"], f["name"], f["problem"], f["hint"])).lower()
             self.table.setRowHidden(row, not allowed[f["severity"]] or not all(w in line for w in words))
+        self.found.setText(aw.found_text(len(self.findings), aw.hidden_count(self.table)))
 
     def _open_row(self, row, _column):
-        f = self.findings[row]
+        f = self.findings[aw.source_index(self.table, row)]
         self.go_to_requested.emit(f["kind"], f["namespace"], f["name"])
-
-
-def _plain(text):
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

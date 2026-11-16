@@ -2,9 +2,10 @@
 ClusterRoles and bindings (see k8s/rbac_lookup.py). Looking only."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from ..k8s.rbac_lookup import Rbac, rule_rows
+from . import analysis_window as aw
 from . import theme
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
@@ -26,24 +27,18 @@ def _table(headers):
 
 
 def _fill(table, rows):
-    table.setRowCount(len(rows))
-    for i, row in enumerate(rows):
-        for j, text in enumerate(row):
-            item = QTableWidgetItem(str(text))
-            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-            table.setItem(i, j, item)
-    table.resizeColumnsToContents()
+    aw.fill(table, [[str(text) for text in row] for row in rows], source=False)  # sortable by heading (#499)
 
 
 class RbacDialog(QDialog):
     def __init__(self, context, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("RBAC lookup")
+        self.setWindowTitle(aw.title("RBAC lookup", context))
         resize_dialog(self, 1000, 600)
         self.rbac = None
-        self.header = QLabel(f"<b>{_plain(context)}</b>")
+        self.header = QLabel(aw.heading(context))
         self.header.setTextFormat(Qt.RichText)
-        self.status = QLabel("Loading roles and bindings…")
+        self.status = QLabel(aw.LOADING)
         self.status.setWordWrap(True)
         theme.muted(self.status)
 
@@ -102,12 +97,16 @@ class RbacDialog(QDialog):
         self.tabs.addTab(who, "Who can…?")
         self.tabs.addTab(what, "What can a subject do?")
         self.reload_button = QPushButton("Refresh")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the answer shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.who_table if self.tabs.currentIndex() == 0 else self.perm_table))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         caveat = QLabel(CAVEAT)
         caveat.setWordWrap(True)
         theme.muted(caveat)
         buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (close, QDialogButtonBox.RejectRole))
         outer = QVBoxLayout(self)
         outer.addWidget(self.header)
@@ -131,7 +130,7 @@ class RbacDialog(QDialog):
         self._set_ready(True)
 
     def show_error(self, message):
-        self.status.setText(f"Could not load: {message}")
+        self.status.setText(aw.error_text(message, "Roles and bindings"))
 
     def focus_subject(self, kind, name, namespace=""):
         """Open on the second tab for one subject (used by a service account's menu) and answer at once when the data is here."""
@@ -183,7 +182,3 @@ class RbacDialog(QDialog):
         self.perm_result.setText(f"{len(entries)} binding{'s' if len(entries) != 1 else ''} reach{'es' if len(entries) == 1 else ''} "
                                  f"{kind} {name}, giving {len(rows)} rule{'s' if len(rows) != 1 else ''}." if entries
                                  else f"No binding reaches {kind} {name}: it has no permissions through RBAC.")
-
-
-def _plain(text):
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

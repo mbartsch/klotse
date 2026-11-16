@@ -552,6 +552,7 @@ class MainWindow(QMainWindow):
         if ws is not None and context not in self._detached:
             self.clusters.setTabText(self.clusters.indexOf(ws), self.aliases.display(context))
         if ws is not None:
+            ws.display_name = self.aliases.display(context)
             self._update_scope_title(ws)
         return True
 
@@ -802,6 +803,7 @@ class MainWindow(QMainWindow):
         ws = ClusterWorkspace(self.new_service(ctx), ctx, label_settings=self.label_settings,
                               terminal_settings=self.terminal_settings, plugins=self.plugins, audit_log=self.audit_log)
         self.workspaces[ctx] = ws
+        ws.display_name = self.aliases.display(ctx)  # the analysis windows name the cluster by its alias (#499)
         self._apply_global_auto_pause(ws)
         ws.detail.set_show_managed_fields(self.managed_fields_action.isChecked())
         self.managed_fields_action.toggled.connect(ws.detail.set_show_managed_fields)
@@ -1089,10 +1091,17 @@ class MainWindow(QMainWindow):
         return True
 
     def show_audit_log(self):
-        """View > Change log…: the local record of changes made from Klotse (all clusters)."""
-        dialog = AuditDialog(self.audit_log, self)
-        dialog.exec()
-        dialog.deleteLater()
+        """View > Change log…: the local record of changes made from Klotse (all clusters). Non-modal like the other analysis windows
+        (#499); asked for again, it comes to the front and reads the log again."""
+        dialog = getattr(self, "_audit_dialog", None)
+        if dialog is None:
+            dialog = self._audit_dialog = AuditDialog(self.audit_log, self)
+            dialog.setWindowFlag(Qt.Window, True)
+        else:
+            dialog.load()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         return True
 
     def show_selector_logs(self):
@@ -1297,20 +1306,22 @@ class MainWindow(QMainWindow):
         return True
 
     def show_multi(self):
-        """View > Several clusters…: one list of a kind from several open clusters. A new window each time, so it lists the clusters that are
-        open now; False when no cluster is open."""
+        """View > Several clusters…: one list of a kind from several open clusters. One window, brought to the front with its rows when
+        asked for again (#499: it was rebuilt and lost them); its tick boxes follow the clusters open now. False when no cluster is open."""
         if not self.workspaces:
             self.status.showMessage("Open a cluster first: Several clusters lists the kind from the open clusters (Ctrl+Shift+M).", 6000)
             return False
-        old = getattr(self, "_multi_dialog", None)
-        if old is not None:
-            old.close()
-            old.deleteLater()
-        dialog = self._multi_dialog = MultiClusterDialog(_MultiSource(self), self)
-        dialog.setWindowFlag(Qt.Window, True)
-        dialog.go_to_requested.connect(self._goto_cluster_object)
-        dialog.action_requested.connect(self._multi_cluster_action)
+        dialog = getattr(self, "_multi_dialog", None)
+        if dialog is None:
+            dialog = self._multi_dialog = MultiClusterDialog(_MultiSource(self), self)
+            dialog.setWindowFlag(Qt.Window, True)
+            dialog.go_to_requested.connect(self._goto_cluster_object)
+            dialog.action_requested.connect(self._multi_cluster_action)
+        else:
+            dialog.sync_contexts()
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         return True
 
     def _multi_cluster_action(self, kind, action, rows):

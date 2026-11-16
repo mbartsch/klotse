@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog
                                QSpinBox, QVBoxLayout)
 
 from ..k8s import diagnostics
+from . import analysis_window as aw
 from . import theme
 from .dialog_actions import action_box
 from .dialog_sizing import resize_dialog
@@ -38,13 +39,14 @@ class DiagnosticsJob(QThread):
 
 
 class DiagnosticsDialog(QDialog):
-    def __init__(self, service, context, namespace, version="", parent=None):
+    def __init__(self, service, context, namespace, version="", parent=None, label=None):
+        """`label` names the cluster in the heading (its alias); the bundle records `context`."""
         super().__init__(parent)
         self.service, self.context, self.namespace, self.version = service, context, namespace, version
         self.job = None
-        self.setWindowTitle("Export diagnostics")
+        self.setWindowTitle(aw.title("Export diagnostics", label or context))
         resize_dialog(self, 560, 360)
-        header = QLabel(f"<b>{_plain(context)}</b> · namespace <b>{_plain(namespace)}</b>")
+        header = QLabel(f"<b>{_plain(label or context)}</b> · namespace <b>{_plain(namespace)}</b>")
         header.setTextFormat(Qt.RichText)
         self.logs = QCheckBox("Include pod logs")
         self.logs.setChecked(True)
@@ -122,6 +124,9 @@ class DiagnosticsDialog(QDialog):
             self.job.cancel.set()
             self.status.setText("Cancelling…")
 
+    def busy(self):
+        return self.job is not None and self.job.isRunning()
+
     def _busy(self, busy):
         self.start_button.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
@@ -150,17 +155,25 @@ class DiagnosticsDialog(QDialog):
         self._remove_partial()
         self.status.setText("Cancelled; the unfinished file was removed.")
 
+    def _stop_without_waiting(self):
+        """Closing cancels a running export but does not wait for it (#499: closing used to block the window for up to 5 s). The job
+        is kept referenced until its thread ends, and its Cancelled signal still removes the unfinished file."""
+        job = self.job
+        if job is not None and job.isRunning():
+            job.cancel.set()
+            _RUNNING.add(job)
+            job.finished.connect(lambda: _RUNNING.discard(job))
+
     def reject(self):
-        if self.job is not None and self.job.isRunning():
-            self.job.cancel.set()
-            self.job.wait(5000)
+        self._stop_without_waiting()
         super().reject()
 
     def closeEvent(self, event):
-        if self.job is not None and self.job.isRunning():
-            self.job.cancel.set()
-            self.job.wait(5000)
+        self._stop_without_waiting()
         super().closeEvent(event)
+
+
+_RUNNING = set()  # cancelled jobs whose threads are still ending: a QThread must not be destroyed while it runs
 
 
 def _plain(text):

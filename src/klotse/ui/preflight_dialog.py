@@ -3,6 +3,7 @@ Health check's table with a target-version box; changing the target re-judges th
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSpinBox
 
 from ..k8s import health, preflight
+from . import analysis_window as aw
 from .health_dialog import HealthDialog
 
 NOTE = ("Looking only. Deprecated APIs come from the API server's own request counts when your account may read /metrics (what was "
@@ -13,7 +14,7 @@ NOTE = ("Looking only. Deprecated APIs come from the API server's own request co
 class PreflightDialog(HealthDialog):
     def __init__(self, context, scope, parent=None):
         super().__init__(context, scope, parent)
-        self.setWindowTitle("Upgrade preflight")
+        self.setWindowTitle(aw.title("Upgrade preflight", context))
         self.data = None
         self.problems = []
         self.reload_button.setText("Refresh")  # one name for reloading in every analysis window (#499)
