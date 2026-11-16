@@ -5,6 +5,7 @@ labels, the latest value and the time of that sample), and a graph of the query 
 queries; Usage history covers it."""
 from datetime import datetime
 
+from .dialog_sizing import resize_dialog
 from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
 from PySide6.QtWidgets import QCompleter
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -131,7 +132,7 @@ class MetricsQueryDialog(QWidget):
 
         if self._presets:
             self._preset_changed()
-        self.resize(760, 560)
+        resize_dialog(self, 760, 560)
 
     def set_metric_names(self, names):
         """The metric names for autocomplete (the source's names, already limited)."""
