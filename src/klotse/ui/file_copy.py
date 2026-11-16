@@ -215,6 +215,7 @@ class FileCopyPanel(QWidget):
         super().__init__(parent)
         self.manager = manager
         self.table = QTableWidget(0, len(self.HEADERS))
+        self._columns_sized = False  # #501: the widths are fitted once, not on every update
         self.table.setAccessibleName("File copy operations")
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -262,7 +263,9 @@ class FileCopyPanel(QWidget):
                 self.table.setItem(r, col, item)
         if selected in self.manager.items:
             self.table.selectRow(self.manager.items.index(selected))
-        self.table.resizeColumnsToContents()
+        if not self._columns_sized and self.manager.items:  # sized once, when rows first arrive; a later
+            self.table.resizeColumnsToContents()  # update keeps the widths the user has set (#501)
+            self._columns_sized = True
         self._update_buttons()
 
     def _update_buttons(self, *_):
