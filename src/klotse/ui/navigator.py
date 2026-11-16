@@ -7,7 +7,9 @@ from .group_suggest import SuggestGroupsDialog
 from . import theme
 
 ACTIVE_STATES = ("connecting", "connected")  # shown in the Connected section
-STATE_COLORS = {"idle": "#6b7280", "connecting": "#f5a524", "connected": "#2fbf71", "failed": "#e5484d"}
+def state_color(state):
+    """A state's dot colour, read from the current theme when drawn (#501: the fixed hex values ignored a theme change)."""
+    return {"idle": theme.MUTED, "connecting": theme.WARN, "connected": theme.OK, "failed": theme.BAD}[state]
 STATE_SHAPES = {"idle": "hollow", "connecting": "ring", "connected": "dot", "failed": "square"}  # not colour alone (#498)
 
 # Shown under the connected cluster, Lens order. A leaf is (key, label); a group is
@@ -200,7 +202,7 @@ class Navigator(QTreeWidget):
             it = QTreeWidgetItem()
             it.setData(0, self.ROLE_KIND, "cluster")
             it.setData(0, self.ROLE_KEY, n)
-            it.setIcon(0, dot_icon(STATE_COLORS["idle"], STATE_SHAPES["idle"]))
+            it.setIcon(0, dot_icon(state_color("idle"), STATE_SHAPES["idle"]))
             self._clusters[n] = it
             self._states[n] = "idle"
         self._layout_idle()
@@ -341,7 +343,10 @@ class Navigator(QTreeWidget):
         return h
 
     def refresh_theme(self):
-        """A theme change: every heading and folder takes the new colours (#501: they kept the old ones until a restart)."""
+        """A theme change: every heading, folder and state dot takes the new colours (#501: they kept the old ones until a restart)."""
+        for name, item in self._clusters.items():
+            state = self._states.get(name, "idle")
+            item.setIcon(0, dot_icon(state_color(state), STATE_SHAPES[state]))
         stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
         while stack:
             item = stack.pop()
@@ -385,7 +390,7 @@ class Navigator(QTreeWidget):
         self._states[name] = state
         self._failures[name] = str(error).strip() if state == "failed" and error else ""
         self._refresh_cluster_text(name)
-        item.setIcon(0, dot_icon(STATE_COLORS[state], STATE_SHAPES[state]))
+        item.setIcon(0, dot_icon(state_color(state), STATE_SHAPES[state]))
         want = self._connected_hdr if state in ACTIVE_STATES else self._idle_parent(name)
         if item.parent() is want:
             self._update_headers()
