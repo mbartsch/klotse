@@ -11,11 +11,24 @@ ANNOTATION_CELL_LIMIT = 200  # annotation values can be kilobytes (last-applied-
 ANNOTATION_TIP_LIMIT = 2000
 _AGE = re.compile(r"(\d+)(min|[dhms])")
 _AGE_UNITS = {"d": 86400, "h": 3600, "m": 60, "min": 60, "s": 1}
+# columns whose text is a duration ("10d", "1d2h", "15s") or a ratio ("1/2"): they sort by value, not as text (#500)
+DURATION_ATTRS = frozenset({"age", "duration", "last_schedule", "updated", "last_seen"})
+RATIO_ATTRS = frozenset({"ready"})
+_RATIO = re.compile(r"(\d+)/(\d+)")
 
 
 def age_sort_value(value):
-    match = _AGE.fullmatch(str(value))
-    return int(match[1]) * _AGE_UNITS[match[2]] if match else -1
+    """Seconds for an age or duration text: "35m", "1d2h" (compound parts add up); -1 when it is not one."""
+    text = str(value)
+    if not re.fullmatch(r"(?:\d+(?:min|[dhms]))+", text):
+        return -1
+    return sum(int(number) * _AGE_UNITS[unit] for number, unit in _AGE.findall(text))
+
+
+def ratio_sort_value(value):
+    """'1/2' sorts as 1 of 2 ready: the ready count first, then the total (-1 when it is not a ratio)."""
+    match = _RATIO.fullmatch(str(value))
+    return int(match[1]) * 100000 + int(match[2]) if match else -1
 
 
 class TableModel(QAbstractTableModel):
@@ -151,8 +164,10 @@ class TableModel(QAbstractTableModel):
                 return text + "\n" + self._metadata_text[index.row()]
             return text
         if role == Qt.EditRole:  # sort role: keeps ints numeric
-            if col[1] == "age":
+            if col[1] in DURATION_ATTRS:
                 return age_sort_value(value)
+            if col[1] in RATIO_ATTRS and isinstance(value, str) and _RATIO.fullmatch(value):
+                return ratio_sort_value(value)
             return value
         return None
 

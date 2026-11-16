@@ -2,8 +2,8 @@
 Looking only: the listing is `kubectl exec ... ls` (see k8s/remote_files.py)."""
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout)
 
 from ..k8s import remote_files as rf
 from . import theme
@@ -74,7 +74,7 @@ class FileBrowserDialog(QDialog):
             self.download_button = QPushButton("Download…")
             self.download_button.setAccessibleName("Download selected container file")
             self.copy_button.clicked.connect(self._copy_path)  # the button says Copied for a moment (#497)
-            self.download_button.clicked.connect(lambda: self.download_requested.emit(self.container.currentText(), self.selected_path()))
+            self.download_button.clicked.connect(self._download)
             buttons.addWidget(self.copy_button)
             buttons.addWidget(self.download_button)
         buttons.addStretch(1)
@@ -143,6 +143,13 @@ class FileBrowserDialog(QDialog):
             self.open_path(rf.join(self.path, name))
 
     # ---- picking -------------------------------------------------------------------------------------------------
+    def _download(self):
+        """Download the selected file. With nothing selected it would fetch the whole folder, so say so instead."""
+        if not self.table.selectionModel().selectedRows():
+            QMessageBox.information(self, "Download", "Select a file to download first. Download copies one file, not the folder.")
+            return
+        self.download_requested.emit(self.container.currentText(), self.selected_path())
+
     def _copy_path(self):
         QGuiApplication.clipboard().setText(self.selected_path())
         self.copy_button.setText("Copied")

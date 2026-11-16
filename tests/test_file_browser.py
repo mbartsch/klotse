@@ -267,3 +267,15 @@ def test_pods_and_claims_have_the_menu_entry(qtbot):
         table.view.selectRow(0)
         table._context_menu(table.view.visualRect(table.proxy.index(0, 0)).center())
         assert ("Browse files…" in seen) is (kind in ("Pod", "PersistentVolumeClaim"))
+
+
+def test_download_with_nothing_selected_asks_for_a_file_and_downloads_nothing(qtbot, monkeypatch):
+    # #500: with nothing selected the button used to hand over the folder, so a whole folder was fetched
+    dialog = FileBrowserDialog("t", ["app"], "/etc", lister())
+    qtbot.addWidget(dialog)
+    got, told = [], []
+    dialog.download_requested.connect(lambda c, p: got.append((c, p)))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: told.append(a[2]))
+    dialog.table.clearSelection()
+    dialog.download_button.click()
+    assert got == [] and told and "Select a file" in told[0]
