@@ -148,6 +148,11 @@ class _InputFilter(QObject):
         return False
 
 
+def _uid_of(row):
+    """The UID of the object a row shows: the precondition that makes a delete refuse a replacement with the same name (#651)."""
+    return str((((getattr(row, "raw", None) or {}).get("metadata")) or {}).get("uid") or "")
+
+
 class ClusterWorkspace(QMainWindow):
     """Everything for one cluster: its own connection, view tabs, namespace filter, details and log docks.
 
@@ -3341,7 +3346,7 @@ class ClusterWorkspace(QMainWindow):
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No, verb="Force terminate" if force else "Terminate") != QMessageBox.Yes:
                 return
             self._bulk(f"Terminating {n} pods", rows,
-                       lambda r: self.service.delete_pod(r.name, r.namespace, *((True,) if force else ())))
+                       lambda r: self.service.delete_pod(r.name, r.namespace, force, uid=_uid_of(r)))
         elif action in ("cordon", "uncordon"):
             verb = action.capitalize()
             if QMessageBox.question(self, f"{verb} nodes", f"Cluster: {self.cluster_label()}\n{verb} {n} nodes?\n\n{names}",
@@ -3598,7 +3603,7 @@ class ClusterWorkspace(QMainWindow):
             if ok != QMessageBox.Yes:
                 return
             self.message.emit(f"Terminating {row.name}…")
-            args = (row.name, row.namespace, True) if force else (row.name, row.namespace)
+            args = (row.name, row.namespace, force, _uid_of(row))
             self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Terminated"), *args)
             return
         containers = [c[0] for c in pod_containers(row.raw)]
@@ -3643,7 +3648,8 @@ class ClusterWorkspace(QMainWindow):
         if ok != QMessageBox.Yes:
             return
         self.message.emit(f"Replacing {row.name}…")
-        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Deleted"), row.name, row.namespace)
+        self._run(self.service.delete_pod, lambda _: self._saved("Pod", row.name, "Deleted"), row.name, row.namespace,
+                  False, _uid_of(row))
 
     def process_variables(self):
         """What the enabled plugins add to the environment of the kubectl, helm and terminal processes of this cluster (for
