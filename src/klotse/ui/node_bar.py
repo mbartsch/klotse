@@ -22,7 +22,7 @@ class NodeActionBar(QWidget):
         theme.muted(self.state)
         # "cordon" is a toggle: the entry is renamed and sends "uncordon" while the node is cordoned
         self.menu_button, self.items = actions_button(
-            [("Cordon", "cordon"), ("Drain…", "drain"), ("Shell (nsenter)…", "node-shell"), None,
+            [("Cordon…", "cordon"), ("Drain…", "drain"), ("Shell (nsenter)…", "node-shell"), None,
              ("Delete node…", "delete-node"), ("Force delete…", "force-delete-node")], self._emit)
         self.cordon = self.items[0]
         self.overview = NodeOverview()
@@ -65,7 +65,7 @@ class NodeActionBar(QWidget):
                 action.setEnabled(not gone)
             return
         self.cordoned = bool((row.raw.get("spec") or {}).get("unschedulable", False))
-        self.cordon.setText("Uncordon" if self.cordoned else "Cordon")
+        self.cordon.setText("Uncordon" if self.cordoned else "Cordon…")  # it asks Yes/No: the ellipsis says so (#500)
         self.state.setText(f"— {row.status}")
         self.menu_button.setEnabled(True)
         for action in self.items:

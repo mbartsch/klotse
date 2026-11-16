@@ -535,8 +535,8 @@ class Navigator(QTreeWidget):
         menu = QMenu(self)
         if item is not None and item in (self._connected_hdr, self._idle_hdr):  # section headers: auto-refresh, fold or open clusters
             if item is self._connected_hdr:
-                menu.addAction("Turn auto-refresh off on all connected clusters", lambda: self.auto_refresh_requested.emit("pause"))
-                menu.addAction("Turn auto-refresh on on all connected clusters", lambda: self.auto_refresh_requested.emit("enable"))
+                menu.addAction("Turn auto-refresh off for all connected clusters", lambda: self.auto_refresh_requested.emit("pause"))
+                menu.addAction("Turn auto-refresh on for all connected clusters", lambda: self.auto_refresh_requested.emit("enable"))
                 menu.addAction("Restore each cluster's previous auto-refresh", lambda: self.auto_refresh_requested.emit("restore"))
                 menu.addSeparator()
             menu.addAction("Collapse clusters (show only the cluster list)", self.collapse_clusters)

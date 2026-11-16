@@ -43,7 +43,7 @@ class PrometheusSourceDialog(QDialog):
         self.local = QLineEdit()
         self.local.setPlaceholderText("empty: a free port on 127.0.0.1")
         self.candidates = QToolButton()
-        self.candidates.setText("Candidates ▾")
+        self.candidates.setText("Candidates")  # the arrow Qt draws is enough (#500)
         self.candidates.setPopupMode(QToolButton.InstantPopup)
         self.candidates_menu = QMenu(self.candidates)
         self.candidates_menu.addAction("Looking for services…").setEnabled(False)

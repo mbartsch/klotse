@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
         self.review_action.setChecked(str(self.label_settings.store.value("edit/review_changes", "true")).lower() != "false")
         self.review_action.toggled.connect(self.set_review_changes)
         settings_menu.addAction(self.review_action)
-        self.multi_action = QAction("Multi Cluster…", self)
+        self.multi_action = QAction("Several clusters…", self)  # the name the docs use (#500)
         self.multi_action.setShortcut(QKeySequence("Ctrl+Shift+M"))
         _shortcut_tooltip(self.multi_action, "One list of a kind (Pods, Deployments, Nodes, ...) from several open clusters, with a Cluster column")
         self.multi_action.triggered.connect(self.show_multi)
@@ -646,7 +646,8 @@ class MainWindow(QMainWindow):
         self.clusters.removeTab(index)
         window = DetachedClusterWindow()
         window.setAttribute(Qt.WA_DeleteOnClose)
-        window.setWindowTitle(f"{self.aliases.display(ws.context)} ({ws.context}) — Klotse")
+        shown = self.aliases.display(ws.context)
+        window.setWindowTitle(f"{shown} — Klotse" if shown == ws.context else f"{shown} ({ws.context}) — Klotse")  # no "prod (prod)" (#500)
         window.setCentralWidget(ws)
         ws.show()  # removeTab() hides the page; reparenting does not reliably show it on every Qt platform
         self._detached[ws.context] = window
