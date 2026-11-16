@@ -10,6 +10,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGroupBox, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
                                QSplitter, QToolButton, QToolTip, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QSizePolicy
 from . import theme
 from .edit_dialog import leave_for_yaml
 from .dialog_sizing import resize_dialog
@@ -217,11 +218,13 @@ class Picker(QWidget):
                                clearButtonEnabled=True)
         self.results = QListWidget()
         self.results.setSelectionMode(QListWidget.ExtendedSelection)
-        self.results.setFixedHeight(96)
+        self.results.setMinimumHeight(96)  # #501: at least this tall, and it grows with the dialog
+        self.results.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.add_button = QPushButton("Add selected" if search else "Add")
         self.chosen = QListWidget()
         self.chosen.setSelectionMode(QListWidget.ExtendedSelection)
-        self.chosen.setFixedHeight(70)
+        self.chosen.setMinimumHeight(70)
+        self.chosen.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.remove_button = QPushButton("Remove")
         row = QHBoxLayout()
         row.addWidget(self.query, 1)
