@@ -156,6 +156,7 @@ class ClusterWorkspace(QMainWindow):
     result = Signal(str)  # an action's outcome: the shell keeps it on the status bar for a while (#497)
     state = Signal(str)  # connecting | connected | failed
     failed = Signal(str)  # connection error text; the shell closes this workspace
+    overview_updated = Signal(object)  # the cluster overview data, for the optional all-clusters page
     view_opened = Signal(str)  # view key now showing, so the navigator can follow
     crd_groups_found = Signal(list)  # [(view key, label, tooltip)]: the navigator lists them under Custom Resources > Groups
     big_changed = Signal(bool)  # big-cluster mode switched on or off
@@ -684,6 +685,7 @@ class ClusterWorkspace(QMainWindow):
             self.message.emit(f"{self.context}: {counts.get('pods', 0):,} pods, so the Overview counts them by phase (a crash-looping pod "
                               "still counts as running; Health check finds those)")
         self.overview.set_data(data)
+        self.overview_updated.emit(data)
         if self.plugin_host is not None:  # plugins' cards (a total cost, say): computed when due, last values kept meanwhile
             self.plugin_host.refresh_overview(lambda: self.service.list_nodes())
 

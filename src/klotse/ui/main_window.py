@@ -43,6 +43,7 @@ from . import branding, embedded_terminal, theme
 from .theme import ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace
+from .cluster_overview import ClusterOverview
 from .status_line import StatusLine
 from .wording import menu_text
 
@@ -156,7 +157,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.cloud_clusters_action)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
-        file_menu.aboutToShow.connect(lambda: self.apply_action.setEnabled(self.clusters.currentWidget() is not None))
+        file_menu.aboutToShow.connect(lambda: self.apply_action.setEnabled(self.workspace() is not None))
         self.edit_menu = self.menuBar().addMenu("&Edit")
         self.edit_actions = EditActions(self.edit_menu, self)  # Undo / Redo / Cut / Copy / Paste / Select All
         self.edit_menu.addSeparator()
@@ -199,37 +200,37 @@ class MainWindow(QMainWindow):
         self.selector_logs_action.setToolTip("Follow the logs of every pod that matches a label selector, in one tab")
         self.selector_logs_action.triggered.connect(self.show_selector_logs)
         operations_menu.addAction(self.selector_logs_action)
-        operations_menu.aboutToShow.connect(lambda: self.selector_logs_action.setEnabled(self.clusters.currentWidget() is not None))
+        operations_menu.aboutToShow.connect(lambda: self.selector_logs_action.setEnabled(self.workspace() is not None))
         self.diagnostics_action = QAction("Export diagnostics…", self)
         self.diagnostics_action.setToolTip("Save the manifests, events and logs of the namespace in front as a zip file (no Secrets)")
         self.diagnostics_action.triggered.connect(self.export_diagnostics)
         operations_menu.addAction(self.diagnostics_action)
-        operations_menu.aboutToShow.connect(lambda: self.diagnostics_action.setEnabled(self.clusters.currentWidget() is not None))
+        operations_menu.aboutToShow.connect(lambda: self.diagnostics_action.setEnabled(self.workspace() is not None))
         self.rbac_action = QAction("RBAC lookup…", self)
         self.rbac_action.setToolTip("Who can do something, and what a user, group or service account can do")
         self.rbac_action.triggered.connect(self.show_rbac)
         insights_menu.addAction(self.rbac_action)
-        insights_menu.aboutToShow.connect(lambda: self.rbac_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.rbac_action.setEnabled(self.workspace() is not None))
         self.metrics_query_action = QAction("Metrics query…", self)
         self.metrics_query_action.setToolTip("Quick PromQL against the Prometheus or VictoriaMetrics source of the cluster in front (read only)")
         self.metrics_query_action.triggered.connect(self.show_cluster_metrics_query)
         insights_menu.addAction(self.metrics_query_action)
-        insights_menu.aboutToShow.connect(lambda: self.metrics_query_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.metrics_query_action.setEnabled(self.workspace() is not None))
         self.port_forwards_action = QAction("Port forwards…", self)
         self.port_forwards_action.setToolTip("The kubectl port-forwards of the cluster in front: state, address, save, stop")
         self.port_forwards_action.triggered.connect(self.show_port_forwards)
         operations_menu.addAction(self.port_forwards_action)
-        operations_menu.aboutToShow.connect(lambda: self.port_forwards_action.setEnabled(self.clusters.currentWidget() is not None))
+        operations_menu.aboutToShow.connect(lambda: self.port_forwards_action.setEnabled(self.workspace() is not None))
         self.activity_action = QAction("Activity…", self)
         self.activity_action.setToolTip("What the actions on the cluster in front did this session: results, and errors in full")
         self.activity_action.triggered.connect(self.show_activity)
         operations_menu.addAction(self.activity_action)
-        operations_menu.aboutToShow.connect(lambda: self.activity_action.setEnabled(self.clusters.currentWidget() is not None))
+        operations_menu.aboutToShow.connect(lambda: self.activity_action.setEnabled(self.workspace() is not None))
         self.rightsizing_action = QAction("Right-sizing…", self)
         self.rightsizing_action.setToolTip("Requests and limits against current usage, per workload, with advice")
         self.rightsizing_action.triggered.connect(self.show_rightsizing)
         insights_menu.addAction(self.rightsizing_action)
-        insights_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.rightsizing_action.setEnabled(self.workspace() is not None))
         self.palette_action = QAction("Command palette…", self)
         self.palette_action.setShortcut(QKeySequence("Ctrl+K"))
         _shortcut_tooltip(self.palette_action, "Jump to a view, namespace or cluster, or run an action, from one search box")
@@ -246,39 +247,45 @@ class MainWindow(QMainWindow):
         self.multi_action.triggered.connect(self.show_multi)
         navigate_menu.addAction(self.multi_action)
         navigate_menu.aboutToShow.connect(lambda: self.multi_action.setEnabled(bool(self.workspaces)))
+        self.all_clusters_action = QAction("All clusters", self)
+        self.all_clusters_action.setShortcut(QKeySequence("Ctrl+Shift+A"))
+        _shortcut_tooltip(self.all_clusters_action, "Show a live overview of every connected cluster")
+        self.all_clusters_action.triggered.connect(self.show_all_clusters)
+        navigate_menu.addAction(self.all_clusters_action)
+        navigate_menu.aboutToShow.connect(lambda: self.all_clusters_action.setEnabled(bool(self.workspaces)))
         self.trivy_action = QAction("Trivy reports…", self)
         self.trivy_action.setToolTip("Vulnerability, config audit, exposed secret and RBAC reports written by the Trivy Operator (read only)")
         self.trivy_action.triggered.connect(self.show_trivy)
         insights_menu.addAction(self.trivy_action)
-        insights_menu.aboutToShow.connect(lambda: self.trivy_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.trivy_action.setEnabled(self.workspace() is not None))
         self.security_action = QAction("Pod security…", self)
         self.security_action.setToolTip("Workloads that break the Pod Security Standards: privileged, host access, hostPath, running as root")
         self.security_action.triggered.connect(self.show_security)
         insights_menu.addAction(self.security_action)
-        insights_menu.aboutToShow.connect(lambda: self.security_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.security_action.setEnabled(self.workspace() is not None))
         self.preflight_action = QAction("Upgrade preflight…", self)
         self.preflight_action.setToolTip("Before an upgrade or a drain: deprecated APIs, PodDisruptionBudgets that allow no disruption, "
                                          "kubelet version skew, certificate dates")
         self.preflight_action.triggered.connect(self.show_preflight)
         insights_menu.addAction(self.preflight_action)
-        insights_menu.aboutToShow.connect(lambda: self.preflight_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.preflight_action.setEnabled(self.workspace() is not None))
         self.unused_action = QAction("Unused objects…", self)
         self.unused_action.setToolTip("ConfigMaps, Secrets and claims that no pod, workload, Ingress or Service Account refers to")
         self.unused_action.triggered.connect(self.show_unused)
         insights_menu.addAction(self.unused_action)
-        insights_menu.aboutToShow.connect(lambda: self.unused_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.unused_action.setEnabled(self.workspace() is not None))
         self.health_action = QAction("Health check…", self)
         self.health_action.setToolTip("Problems and risks in the namespace in front: crash loops, no limits or probes, latest tags, unbound claims")
         self.health_action.triggered.connect(self.show_health)
         insights_menu.addAction(self.health_action)
-        insights_menu.aboutToShow.connect(lambda: self.health_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.health_action.setEnabled(self.workspace() is not None))
         self.capacity_action = QAction("Capacity…", self)
         self.capacity_action.setToolTip("Requests, limits and usage against what each node can give, per node and per namespace")
         self.capacity_action.triggered.connect(self.show_capacity)
         insights_menu.addAction(self.capacity_action)
-        insights_menu.aboutToShow.connect(lambda: self.capacity_action.setEnabled(self.clusters.currentWidget() is not None))
-        insights_menu.aboutToShow.connect(lambda: self.permissions_action.setEnabled(self.clusters.currentWidget() is not None))
-        navigate_menu.aboutToShow.connect(lambda: self.search_action.setEnabled(self.clusters.currentWidget() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.capacity_action.setEnabled(self.workspace() is not None))
+        insights_menu.aboutToShow.connect(lambda: self.permissions_action.setEnabled(self.workspace() is not None))
+        navigate_menu.aboutToShow.connect(lambda: self.search_action.setEnabled(self.workspace() is not None))
         self.read_only_action = QAction("Read-only mode", self, checkable=True)
         self.read_only_action.setToolTip("Refuse every change to the cluster in front (useful for production); kept for next time")
         self.read_only_action.triggered.connect(self.set_read_only)
@@ -328,6 +335,10 @@ class MainWindow(QMainWindow):
         self.clusters.currentChanged.connect(self._on_cluster_changed)
         self.clusters.currentChanged.connect(lambda _index: self._sync_cluster_picker())
         self.setCentralWidget(self.clusters)
+        self.cluster_overview = ClusterOverview(self)
+        self.cluster_overview.open_requested.connect(self._open_cluster_from_overview)
+        self.cluster_overview.refresh_requested.connect(self._refresh_cluster_from_overview)
+        self.cluster_overview.refresh_all_requested.connect(self._refresh_all_clusters)
 
         self.nav = Navigator()
         nav_dock = QDockWidget(self)
@@ -594,7 +605,7 @@ class MainWindow(QMainWindow):
             active = QApplication.activeWindow()
             current = next((context for context, window in self._detached.items() if window is active), None)
         if current is None and self.clusters.currentWidget() is not None:
-            current = self.clusters.currentWidget().context
+            current = getattr(self.clusters.currentWidget(), "context", None)
         index = self.cluster_picker.findData(current or "")
         if index >= 0:
             self.cluster_picker.setCurrentIndex(index)
@@ -625,6 +636,8 @@ class MainWindow(QMainWindow):
         index = self.clusters.tabBar().tabAt(position)
         if index < 0:
             return
+        if self.clusters.widget(index) is self.cluster_overview:
+            return
         menu = QMenu(self)
         menu.addAction("Detach cluster", lambda i=index: self._detach_cluster(i))
         menu.exec(self.clusters.tabBar().mapToGlobal(position))
@@ -632,7 +645,7 @@ class MainWindow(QMainWindow):
     def _detach_cluster(self, index):
         """Move one cluster workspace into its own window; closing that window reattaches it as a tab."""
         ws = self.clusters.widget(index)
-        if ws is None or ws.context in self._detached:
+        if ws is None or ws is self.cluster_overview or not hasattr(ws, "context") or ws.context in self._detached:
             return False
 
         owner = self
@@ -683,7 +696,10 @@ class MainWindow(QMainWindow):
 
     def workspace(self, context=None):
         """The workspace for `context`, or the one in the current tab."""
-        return self.workspaces.get(context) if context else self.clusters.currentWidget()
+        if context:
+            return self.workspaces.get(context)
+        current = self.clusters.currentWidget()
+        return current if isinstance(current, ClusterWorkspace) else None
 
     def open_cluster(self, ctx, background=False):
         """Open `ctx` in its own tab, or focus it if it is already open."""
@@ -705,6 +721,7 @@ class MainWindow(QMainWindow):
         ws.result.connect(lambda text, line=self.status_line: line.show_result(text))
         ws.state.connect(lambda s, c=ctx: self._on_state(c, s))
         ws.failed.connect(lambda m, c=ctx: self._on_failed(c, m))
+        ws.overview_updated.connect(lambda _data: self.cluster_overview.set_workspaces(self.workspaces, self.aliases.aliases))
         ws.view_opened.connect(lambda key, c=ctx: self._on_view_opened(c, key))
         ws.view_opened.connect(lambda _key, w=ws: self._update_scope_title(w))
         ws.ns_combo.currentIndexChanged.connect(lambda _index, w=ws: self._update_scope_title(w))
@@ -722,6 +739,34 @@ class MainWindow(QMainWindow):
         ws.big_detected.connect(lambda nodes, pods, w=ws: self._found_big(w, nodes, pods))
         ws.set_big(self.big_clusters.is_big(ctx))
         ws.start()
+
+    def show_all_clusters(self):
+        """Open the optional fleet overview as a non-closeable tab."""
+        index = self.clusters.indexOf(self.cluster_overview)
+        if index < 0:
+            index = self.clusters.addTab(self.cluster_overview, "All clusters")
+            self.clusters.tabBar().setTabButton(index, self.clusters.tabBar().RightSide, None)
+        self.cluster_overview.set_workspaces(self.workspaces, self.aliases.aliases)
+        self.clusters.setCurrentIndex(index)
+
+    def _open_cluster_from_overview(self, context):
+        workspace = self.workspaces.get(context)
+        if workspace is not None:
+            self.clusters.setCurrentWidget(workspace)
+            self.nav.reveal_cluster(context)
+
+    def _refresh_cluster_from_overview(self, context):
+        workspace = self.workspaces.get(context)
+        if workspace is not None:
+            workspace.load_view("overview")
+
+    def _refresh_all_clusters(self):
+        for workspace in self.workspaces.values():
+            workspace.load_view("overview")
+
+    def _sync_cluster_overview(self):
+        if self.clusters.indexOf(self.cluster_overview) >= 0:
+            self.cluster_overview.set_workspaces(self.workspaces, self.aliases.aliases)
 
     def _retitle(self, ws):
         """The cluster's tab title: its name, then 🔒 for read-only and (big) for big-cluster mode."""
@@ -1510,6 +1555,8 @@ class MainWindow(QMainWindow):
 
     def _close_cluster_tab(self, index):
         ws = self.clusters.widget(index)
+        if ws is self.cluster_overview:
+            return
         self._discard(ws.context)
 
     def _discard(self, ctx, preserve_retry=False):
@@ -1524,6 +1571,7 @@ class MainWindow(QMainWindow):
         self.nav.hide_views(ctx)
         self.nav.set_state(ctx, "idle")
         self._sync_cluster_picker()
+        self._sync_cluster_overview()
 
     def _open_view(self, ctx, key):
         ws = self.workspaces.get(ctx)
@@ -1539,7 +1587,7 @@ class MainWindow(QMainWindow):
     def _fill_workspace_panels_menu(self):
         """Offer recovery actions in the app menu for the active workspace's closable docks."""
         self.panels_menu.clear()
-        workspace = self.clusters.currentWidget()
+        workspace = self.workspace()
         if workspace is None:
             action = self.panels_menu.addAction("Open a cluster to show its panels")
             action.setEnabled(False)
@@ -1549,6 +1597,10 @@ class MainWindow(QMainWindow):
 
     def _on_cluster_changed(self, index):
         ws = self.clusters.widget(index)
+        if ws is self.cluster_overview:
+            self.setWindowTitle("All clusters — Klotse")
+            self._sync_cluster_overview()
+            return
         self.setWindowTitle(f"Klotse — {ws.context}" if ws else "Klotse")
         if ws is None:
             return
@@ -1580,7 +1632,8 @@ class MainWindow(QMainWindow):
         shown has nobody to ask."""
         if not self.isVisible():
             return True
-        opened = [self.clusters.widget(i).context for i in range(self.clusters.count())]
+        opened = [self.clusters.widget(i).context for i in range(self.clusters.count())
+                  if isinstance(self.clusters.widget(i), ClusterWorkspace)]
         try:
             if not opened:
                 self.session.forget()
