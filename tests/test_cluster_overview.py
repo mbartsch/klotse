@@ -55,3 +55,17 @@ def test_all_clusters_filter_and_actions_use_context(qtbot):
 
     assert opened == ["staging"]
     assert refreshed == ["staging"]
+
+
+def test_all_clusters_can_detach_and_reattach(qtbot):
+    from klotse.ui.main_window import MainWindow
+    from test_app import FakeService
+
+    window = MainWindow(FakeService)
+    qtbot.addWidget(window)
+    window.show_all_clusters()
+    assert window._detach_all_clusters()
+    assert window.clusters.indexOf(window.cluster_overview) < 0
+    detached = window._all_clusters_detached
+    detached.close()
+    qtbot.waitUntil(lambda: window.clusters.indexOf(window.cluster_overview) >= 0)

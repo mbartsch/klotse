@@ -6,7 +6,8 @@ from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
-                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QTabBar, QSizePolicy, QTabWidget, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from .about import AboutDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
@@ -113,6 +114,7 @@ class MainWindow(QMainWindow):
         self._connection_retries = {}  # context -> (timer, attempts started)
         self._connection_prompts = {}  # context -> non-modal failure dialog
         self._detached = {}  # context name -> top-level window containing its workspace
+        self._all_clusters_detached = None
         self._global_auto_paused = False
         self._global_auto_snapshot = None  # context -> (was enabled, interval ms), captured once per global pause
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
@@ -637,6 +639,9 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
         if self.clusters.widget(index) is self.cluster_overview:
+            menu = QMenu(self)
+            menu.addAction("Detach All clusters", self._detach_all_clusters)
+            menu.exec(self.clusters.tabBar().mapToGlobal(position))
             return
         menu = QMenu(self)
         menu.addAction("Detach cluster", lambda i=index: self._detach_cluster(i))
@@ -645,7 +650,9 @@ class MainWindow(QMainWindow):
     def _detach_cluster(self, index):
         """Move one cluster workspace into its own window; closing that window reattaches it as a tab."""
         ws = self.clusters.widget(index)
-        if ws is None or ws is self.cluster_overview or not hasattr(ws, "context") or ws.context in self._detached:
+        if ws is self.cluster_overview:
+            return self._detach_all_clusters()
+        if ws is None or not hasattr(ws, "context") or ws.context in self._detached:
             return False
 
         owner = self
@@ -675,6 +682,41 @@ class MainWindow(QMainWindow):
         self._detached[ws.context] = window
         self._update_scope_title(ws)
         self._sync_cluster_picker(ws.context)
+        window.resize(self.size())
+        window.show()
+        return True
+
+    def _detach_all_clusters(self):
+        """Move the optional fleet overview into its own window."""
+        if self._all_clusters_detached is not None:
+            self._all_clusters_detached.showNormal()
+            self._all_clusters_detached.raise_()
+            self._all_clusters_detached.activateWindow()
+            return False
+        index = self.clusters.indexOf(self.cluster_overview)
+        if index < 0:
+            return False
+        self.clusters.removeTab(index)
+        owner = self
+        page = self.cluster_overview
+
+        class DetachedOverviewWindow(QMainWindow):
+            def closeEvent(window, event):  # noqa: N802
+                overview = window.takeCentralWidget()
+                if overview is not None:
+                    overview.setParent(owner.clusters)
+                    tab = owner.clusters.addTab(overview, "All clusters")
+                    owner.clusters.tabBar().setTabButton(tab, QTabBar.RightSide, None)
+                    owner.clusters.setCurrentIndex(tab)
+                owner._all_clusters_detached = None
+                event.accept()
+
+        window = DetachedOverviewWindow()
+        window.setAttribute(Qt.WA_DeleteOnClose)
+        window.setWindowTitle("All clusters — Klotse")
+        window.setCentralWidget(page)
+        page.show()
+        self._all_clusters_detached = window
         window.resize(self.size())
         window.show()
         return True
@@ -742,10 +784,15 @@ class MainWindow(QMainWindow):
 
     def show_all_clusters(self):
         """Open the optional fleet overview as a non-closeable tab."""
+        if self._all_clusters_detached is not None:
+            self._all_clusters_detached.showNormal()
+            self._all_clusters_detached.raise_()
+            self._all_clusters_detached.activateWindow()
+            return
         index = self.clusters.indexOf(self.cluster_overview)
         if index < 0:
             index = self.clusters.addTab(self.cluster_overview, "All clusters")
-            self.clusters.tabBar().setTabButton(index, self.clusters.tabBar().RightSide, None)
+            self.clusters.tabBar().setTabButton(index, QTabBar.RightSide, None)
         self.cluster_overview.set_workspaces(self.workspaces, self.aliases.aliases)
         self.clusters.setCurrentIndex(index)
 
@@ -1648,8 +1695,8 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.Cancel:
                 return False
             if answer == QMessageBox.Yes:
-                spaces = {self.clusters.widget(i).context: self.clusters.widget(i).namespace() for i in range(self.clusters.count())}
-                self.session.remember(opened, front.context if front is not None else None, spaces)
+                spaces = {workspace.context: workspace.namespace() for workspace in self.workspaces.values()}
+                self.session.remember(opened, front.context if isinstance(front, ClusterWorkspace) else None, spaces)
             else:
                 self.session.forget()
         except OSError as error:  # never trap the user in the app because the settings file is not writable
