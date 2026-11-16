@@ -2,7 +2,7 @@ import base64
 import binascii
 from copy import deepcopy
 
-from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
+from PySide6.QtGui import QColor, QDesktopServices, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtCore import QRegularExpression, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
@@ -104,7 +104,7 @@ class DetailPanel(QWidget):
         self.identity_title = QLabel()
         self.identity_title.setWordWrap(True)
         self.identity_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.identity_title.setStyleSheet("font-size: 16px; font-weight: 600")
+        self.identity_title.setStyleSheet(f"font-size: {theme.font_pt(16)}; font-weight: 600")
         self.identity_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.identity_status = QLabel()
         self.identity_status.setAccessibleName("Object status")
@@ -423,6 +423,8 @@ class DetailPanel(QWidget):
         target = related_view.parse_link(url.toString())
         if target is not None:
             self.goto_object.emit(*target)
+        elif url.scheme() == "https" and url.host().endswith((".console.aws.amazon.com", ".console.amazonaws.cn", "console.amazonaws-us-gov.com")):
+            QDesktopServices.openUrl(url)  # an AWS console link from the Related view (see k8s/related.ebs_console_url)
 
     @staticmethod
     def _has_events(row):
@@ -550,10 +552,18 @@ class DetailPanel(QWidget):
         self.copy_provider_button.setVisible(bool(self._identity_provider))
         self.identity_provider.setVisible(bool(self._identity_provider))
         self.identity_status.setText(status)
-        tone = status_tone(status.replace(" ", ""))  # the same words and colours as the table's status column
-        color = {"bad": theme.BAD, "warn": theme.WARN}.get(tone, theme.OK)
-        self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
+        self._status_tone = status_tone(status.replace(" ", ""))  # the same words and colours as the table's status column
+        self._style_identity_status()
         self.identity_header.show()
+
+    def _style_identity_status(self):
+        """The status takes the theme's colour for its tone when drawn, so a theme change restyles it (#501)."""
+        color = {"bad": theme.BAD, "warn": theme.WARN}.get(getattr(self, "_status_tone", "ok"), theme.OK)
+        self.identity_status.setStyleSheet(f"color: {color}; font-weight: 600")
+
+    def refresh_theme(self):
+        """A theme change: the object status keeps its tone in the new colours (#501: it kept the old ones until the next resource)."""
+        self._style_identity_status()
 
     @staticmethod
     def _identity_status_text(row, kind, raw):

@@ -184,6 +184,7 @@ class PortForwardPanel(QWidget):
         self.manager = manager
         self.saved, self.context, self._start = saved, context, start  # saved: SavedForwards; start(entry) begins one
         self.table = QTableWidget(0, len(self.HEADERS))
+        self._columns_sized = False  # #501: the widths are fitted once, not on every update
         self.table.setAccessibleName("Active port forwards")
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -266,7 +267,9 @@ class PortForwardPanel(QWidget):
                 self.table.setItem(r, c, item)
         if selected in self.manager.items:
             self.table.selectRow(self.manager.items.index(selected))
-        self.table.resizeColumnsToContents()
+        if not self._columns_sized and self.manager.items:  # sized once, when rows first arrive; a later
+            self.table.resizeColumnsToContents()  # update keeps the widths the user has set (#501)
+            self._columns_sized = True
         self._update_buttons()
 
     def _update_buttons(self, *_):

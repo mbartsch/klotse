@@ -89,5 +89,6 @@ def _entry_row(r):
     indent = "&nbsp;" * 4 * r.depth + ("↳&nbsp;" if r.depth else "")
     where = f" <span style='color:{theme.MUTED}'>{_e(r.namespace)}</span>" if r.namespace else ""
     tag = f" <span style='color:{theme.MUTED}'>({_e(r.note)})</span>" if r.note else ""
+    href = _e(r.url) if r.url else link(r.kind, r.namespace, r.name)
     return (f"<tr><td>{indent}<span style='color:{theme.MUTED}'>{_e(r.kind)}</span> "
-            f"<a href='{link(r.kind, r.namespace, r.name)}'>{_e(r.name)}</a>{where}{tag}</td></tr>")
+            f"<a href='{href}'>{_e(r.name)}</a>{where}{tag}</td></tr>")

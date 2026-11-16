@@ -11,10 +11,10 @@ def text_of(nav, name):
 
 
 def test_each_connection_state_has_its_own_mark_not_only_its_colour(qtbot):
-    from klotse.ui.navigator import STATE_SHAPES, dot_icon, STATE_COLORS
+    from klotse.ui.navigator import STATE_SHAPES, dot_icon, state_color
     shapes = set(STATE_SHAPES.values())
     assert len(shapes) == 4  # four states, four shapes
-    images = {dot_icon(STATE_COLORS["idle"], shape).pixmap(12, 12).toImage().bits().tobytes() for shape in shapes}
+    images = {dot_icon(state_color("idle"), shape).pixmap(12, 12).toImage().bits().tobytes() for shape in shapes}
     assert len(images) == 4  # and each shape draws differently
 
 
@@ -74,3 +74,18 @@ def test_the_command_palette_scan_hides_each_menu_again(qtbot, tmp_path):
     win.edit_menu.aboutToHide.connect(lambda: hidden.append(True))
     win.palette_entries()
     assert hidden
+
+
+def test_state_dots_take_the_theme_colours_and_follow_a_theme_change(qtbot, monkeypatch):
+    from klotse.ui import theme
+    from klotse.ui.navigator import Navigator, state_color
+    assert state_color("failed") == theme.BAD and state_color("connected") == theme.OK
+    nav = Navigator()
+    qtbot.addWidget(nav)
+    nav.set_contexts(["prod"])
+    nav.set_state("prod", "connected")
+    before = nav._clusters["prod"].icon(0).pixmap(12, 12).toImage()
+    monkeypatch.setattr(theme, "OK", "#ff00ff")
+    nav.refresh_theme()
+    after = nav._clusters["prod"].icon(0).pixmap(12, 12).toImage()
+    assert before != after

@@ -86,7 +86,7 @@ class Card(QFrame):
         self.value.setText(str(v))
         self.setAccessibleDescription(f"{self.value.text()}")
         color = {"warn": theme.WARN, "bad": theme.BAD}.get(self.tone) if v not in (0, "0", "–") else None
-        self.value.setStyleSheet(f"font-size: 22px; font-weight: 600;{f' color: {color};' if color else ''}")
+        self.value.setStyleSheet(f"font-size: {theme.font_pt(22)}; font-weight: 600;{f' color: {color};' if color else ''}")
 
     def set_detail(self, text):
         self.detail.setText(text)
@@ -107,6 +107,8 @@ class Card(QFrame):
         hover = f"Card:hover {{ border-color: {theme.ACCENT}; }}" if self._clickable else ""
         focus = f"Card:focus {{ border: 2px solid {theme.ACCENT_HI}; }}" if self._clickable else ""
         self.setStyleSheet(f"Card {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {theme.BASE},stop:1 {theme.BG}); border: 1px solid {border}; border-radius: 9px; }} {hover} {focus}")
+        if hasattr(self, "detail"):  # the caption under the value takes the theme's muted colour too (#501)
+            self.detail.setStyleSheet(f"font-size: 10px; color: {theme.MUTED}; border: 0;")
 
     def mousePressEvent(self, event):
         if self._clickable and event.button() == Qt.LeftButton:
@@ -248,7 +250,7 @@ class OverviewView(QWidget):
             self.events_table.view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
             self.events_table.view.verticalHeader().setMaximumSectionSize(76)
             self.events_table.view.setMinimumWidth(0)
-            self.events_table.loading_page.label.setStyleSheet(f"font-size: 13px; color: {theme.MUTED};")
+            self.events_table.loading_page.label.setStyleSheet(f"font-size: {theme.font_pt(13)}; color: {theme.MUTED};")
         self.pods_table = ResourceTable(POD_COLUMNS_BASIC, "Pod", customizable=False)
         self.warnings_table = ResourceTable(SPEC_BY_KEY["events"].columns, "Event", editable=False, customizable=False)
         self.stack = QStackedWidget()
@@ -273,7 +275,7 @@ class OverviewView(QWidget):
         layout.setContentsMargins(14, 12, 14, 12)
         header = QHBoxLayout()
         label = QLabel(title)
-        label.setStyleSheet("font-size: 13px; font-weight: 650; border: 0;")
+        label.setStyleSheet(f"font-size: {theme.font_pt(13)}; font-weight: 650; border: 0;")
         label.setAccessibleName(title)
         header.addWidget(label)
         if subtitle:
@@ -292,7 +294,7 @@ class OverviewView(QWidget):
     def _build_cluster_dashboard(self):
         self.setAccessibleName(f"Cluster overview for {self.context}" if self.context else "Cluster overview dashboard")
         self.page_title = QLabel("Cluster overview")
-        self.page_title.setStyleSheet("font-size: 23px; font-weight: 650; letter-spacing: -0.4px;")
+        self.page_title.setStyleSheet(f"font-size: {theme.font_pt(23)}; font-weight: 650; letter-spacing: -0.4px;")
         self.context_label = QLabel(f"{self.context}  ·  Live cluster summary")
         theme.muted(self.context_label)
         heading = QVBoxLayout()
@@ -513,7 +515,7 @@ class OverviewView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # #501: with Details open the header and cards were clipped with no way to reach them
         content.setMinimumWidth(0)
         scroll.setWidget(content)
         layout = QVBoxLayout(self)
@@ -618,7 +620,7 @@ class OverviewView(QWidget):
             self._set_health_summary(self._data.get("counts", {}))
 
     def _style_overview_tables(self):
-        style = f"QTableWidget {{ border: 0; background: transparent; alternate-background-color: {theme.BG}; }} QTableWidget::item {{ padding: 4px; border-bottom: 1px solid {theme.BORDER}; }} QHeaderView::section {{ background: transparent; color: {theme.MUTED}; border: 0; border-bottom: 1px solid {theme.BORDER}; padding: 4px; font-size: 10px; }}"
+        style = f"QTableWidget {{ border: 0; background: transparent; alternate-background-color: {theme.BG}; }} QTableWidget::item {{ padding: 4px; border-bottom: 1px solid {theme.BORDER}; }} QHeaderView::section {{ background: transparent; color: {theme.MUTED}; border: 0; border-bottom: 1px solid {theme.BORDER}; padding: 4px; font-size: {theme.font_pt(10)}; }}"
         self.namespace_table.setStyleSheet(style)
         self.nodes_table.setStyleSheet(style)
         for row in range(self.nodes_table.rowCount()):

@@ -3,13 +3,17 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QSignalBlocker, QThreadPool, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QHBoxLayout, QLabel, QInputDialog,
-                               QLineEdit, QMainWindow, QMenu, QMessageBox, QTabBar, QSizePolicy, QTabWidget, QToolButton,
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QTabBar, QSizePolicy, QStackedWidget,
+                               QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
 
-from .about import AboutDialog
+from . import dialog_sizing, resource_table
+from .about import REPO_URL, AboutDialog
+from .shortcuts_dialog import ShortcutsDialog, shortcut_rows
+from .first_run import FirstRunPage
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
 from .cluster_aliases import ClusterAliases
@@ -121,6 +125,8 @@ class MainWindow(QMainWindow):
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
             QTimer.singleShot(1500, embedded_terminal.warm_up)
+        resource_table.use_settings(self.label_settings.store)  # column widths and dialog sizes are kept between starts (#501)
+        dialog_sizing.use_settings(self.label_settings.store)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.proxy_settings = ProxySettings(self.label_settings.store)  # Preferences > Network: used when a kubeconfig names no proxy-url
         self.apply_app_proxy()
@@ -314,6 +320,9 @@ class MainWindow(QMainWindow):
         self.auto_refresh_menu.aboutToShow.connect(self._sync_global_auto_actions)
         view_menu.addSeparator()
         view_menu.addAction(self.managed_fields_action)
+        self.clusters_panel_action = QAction("Show clusters panel", self, checkable=True, checked=True)  # #501: the navigator could not be hidden
+        self.clusters_panel_action.setToolTip("Show or hide the cluster navigator on the left")
+        view_menu.addAction(self.clusters_panel_action)
         settings_menu.aboutToShow.connect(self._sync_big_action)
         # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
         self.plugins_menu = self.menuBar().addMenu("&Plugins")
@@ -322,21 +331,42 @@ class MainWindow(QMainWindow):
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        self.menuBar().addMenu("&Help").addAction(self.about_action)
+        help_menu = self.menuBar().addMenu("&Help")  # #501: the help was About alone; the guide and issues are one click away
+        self.shortcuts_action = QAction("Keyboard shortcuts…", self)  # #501: the list is read from the menus
+        self.shortcuts_action.triggered.connect(self.show_shortcuts)
+        help_menu.addAction(self.about_action)
+        help_menu.addSeparator()
+        self.guide_action = QAction("Guide and README on GitHub", self)
+        self.guide_action.setToolTip("Open the project page on GitHub: the README and guide")
+        self.guide_action.triggered.connect(lambda: self.open_url(REPO_URL))
+        help_menu.addAction(self.guide_action)
+        self.report_action = QAction("Report a problem on GitHub…", self)
+        self.report_action.setToolTip("Open GitHub's new-issue page for Klotse in the browser")
+        self.report_action.triggered.connect(lambda: self.open_url(REPO_URL + "/issues/new/choose"))
+        help_menu.addAction(self.report_action)
+        help_menu.addSeparator()
+        help_menu.addAction(self.shortcuts_action)
         self._show_menu_tooltips(self.menuBar())  # the entries' tooltips say what they do and their shortcut (#501)
 
         self.clusters = QTabWidget()
         self.clusters.setDocumentMode(True)
         self.clusters.setAccessibleName("Open cluster workspaces")
         self.clusters.setTabBar(ScrollableTabBar())
-        self.clusters.setTabBarAutoHide(True)
+        self.clusters.setTabBarAutoHide(False)  # #501: with one cluster open the tab bar kept its Close and Detach controls hidden
         self.clusters.setTabsClosable(True)
         self.clusters.tabCloseRequested.connect(self._close_cluster_tab)
         self.clusters.setContextMenuPolicy(Qt.CustomContextMenu)
         self.clusters.customContextMenuRequested.connect(self._cluster_tab_menu)
         self.clusters.currentChanged.connect(self._on_cluster_changed)
         self.clusters.currentChanged.connect(lambda _index: self._sync_cluster_picker())
-        self.setCentralWidget(self.clusters)
+        # #501: with no cluster open the centre shows a getting-started page instead of a blank area
+        self.first_run = FirstRunPage()
+        self.first_run.choose_kubeconfig.connect(self.open_preferences)
+        self.first_run.add_from_cloud.connect(self.add_clusters_from_cloud)
+        self.centre = QStackedWidget()
+        self.centre.addWidget(self.first_run)
+        self.centre.addWidget(self.clusters)
+        self.setCentralWidget(self.centre)
         self.cluster_overview = ClusterOverview(self)
         self.cluster_overview.open_requested.connect(self._open_cluster_from_overview)
         self.cluster_overview.refresh_requested.connect(self._refresh_cluster_from_overview)
@@ -417,8 +447,10 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.nav, 1)
         nav_dock.setWidget(nav_panel)
         nav_dock.setMinimumWidth(218)
-        nav_dock.setMaximumWidth(360)
+        nav_dock.setMaximumWidth(520)  # #501: was 360, so an "alias [long context]" row was cut off; still dragged, not hidden
         self.addDockWidget(Qt.LeftDockWidgetArea, nav_dock)
+        self.clusters_panel_action.toggled.connect(nav_dock.setVisible)
+        nav_dock.visibilityChanged.connect(self.clusters_panel_action.setChecked)  # keeps the menu in step with the dock
         self.resizeDocks([nav_dock], [234], Qt.Horizontal)
         self.nav.context_clicked.connect(self.open_cluster)
         self.nav.connect_requested.connect(self.open_cluster)
@@ -464,6 +496,7 @@ class MainWindow(QMainWindow):
         self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
+        self._restore_dock_state()  # #501: the docks (navigator, Details, Logs) keep their places and sizes once they exist
 
     def createPopupMenu(self):  # noqa: N802
         """Suppress the default dock and toolbar menu; Klotse exposes those controls elsewhere."""
@@ -591,7 +624,15 @@ class MainWindow(QMainWindow):
         return f"No kubeconfig contexts found in {path}" if path else "No kubeconfig contexts found"
 
     # ---- clusters ------------------------------------------------------
+    def _sync_centre(self):
+        """The getting-started page while no cluster tab is open; the tabs otherwise (#501)."""
+        if not hasattr(self, "centre"):
+            return
+        self.first_run.set_has_contexts(bool(self.contexts))
+        self.centre.setCurrentWidget(self.clusters if self.clusters.count() else self.first_run)
+
     def _sync_cluster_picker(self, preferred=None):
+        self._sync_centre()
         contexts = list(self.workspaces)
         self.cluster_picker.blockSignals(True)
         self.cluster_picker.clear()
@@ -726,10 +767,15 @@ class MainWindow(QMainWindow):
         remembered, current = self.session.saved()
         wanted = [ctx for ctx in remembered if ctx in self.contexts]
         spaces = self.session.namespaces()
+        views = self.session.view_keys()
         for ctx in wanted:
             self.open_cluster(ctx)
             if ctx in spaces and ctx in self.workspaces:
                 self.workspaces[ctx].restore_namespace = spaces[ctx]  # applied when the namespace list arrives
+            if ctx in self.workspaces:  # the views that were open at exit open again, in their order (#501)
+                for key in views.get(ctx, []):
+                    if key in self.workspaces[ctx].views:
+                        self.workspaces[ctx].open_view(key)
         if current in wanted:
             self.open_cluster(current)  # focus the one that was in front
         if wanted:
@@ -1372,6 +1418,15 @@ class MainWindow(QMainWindow):
         """Folder holding Klotse's settings file (see LabelSettings.store.fileName())."""
         return Path(self.label_settings.store.fileName()).parent
 
+    def open_url(self, url):
+        """Open a page in the browser (the Help menu's links)."""
+        QDesktopServices.openUrl(QUrl(url))
+
+    def show_shortcuts(self):
+        dialog = ShortcutsDialog(shortcut_rows(self.menuBar()), self)
+        dialog.exec()
+        dialog.deleteLater()
+
     def show_about(self):
         dialog = AboutDialog(self)
         dialog.exec()
@@ -1465,7 +1520,10 @@ class MainWindow(QMainWindow):
         for workspace in self.workspaces.values():
             workspace.overview.refresh_theme()
             workspace.wl_overview.refresh_theme()
+            workspace.refresh_theme()  # the read-only banner (#501)
+            workspace.detail.refresh_theme()  # the object status in Details (#501)
         self.nav.refresh_theme()  # the navigator's headings and folders (#501)
+        self._sync_plugin_error_status()  # the plugin-error button takes the new error colour (#501)
         return True
 
     def apply_kubeconfig(self, path):
@@ -1696,7 +1754,8 @@ class MainWindow(QMainWindow):
                 return False
             if answer == QMessageBox.Yes:
                 spaces = {workspace.context: workspace.namespace() for workspace in self.workspaces.values()}
-                self.session.remember(opened, front.context if isinstance(front, ClusterWorkspace) else None, spaces)
+                views = {workspace.context: workspace.static_view_keys() for workspace in self.workspaces.values()}
+                self.session.remember(opened, front.context if isinstance(front, ClusterWorkspace) else None, spaces, views)
             else:
                 self.session.forget()
         except OSError as error:  # never trap the user in the app because the settings file is not writable
@@ -1718,9 +1777,18 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
+    STATE_KEY = "window/state"
+
+    def _restore_dock_state(self):
+        state = self.label_settings.store.value(self.STATE_KEY)  # empty when never saved; a bad value leaves the defaults
+        if state:
+            self.restoreState(state)
+
     def _remember_geometry(self):
-        """Keep the window's size and place for the next start. A save error is not fatal: the window just opens at its default."""
+        """Keep the window's size, place and dock layout for the next start. A save error is not fatal: the window just opens
+        at its default."""
         self.label_settings.store.setValue(self.GEOMETRY_KEY, self.saveGeometry())
+        self.label_settings.store.setValue(self.STATE_KEY, self.saveState())
         self.label_settings.store.sync()
 
     def closeEvent(self, event):

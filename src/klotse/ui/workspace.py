@@ -877,6 +877,12 @@ class ClusterWorkspace(QMainWindow):
         if not (self.is_manual(key) and key in self._last_load and not self._stale_scope(key)):  # a manual list loads on first open
             self.load_view(key)
 
+    def static_view_keys(self):
+        """The open views that can be opened again after a restart: the fixed ones, not a single object's tab (#501)."""
+        keys = [self.tabs.widget(i).view_key for i in range(self.tabs.count())
+                if getattr(self.tabs.widget(i), "view_key", None)]
+        return [key for key in keys if ":" not in key]
+
     def foreground_key(self):
         widget = self.tabs.currentWidget()
         return getattr(widget, "view_key", None)
@@ -2618,6 +2624,10 @@ class ClusterWorkspace(QMainWindow):
         meta = row.raw.get("metadata") or {}
         self._run(self.service.list_object_events, lambda events, r=row: self.detail.show_events(r, events),
                   meta.get("namespace") or "", meta.get("uid"), on_error=lambda msg, r=row: self.detail.show_events(r, error=msg))
+
+    def refresh_theme(self):
+        """A theme change: the read-only banner takes the new warning colours (#501: it kept the old ones until a restart)."""
+        self.read_only_label.setStyleSheet(theme.warning_style())
 
     def set_read_only(self, on):
         """Read-only mode: the banner shows and every change this window could make is refused with an explanation. The
