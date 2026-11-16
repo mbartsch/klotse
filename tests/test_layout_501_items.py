@@ -36,3 +36,16 @@ def test_the_regex_error_uses_the_theme_error_colour(qtbot):
     dialog.pattern.setText("([unclosed")
     assert dialog.regex_error.text().startswith("Invalid expression")
     assert f"color: {theme.BAD}" in dialog.regex_error.styleSheet()
+
+
+def test_numbers_are_right_aligned_and_text_stays_left(qapp):
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import Qt
+
+    from klotse.ui.table_model import TableModel
+    model = TableModel([("Name", "name"), ("Restarts", "restarts")])
+    model.set_rows([SimpleNamespace(name="web-1", restarts=3), SimpleNamespace(name="web-2", restarts="none")])
+    assert model.index(0, 1).data(Qt.TextAlignmentRole) == (Qt.AlignRight | Qt.AlignVCenter)
+    assert model.index(0, 0).data(Qt.TextAlignmentRole) is None
+    assert model.index(1, 1).data(Qt.TextAlignmentRole) is None
