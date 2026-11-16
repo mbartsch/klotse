@@ -67,4 +67,4 @@ git diff --check
 - Keep Windows, macOS and Linux launch/terminal paths working; distinguish mocked coverage from actual OS verification.
 - Do not commit credentials, kubeconfig data, real secret values or per-user preferences.
 - Documentation changes do not authorize deployment, cloud-instance termination, pushing branches or live Kubernetes mutations.
-- Pending, not merged at the time of writing: main menu grouping (#232), actionable load states (#234), manifest filter paths (#215; described above).
+- Pending, not merged at the time of writing: main menu grouping (#232), actionable load states (#234), manifest filter paths (#215; described above), optional All Clusters overview design (#531).
