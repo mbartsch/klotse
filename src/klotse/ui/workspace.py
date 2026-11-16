@@ -37,6 +37,7 @@ from .compare_dialog import CompareDialog
 from .crd_delete_dialog import CrdDeleteDialog
 from .wording import counted, plural_label
 from .diagnostics_dialog import DiagnosticsDialog
+from . import analysis_window as aw
 from .health_dialog import HealthDialog
 from .unused_dialog import UnusedDialog
 from .preflight_dialog import PreflightDialog
@@ -174,6 +175,7 @@ class ClusterWorkspace(QMainWindow):
         self.service = service
         self.audit_log = audit_log  # the local change log (ui/audit_log.AuditLog) or None
         self.context = context
+        self.display_name = context  # the cluster's alias; MainWindow sets it (the analysis windows' titles use it, #499)
         if audit_log is not None:  # the service reports what its @mutating methods did
             service.audit = lambda action, target, result, detail='': audit_log.record(self.context, action, target, result, detail)
         self.label_settings = label_settings if label_settings is not None else LabelSettings(parent=self)
@@ -1491,8 +1493,12 @@ class ClusterWorkspace(QMainWindow):
             self._rightsizing_dialog.close()
         if getattr(self, "_rbac_dialog", None) is not None:
             self._rbac_dialog.close()
-        if getattr(self, "_diagnostics_dialog", None) is not None:
-            self._diagnostics_dialog.close()  # cancels an export that is still running
+        for dialog in list(getattr(self, "_diagnostics_dialogs", [])):
+            dialog.close()  # cancels an export that is still running; every window, not only the last one opened (#499)
+            if dialog.job is not None and dialog.job.isRunning():
+                dialog.job.wait(5000)  # closing the window does not wait; closing the cluster does, briefly, so no export outlives it
+        if getattr(self, "_permissions_window", None) is not None:
+            self._permissions_window.close()
         self.file_copies.cancel_all()  # nor a kubectl cp
         for host in list(self._terminal_hosts):
             host.close()  # ends its session, so no kubectl outlives the cluster
@@ -1763,8 +1769,7 @@ class ClusterWorkspace(QMainWindow):
             dialog.setWindowFlag(Qt.Window, True)
             dialog.search_requested.connect(self._run_search)
             dialog.goto_requested.connect(self.go_to_object)
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Search objects")
         dialog.activateWindow()
         dialog.box.setFocus()
         return dialog
@@ -1787,6 +1792,7 @@ class ClusterWorkspace(QMainWindow):
     def compare_objects(self, kind, rows):
         """Two selected rows of one list > Compare these two…: their YAML as a diff. Looking only (read-only mode allows it)."""
         dialog = CompareDialog(self.context, kind, rows[0], rows[1], self)
+        dialog.setWindowTitle(aw.title(dialog.windowTitle(), self._alias()))
         dialog.exec()
         dialog.deleteLater()
 
@@ -1817,10 +1823,17 @@ class ClusterWorkspace(QMainWindow):
             QMessageBox.information(self, "Export diagnostics", "Choose one namespace in the toolbar first (or right-click a namespace "
                                     "in the Namespaces list): a bundle covers one namespace.")
             return None
+        windows = [d for d in getattr(self, "_diagnostics_dialogs", []) if isValid(d) and (d.isVisible() or d.busy())]
+        self._diagnostics_dialogs = windows
+        for existing in windows:
+            if existing.namespace == namespace and existing.isVisible():  # one window per namespace, brought to the front (#499)
+                self._show_analysis(existing, "Export diagnostics")
+                return existing
         from .. import __display_version__
-        dialog = DiagnosticsDialog(self.service, self.context, namespace, __display_version__, self)
+        dialog = DiagnosticsDialog(self.service, self.context, namespace, __display_version__, self, label=self._cluster_label())
+        self._diagnostics_dialogs.append(dialog)
         self._diagnostics_dialog = dialog
-        dialog.show()
+        self._show_analysis(dialog, "Export diagnostics")
         return dialog
 
     def show_rbac(self, subject=None):
@@ -1829,10 +1842,9 @@ class ClusterWorkspace(QMainWindow):
         dialog = getattr(self, "_rbac_dialog", None)
         fresh = dialog is None
         if fresh:
-            dialog = self._rbac_dialog = RbacDialog(self.context, self)
+            dialog = self._rbac_dialog = RbacDialog(self._cluster_label(), self)
             dialog.reload_button.clicked.connect(self._load_rbac)
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "RBAC lookup")
         if subject is not None:
             dialog.focus_subject(*subject)
         if fresh or dialog.rbac is None:
@@ -1841,35 +1853,31 @@ class ClusterWorkspace(QMainWindow):
 
     def _load_rbac(self):
         dialog = self._rbac_dialog
-        dialog.status.setText("Loading roles and bindings…")
 
         def done(data):
             dialog.show_data(data)
             if dialog.tabs.currentIndex() == 1 and dialog.subject_name.text().strip():
                 dialog.run_permissions()  # a service account's menu opened it: answer as soon as the data is here
-        self._run(self.service.rbac_data, done, on_error=dialog.show_error)
+        self._analysis_load("rbac", dialog, self.service.rbac_data, done, scope="", loading=dialog.status)
 
     def show_rightsizing(self):
         """View > Right-sizing…: pods of the namespace in front (or all) with their usage are read on a worker (looking only) and
         compared with their requests and limits per workload. Non-modal, one per workspace, closed by shutdown."""
-        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
         dialog = getattr(self, "_rightsizing_dialog", None)
         if dialog is None:
-            dialog = self._rightsizing_dialog = RightSizingDialog(self.context, scope, self)
+            dialog = self._rightsizing_dialog = RightSizingDialog(self._cluster_label(), self._analysis_scope(), self)
             dialog.reload_button.clicked.connect(self._load_rightsizing)
             dialog.go_to_requested.connect(self.go_to_object)
-        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Right-sizing")
         self._load_rightsizing()
         return dialog
 
     def _load_rightsizing(self):
         dialog = self._rightsizing_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
-        dialog.summary.setText("Loading pods and usage…")
         pods = getattr(self.service, "list_pods_for_analysis", self.service.list_pods)  # big clusters: plain JSON, no model objects
-        self._run(lambda: pods(namespace), dialog.show_pods, on_error=dialog.show_error)
+        self._analysis_load("rightsizing", dialog, lambda: pods(namespace), lambda rows: dialog.show_pods(rows), scope=self._analysis_scope(),
+                            loading=dialog.summary)
 
     def show_metrics_query(self, kind=None, row=None):
         """Right-click a Pod, Node, Deployment, StatefulSet or DaemonSet > Metrics query…: quick PromQL about it on the Prometheus /
@@ -1883,12 +1891,12 @@ class ClusterWorkspace(QMainWindow):
             kind, namespace, name = "Cluster", "", ""
             presets = []
             key = ("query", "cluster", self.context)
-            title = f"Metrics query ({self.context})"
+            title = aw.title("Metrics query", self._alias())
         else:
             namespace, name = getattr(row, "namespace", ""), row.name
             presets = prometheus.workload_queries(kind, namespace, name)
             key = ("query", kind, namespace, name)
-            title = f"Metrics: {kind} {namespace}/{name} ({self.context})"
+            title = aw.title(f"Metrics: {kind} {namespace}/{name}", self._alias())
         windows = [d for d in getattr(self, "_metrics_dialogs", []) if d.isVisible()]
         self._metrics_dialogs = windows
         for existing in windows:
@@ -2024,7 +2032,7 @@ class ClusterWorkspace(QMainWindow):
                 return existing
         available = getattr(self.service, "metrics_available", lambda: True)()
         what = f"{kind} {namespace + '/' if namespace else ''}{row.name}"
-        dialog = MetricsDialog(f"Usage history: {what} ({self.context})", lambda: sample(kind, namespace, row.name, selector),
+        dialog = MetricsDialog(aw.title(f"Usage history: {what}", self._alias()), lambda: sample(kind, namespace, row.name, selector),
                                metrics_history.reference_lines(kind, row), available, parent=self,
                                object_options={row.name: what, "total": what})
         dialog.key = key
@@ -2080,7 +2088,7 @@ class ClusterWorkspace(QMainWindow):
             return metrics_history.combine([(label, sample(kind, ns, name, sel)) for label, (ns, name, sel) in zip(labels, targets)])
 
         available = getattr(self.service, "metrics_available", lambda: True)()
-        title = f"Usage history: {counted(len(targets), kind)} ({self.context})"
+        title = aw.title(f"Usage history: {counted(len(targets), kind)}", self._alias())
         object_options = {label: f"{kind} {label}" for label in labels}
         dialog = MetricsDialog(title, read, None, available, parent=self, allow_source=False,
                                object_options=object_options)
@@ -2387,11 +2395,10 @@ class ClusterWorkspace(QMainWindow):
         (the Table of each report kind; a whole report only when opened). Looking only. Non-modal, one per workspace."""
         dialog = getattr(self, "_trivy_dialog", None)
         if dialog is None:
-            dialog = self._trivy_dialog = TrivyDialog(self.context, self)
+            dialog = self._trivy_dialog = TrivyDialog(self._cluster_label(), self)
             dialog.load_requested.connect(self._load_trivy)
             dialog.open_requested.connect(self._open_trivy_report)
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Trivy reports")
         dialog.load_current()
         return dialog
 
@@ -2408,7 +2415,7 @@ class ClusterWorkspace(QMainWindow):
             else:
                 dialog.show_rows(key, rows)
 
-        self._run(lambda: read(key), done, on_error=lambda message: dialog.show_error(key, message))
+        self._analysis_load("trivy:" + key, dialog, lambda: read(key), done, failed=lambda message: dialog.show_error(key, message))
 
     def _open_trivy_report(self, key, row):
         """Double-click on a row: read that whole report and show its findings."""
@@ -2427,22 +2434,18 @@ class ClusterWorkspace(QMainWindow):
     def show_security(self):
         """View > Pod security…: workloads (grouped, with pod counts) that break the baseline or restricted Pod Security Standards, from
         the pod manifests of the namespace in front (or all), read on a worker. Looking only. Non-modal, one per workspace."""
-        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
         dialog = getattr(self, "_security_dialog", None)
         if dialog is None:
-            dialog = self._security_dialog = SecurityDialog(self.context, scope, self)
+            dialog = self._security_dialog = SecurityDialog(self._cluster_label(), self._analysis_scope(), self)
             dialog.reload_button.clicked.connect(self._load_security)
             dialog.go_to_requested.connect(self.go_to_object)
-        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Pod security")
         self._load_security()
         return dialog
 
     def _load_security(self):
         dialog = self._security_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
-        dialog.summary.setText("Checking…")
         read = getattr(self.service, "pod_security_data", None)
         if read is None:
             dialog.show_error("this service cannot check pod security")
@@ -2452,50 +2455,46 @@ class ClusterWorkspace(QMainWindow):
             data, problems = read(namespace)
             return pod_security.check(data), problems
 
-        self._run(work, lambda answer: dialog.show_findings(*answer), on_error=dialog.show_error)
+        self._analysis_load("security", dialog, work, lambda answer: dialog.show_findings(*answer), scope=self._analysis_scope(),
+                            loading=dialog.summary)
 
     def show_preflight(self):
         """View > Upgrade preflight…: deprecated APIs, PodDisruptionBudgets that allow no disruption, kubelet version skew and
         cert-manager certificate dates (k8s/preflight.py), read on a worker. Looking only. Non-modal, one per workspace."""
         dialog = getattr(self, "_preflight_dialog", None)
         if dialog is None:
-            dialog = self._preflight_dialog = PreflightDialog(self.context, "cluster-wide", self)
+            dialog = self._preflight_dialog = PreflightDialog(self._cluster_label(), "cluster-wide", self)
             dialog.reload_button.clicked.connect(self._load_preflight)
             dialog.go_to_requested.connect(self.go_to_object)
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Upgrade preflight")
         self._load_preflight()
         return dialog
 
     def _load_preflight(self):
         dialog = self._preflight_dialog
-        dialog.summary.setText("Reading…")
         read = getattr(self.service, "preflight_data", None)
         if read is None:
             dialog.show_error("this service cannot do the preflight")
             return
-        self._run(read, lambda answer: dialog.show_data(*answer), on_error=dialog.show_error)
+        self._analysis_load("preflight", dialog, read, lambda answer: dialog.show_data(*answer), scope="cluster-wide",
+                            loading=dialog.summary)
 
     def show_unused(self):
         """View > Unused objects…: ConfigMaps, Secrets and claims that nothing refers to, in the namespace in front (or all of them),
         judged from the manifests of pods, workloads, Ingresses and Service Accounts on a worker. Looking only (Secrets as
         metadata, never their data). Non-modal, one per workspace, closed by shutdown."""
-        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
         dialog = getattr(self, "_unused_dialog", None)
         if dialog is None:
-            dialog = self._unused_dialog = UnusedDialog(self.context, scope, self)
+            dialog = self._unused_dialog = UnusedDialog(self._cluster_label(), self._analysis_scope(), self)
             dialog.reload_button.clicked.connect(self._load_unused)
             dialog.go_to_requested.connect(self.go_to_object)
-        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Unused objects")
         self._load_unused()
         return dialog
 
     def _load_unused(self):
         dialog = self._unused_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
-        dialog.summary.setText("Looking…")
 
         def read():
             data, problems, missing = self.service.unused_data(namespace)
@@ -2512,25 +2511,38 @@ class ClusterWorkspace(QMainWindow):
             else:
                 dialog.show_result(result[0], result[1], problems)
 
-        self._run(read, done, on_error=dialog.show_error)
+        self._analysis_load("unused", dialog, read, done, scope=self._analysis_scope(), loading=dialog.summary)
 
     def show_health(self):
         """View > Health check…: manifests of the namespace in front (all namespaces too) are read on a worker and checked
         (k8s/health.py). Looking only. Non-modal, one per workspace, closed by shutdown."""
-        scope = "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
         dialog = getattr(self, "_health_dialog", None)
         if dialog is None:
-            dialog = self._health_dialog = HealthDialog(self.context, scope, self)
+            dialog = self._health_dialog = HealthDialog(self._cluster_label(), self._analysis_scope(), self)
             dialog.reload_button.clicked.connect(self._load_health)
             dialog.go_to_requested.connect(self.go_to_object)
-        dialog.header.setText(f"<b>{self.context}</b> · {scope}")
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Health check")
         self._load_health()
         return dialog
 
+    # ---- what the analysis windows share (#499) --------------------------------------------------------------------
     def _analysis_scope(self):
         return "all namespaces" if self.namespace() == ALL_NS else f"namespace {self.namespace()}"
+
+    def _alias(self):
+        """The name the user gave this cluster (MainWindow sets `display_name`), else its kubeconfig context."""
+        return getattr(self, "display_name", "") or self.context
+
+    def _cluster_label(self):
+        """The alias, with the kubeconfig context in brackets when they differ, for an analysis window's heading."""
+        name = self._alias()
+        return name if name == self.context else f"{name} ({self.context})"
+
+    def _show_analysis(self, dialog, name):
+        """Title the window '{name} — {alias}' (two clusters' windows differ in the taskbar) and bring it to the front."""
+        dialog.setWindowTitle(aw.title(name, self._alias()))
+        dialog.show()
+        dialog.raise_()
 
     def _bump_analysis(self, key):
         """A new load of an analysis window: returns its serial. An answer for an older serial is dropped, so a slow answer
@@ -2542,81 +2554,92 @@ class ClusterWorkspace(QMainWindow):
     def _analysis_current(self, key, serial):
         return self.__dict__.get("_analysis_serials", {}).get(key) == serial
 
+    def _analysis_load(self, key, dialog, read, done, failed=None, scope=None, loading=None):
+        """Run one load of an analysis window: Refresh is disabled until the answer of this load arrives, an older load's answer is
+        dropped, and with `scope` the heading is rewritten to the scope this load reads (it used to keep the scope of the opening)."""
+        button = dialog.reload_button
+        if scope is not None:
+            dialog.header.setText(aw.heading(self._cluster_label(), scope))
+        if loading is not None:
+            loading.setText(aw.LOADING)
+        button.setEnabled(False)
+        serial = self._bump_analysis(key)
+        pending = getattr(dialog, "_analysis_pending", None)  # keys still loading in this window (Trivy: one per tab)
+        if pending is None:
+            pending = dialog._analysis_pending = set()
+        pending.add(key)
+
+        def arrived():
+            pending.discard(key)
+            button.setEnabled(not pending)  # Refresh stays off while any load of this window is on the way
+
+        def ok(result):
+            if self._analysis_current(key, serial):
+                arrived()
+                done(result)
+
+        def bad(message):
+            if self._analysis_current(key, serial):
+                arrived()
+                (failed or dialog.show_error)(message)
+        self._run(read, ok, on_error=bad)
+
     def _load_health(self):
         dialog = self._health_dialog
         namespace = None if self.namespace() == ALL_NS else self.namespace()
-        dialog.summary.setText("Checking…")
-        dialog.header.setText(f"<b>{self.context}</b> · {self._analysis_scope()}")  # the heading follows the scope of this load
-        dialog.reload_button.setEnabled(False)
-        serial = self._bump_analysis("health")
 
         def read():
             data, problems = self.service.health_data(namespace)
             return health.check(data), problems
-
-        def done(result):
-            if self._analysis_current("health", serial):
-                dialog.reload_button.setEnabled(True)
-                dialog.show_findings(*result)
-
-        def failed(message):
-            if self._analysis_current("health", serial):
-                dialog.reload_button.setEnabled(True)
-                dialog.show_error(message)
-        self._run(read, done, on_error=failed)
+        self._analysis_load("health", dialog, read, lambda result: dialog.show_findings(*result), scope=self._analysis_scope(),
+                            loading=dialog.summary)
 
     def show_capacity(self):
         """View > Capacity…: nodes and every pod are read on a worker (looking only) and shown per node and per namespace. The
         window is non-modal and reloads from its own button; one per workspace."""
         dialog = getattr(self, "_capacity_dialog", None)
         if dialog is None:
-            dialog = self._capacity_dialog = CapacityDialog(self.context, self)
+            dialog = self._capacity_dialog = CapacityDialog(self._cluster_label(), self)
             dialog.reload_button.clicked.connect(self._load_capacity)
-        dialog.show()
-        dialog.raise_()
+        self._show_analysis(dialog, "Capacity")
         self._load_capacity()
         return dialog
 
     def _load_capacity(self):
         dialog = self._capacity_dialog
-        dialog.summary.setText("Loading nodes and pods…")
-        dialog.reload_button.setEnabled(False)  # not clickable while its answer is on the way (#499)
-        serial = self._bump_analysis("capacity")
 
         def read():
             both = getattr(self.service, "capacity_data", None)
             return both() if both is not None else (self.service.list_nodes(), self.service.list_pods(None))
-
-        def done(data):
-            if self._analysis_current("capacity", serial):
-                dialog.reload_button.setEnabled(True)
-                dialog.show_data(*data)
-
-        def failed(message):
-            if self._analysis_current("capacity", serial):
-                dialog.reload_button.setEnabled(True)
-                dialog.show_error(message)
-        self._run(read, done, on_error=failed)
+        self._analysis_load("capacity", dialog, read, lambda data: dialog.show_data(*data), scope="", loading=dialog.summary)
 
     def show_permissions(self):
-        """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check."""
+        """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check. Non-modal, one per
+        workspace (#499: it was modal and opened after a background read, interrupting whatever came next)."""
         ns = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
         self.message.emit(f"{self.context}: reading your permissions in {ns}…")
         self._run(self.service.my_permissions, lambda perms: self._permissions_ready(ns, perms), ns)
 
     def permissions_dialog(self, ns, perms):
-        dialog = PermissionsDialog(self.context, ns, perms, self)
+        dialog = PermissionsDialog(self._cluster_label(), ns, perms, self)
 
-        def check(verb, group, resource, name):
-            self._run(self.service.can_i, lambda answer: dialog.show_check(*answer), verb, group, resource, ns, name,
-                      on_error=lambda msg: dialog.show_check(error=msg))
+        def check(verb, group, resource, name):  # the window may have been replaced (and deleted) before the answer comes
+            self._run(self.service.can_i, lambda answer: isValid(dialog) and dialog.show_check(*answer), verb, group, resource, ns, name,
+                      on_error=lambda msg: isValid(dialog) and dialog.show_check(error=msg))
         dialog.check_requested.connect(check)
         return dialog
 
     def _permissions_ready(self, ns, perms):
-        dialog = self.permissions_dialog(ns, perms)
-        dialog.exec()
-        dialog.deleteLater()
+        if self._closed:
+            return None
+        old = getattr(self, "_permissions_window", None)
+        if old is not None:
+            old.close()
+            old.deleteLater()
+        dialog = self._permissions_window = self.permissions_dialog(ns, perms)
+        dialog.setWindowFlag(Qt.Window, True)
+        self._show_analysis(dialog, "My permissions")
+        return dialog
 
     def _load_events(self, row):
         """The Details panel's Events view asked for the events of `row`; the answer (or the reason there is none) goes

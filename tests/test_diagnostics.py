@@ -208,7 +208,7 @@ def test_workspace_needs_one_namespace(qtbot, monkeypatch):
     ws.set_namespace("All namespaces")
     assert ws.export_diagnostics() is None and "one namespace" in told[0]
     dialog = ws.export_diagnostics("shop")
-    assert dialog.namespace == "shop" and dialog.windowTitle() == "Export diagnostics"
+    assert dialog.namespace == "shop" and dialog.windowTitle() == "Export diagnostics — ctx"
     ws.shutdown()
 
 

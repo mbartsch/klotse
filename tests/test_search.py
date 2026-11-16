@@ -187,7 +187,7 @@ def test_no_matches_and_failures_are_said(qtbot):
     assert d.status.text() == "0 matches." and not d.go_button.isEnabled()
     d.search_now()
     d.show_error(d.serial, "boom")
-    assert d.status.text() == "Search failed: boom"
+    assert d.status.text() == "Could not search: boom"
     d.box.setText("")
     d.search_now()
     assert d.status.text() == "Type a query."

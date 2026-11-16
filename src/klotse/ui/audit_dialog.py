@@ -1,10 +1,10 @@
 """View > Change log…: the local record of changes made from Klotse (see audit_log.py). Looking only."""
 import os
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout)
+                               QVBoxLayout)
 
+from . import analysis_window as aw
 from . import theme
 from .dialog_actions import action_box
 from .preferences import open_folder
@@ -34,7 +34,12 @@ class AuditDialog(QDialog):
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        refresh = QPushButton("Refresh")
+        self.found = QLabel("")
+        theme.muted(self.found)
+        self.reload_button = refresh = QPushButton("Refresh")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the entries shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.table))
         folder = QPushButton("Open folder")
         self.clear_button = QPushButton("Clear log…")
         close = QPushButton("Close")
@@ -43,6 +48,7 @@ class AuditDialog(QDialog):
         self.clear_button.clicked.connect(self._clear)
         close.clicked.connect(self.accept)
         buttons = action_box(self, (refresh, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (folder, QDialogButtonBox.ActionRole),
                              (self.clear_button, QDialogButtonBox.DestructiveRole),
                              (close, QDialogButtonBox.RejectRole))
@@ -50,18 +56,14 @@ class AuditDialog(QDialog):
         lay.addWidget(self.note)
         lay.addWidget(self.filter)
         lay.addWidget(self.table, 1)
+        lay.addWidget(self.found)
         lay.addWidget(buttons)
         self.load()
 
     def load(self):
         entries = self.log.entries()
-        self.table.setRowCount(len(entries))
-        for i, entry in enumerate(entries):
-            for j, key in enumerate(KEYS):
-                item = QTableWidgetItem(("✖ " if key == "result" and entry[key] == "failed" else "") + entry[key])
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                self.table.setItem(i, j, item)
-        self.table.resizeColumnsToContents()
+        aw.fill(self.table, [[("✖ " if key == "result" and entry[key] == "failed" else "") + entry[key] for key in KEYS]
+                             for entry in entries], source=False)
         self._filter(self.filter.text())
 
     def _filter(self, text):
@@ -69,6 +71,8 @@ class AuditDialog(QDialog):
         for row in range(self.table.rowCount()):
             line = " ".join((self.table.item(row, c).text() if self.table.item(row, c) else "") for c in range(len(KEYS))).lower()
             self.table.setRowHidden(row, not all(w in line for w in words))
+        self.found.setText(aw.found_text(self.table.rowCount(), aw.hidden_count(self.table),
+                                         "Nothing found: no change has been made from Klotse on this computer."))
 
     def _clear(self):
         if QMessageBox.question(self, "Clear change log", "Delete the whole change log on this computer? This cannot be undone.",

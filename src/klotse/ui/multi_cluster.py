@@ -2,19 +2,22 @@
 
 The table is the ordinary list table, so sorting and the filter box work, filter expressions included (`Cluster = prod* and Restarts > 3`).
 Each cluster is read on its own worker with the loader its own list uses; one cluster failing leaves the others on screen and is named in
-the status line. It reads on request (Read again), never by itself. Workload logs and confirmed restarts route to each object's cluster. Double-click goes to the object in its cluster.
+the status line. It reads on request (Refresh), never by itself; opened again, it keeps its rows. Workload logs and confirmed restarts route to each object's cluster. Double-click goes to the object in its cluster.
 The window knows nothing about clusters itself: a `source` (`MainWindow`'s adapter) lists the open clusters and kinds and hands out loaders."""
 from PySide6.QtCore import QThreadPool, Qt, QTimer, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QVBoxLayout)
 
 from ..workers import Worker
 from . import theme
 from .compare_dialog import CompareDialog
 from .customizations import DEFAULT_HIDDEN
+from .dialog_actions import action_box
 from .resource_table import LOG_SOURCES, RESTARTABLE, ResourceTable
 from .dialog_sizing import resize_dialog
 
 CLUSTER_COLUMN = ("Cluster", "cluster")
+CHOOSE = "Choose a kind and the clusters, then Refresh."
 
 
 class MultiClusterDialog(QDialog):
@@ -43,12 +46,10 @@ class MultiClusterDialog(QDialog):
         self.namespace = QLineEdit(placeholderText="All namespaces")
         self.namespace.setMaximumWidth(220)
         self.boxes = {}
-        picks = QHBoxLayout()
-        for context in source.contexts():
-            box = self.boxes[context] = QCheckBox(context)
-            box.setChecked(True)
-            picks.addWidget(box)
+        self.picks = picks = QHBoxLayout()
         picks.addStretch(1)
+        for context in source.contexts():
+            self._add_box(context)
         self.read_button = QPushButton("Refresh")  # one name for reloading in every analysis window (#499)
         self.read_button.setToolTip("Read the chosen kind from the chosen clusters (nothing reloads by itself)")
         self.read_button.clicked.connect(self.read)
@@ -59,7 +60,7 @@ class MultiClusterDialog(QDialog):
         top.addWidget(self.namespace)
         top.addWidget(self.read_button)
         top.addStretch(1)
-        self.status = QLabel("Choose a kind and the clusters, then Read.")
+        self.status = QLabel(CHOOSE)
         self.status.setWordWrap(True)
         theme.muted(self.status)
         self.scope = QLabel()
@@ -83,16 +84,30 @@ class MultiClusterDialog(QDialog):
         lay.addWidget(self.status)
         lay.addLayout(self.holder, 1)
         lay.addWidget(note)
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(close)
-        lay.addLayout(buttons)
+        lay.addWidget(action_box(self, (close, QDialogButtonBox.RejectRole)))  # the same footer as the other windows (#499)
         self.kind_box.currentIndexChanged.connect(lambda _=None: self._new_table())
-        for box in self.boxes.values():
-            box.toggled.connect(self._update_scope)
         self.namespace.textChanged.connect(self._update_scope)
         self._update_scope()
         self._new_table()
+
+    def _add_box(self, context):
+        box = self.boxes[context] = QCheckBox(context)
+        box.setChecked(True)
+        box.toggled.connect(self._update_scope)
+        self.picks.insertWidget(self.picks.count() - 1, box)  # before the stretch
+
+    def sync_contexts(self):
+        """Opened again: tick boxes follow the clusters open now, and the rows already read stay (#499: the window used to be
+        rebuilt and lost them). A closed cluster's box goes; its rows stay until the next Refresh."""
+        current = list(self.source.contexts())
+        for context in [c for c in self.boxes if c not in current]:
+            box = self.boxes.pop(context)
+            self.picks.removeWidget(box)
+            box.deleteLater()
+        for context in current:
+            if context not in self.boxes:
+                self._add_box(context)
+        self._update_scope()
 
     def _update_scope(self, *_):
         """Keep the chosen cluster set and namespace visible beside the combined results."""
@@ -153,7 +168,7 @@ class MultiClusterDialog(QDialog):
         self._rows, self._failed, self._pending = [], {}, set()
         self._serial += 1  # answers still coming for the previous kind are dropped
         self.read_button.setEnabled(True)
-        self.status.setText("Choose a kind and the clusters, then Read.")
+        self.status.setText(CHOOSE)
 
     def _context_actions(self, menu, rows):
         # Workspace actions need a cluster-specific service; only offer what this view handles.

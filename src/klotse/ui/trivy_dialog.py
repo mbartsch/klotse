@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, 
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..k8s import trivy
+from . import analysis_window as aw
 from . import theme
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
@@ -45,10 +46,13 @@ class _Tab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.columns = columns
+        self.found = QLabel("")
+        theme.muted(self.found)
         lay = QVBoxLayout(self)
         lay.addWidget(self.summary)
         lay.addWidget(self.filter)
         lay.addWidget(self.table, 1)
+        lay.addWidget(self.found)
 
     def show_rows(self, rows):
         self.rows, self.loaded = rows, True
@@ -75,6 +79,7 @@ class _Tab(QWidget):
         for r in range(self.table.rowCount()):
             line = " ".join(self.table.item(r, c).text() for c in range(len(self.columns) - len(COUNTS))).lower()
             self.table.setRowHidden(r, not all(w in line for w in words))
+        self.found.setText(aw.found_text(len(self.rows), aw.hidden_count(self.table)) if self.rows else "")
 
     def row_at(self, table_row):
         """The report row shown in table row `table_row` (the table may be sorted, so match on the cells, not the position)."""
@@ -93,9 +98,9 @@ class TrivyDialog(QDialog):
 
     def __init__(self, context, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Trivy reports")
+        self.setWindowTitle(aw.title("Trivy reports", context))
         resize_dialog(self, 1000, 560)
-        self.header = QLabel(f"<b>{context}</b> · Trivy Operator reports")
+        self.header = QLabel(aw.heading(context, "Trivy Operator reports"))  # escaped, like its siblings (#499)
         self.header.setTextFormat(Qt.RichText)
         self.tabs = QTabWidget()
         self.pages = {}
@@ -106,6 +111,9 @@ class TrivyDialog(QDialog):
         self.tabs.currentChanged.connect(self._tab_changed)
         self.reload_button = QPushButton("Refresh")
         self.reload_button.clicked.connect(lambda: self.load_current(force=True))
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the rows shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.current_page().table))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel("Reports are written by the Trivy Operator next to each workload; Klotse only reads them. Double-click a row for the "
@@ -113,6 +121,7 @@ class TrivyDialog(QDialog):
         note.setWordWrap(True)
         theme.muted(note)
         buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
@@ -126,7 +135,7 @@ class TrivyDialog(QDialog):
     def load_current(self, force=False):
         page = self.current_page()
         if force or not page.loaded:
-            page.summary.setText("Reading…")
+            page.summary.setText(aw.LOADING)
             self.load_requested.emit(page.key)
 
     def _tab_changed(self, _index):
@@ -139,11 +148,12 @@ class TrivyDialog(QDialog):
         page = self.pages[key]
         page.rows, page.loaded = [], True
         page.table.setRowCount(0)
+        page.found.setText("")
         page.summary.setText("The Trivy Operator's report kinds were not found in this cluster (aquasecurity.github.io), so there is nothing to show. "
                              "Install the operator to get vulnerability, config audit, secret and RBAC reports.")
 
     def show_error(self, key, message):
-        self.pages[key].summary.setText(f"Could not read the reports: {message}")
+        self.pages[key].summary.setText(aw.error_text(message, "Trivy reports"))
 
     def _open(self, page, table_row):
         row = page.row_at(table_row)
@@ -175,7 +185,7 @@ class ReportDialog(QDialog):
             for c, text in enumerate(row):
                 self.table.setItem(r, c, QTableWidgetItem(str(text)))
         self.table.resizeColumnsToContents()
-        copy = QPushButton("Copy as text")
+        copy = QPushButton("Copy")  # the same name as Copy in the other analysis windows (#499)
         copy.clicked.connect(self.copy)
         close = QPushButton("Close")
         close.clicked.connect(self.accept)

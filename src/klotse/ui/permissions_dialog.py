@@ -2,8 +2,9 @@
 for one verb on one resource (SelfSubjectAccessReview). Both are the user's own permissions, read from the API server."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout)
+                               QVBoxLayout)
 
+from . import analysis_window as aw
 from . import theme
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
@@ -35,7 +36,7 @@ class PermissionsDialog(QDialog):
 
     def __init__(self, context, namespace, perms, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("My permissions")
+        self.setWindowTitle(aw.title("My permissions", context))
         resize_dialog(self, 760, 520)
         self.header = QLabel(f"<b>{_plain(context)}</b> · namespace <b>{_plain(namespace)}</b>")
         self.header.setTextFormat(Qt.RichText)
@@ -63,8 +64,10 @@ class PermissionsDialog(QDialog):
         self.result = QLabel()
         self.result.setWordWrap(True)
         self.result.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.resource.returnPressed.connect(self._check)
+        # Enter in any box presses the default Check button; the Resource box also asking sent two checks (#499)
         self.check_button.clicked.connect(self._check)
+        self.found = QLabel("")
+        theme.muted(self.found)
         form = QFormLayout()
         form.addRow("Can I", self.verb)
         form.addRow("resource", self.resource)
@@ -72,15 +75,22 @@ class PermissionsDialog(QDialog):
         form.addRow("named", self.name)
         buttons = QHBoxLayout()
         buttons.addWidget(self.result, 1)
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setAutoDefault(False)
+        self.copy_button.setToolTip("Copy the rules shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.table))
         close = QPushButton("Close")
+        close.setAutoDefault(False)
         close.clicked.connect(self.accept)
         buttons.addWidget(action_box(self, (self.check_button, QDialogButtonBox.AcceptRole),
+                                     (self.copy_button, QDialogButtonBox.ActionRole),
                                      (close, QDialogButtonBox.RejectRole)))
         layout = QVBoxLayout(self)
         layout.addWidget(self.header)
         layout.addWidget(self.note)
         layout.addWidget(self.filter)
         layout.addWidget(self.table, 1)
+        layout.addWidget(self.found)
         layout.addWidget(QLabel("<b>Can I…?</b> Ask the API server about one thing:"))
         layout.addLayout(form)
         layout.addLayout(buttons)
@@ -88,13 +98,11 @@ class PermissionsDialog(QDialog):
 
     def _fill(self, perms):
         rows = rule_rows(perms)
-        self.table.setRowCount(len(rows))
-        for r, values in enumerate(rows):
-            for c, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(value)
-                self.table.setItem(r, c, item)
-        self.table.resizeColumnsToContents()
+        self.rows = rows
+        aw.fill(self.table, [list(values) for values in rows], source=False)
+        for r in range(self.table.rowCount()):
+            for c in range(self.table.columnCount()):
+                self.table.item(r, c).setToolTip(self.table.item(r, c).text())
         notes = []
         if perms.get("incomplete"):
             notes.append("The server says this list may be incomplete (some authorizers cannot list their rules): use the "
@@ -111,6 +119,7 @@ class PermissionsDialog(QDialog):
         for r in range(self.table.rowCount()):
             haystack = " ".join(self.table.item(r, c).text().lower() for c in range(self.table.columnCount()))
             self.table.setRowHidden(r, not all(w in haystack for w in words))
+        self.found.setText(aw.found_text(self.table.rowCount(), aw.hidden_count(self.table)) if self.table.rowCount() else "")
 
     def _check(self):
         resource = self.resource.text().strip()
@@ -122,7 +131,7 @@ class PermissionsDialog(QDialog):
 
     def show_check(self, allowed=None, reason="", error=None):
         """The answer to the last check (or why there is none)."""
-        self.result.setText(f"Cannot check: {error}" if error else verdict(allowed, reason))
+        self.result.setText(aw.error_text(error, doing="check", hints=False) if error else verdict(allowed, reason))
 
 
 def _plain(text):

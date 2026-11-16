@@ -111,7 +111,7 @@ def test_the_check_needs_a_resource_and_emits_what_was_typed(qtbot):
     d.show_check(False, "no rule")
     assert d.result.text() == "✖ Denied — no rule"
     d.show_check(error="timeout")
-    assert d.result.text() == "Cannot check: timeout"
+    assert d.result.text() == "Could not check: timeout"
 
 
 # ---- the workspace -----------------------------------------------------------------------------------------------
@@ -124,11 +124,9 @@ def make_ws(qtbot, **service):
 def test_the_workspace_reads_the_permissions_of_the_namespace_in_front(qtbot, monkeypatch):
     seen = []
     ws = make_ws(qtbot, my_permissions=lambda ns: seen.append(ns) or PERMS)
-    shown = []
-    monkeypatch.setattr(PermissionsDialog, "exec", lambda self: shown.append(self.table.rowCount()) or QDialog.Accepted)
     ws.show_permissions()
-    qtbot.waitUntil(lambda: bool(shown), timeout=5000)
-    assert seen == ["default"] and shown == [3]
+    qtbot.waitUntil(lambda: getattr(ws, "_permissions_window", None) is not None, timeout=5000)
+    assert seen == ["default"] and ws._permissions_window.table.rowCount() == 3  # non-modal now (#499)
 
 
 def test_all_namespaces_asks_about_default(qtbot, monkeypatch):
@@ -160,7 +158,7 @@ def test_a_failing_check_is_shown_in_the_dialog(qtbot):
     qtbot.addWidget(d)
     d.resource.setText("pods")
     d.check_button.click()
-    qtbot.waitUntil(lambda: "Cannot check" in d.result.text(), timeout=5000)
+    qtbot.waitUntil(lambda: "Could not check" in d.result.text(), timeout=5000)
     assert "forbidden" in d.result.text()
 
 

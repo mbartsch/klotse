@@ -100,7 +100,7 @@ def test_the_dialog_and_workspace(qtbot):
     ws = ClusterWorkspace(SimpleNamespace(pod_security_data=lambda namespace=None: data), "ctx")
     qtbot.addWidget(ws)
     dialog = ws.show_security()
-    assert isinstance(dialog, SecurityDialog) and dialog.windowTitle() == "Pod security"
+    assert isinstance(dialog, SecurityDialog) and dialog.windowTitle() == "Pod security — ctx"
     qtbot.waitUntil(lambda: dialog.table.rowCount() == 1, timeout=5000)
     assert dialog.table.item(0, 1).text() == "Deployment" and "privileged container" in dialog.table.item(0, 4).text()
     ws.shutdown()

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout
 
 from ..k8s import rightsizing as rs
 from . import theme
+from . import analysis_window as aw
 from .capacity_dialog import _Item
 from .dialog_sizing import resize_dialog
 from .dialog_actions import action_box
@@ -29,12 +30,12 @@ class RightSizingDialog(QDialog):
 
     def __init__(self, context, scope, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Right-sizing")
+        self.setWindowTitle(aw.title("Right-sizing", context))
         resize_dialog(self, 1100, 560)
         self.rows = []
-        self.header = QLabel(f"<b>{_plain(context)}</b> · {_plain(scope)}")
+        self.header = QLabel(aw.heading(context, scope))
         self.header.setTextFormat(Qt.RichText)
-        self.summary = QLabel("Loading pods and usage…")
+        self.summary = QLabel(aw.LOADING)
         self.summary.setWordWrap(True)
         theme.muted(self.summary)
         self.only_attention = QCheckBox("Only workloads that need a look")
@@ -51,7 +52,12 @@ class RightSizingDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.cellDoubleClicked.connect(self._open_row)
+        self.found = QLabel("")
+        theme.muted(self.found)
         self.reload_button = QPushButton("Refresh")
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the rows shown as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.table))
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
         note = QLabel("Advice keeps 25% headroom above the largest usage among a workload's pods right now (CPU rounded up to 10m, "
@@ -62,12 +68,14 @@ class RightSizingDialog(QDialog):
         options.addWidget(self.only_attention)
         options.addWidget(self.filter, 1)
         buttons = action_box(self, (self.reload_button, QDialogButtonBox.ActionRole),
+                             (self.copy_button, QDialogButtonBox.ActionRole),
                              (close, QDialogButtonBox.RejectRole))
         lay = QVBoxLayout(self)
         lay.addWidget(self.header)
         lay.addWidget(self.summary)
         lay.addLayout(options)
         lay.addWidget(self.table, 1)
+        lay.addWidget(self.found)
         lay.addWidget(note)
         lay.addWidget(buttons)
 
@@ -85,7 +93,7 @@ class RightSizingDialog(QDialog):
         self._apply_filter()
 
     def show_error(self, message):
-        self.summary.setText(f"Could not load: {message}")
+        self.summary.setText(aw.error_text(message, "pods"))
 
     def _apply_filter(self):
         words = self.filter.text().lower().split()
@@ -94,6 +102,7 @@ class RightSizingDialog(QDialog):
             line = f"{row['kind']}/{row['name']} {row['namespace']}".lower()
             hidden = (self.only_attention.isChecked() and not rs.needs_attention(row)) or not all(w in line for w in words)
             self.table.setRowHidden(i, hidden)
+        self.found.setText(aw.found_text(len(self.rows), aw.hidden_count(self.table)))
 
     def _row_for(self, table_row):
         """The analysis row behind a table row (the table may be sorted differently from `self.rows`)."""
@@ -102,7 +111,3 @@ class RightSizingDialog(QDialog):
 
     def _open_row(self, table_row, _column):
         self.go_to_requested.emit(*self.table.item(table_row, 0).data(Qt.UserRole))
-
-
-def _plain(text):
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

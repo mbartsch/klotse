@@ -3,10 +3,10 @@ loading the lists. The query words are described in `k8s/search.py`. The dialog 
 visited; double-click or Enter on a hit takes the workspace there. Results are bounded (`search.HIT_LIMIT`)."""
 import threading
 
-from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QVBoxLayout)
 
+from . import analysis_window as aw
 from . import theme
 from ..k8s.resources import parse_timestamp
 from ..k8s.util import format_age
@@ -27,7 +27,7 @@ class SearchDialog(QDialog):
 
     def __init__(self, context, namespace="", parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Search objects: {context}")
+        self.setWindowTitle(aw.title("Search objects", context))
         resize_dialog(self, 820, 480)
         self.namespace = namespace  # the namespace in front ("" = all namespaces)
         self._serial = 0
@@ -56,12 +56,16 @@ class SearchDialog(QDialog):
         self.table.keyPressEvent = self._table_key
         self.go_button = QPushButton("Go to object")
         self.go_button.clicked.connect(lambda: self._go(self.table.currentRow()))
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the hits as tab-separated text")
+        self.copy_button.clicked.connect(lambda: aw.copy_table(self.table))
         close = QPushButton("Close")
         close.clicked.connect(self.close)
         buttons = QHBoxLayout()
         buttons.addWidget(self.only_ns)
         buttons.addStretch(1)
         buttons.addWidget(action_box(self, (self.go_button, QDialogButtonBox.AcceptRole),
+                                     (self.copy_button, QDialogButtonBox.ActionRole),
                                      (close, QDialogButtonBox.RejectRole)))
         layout = QVBoxLayout(self)
         layout.addWidget(self.box)
@@ -74,7 +78,15 @@ class SearchDialog(QDialog):
         self._timer.setInterval(500)
         self._timer.timeout.connect(self.search_now)
         self.box.textChanged.connect(lambda _t: self._timer.start())
-        self.box.returnPressed.connect(self.search_now)
+        self.box.installEventFilter(self)  # Enter searches (eventFilter)
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt name
+        """Enter in the query box searches and nothing else: the key went on to the dialog, which pressed its default button, Go to
+        object, as well, and went to a hit of the previous search (#499)."""
+        if watched is self.box and event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.search_now()
+            return True
+        return super().eventFilter(watched, event)
 
     def _table_key(self, event):
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -108,18 +120,15 @@ class SearchDialog(QDialog):
 
     def show_error(self, serial, message):
         if serial == self._serial:
-            self.status.setText(f"Search failed: {message}")
+            self.status.setText(aw.error_text(message, "objects", doing="search"))
 
     def _fill(self, hits, notes):
         self.hits = list(hits)
-        self.table.setRowCount(len(self.hits))
-        for r, h in enumerate(self.hits):
-            values = [h.kind, h.namespace or "—", h.name, format_age(parse_timestamp(h.created)), h.label_text()]
-            for c, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(value)
-                self.table.setItem(r, c, item)
-        self.table.resizeColumnsToContents()
+        aw.fill(self.table, [[h.kind, h.namespace or "—", h.name, (format_age(parse_timestamp(h.created)), str(h.created or "")),
+                              h.label_text()] for h in self.hits])
+        for r in range(self.table.rowCount()):
+            for c in range(self.table.columnCount()):
+                self.table.item(r, c).setToolTip(self.table.item(r, c).text())
         if self.hits:
             self.table.selectRow(0)
         count = f"{len(self.hits)} match{'' if len(self.hits) == 1 else 'es'}" if (self.hits or not notes) else "No matches"
@@ -128,16 +137,23 @@ class SearchDialog(QDialog):
 
     def _go(self, row):
         if 0 <= row < len(self.hits):
-            h = self.hits[row]
+            h = self.hits[aw.source_index(self.table, row)]
             self.goto_requested.emit(h.kind, h.namespace, h.name)
+
+    def _stop_search(self):
+        """A running search stops, and its late answer (a partial page) is dropped: the serial moves on (#499)."""
+        if self._cancel is not None:
+            self._cancel.set()
+            self._cancel = None
+            self._serial += 1
+            if self.status.text() == "Searching…":
+                self.status.setText("Search stopped. Press Enter to search again.")
 
     def reject(self):
         """Esc: the same as closing the window, so a running search stops (#499: Esc used to leave it running)."""
-        if self._cancel is not None:
-            self._cancel.set()
+        self._stop_search()
         super().reject()
 
     def closeEvent(self, event):
-        if self._cancel is not None:
-            self._cancel.set()
+        self._stop_search()
         super().closeEvent(event)
