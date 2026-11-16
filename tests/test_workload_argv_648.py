@@ -23,5 +23,5 @@ def test_an_edited_argv_is_read_from_its_lines(qtbot):
     edit = LinesEdit(["old"], "Arguments")
     qtbot.addWidget(edit)
     edit.setPlainText("first\n\n  second  \n")
-    assert edit.lines() == ["first", "  second  "]
+    assert edit.lines() == ["first", "", "  second  "]  # a blank line is an empty value now (#648 follow-up)
     assert isinstance(edit, QPlainTextEdit)

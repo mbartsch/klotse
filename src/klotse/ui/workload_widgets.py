@@ -2,6 +2,7 @@
 workload_model.py; these classes only show the manifest's values and give them back (`values()`)."""
 from copy import deepcopy
 
+import json
 from PySide6.QtCore import Qt, QStringListModel, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                                QCompleter, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QStyledItemDelegate, QTableWidget,
@@ -447,14 +448,44 @@ class EnvEditor(QWidget):
                 for src, name, prefix in self._rows(lambda s: s in ENV_FROM_SOURCES)]
 
 
+def _needs_quotes(item):
+    """Values that one plain line cannot hold unchanged: empty, leading or trailing spaces, a line break, or a leading quote.
+    They are written as a JSON string literal, so the form can read back every argv value (#648)."""
+    return item == "" or item != item.strip() or "\n" in item or "\r" in item or item.startswith('"')
+
+
+def encode_lines(items):
+    return "\n".join(json.dumps(i) if _needs_quotes(i) else i for i in items)
+
+
+def decode_lines(text):
+    """The argv values in the text, one per line. Nothing is dropped: an empty line is an empty value. The line break that
+    ends the last line is not a value of its own."""
+    if text.endswith("\n"):
+        text = text[:-1]
+    if text == "":
+        return []
+    out = []
+    for line in text.split("\n"):
+        if line.startswith('"'):
+            try:
+                value = json.loads(line)
+                if isinstance(value, str):
+                    out.append(value)
+                    continue
+            except ValueError:
+                pass
+        out.append(line)
+    return out
+
+
 class LinesEdit(QPlainTextEdit):
-    """One item per line (a command and its arguments)."""
+    """One argv value per line (a command and its arguments). Values that need it are shown as JSON strings, for example
+    "" for an empty value or "a\nb" for one with a line break; the form reads back exactly what it shows (#648)."""
 
     def __init__(self, items, placeholder):
-        # The items are argv values: an empty string, spaces or a newline inside one are legitimate (#648). They are kept
-        # exactly as they were until the text is edited.
         self._items = [str(i) for i in items]
-        super().__init__("\n".join(self._items))
+        super().__init__(encode_lines(self._items))
         self._edited = False
         self.textChanged.connect(lambda: setattr(self, "_edited", True))
         self.setPlaceholderText(placeholder)
@@ -464,7 +495,7 @@ class LinesEdit(QPlainTextEdit):
     def lines(self):
         if not self._edited:
             return list(self._items)  # never edited: the same list, byte for byte
-        return [line for line in self.toPlainText().splitlines() if line.strip()]
+        return decode_lines(self.toPlainText())
 
 
 class TriCombo(QComboBox):
