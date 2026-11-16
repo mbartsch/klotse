@@ -52,7 +52,7 @@ class MultiLogView(QWidget):
         self.tail = QSpinBox()
         self.tail.setAccessibleName("Log lines to read per container")
         self.tail.setRange(0, 100000)
-        self.tail.setValue(200)
+        self.tail.setValue(500)  # the same default as a single pod (#500)
         self.tail.setSpecialValueText("all")
         self.tail.setSuffix(" lines per container")
         self.follow = QCheckBox("Follow")
@@ -148,7 +148,7 @@ class MultiLogView(QWidget):
         self._resolve(first=True)
 
     def _poll_pods(self):
-        if self.follow.isChecked() and not self._closed and (self.streams or not self.fixed):
+        if not self._closed and (self.streams or not self.fixed):  # Follow only keeps the view scrolled, as on a single pod (#500)
             self._resolve(first=False)
 
     def _resolve(self, first):

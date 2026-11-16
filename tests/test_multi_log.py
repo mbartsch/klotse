@@ -169,7 +169,7 @@ def test_options_are_passed_to_the_streams(qtbot):
     expected = {"timestamps": True, "since_seconds": 3600, "follow": False}
     qtbot.waitUntil(lambda: any(options == expected for *_row, options in service.opened[before:]))
     pod, container, tail, options = next(row for row in service.opened[before:] if row[3] == expected)
-    assert (pod, container, tail) == ("web-1", "app", 200) and options == {"timestamps": True, "since_seconds": 3600, "follow": False}
+    assert (pod, container, tail) == ("web-1", "app", 500) and options == {"timestamps": True, "since_seconds": 3600, "follow": False}
     teardown(view)
 
 
@@ -201,7 +201,8 @@ def test_new_pods_found_while_following_get_a_stream_and_old_ones_are_kept(qtbot
     pods.append(("web-3", ["app"]))
     view._poll_pods()
     qtbot.wait(150)
-    assert len(service.opened) == 2 and set(view.streams) == {("web-1", "app"), ("web-2", "app")}  # not following: no new lookups
+    # Follow only keeps the view scrolled (#500): a pod that appears is still picked up, with follow turned off for its stream
+    assert len(service.opened) == 3 and service.opened[-1][0] == "web-3" and service.opened[-1][3] == {"follow": False}
     teardown(view)
 
 

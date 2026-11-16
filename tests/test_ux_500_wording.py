@@ -253,3 +253,42 @@ def test_a_plugin_setting_error_shows_the_help_not_the_regular_expression(qtbot,
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
     dialog.save()
     assert shown and "for example eu-west-1" in shown[0] and r"[a-z]" not in shown[0]
+
+
+def test_destructive_questions_name_the_action_on_the_button(qtbot, monkeypatch):
+    # #500: "Delete", "Terminate" … instead of Yes; Cancel is the default (the test suite routes verb_question to the patch)
+    from PySide6.QtWidgets import QMessageBox
+    from klotse.ui import confirm
+    seen = {}
+
+    def fake_exec(box):
+        seen["texts"] = [b.text() for b in box.buttons()]
+        seen["default"] = box.defaultButton().text()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    assert confirm.ORIGINAL(None, "Delete pod", "Really?", verb="Delete") == QMessageBox.No
+    assert "Delete" in seen["texts"] and "Cancel" in seen["texts"] and "Yes" not in seen["texts"]
+    assert seen["default"] == "Cancel"
+
+
+def test_a_required_field_is_named_on_click_and_the_ok_button_stays_enabled(qtbot, monkeypatch):
+    # #500: required fields are marked "*", and an empty one is named on click instead of disabling OK
+    from PySide6.QtWidgets import QLineEdit, QMessageBox
+    from klotse.ui import node_dialogs
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    empty, filled = QLineEdit(""), QLineEdit("nginx")
+    assert node_dialogs.need(None, ("Debug image", filled)) is True
+    assert node_dialogs.need(None, ("Debug pod namespace", empty), ("Debug image", filled)) is False
+    assert shown == ["Fill in: Debug pod namespace."]
+
+
+def test_a_cluster_is_named_by_its_alias_with_the_context_when_they_differ(qtbot):
+    from klotse.ui.workspace import ClusterWorkspace
+    ws = ClusterWorkspace.__new__(ClusterWorkspace)
+    ws.context = "arn:aws:eks:eu-west-1:111:cluster/prod"
+    ws.display_name = "Production EU"
+    assert ws.cluster_label() == "Production EU (arn:aws:eks:eu-west-1:111:cluster/prod)"
+    ws.display_name = ws.context
+    assert ws.cluster_label() == ws.context

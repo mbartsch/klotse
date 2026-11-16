@@ -82,7 +82,7 @@ def test_node_menu_actions_target_selected_node(qtbot, monkeypatch, cordoned, la
         menu = table.findChild(QMenu)
         try:
             actions = {a.text(): a for a in menu.actions()}
-            assert {label, "Drain…", "Shell (nsenter)…", "Delete node…", "List pods on this node"} <= actions.keys()
+            assert {label, "Drain…", "Shell (nsenter)…", "Delete node…", "Show pods on this node"} <= actions.keys()
             actions[label].trigger()
         finally:
             menu.close()

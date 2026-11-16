@@ -1189,20 +1189,20 @@ class MainWindow(QMainWindow):
                 leaves = [(entry[0], entry[1])] if len(entry) == 2 else entry[1]
                 group = "" if len(entry) == 2 else entry[0]
                 for key, label in leaves:
-                    entries.append(Entry("Go to", label, f"{group} · {ws.context}" if group else ws.context,
+                    entries.append(Entry("Go to", label, f"{group} · {self.aliases.display(ws.context)}" if group else self.aliases.display(ws.context),
                                          lambda k=key, w=ws: self._goto_view(w, k), f"view:{ws.context}:{key}"))
             for name in getattr(ws, "_ns_names", []):
                 if name != "All namespaces":
-                    entries.append(Entry("Namespace", name, ws.context, lambda n=name, w=ws: w.choose_namespace(n),
+                    entries.append(Entry("Namespace", name, self.aliases.display(ws.context), lambda n=name, w=ws: w.choose_namespace(n),
                                          f"namespace:{ws.context}:{name}"))
-            entries.append(Entry("Namespace", "All namespaces", ws.context,
+            entries.append(Entry("Namespace", "All namespaces", self.aliases.display(ws.context),
                                  lambda w=ws: w.choose_namespace("All namespaces"), f"namespace:{ws.context}:All namespaces"))
         for ctx in self.contexts:
             if ctx in self.workspaces:
-                entries.append(Entry("Cluster", ctx, "switch to it", lambda c=ctx: self._focus_workspace(self.workspaces[c]),
+                entries.append(Entry("Cluster", self.aliases.display(ctx), "switch to it", lambda c=ctx: self._focus_workspace(self.workspaces[c]),
                                      f"cluster:{ctx}"))
             else:
-                entries.append(Entry("Cluster", ctx, "connect", lambda c=ctx: self.open_cluster(c), f"cluster:{ctx}"))
+                entries.append(Entry("Cluster", self.aliases.display(ctx), "connect", lambda c=ctx: self.open_cluster(c), f"cluster:{ctx}"))
         def add_menu_actions(menu, path):
             menu.aboutToShow.emit()  # menus enable their entries lazily, when they are about to show
             for action in menu.actions():
@@ -1732,7 +1732,7 @@ class MainWindow(QMainWindow):
             parts.append(f"{streams} log stream(s)")
         if windows:
             parts.append(f"{len(windows)} open window(s)")
-        answer = QMessageBox.question(self, f"{action.capitalize()} {ws.context}?",
+        answer = QMessageBox.question(self, f"{action.capitalize()} {self.aliases.display(ws.context)}",
                                       f"Cluster: {ws.context}\nRunning: " + "; ".join(parts)
                                       + f"\n\n{action.capitalize()} stops them. Continue?",
                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
