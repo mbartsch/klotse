@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDoc
                                QLineEdit, QMainWindow, QMenu, QMessageBox, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
 
+from . import dialog_sizing, resource_table
 from .about import REPO_URL, AboutDialog
 from .shortcuts_dialog import ShortcutsDialog, shortcut_rows
 from .first_run import FirstRunPage
@@ -121,6 +122,8 @@ class MainWindow(QMainWindow):
         self.terminal_settings = TerminalSettings(self.label_settings.store, parent=self)
         if self.terminal_settings.embedded:  # start QtWebEngine a moment after the window is up, not when the first terminal opens
             QTimer.singleShot(1500, embedded_terminal.warm_up)
+        resource_table.use_settings(self.label_settings.store)  # column widths and dialog sizes are kept between starts (#501)
+        dialog_sizing.use_settings(self.label_settings.store)
         self.kubeconfig_settings = KubeconfigSettings(self.label_settings.store, parent=self)
         self.proxy_settings = ProxySettings(self.label_settings.store)  # Preferences > Network: used when a kubeconfig names no proxy-url
         self.apply_app_proxy()
@@ -709,10 +712,15 @@ class MainWindow(QMainWindow):
         remembered, current = self.session.saved()
         wanted = [ctx for ctx in remembered if ctx in self.contexts]
         spaces = self.session.namespaces()
+        views = self.session.view_keys()
         for ctx in wanted:
             self.open_cluster(ctx)
             if ctx in spaces and ctx in self.workspaces:
                 self.workspaces[ctx].restore_namespace = spaces[ctx]  # applied when the namespace list arrives
+            if ctx in self.workspaces:  # the views that were open at exit open again, in their order (#501)
+                for key in views.get(ctx, []):
+                    if key in self.workspaces[ctx].views:
+                        self.workspaces[ctx].open_view(key)
         if current in wanted:
             self.open_cluster(current)  # focus the one that was in front
         if wanted:
@@ -1646,7 +1654,8 @@ class MainWindow(QMainWindow):
                 return False
             if answer == QMessageBox.Yes:
                 spaces = {self.clusters.widget(i).context: self.clusters.widget(i).namespace() for i in range(self.clusters.count())}
-                self.session.remember(opened, front.context if front is not None else None, spaces)
+                views = {self.clusters.widget(i).context: self.clusters.widget(i).static_view_keys() for i in range(self.clusters.count())}
+                self.session.remember(opened, front.context if front is not None else None, spaces, views)
             else:
                 self.session.forget()
         except OSError as error:  # never trap the user in the app because the settings file is not writable

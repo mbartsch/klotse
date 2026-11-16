@@ -18,6 +18,8 @@ class ClusterSession:
         namespaces.1=All namespaces
 
     `namespaces.N` is the namespace that was chosen in `clusters.N` at exit (absent = none recorded).
+    `views.N` lists the cluster's open views (`overview`, `Pod`, ...; dynamic ones such as a single pod are not
+    kept) separated by ` | `, so the next start opens them again (#501).
     """
 
     GROUP = "session"
@@ -50,19 +52,27 @@ class ClusterSession:
         clusters, spaces = self._numbered("clusters"), self._numbered("namespaces")
         return {str(clusters[n]): str(spaces[n]) for n in sorted(spaces) if n in clusters and clusters[n] and spaces[n]}
 
-    def remember(self, contexts, current=None, namespaces=None):
-        self._write(lambda: self._set(contexts, current, namespaces or {}))
+    def view_keys(self):
+        """{context: [view keys]} remembered with the session."""
+        clusters, views = self._numbered("clusters"), self._numbered("views")
+        return {str(clusters[n]): [key for key in str(views[n]).split(" | ") if key]
+                for n in sorted(views) if n in clusters and clusters[n] and views[n]}
+
+    def remember(self, contexts, current=None, namespaces=None, views=None):
+        self._write(lambda: self._set(contexts, current, namespaces or {}, views or {}))
 
     def forget(self):
         if self.store.contains(f"{self.GROUP}/current") or any(
                 key.startswith(f"{self.GROUP}/") for key in self.store.allKeys()):  # nothing saved: write nothing
             self._write(lambda: None)
 
-    def _set(self, contexts, current, namespaces):
+    def _set(self, contexts, current, namespaces, views):
         for number, context in enumerate(contexts):
             self.store.setValue(f"{self.GROUP}/clusters.{number}", context)
             if namespaces.get(context):
                 self.store.setValue(f"{self.GROUP}/namespaces.{number}", namespaces[context])
+            if views.get(context):
+                self.store.setValue(f"{self.GROUP}/views.{number}", " | ".join(views[context]))
         if current:
             self.store.setValue(f"{self.GROUP}/current", current)
 

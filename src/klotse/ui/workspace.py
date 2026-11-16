@@ -875,6 +875,12 @@ class ClusterWorkspace(QMainWindow):
         if not (self.is_manual(key) and key in self._last_load and not self._stale_scope(key)):  # a manual list loads on first open
             self.load_view(key)
 
+    def static_view_keys(self):
+        """The open views that can be opened again after a restart: the fixed ones, not a single object's tab (#501)."""
+        keys = [self.tabs.widget(i).view_key for i in range(self.tabs.count())
+                if getattr(self.tabs.widget(i), "view_key", None)]
+        return [key for key in keys if ":" not in key]
+
     def foreground_key(self):
         widget = self.tabs.currentWidget()
         return getattr(widget, "view_key", None)
