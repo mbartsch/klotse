@@ -170,3 +170,47 @@ def test_no_enabled_plugin_gives_no_sources():
             return []
 
     assert PluginManager.cluster_sources(Manager()) == []
+
+
+def test_gke_listing_keeps_same_name_in_different_locations_and_first_duplicate():
+    text = json.dumps([None, [], {}, {"name": "bad name"},
+                       {"name": "demo", "location": "europe-west1", "status": "RUNNING"},
+                       {"name": "demo", "zone": "europe-west1-b"},
+                       {"name": "demo", "region": "europe-west1", "status": "STOPPING"}])
+    assert [(c.name, c.location, c.state) for c in gke.parse(text)] == [
+        ("demo", "europe-west1", "RUNNING"), ("demo", "europe-west1-b", "")]
+
+
+def test_gke_refuses_ambiguous_location_lookup_before_get_credentials():
+    run = FakeRun("europe-west1\neurope-west1-b\n")
+    with pytest.raises(CloudError, match="multiple locations"):
+        gke.cluster_credentials(ClusterRef("demo", "demo"), {"project": "demo-project"}, "piece.yaml", run)
+    assert len(run.calls) == 1
+    assert "get-credentials" not in run.calls[0]
+
+
+def test_gke_location_lookup_ignores_blank_lines_and_repeated_same_location():
+    run = FakeRun("\n europe-west1 \neurope-west1\n", "")
+    gke.cluster_credentials(ClusterRef("demo", "demo"), {"project": "demo-project"}, "piece.yaml", run)
+    assert run.calls[1][-2:] == ["--location", "europe-west1"]
+
+
+def test_gke_explicit_scope_location_does_not_need_lookup():
+    run = FakeRun("")
+    gke.cluster_credentials(ClusterRef("demo", "demo"), {"project": "demo-project", "location": "europe-west1"},
+                            "piece.yaml", run)
+    assert len(run.calls) == 1
+    assert "get-credentials" in run.calls[0]
+
+
+def test_eks_listing_deduplicates_valid_names_in_first_seen_order():
+    text = json.dumps({"clusters": [None, 12, "bad name", "second", "first", "second"]})
+    assert [c.name for c in eks.parse(text, "eu-west-1")] == ["second", "first"]
+
+
+def test_oke_listing_deduplicates_ocids_in_first_seen_order():
+    text = json.dumps({"data": [None, {"name": "bad name", "id": "ocid1.cluster.a"},
+                                {"name": "second", "id": "ocid1.cluster.b", "lifecycle-state": "ACTIVE"},
+                                {"name": "first", "id": "ocid1.cluster.a"},
+                                {"name": "duplicate", "id": "ocid1.cluster.b", "lifecycle-state": "DELETED"}]})
+    assert [(c.name, c.state) for c in oke.parse(text, "us-phoenix-1")] == [("second", "ACTIVE"), ("first", "")]

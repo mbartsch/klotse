@@ -46,11 +46,18 @@ def parse(text):
     if not isinstance(data, list):
         raise CloudError("gcloud answered with an unexpected list")
     clusters = []
+    seen = set()
     for item in data:
-        name = str((item or {}).get("name") or "") if isinstance(item, dict) else ""
-        if not SAFE_CLUSTER_VALUE.fullmatch(name) or any(c.name == name for c in clusters):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        if not SAFE_CLUSTER_VALUE.fullmatch(name):
             continue
         location = str(item.get("location") or item.get("zone") or item.get("region") or "")
+        key = (name, location)
+        if key in seen:
+            continue
+        seen.add(key)
         clusters.append(ClusterRef(name, name, location, state=str(item.get("status") or "")))
     return clusters
 
@@ -64,13 +71,16 @@ def list_clusters(scope, run):
 
 def cluster_credentials(cluster, scope, target, run):
     """get-credentials needs --location (a zone or a region). When the list gave none, the Location field is used, else a
-    filtered list gives it; if nothing does, nothing is run and the user is told."""
+    filtered list must give one distinct location; otherwise no credentials command is run and the user is told."""
     s = clean_scope(scope)
     location = cluster.location or s["location"]
     if not location:
         found = run(["gcloud", "container", "clusters", "list", "--project", s["project"], "--filter", f"name={cluster.name}",
                      "--format", "value(location)"])
-        location = next((line.strip() for line in found.splitlines() if line.strip()), "")
+        locations = {line.strip() for line in found.splitlines() if line.strip()}
+        if len(locations) > 1:
+            raise CloudError(f"multiple locations found for {cluster.name}: enter its zone or region in Location and try again")
+        location = next(iter(locations), "")
     if not location or not SAFE_CLUSTER_VALUE.fullmatch(location):
         raise CloudError(f"could not find the location of {cluster.name}: enter its zone or region in Location and try again")
     run(["gcloud", "container", "clusters", "get-credentials", cluster.name, "--project", s["project"], "--location", location],

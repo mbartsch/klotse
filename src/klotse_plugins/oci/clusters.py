@@ -56,12 +56,14 @@ def parse(text, region):
     if not isinstance(items, list):
         raise CloudError("the OCI CLI answered with an unexpected list")
     clusters = []
+    seen = set()
     for item in items:
         if not isinstance(item, dict):
             continue
         name = str(item.get("name") or "")
         ocid = str(item.get("id") or "")
-        if SAFE_CLUSTER_VALUE.fullmatch(name) and ocid.startswith("ocid1.") and all(c.ref != ocid for c in clusters):
+        if SAFE_CLUSTER_VALUE.fullmatch(name) and ocid.startswith("ocid1.") and ocid not in seen:
+            seen.add(ocid)
             clusters.append(ClusterRef(name, ocid, region, state=str(item.get("lifecycle-state") or "")))
     return clusters
 

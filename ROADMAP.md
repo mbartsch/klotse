@@ -166,3 +166,5 @@ Azure #63 delivers the bounded WIP scope: node metadata and portal links, preser
 GCP #64 delivers the bounded WIP scope: node metadata and Compute console links, preserving sign-in/discovery. Help appreciated; pricing, cost cards, richer Compute metadata and live GKE validation remain in #785.
 
 OCI #458 completes the bounded sign-in scope and visibly marks the plugin WIP/help appreciated. Synthetic sign-in/discovery tests only; live OCI validation and additional contributions tracked in #787.
+
+Cloud cluster parser cleanup (#790): preserve same-name GCP clusters in different locations, refuse ambiguous credential-location lookup, and use ordered set-backed deduplication in AWS/GCP/OCI. Offline regression coverage only; live clouds remain unverified.
