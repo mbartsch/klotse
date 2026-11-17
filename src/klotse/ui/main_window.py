@@ -45,7 +45,7 @@ from .action_icons import action_icon
 from .tab_scroll import ScrollableTabBar
 from .read_only import ReadOnlyClusters
 from . import branding, embedded_terminal, theme
-from .theme import ThemeSettings
+from .theme import FontSettings, ThemeSettings
 from .terminal_settings import TerminalSettings
 from .workspace import ClusterWorkspace, _PodLoad
 from .cluster_overview import ClusterOverview
@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self.audit_log = AuditLog(os.path.join(os.path.dirname(self.label_settings.store.fileName()), "audit.log"))  # what was changed from here
         self.session = ClusterSession(self.label_settings.store)  # clusters to reconnect, only if the user said so
         self.theme_settings = ThemeSettings(self.label_settings.store)
+        self.font_settings = FontSettings(self.label_settings.store, parent=self)
         self.groups = ClusterGroups(self.label_settings.store)  # folders in the cluster list
         self.aliases = ClusterAliases(self.label_settings.store)
         # plugins: bundled, pip (entry points) and the plugins folder next to the settings file; all off until enabled
@@ -1486,7 +1487,7 @@ class MainWindow(QMainWindow):
     def open_preferences(self, plugin_id=None, metrics_add=None):
         # One Preferences window for everything: General, Terminal and Plugins. macOS shows the entry in the application menu (Settings/Preferences, Cmd-,), elsewhere it is Edit.
         dialog = PreferencesDialog(self.kubeconfig_settings, self.config_folder(), self,
-                                   terminal=self.terminal_settings,
+                                   terminal=self.terminal_settings, fonts=self.font_settings,
                                    plugins=self.plugins, themes=self.theme_settings, debug=self.debug_settings,
                                    forward=ForwardDefaults(self.label_settings.store), query=QueryDefaults(self.label_settings.store),
                                    proxy=self.proxy_settings, metrics=MetricsSources(self.label_settings.store),
@@ -1511,11 +1512,14 @@ class MainWindow(QMainWindow):
             except OSError as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
         chosen_theme = dialog.chosen_theme()
+        chosen_font = dialog.chosen_font() if hasattr(dialog, "chosen_font") else None
         dialog.deleteLater()
         if accepted and self.terminal_settings.embedded:
             QTimer.singleShot(500, embedded_terminal.warm_up)  # just switched on: start the engine now, not at the first shell
         if accepted and chosen_theme and chosen_theme != self.theme_settings.selected().name:
             self.apply_theme(chosen_theme)
+        if accepted and chosen_font is not None and chosen_font != self.font_settings.selected():
+            self.apply_font(chosen_font)
         if accepted and chosen != self.kubeconfig_settings.path:
             self.apply_kubeconfig(chosen, asked=True)
 
@@ -1559,6 +1563,24 @@ class MainWindow(QMainWindow):
             workspace.detail.refresh_theme()  # the object status in Details (#501)
         self.nav.refresh_theme()  # the navigator's headings and folders (#501)
         self._sync_plugin_error_status()  # the plugin-error button takes the new error colour (#501)
+        return True
+
+    def apply_font(self, font):
+        """Save and apply the application font, then regenerate theme-scaled styles."""
+        try:
+            self.font_settings.set(font)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Cannot save preferences", str(error))
+            return False
+        QApplication.instance().setFont(font)
+        theme.apply(QApplication.instance(), self.theme_settings.selected())
+        for workspace in self.workspaces.values():
+            workspace.overview.refresh_theme()
+            workspace.wl_overview.refresh_theme()
+            workspace.refresh_theme()
+            workspace.detail.refresh_theme()
+        self.nav.refresh_theme()
+        self._sync_plugin_error_status()
         return True
 
     def _confirm_kubeconfig_change(self):

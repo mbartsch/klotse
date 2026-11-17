@@ -59,7 +59,9 @@ def main(argv=None):
     # QtWebEngine (the embedded terminal) wants this set before the application exists; it costs nothing otherwise
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
-    theme.apply(app, theme.ThemeSettings(default_store()).selected())
+    settings = default_store()
+    app.setFont(theme.FontSettings(settings).selected())
+    theme.apply(app, theme.ThemeSettings(settings).selected())
     app.setApplicationName("Klotse")
     app.setDesktopFileName("klotse")  # Wayland matches the window to klotse.desktop (see desktop_entry.py)
     app.setWindowIcon(branding.app_icon())

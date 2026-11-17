@@ -17,6 +17,8 @@
 - **Manual refresh** (`ui/refresh_policy.py`, `is_manual`): by default only workloads and nodes reload by themselves (`DEFAULT_AUTO`); every other list loads once on first open, then on Refresh. The row menu has a checkable **Refresh automatically**, saved per list in `[refresh]`.
 - Watches: `watch_targets`/`watch_changes` resume after the 20 s server timeout, restart from a fresh list on 410/ERROR, back off on other errors. `ChangeWatcher` is a QThread; `stop()` only sets a flag. Never wait for a watcher on the GUI thread; keep running QThreads referenced.
 - The namespace selector shows only for namespaced views. It is searchable and includes a trailing arrow affordance that opens the namespace choices without changing the current selection.
+- The namespace selector shows only for namespaced views.
+- Preferences > General can save an application font family and point size. Applying it updates the running Qt application and regenerates theme-scaled styles; code and manifest editors retain their monospace font.
 - Pod resource columns (CPU/Mem req, lim, %req, %lim) are hidden by default and computed lazily from `raw`.
 - Metrics are optional: any failure leaves usage unknown (`-1`, blank) and must never fail a list load.
 - Nodes' Pods column: counted once on load, recounted for rows coming into sight after `NODE_PODS_TTL_S` (20 s), all nodes every 60 s while auto-refresh is on; routine reloads keep old numbers.
