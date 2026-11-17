@@ -3,8 +3,9 @@
 An AKS kubeconfig usually runs `kubelogin` (Microsoft Entra ID), which reuses the account `az` is signed in with. Klotse does
 not run the sign-in itself (a browser or a code prompt is needed): the action opens a terminal with `az login`, and the user
 connects again. MFA is answered there."""
-from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_environment
+from klotse.plugins import Action, Column, Message, OpenUrl, Plugin, Setting, Terminal, parse_environment
 from . import clusters
+from .metadata import node_values, portal_url
 
 HELP_AZURE = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; azure accepts this cluster's nodes without it."
 AZURE_PROVIDER_PREFIX = "azure://"  # providerID of an AKS node: azure:///subscriptions/.../virtualMachines/...
@@ -33,11 +34,18 @@ def cloud_forced(settings):
 
 class AzurePlugin(Plugin):
     id = "azure"
-    name = "Azure (AKS) Plugin"
+    name = "Azure (AKS) Plugin (WIP)"
     version = "0.1"
     requires_api = 12
-    description = "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal."
+    description = "WIP: help appreciated. Node metadata, portal links, sign-in and cluster discovery. Pricing and cost cards are not implemented; real AKS verification is needed."
+    columns = (
+        Column("machine-type", "Azure VM size"),
+        Column("capacity", "Azure capacity"),
+        Column("node-image", "Azure node image"),
+        Column("region", "Azure region"),
+    )
     actions = (
+        Action("portal", "Open node in Azure portal…", kinds=("Node",)),
         Action("sign-in", "Sign in to Azure for this cluster (az login)…", kinds=("Node",)),
     )
     cluster_settings = (
@@ -71,7 +79,18 @@ class AzurePlugin(Plugin):
     def process_environment(self, context, settings):
         return parse_environment(settings.get("extra_environment"))
 
+    def enrich(self, request):
+        if request.kind != "Node":
+            return {}
+        return {resource.key: node_values(resource.raw) for resource in request.resources
+                if is_aks_node(resource.raw) or cloud_forced(request.settings)}
+
     def run(self, request):
+        if request.action == "portal":
+            if request.kind != "Node" or len(request.resources) != 1:
+                return Message("Select one Azure node to open its portal page.", "warning")
+            url = portal_url(request.resources[0].raw)
+            return OpenUrl(url) if url else Message("This node has no supported Azure VM resource ID.", "warning")
         if request.action != "sign-in":
             return None
         if not cloud_forced(request.settings) and not any(is_aks_node(resource.raw) for resource in request.resources):
