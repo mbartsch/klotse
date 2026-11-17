@@ -33,8 +33,10 @@ Do not use mock mode when testing Kubernetes connectivity.
 - GCP requires container.localhost to resolve to loopback; the container.* host
   routing is required by the provider. Do not replace it with a /container path.
 - OCI uses synthetic network IDs, as upstream's emulator Terraform fixture does.
-  Generate a throwaway RSA key at oci/test_key.pem (openssl genrsa -out
-  test_key.pem 2048, from that directory). Do not use an existing cloud key.
+  main.tf reads tenancy, user, fingerprint, key_file and region from
+  `~/.oci/floci-config` (override with `oci_config_file`). Create that profile
+  and its throwaway RSA key locally (for example `openssl genrsa -out
+  ~/.oci/floci.pem 2048`). Do not use an existing cloud key or config.
   The provider has no native HCL endpoint setting: its SDK reads an environment
   variable. Set this in the same PowerShell process running Terraform:
 

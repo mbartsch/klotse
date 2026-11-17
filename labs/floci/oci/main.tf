@@ -20,23 +20,33 @@ variable "CLIENT_HOST_OVERRIDES" {
   }
 }
 
-variable "private_key_path" {
+variable "oci_config_file" {
   type        = string
-  default     = "./test_key.pem"
-  description = "Locally generated throwaway RSA API signing key; never use a real OCI key."
+  default     = "~/.oci/floci-config"
+  description = "Throwaway Floci OCI profile (INI, [DEFAULT]). Its tenancy, user, fingerprint, key_file and region are read here so they cannot drift from the signing key. Never point this at a real OCI config."
 }
 
 locals {
-  tenancy = "ocid1.tenancy.oc1..flocilocaltenancy0000000000000000000000000000000000000000"
+  # Parse key=value lines (the [DEFAULT] header is skipped). Values are read
+  # verbatim, so OCIDs and colon-separated fingerprints need no quoting.
+  oci_profile_lines = [
+    for line in split("\n", file(pathexpand(var.oci_config_file))) :
+    trimspace(line) if can(regex("^[a-z_]+=", trimspace(line)))
+  ]
+  oci_profile = {
+    for line in local.oci_profile_lines :
+    trimspace(split("=", line)[0]) => trimspace(join("=", slice(split("=", line), 1, length(split("=", line)))))
+  }
+  tenancy = local.oci_profile["tenancy"]
 }
 
 provider "oci" {
   auth                 = "APIKey"
   tenancy_ocid         = local.tenancy
-  user_ocid            = "ocid1.user.oc1..flociiacuser0000000000000000000000000000000000000000000000"
-  fingerprint          = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
-  private_key_path     = var.private_key_path
-  region               = "us-ashburn-1"
+  user_ocid            = local.oci_profile["user"]
+  fingerprint          = local.oci_profile["fingerprint"]
+  private_key_path     = pathexpand(local.oci_profile["key_file"])
+  region               = local.oci_profile["region"]
   disable_auto_retries = true
 }
 
