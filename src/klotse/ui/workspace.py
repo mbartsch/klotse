@@ -135,6 +135,29 @@ AUTO_REFRESH_CHOICES = [("5s", 5_000), ("10s", 10_000), ("30s", 30_000), ("60s",
 KIND_VIEW = {"Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
 
 
+class _CheckZone(QObject):
+    """A release in the first few pixels of a namespace row toggles its box (#525): the list stays open. Anywhere else the
+    row is chosen on its own, as before."""
+    ZONE = 28  # pixels from the row's left edge that count as the box
+
+    def __init__(self, workspace):
+        super().__init__(workspace)
+        self.workspace = workspace
+
+    def eventFilter(self, watched, event):
+        if event.type() != QEvent.MouseButtonRelease:
+            return False
+        view = self.workspace.ns_combo.view()
+        point = event.position().toPoint()
+        index = view.indexAt(point)
+        if not index.isValid() or index.row() == 0:  # All namespaces has no box
+            return False
+        if point.x() - view.visualRect(index).left() > self.ZONE:
+            return False
+        self.workspace._tick_namespace(index.data())
+        return True
+
+
 @dataclass(frozen=True)
 class _PodLoad:
     rows: list
@@ -447,6 +470,9 @@ class ClusterWorkspace(QMainWindow):
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.ns_combo.setCompleter(completer)
         self.ns_combo.lineEdit().editingFinished.connect(self._reset_ns_text)
+        self.ns_combo.activated.connect(lambda _index: self._plain_namespace_chosen())
+        self._check_zone = _CheckZone(self)
+        self.ns_combo.view().viewport().installEventFilter(self._check_zone)
         # the selector only applies to namespaced lists, so it is hidden on cluster-wide views (see _sync_ns_selector)
         self.pins = NamespacePins(self.label_settings.store)
         self._ns_names = []
@@ -454,12 +480,7 @@ class ClusterWorkspace(QMainWindow):
         self.pin_button.setAutoRaise(True)
         self.pin_button.setAccessibleName("Pin current namespace")
         self.pin_button.clicked.connect(self.toggle_pin)
-        self.several_button = QPushButton("Several…")
-        self.several_button.setAccessibleName("Choose several namespaces")
-        self.several_button.setToolTip("Pods of several namespaces in one list; other lists read the first one chosen")
-        self.several_button.clicked.connect(self.choose_several_namespaces)
-        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button),
-                            bar.addWidget(self.several_button)]
+        self._ns_actions = [bar.addWidget(QLabel(" Namespace: ")), bar.addWidget(self.ns_combo), bar.addWidget(self.pin_button)]
         self.ns_combo.currentIndexChanged.connect(lambda _=None: self._sync_pin_button())
         self.ns_combo.currentIndexChanged.connect(lambda _=None: None if self._setting_chosen else self._forget_several())
         self._sync_pin_button()
@@ -3931,6 +3952,8 @@ class ClusterWorkspace(QMainWindow):
                     self.ns_combo.setCurrentIndex(index)
             finally:
                 self._setting_chosen = False
+        self._sync_checks()
+        self._refresh_text()
         if self._ready and not self._closed:
             self.load_view("pods")
 
@@ -3938,32 +3961,60 @@ class ClusterWorkspace(QMainWindow):
         """The user picked one namespace in the selector: the several-namespace choice ends."""
         self._chosen_namespaces = ()
 
-    def _pick_namespaces(self, names, chosen):
-        """Checklist of namespaces; returns the ticked names in list order, or None when cancelled."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Namespaces")
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Pods of every ticked namespace are listed together. Other lists read the first one."))
-        listing = QListWidget()
-        for name in names:
-            item = QListWidgetItem(name)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if name in chosen else Qt.Unchecked)
-            listing.addItem(item)
-        layout.addWidget(listing)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        if dialog.exec() != QDialog.Accepted:
-            return None
-        return [listing.item(i).text() for i in range(listing.count()) if listing.item(i).checkState() == Qt.Checked]
+    def _plain_namespace_chosen(self):
+        """A plain click on a name (or on All namespaces) selects only that one (#525)."""
+        self._chosen_namespaces = ()
+        self._sync_checks()
+        self._refresh_text()
 
-    def choose_several_namespaces(self):
-        names = [n for n in getattr(self, "_ns_names", []) if n != ALL_NS]
-        picked = self._pick_namespaces(names, self.namespaces() if self._chosen_namespaces else (self.namespace(),))
-        if picked is not None:
-            self.set_chosen_namespaces(picked)
+    def _tick_namespace(self, name):
+        """A tick in the box area adds or removes one name; the list stays open. Several names are listed together."""
+        base = list(self._chosen_namespaces) or ([] if self.namespace() == ALL_NS else [self.namespace()])
+        wanted = [n for n in base if n != name] if name in base else base + [name]
+        picked = [n for n in self._ns_names if n in wanted]
+        if not picked:
+            self._apply_picked(ALL_NS)
+        elif len(picked) == 1:
+            self._apply_picked(picked[0])
+        else:
+            self._apply_picked(picked)
+
+    def _apply_picked(self, picked):
+        """Make `picked` (a name, All, or a list of names) the selection, then reload what it scopes."""
+        names = [] if picked == ALL_NS else ([picked] if isinstance(picked, str) else list(picked))
+        self._chosen_namespaces = tuple(names) if len(names) > 1 else ()
+        target = ALL_NS if picked == ALL_NS else (names[0] if names else self.namespace())
+        index = self.ns_combo.findText(target, Qt.MatchExactly)
+        if index >= 0:
+            self._setting_chosen = True
+            try:
+                self.ns_combo.setCurrentIndex(index)
+            finally:
+                self._setting_chosen = False
+        self._sync_checks()
+        self._refresh_text()
+        if self._ready and not self._closed:
+            self.load_view("pods")
+            self.load_scoped()
+            self._load_permissions()
+
+    def _sync_checks(self):
+        """The boxes show the selection: the chosen names, or the one selected name; All has no box."""
+        model = self.ns_combo.model()
+        chosen = set(self._chosen_namespaces) or ({self.namespace()} if self.namespace() != ALL_NS else set())
+        for row in range(1, self.ns_combo.count()):
+            item = model.item(row)
+            if item is None:
+                continue
+            item.setCheckable(True)
+            item.setCheckState(Qt.Checked if self.ns_combo.itemText(row) in chosen else Qt.Unchecked)
+
+    def _display_text(self):
+        """What the box shows: one name, All, or the several names separated by commas."""
+        return ", ".join(self._chosen_namespaces) if self._chosen_namespaces else self.namespace()
+
+    def _refresh_text(self):
+        self.ns_combo.setEditText(self._display_text())
 
     def namespace(self):
         """The namespace chosen in the selector (ALL_NS for all). Not the text being typed."""
@@ -4026,11 +4077,12 @@ class ClusterWorkspace(QMainWindow):
             self.ns_combo.setItemData(i + 1, bold, Qt.FontRole)
         self.set_namespace(keep)
         del blocker
+        self._sync_checks()
         self._sync_pin_button()
 
     def _reset_ns_text(self):
         """Typed text that is not a namespace is dropped when editing ends; the chosen one stays."""
-        self.ns_combo.setEditText(self.namespace())
+        self._refresh_text()
 
     def _set_namespaces(self, rows):
         self.ns_table.set_rows(rows)
