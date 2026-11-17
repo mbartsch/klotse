@@ -164,3 +164,5 @@ Metrics-source configuration (#379): existing Preferences defaults, per-cluster 
 Azure #63 delivers the bounded WIP scope: node metadata and portal links, preserving sign-in/discovery. Help appreciated; pricing, cost cards and live-cloud validation remain in #783.
 
 GCP #64 delivers the bounded WIP scope: node metadata and Compute console links, preserving sign-in/discovery. Help appreciated; pricing, cost cards, richer Compute metadata and live GKE validation remain in #785.
+
+OCI #458 completes the bounded sign-in scope and visibly marks the plugin WIP/help appreciated. Synthetic sign-in/discovery tests only; live OCI validation and additional contributions tracked in #787.

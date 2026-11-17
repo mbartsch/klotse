@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
   "id": "oci",
-  "name": "Oracle Cloud (OKE) Plugin",
+  "name": "Oracle Cloud (OKE) Plugin (WIP)",
   "version": "0.1",
   "requires_api": 12,
-  "description": "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal.",
+  "description": "WIP: help appreciated. OKE CLI sign-in and cluster discovery. Browser authentication and reconnect require real OCI validation; node columns, pricing and cost cards are not implemented.",
   "columns": [],
   "actions": [
     {
