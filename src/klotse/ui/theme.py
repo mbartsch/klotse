@@ -40,6 +40,7 @@ DESCRIPTIONS = {
 }
 HEX = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 THEME_SUFFIX = ".ini"
+APPLICATION_FONT_PROPERTY = "klotse.applicationFont"
 
 
 class ThemeError(ValueError):
@@ -166,31 +167,46 @@ def _close_icon(color):
     return path.as_posix() if path.is_file() else None
 
 
-def stylesheet(t):
+def stylesheet(t, font=None):
     quiet, loud = _close_icon(t.muted), _close_icon(t.text)
     close = (f"QTabBar::close-button {{ image: url('{quiet}'); subcontrol-position: right; margin: 0 0 0 6px; "
              f"padding: 2px; border-radius: 4px; }}\n"
              f"QTabBar::close-button:hover {{ image: url('{loud}'); background: {t.hover}; }}") if quiet and loud else ""
-    return _sheet(t) + close + "\n"
+    return _sheet(t, font) + close + "\n"
 
 
 
-def font_pt(px):
-    """A stylesheet font size in points: px scaled from the system font, so it grows with the user's font setting
-    (#501: fixed px did not). At the default 9 pt system font it is the same size as the px value at 96 dpi."""
+def font_pt(px, font=None):
+    """A stylesheet font size in points, scaled from the selected application font."""
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
-    system = app.font().pointSizeF() if app is not None else 0
+    system = font.pointSizeF() if font is not None else (app.font().pointSizeF() if app is not None else 0)
     base = system if system > 0 else 9.0
     return f"{px * 0.75 * base / 9:.2f}pt"
 
-def _sheet(t):
+
+def set_application_font(app, font):
+    """Keep the selected font with the application without using QApplication.setFont()."""
+    if hasattr(app, "setProperty"):
+        app.setProperty(APPLICATION_FONT_PROPERTY, font)
+    elif hasattr(app, "setFont"):  # lightweight startup doubles used by tests
+        app.setFont(font)
+
+def _sheet(t, font=None):
     rail = _mix(t.bg, t.base, 0.45)
+    font_rules = ""
+    if font is not None:
+        family = font.family().replace("\\", "\\\\").replace('"', '\\"')
+        fixed = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        fixed_family = fixed.family().replace("\\", "\\\\").replace('"', '\\"')
+        font_rules = (f'QWidget {{ font-family: "{family}"; font-size: {font.pointSizeF():.2f}pt; }}\n'
+                      f'QPlainTextEdit {{ font-family: "{fixed_family}"; font-size: {fixed.pointSizeF():.2f}pt; }}')
     return f"""
 QMainWindow {{ background: {t.base}; }}
 QDialog {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {t.bg},stop:1 {t.base}); }}
-QLabel#resourcePageTitle {{ font-size: {font_pt(23)}; font-weight: 600; padding: 0; }}
-QLabel#pageEyebrow {{ font-size: {font_pt(10)}; }}
+{font_rules}
+QLabel#resourcePageTitle {{ font-size: {font_pt(23, font)}; font-weight: 600; padding: 0; }}
+QLabel#pageEyebrow {{ font-size: {font_pt(10, font)}; }}
 QTableView#resourceGrid {{ background: transparent; border: 0; }}
 QTableView#resourceGrid::item {{ background: {t.bg}; }}
 QTableView#resourceGrid::item:selected {{ background: {t.selected_row}; }}
@@ -237,7 +253,7 @@ QTabWidget::pane {{ border: 0; border-top: 1px solid {t.border}; }}
 QTabBar::tab {{ background: {t.bg}; color: {t.muted}; padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: {t.text}; border-bottom: 2px solid {t.accent_hi}; }}
 QTabBar::tab:hover {{ color: {t.text}; }}
-QTabWidget#workspaceTabs QTabBar::tab {{ padding: 4px 10px; font-size: {font_pt(11)}; }}
+QTabWidget#workspaceTabs QTabBar::tab {{ padding: 4px 10px; font-size: {font_pt(11, font)}; }}
 QLabel#scopeBreadcrumb {{ padding: 5px 10px; color: {t.muted}; }}
 QSplitter::handle {{ background: {t.border}; }}
 QSplitter::handle:hover {{ background: {t.accent_hi}; }}
@@ -301,9 +317,11 @@ def muted(widget):
     widget.setForegroundRole(QPalette.PlaceholderText)
 
 
-def apply(app, t=None):
+def apply(app, t=None, font=None):
     app.setStyle("Fusion")
     t = t or current
+    if font is None:
+        font = app.property(APPLICATION_FONT_PROPERTY)
     use(t)
     pal = QPalette()
     for role, color in ((QPalette.Window, t.bg), (QPalette.WindowText, t.text), (QPalette.Base, t.base),
@@ -313,7 +331,7 @@ def apply(app, t=None):
                         (QPalette.PlaceholderText, t.muted)):
         pal.setColor(role, QColor(color))
     app.setPalette(pal)
-    app.setStyleSheet(stylesheet(t))
+    app.setStyleSheet(stylesheet(t, font))
 
 
 class ThemeSettings(QObject):

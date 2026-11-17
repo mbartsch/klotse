@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtGui import QFontDatabase
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QPlainTextEdit, QPushButton
 
 from klotse.ui import theme
 from klotse.ui.preferences import KubeconfigSettings, PreferencesDialog
@@ -124,6 +125,31 @@ def test_apply_switches_palette_style_sheet_and_the_constants_views_read(qtbot):
     assert theme.ACCENT == "#197f7d" and theme.MUTED == HARBOUR.muted and HARBOUR.accent in app.styleSheet()
     assert label.palette().color(label.foregroundRole()).name() == HARBOUR.muted  # a muted label follows at once
     assert theme.current is HARBOUR
+
+
+def test_configured_font_is_stylesheet_scoped_and_keeps_fixed_editors_monospace(qtbot):
+    app = QApplication.instance()
+    font = QFontDatabase.systemFont(QFontDatabase.GeneralFont)
+    font.setPointSize(13)
+    original = app.font()
+    theme.apply(app, HARBOUR, font)
+
+    window = QMainWindow()
+    button = QPushButton("child", window)
+    editor = QPlainTextEdit(window)
+    fixed = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+    editor.setFont(fixed)
+    qtbot.addWidget(window)
+    window.show()
+    app.processEvents()
+
+    assert window.font().family() == font.family()
+    assert window.font().pointSize() == 13
+    assert button.font().family() == font.family()
+    assert button.font().pointSize() == 13
+    assert editor.font().family() == fixed.family()
+    assert editor.font().pointSize() == fixed.pointSize()
+    assert app.font().family() == original.family()
 
 
 def test_rbac_view_reads_the_active_theme_when_it_renders():
