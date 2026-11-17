@@ -99,12 +99,15 @@ class AddSourceDialog(QDialog):
     """Add or edit a cluster's source. A connected cluster lists the services found on it (`discover(name, done)` calls done with the list,
     or None when the cluster is not connected); the user can always type the address instead, or a URL with authentication."""
 
-    def __init__(self, clusters, discover=None, parent=None, cluster="", service="", auth=NO_AUTH, fixed_cluster=False, ack=False):
+    def __init__(self, clusters, discover=None, parent=None, cluster="", service="", auth=NO_AUTH, fixed_cluster=False, ack=False,
+                 tester=None):
         super().__init__(parent)
         self.setWindowTitle("Metrics source" if fixed_cluster else "Add a metrics source")
         self._had_source = bool(str(service).strip())  # Edit… of a cluster that had a source (clearing it asks first, #496)
         self.discover = discover
         self.fixed_cluster = fixed_cluster
+        self.tester = tester
+        self._test_generation = 0
         self.cluster = QComboBox()
         self.cluster.setEditable(not fixed_cluster)
         self.cluster.addItems(clusters)
@@ -126,6 +129,17 @@ class AddSourceDialog(QDialog):
         form = QFormLayout()
         form.addRow("Cluster *", self.cluster)  # required: named in a box on OK (#500)
         form.addRow("Service or URL", self.service)
+        choices = QHBoxLayout()
+        self.inherit_button = QPushButton("Use the global default")
+        self.metrics_server_button = QPushButton("metrics-server only")
+        self.inherit_button.clicked.connect(lambda: self.service.setEditText(""))
+        self.metrics_server_button.clicked.connect(lambda: self.service.setEditText(METRICS_SERVER))
+        choices.addWidget(self.inherit_button)
+        choices.addWidget(self.metrics_server_button)
+        form.addRow(choices)
+        self.source_note = QLabel("Leave empty to use the global default (automatic search when no default is set).")
+        self.source_note.setWordWrap(True)
+        form.addRow(self.source_note)
         self.auth_box, self.auth_env, self.auth_user = _auth_widgets(form, auth)
         self.ack_box = QCheckBox(HTTP_ACK)
         self.ack_box.setChecked(ack)
@@ -140,12 +154,67 @@ class AddSourceDialog(QDialog):
         layout.addWidget(self.status)
         layout.addWidget(self.http_warning)
         layout.addWidget(self.ack_box)
+        self.test_button = QPushButton("Test")
+        self.test_button.clicked.connect(self._test)
+        self.test_result = QLabel("")
+        self.test_result.setWordWrap(True)
+        self.test_result.setAccessibleName("Source test result")
+        layout.addWidget(self.test_button)
+        layout.addWidget(self.test_result)
         layout.addWidget(buttons)
+        self.service.currentTextChanged.connect(self._invalidate_test)
+        self.cluster.currentTextChanged.connect(self._invalidate_test)
+        self.auth_box.currentIndexChanged.connect(self._invalidate_test)
+        self.auth_env.textChanged.connect(self._invalidate_test)
+        self.auth_user.textChanged.connect(self._invalidate_test)
+        self.auth_box.source_box.currentIndexChanged.connect(self._invalidate_test)
+        self.ack_box.toggled.connect(self._invalidate_test)
+        self.finished.connect(self._invalidate_test)
         self.service.currentTextChanged.connect(self._update_ack)
         self.auth_box.currentIndexChanged.connect(self._update_ack)
         self._update_ack()
         self.cluster.currentTextChanged.connect(self._cluster_changed)
         self._cluster_changed(self.cluster.currentText())
+
+    def _invalidate_test(self, *_):
+        self._test_generation += 1
+        self.test_result.clear()
+        self.test_button.setEnabled(True)
+
+    def _test(self):
+        name, text = self.chosen()
+        if not name:
+            self.test_result.setText("Choose or type the cluster first.")
+            return
+        if not text:
+            self.test_result.setText("Choose an explicit source to test; an empty source uses the global default.")
+            return
+        try:
+            text = valid_source(text)
+        except ValueError as error:
+            self.test_result.setText(str(error))
+            return
+        if self._needs_ack() and not self.ack_box.isChecked():
+            self.test_result.setText("Tick the plain-http box first: the token or password would be sent unencrypted.")
+            return
+        if self.tester is None:
+            self.test_result.setText("Testing is not available here.")
+            return
+        self._test_generation += 1
+        generation = self._test_generation
+        self.test_button.setEnabled(False)
+        self.test_result.setText("Testing…")
+
+        def finished(message):
+            try:
+                if generation == self._test_generation:
+                    self.test_button.setEnabled(True)
+                    self.test_result.setText(str(message))
+            except RuntimeError:  # the dialog was deleted while the worker was running
+                pass
+
+        auth = self.auth_choice() if text.lower().startswith(("https://", "http://")) else NO_AUTH
+        self.tester(name, text, finished, auth)
 
     def _cluster_changed(self, name):
         typed = self.service.currentText()  # keep what is typed while the services are looked for
@@ -416,7 +485,7 @@ class MetricsPanel(QWidget):
             self._edit(preselect)
             return
         names = [name for name in (self.contexts or []) if self._entry(name) is None]
-        dialog = AddSourceDialog(names, self.discoverer, self, cluster=preselect or "")
+        dialog = AddSourceDialog(names, self.discoverer, self, cluster=preselect or "", tester=self.tester)
         accepted = dialog.exec() == QDialog.Accepted
         name, text = dialog.chosen()
         kind, variable, user = dialog.auth_choice()
@@ -430,6 +499,8 @@ class MetricsPanel(QWidget):
         if self._entry(name) is not None:
             QMessageBox.warning(self, "Metrics source", f"{name} already has a source: use Edit… to change it.")
             return
+        if not text:
+            return  # no override: keep using the global default
         try:
             text = valid_source(text)
         except ValueError as error:
@@ -448,7 +519,7 @@ class MetricsPanel(QWidget):
         entry = self._entry(name)
         dialog = AddSourceDialog([name], self.discoverer, self, cluster=name, service=entry["ref"],
                                  auth=(entry.get("auth", ""), entry.get("auth_env", ""), entry.get("auth_user", "")), fixed_cluster=True,
-                                 ack=entry.get("ack_http", False))
+                                 ack=entry.get("ack_http", False), tester=self.tester)
         accepted = dialog.exec() == QDialog.Accepted
         _name, text = dialog.chosen()
         kind, variable, user = dialog.auth_choice()
