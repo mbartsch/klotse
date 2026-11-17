@@ -316,6 +316,14 @@ GCP references: https://docs.cloud.google.com/kubernetes-engine/docs/concepts/sp
 
 Azure label references: https://learn.microsoft.com/azure/aks/use-labels and https://learn.microsoft.com/azure/architecture/aws-professional/eks-to-aks/node-pools .
 
+## Oracle Cloud (OKE): WIP, help appreciated
+
+The bundled OCI plugin supports terminal-based `oci session authenticate --region <node-region> --profile-name <profile>` and existing CLI cluster discovery. The profile defaults to DEFAULT. The node must report an OCI providerID (or have the explicit per-cluster cloud override); region comes from `topology.kubernetes.io/region`. Invalid region/profile values are refused before a terminal is opened. The user completes browser login/MFA and then connects again; Klotse does not collect the credentials.
+
+#458 is the bounded sign-in scope, not AWS parity. Node columns, console links, pricing and cost cards are not implemented. No live OCI session, browser/MFA flow, real OKE connection or discovery has been verified here. **Help appreciated** with live validation and custom OCI config/profile handling: #787. Windows plugin-summary captures and synthetic command/manifest tests are the available evidence.
+
+OCI CLI reference: https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/session/authenticate.html .
+
 ## Things to know
 
 - **Plugins are trusted code.** They run with your permissions, in Klotse's process, receive the manifests of the

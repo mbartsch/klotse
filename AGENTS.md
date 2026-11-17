@@ -94,3 +94,5 @@ Rules:
 Azure plugin #63 is WIP (help appreciated): metadata-only Node columns and validated public-portal VM/VMSS links; no prices/cost cards or live AKS verification. Remaining work: #783.
 
 GCP plugin #64 is WIP (help appreciated): metadata-only Node columns and validated Compute console links; prices/cost cards and live-cloud verification remain in #785. Missing capacity stays unknown; OS image is not a Compute boot-image resource.
+
+OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/profile before opening; no live OCI/browser/MFA/reconnect verification. Further validation and potential contributions: #787.

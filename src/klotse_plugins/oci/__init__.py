@@ -4,6 +4,7 @@ An OKE kubeconfig runs `oci ce cluster generate-token`, which uses the OCI confi
 the sign-in itself (a browser is needed): the action opens a terminal with `oci session authenticate` for that profile and
 the cluster's region, and the user connects again."""
 from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_environment
+from klotse.plugins.api import CloudError, SAFE_CLUSTER_VALUE, checked_value
 from . import clusters
 
 HELP_OCI = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; oci accepts this cluster's nodes without it."
@@ -13,7 +14,11 @@ REGION_LABEL = "topology.kubernetes.io/region"
 
 def oci_login_argv(region, profile):
     """argv that starts a browser sign-in to OCI for `region` and the config `profile`, to run in a terminal."""
-    return ("oci", "session", "authenticate", "--region", region, "--profile-name", profile or "DEFAULT")
+    region = checked_value(region, clusters.REGION, "OCI region")
+    profile = checked_value(profile, SAFE_CLUSTER_VALUE, "OCI config profile") or "DEFAULT"
+    if not region:
+        raise CloudError("The OCI region is required for sign-in.")
+    return ("oci", "session", "authenticate", "--region", region, "--profile-name", profile)
 
 
 def is_oke_node(raw):
@@ -29,10 +34,10 @@ def cloud_forced(settings):
 
 class OciPlugin(Plugin):
     id = "oci"
-    name = "Oracle Cloud (OKE) Plugin"
+    name = "Oracle Cloud (OKE) Plugin (WIP)"
     version = "0.1"
     requires_api = 12
-    description = "Signs in to Oracle Cloud (oci session authenticate) for the nodes of an OKE cluster, in a terminal."
+    description = "WIP: help appreciated. OKE CLI sign-in and cluster discovery. Browser authentication and reconnect require real OCI validation; node columns, pricing and cost cards are not implemented."
     actions = (
         Action("sign-in", "Sign in to Oracle Cloud for this cluster (oci session authenticate)…", kinds=("Node",)),
     )
@@ -75,7 +80,11 @@ class OciPlugin(Plugin):
         region = labels.get(REGION_LABEL, "")
         if not region:
             return Message("The node has no region label, so the OCI region for the sign-in is not known.", "warning")
-        return Terminal(oci_login_argv(region, str(request.settings.get("oci_profile") or "")))
+        try:
+            argv = oci_login_argv(region, str(request.settings.get("oci_profile") or ""))
+        except CloudError as error:
+            return Message(str(error), "warning")
+        return Terminal(argv)
 
 
 plugin = OciPlugin()
