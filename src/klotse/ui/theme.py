@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPalette, QPen
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPalette, QPen
 
 REQUIRED = ("bg", "base", "border", "text", "muted", "accent")
 OPTIONAL = ("accent_hi", "selected_row", "hover", "input_border", "warn", "warn_bg", "ok", "bad")  # left out: accent, accent, border, border/muted mix, amber, dark amber
@@ -363,3 +363,42 @@ class ThemeSettings(QObject):
         if self.store.status() != QSettings.NoError:
             raise OSError(f"Could not save preferences to {self.store.fileName()}")
         self.saved = name
+
+
+class FontSettings(QObject):
+    """The application font (`appearance/fontFamily` and `appearance/fontPointSize`)."""
+
+    MIN_POINT_SIZE = 6
+    MAX_POINT_SIZE = 48
+
+    def __init__(self, store, parent=None):
+        super().__init__(parent)
+        self.store = store
+        self.family = str(store.value("appearance/fontFamily", "") or "")
+        try:
+            point_size = float(store.value("appearance/fontPointSize", 0) or 0)
+        except (TypeError, ValueError):
+            point_size = 0
+        self.point_size = point_size if self.MIN_POINT_SIZE <= point_size <= self.MAX_POINT_SIZE else 0
+
+    def selected(self):
+        font = QFontDatabase.systemFont(QFontDatabase.GeneralFont)
+        if self.family:
+            font.setFamily(self.family)
+        if self.point_size:
+            font.setPointSizeF(self.point_size)
+        return font
+
+    def set(self, font):
+        family = font.family().strip()
+        point_size = font.pointSizeF()
+        if not family:
+            raise ValueError(f"Unknown font: {family}")
+        if not self.MIN_POINT_SIZE <= point_size <= self.MAX_POINT_SIZE:
+            raise ValueError(f"Font size must be between {self.MIN_POINT_SIZE} and {self.MAX_POINT_SIZE} pt")
+        self.store.setValue("appearance/fontFamily", family)
+        self.store.setValue("appearance/fontPointSize", point_size)
+        self.store.sync()
+        if self.store.status() != QSettings.NoError:
+            raise OSError(f"Could not save preferences to {self.store.fileName()}")
+        self.family, self.point_size = family, point_size

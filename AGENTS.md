@@ -16,6 +16,8 @@ The namespace selector is an editable, searchable combo box. Keep its explicit t
 
 ## Project and local state
 
+Preferences > General owns the persisted application font family and point-size controls. Applying them must update the running Qt application and regenerate theme-scaled styles without replacing the fixed-width fonts used by code and manifest editors.
+
 - Klotse is a native Kubernetes desktop manager: Python + PySide6/Qt Widgets, the Kubernetes Python client and `kubectl`. No web frontend, database or server.
 - Package `klotse`, Python `>=3.10`, setuptools `src/` layout. The version is one line in `src/klotse/_version.py` and changes only in a release PR (see Packaging).
 - Runtime deps: `PySide6-Essentials>=6.6`, `PySide6-WebEngine>=6.6` (embedded terminal; about 300 MB, accepted by the owner), `kubernetes>=29`, `PyYAML>=6`, `pywinpty>=2.0.1` on Windows, `PySocks>=1.7` (SOCKS proxies for the Kubernetes client). Dev deps add `pytest`, `pytest-qt`. Keep `pyproject.toml` and `requirements.txt` consistent.

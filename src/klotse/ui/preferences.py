@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, QUrl
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFontComboBox, QFormLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from .plugins_panel import PluginsPanel
 from .settings_store import default_store
@@ -113,7 +113,7 @@ def open_folder(folder):
 class PreferencesDialog(QDialog):
     """Application preferences. Accepting only validates; the caller saves/applies `chosen_kubeconfig()`."""
 
-    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, debug=None, forward=None, query=None,
+    def __init__(self, kubeconfig, config_folder, parent=None, terminal=None, plugins=None, themes=None, fonts=None, debug=None, forward=None, query=None,
                  proxy=None, metrics=None, metrics_test=None, metrics_discover=None, confirm_kubeconfig=None):
         super().__init__(parent)
         self.debug = debug
@@ -123,6 +123,7 @@ class PreferencesDialog(QDialog):
         self.forward = forward  # Usage history through a port-forward: SSL and certificate checks (the per-cluster choice overrides them)
         self.kubeconfig, self.config_folder = kubeconfig, Path(config_folder)
         self.theme_settings = themes
+        self.font_settings = fonts
         self.setWindowTitle("Preferences")
         general = QWidget()
         form = QFormLayout(general)
@@ -180,6 +181,8 @@ class PreferencesDialog(QDialog):
 
         if themes is not None:
             self._theme_rows(form)
+        if fonts is not None:
+            self._font_rows(form)
         self.forward_tls_box = self.forward_insecure_box = None
         if forward is not None:
             self.forward_tls_box = QCheckBox("Use SSL (https) for usage history through a port-forward")
@@ -310,6 +313,34 @@ class PreferencesDialog(QDialog):
     def chosen_theme(self):
         """The theme name picked in the dialog, or None when the dialog has no theme list."""
         return self.theme_box.currentText() if self.theme_settings is not None else None
+
+    def _font_rows(self, form):
+        current = self.font_settings.selected()
+        self.font_family_box = QFontComboBox()
+        self.font_family_box.setEditable(True)
+        self.font_family_box.setEditText(current.family())
+        self.font_family_box.setAccessibleName("Application font family")
+        self.font_size_box = QSpinBox()
+        self.font_size_box.setRange(self.font_settings.MIN_POINT_SIZE, self.font_settings.MAX_POINT_SIZE)
+        self.font_size_box.setValue(round(current.pointSizeF()))
+        self.font_size_box.setSuffix(" pt")
+        self.font_size_box.setAccessibleName("Application font size")
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.font_family_box, 1)
+        row.addWidget(self.font_size_box)
+        form.addRow("Application font", holder)
+        note = QLabel("Applies to Klotse's interface when you save Preferences. Code and manifest editors keep their monospace font.")
+        note.setWordWrap(True)
+        form.addRow(note)
+
+    def chosen_font(self):
+        if self.font_settings is None:
+            return None
+        font = QFont(self.font_family_box.currentText().strip())
+        font.setPointSize(self.font_size_box.value())
+        return font
 
     def _browse(self):
         start = self.path.text() or str(Path.home() / ".kube")
