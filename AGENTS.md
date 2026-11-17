@@ -74,3 +74,5 @@ git diff --check
 - Pending, not merged at the time of writing: main menu grouping (#232), actionable load states (#234), manifest filter paths (#215; described above), optional All Clusters overview implementation (#531).
 
 - #777: keep the optional All clusters page hidden until added to its workspace tab; an unmanaged visible child intercepts menu-bar mouse input.
+
+- #379: the metrics source Add/Edit dialog offers Test, metrics-server only and Use the global default. Test uses unsaved values, requires HTTP-auth acknowledgement, discards stale replies and never saves settings.

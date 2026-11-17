@@ -158,3 +158,5 @@ Keep this file and the issues in step: when an item is merged, mark it done here
 - **Actionable resource-list states (#234, implemented locally; pending review):** ResourceTable distinguishes loading, empty results, filtered-empty results, refused lists and other failed loads. Retry and Copy error appear for initial failures, View permissions appears for refused lists, successful empty results can Refresh, and filtered-empty results can Clear filter. Refresh failures preserve rows already on screen. Metrics-capable lists with no readings identify metrics-server unavailability in the status line. Focused offscreen tests. Not merged.
 
 Menu first-click repair (#777): hide the unopened fleet overview so File/Edit/View receive native pointer events. Before/after native Windows captures and actual hit-target regression coverage are included.
+
+Metrics-source configuration (#379): existing Preferences defaults, per-cluster overrides, stale-entry cleanup and navigator entry now include testing directly in Add/Edit, plus metrics-server/default presets. Native Windows captures use synthetic responses; no live Prometheus or metrics-server verification.
