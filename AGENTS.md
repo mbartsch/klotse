@@ -92,3 +92,5 @@ Rules:
 - A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.
 
 Azure plugin #63 is WIP (help appreciated): metadata-only Node columns and validated public-portal VM/VMSS links; no prices/cost cards or live AKS verification. Remaining work: #783.
+
+GCP plugin #64 is WIP (help appreciated): metadata-only Node columns and validated Compute console links; prices/cost cards and live-cloud verification remain in #785. Missing capacity stays unknown; OS image is not a Compute boot-image resource.

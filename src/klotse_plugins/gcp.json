@@ -1,12 +1,39 @@
 {
   "manifest_version": 1,
   "id": "gcp",
-  "name": "Google Cloud (GKE) Plugin",
+  "name": "Google Cloud (GKE) Plugin (WIP)",
   "version": "0.1",
   "requires_api": 12,
-  "description": "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal.",
-  "columns": [],
+  "description": "WIP; help appreciated. Shows machine type, capacity and OS image from node metadata, opens the Google Compute console and signs in with gcloud auth login. No pricing lookups.",
+  "columns": [
+    {
+      "key": "machine_type",
+      "title": "Machine type",
+      "kinds": ["Node"],
+      "presets": ["GCP"]
+    },
+    {
+      "key": "capacity",
+      "title": "Capacity",
+      "kinds": ["Node"],
+      "presets": ["GCP"]
+    },
+    {
+      "key": "image",
+      "title": "OS image",
+      "kinds": ["Node"],
+      "presets": ["GCP"]
+    }
+  ],
   "actions": [
+    {
+      "key": "console",
+      "title": "Open in the Google Compute console",
+      "kinds": ["Node"],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    },
     {
       "key": "sign-in",
       "title": "Sign in to Google Cloud for this cluster (gcloud auth login)…",
