@@ -27,3 +27,31 @@ def test_a_process_that_keeps_writing_progress_is_left_alone(tmp_path):
               "for _ in range(8):\n"
               "    p.open('a').write('x' + chr(10)); time.sleep(0.3)\n")
     assert run_tests.run_watched([sys.executable, "-c", script], None, progress, limit=1, poll=0.1) == 0
+
+
+def test_a_test_that_passes_on_retry_is_not_reported(tmp_path, monkeypatch):
+    report = tmp_path / "flaky.txt"
+    calls = iter([(1, (["test_one"], ["test_one"], None)), (0, (["test_one"], [], None))])
+
+    def fake_run_pytest(*args, **kwargs):
+        return next(calls)
+
+    monkeypatch.setattr(run_tests, "run_pytest", fake_run_pytest)
+    monkeypatch.setenv("FLAKY_REPORT", str(report))
+
+    assert run_tests.run(["tests/test_example.py"], say=lambda _: None) == 0
+    assert report.read_text() == ""
+
+
+def test_a_test_that_fails_on_retry_is_reported(tmp_path, monkeypatch):
+    report = tmp_path / "flaky.txt"
+    calls = iter([(1, (["test_one"], ["test_one"], None)), (1, (["test_one"], ["test_one"], None))])
+
+    def fake_run_pytest(*args, **kwargs):
+        return next(calls)
+
+    monkeypatch.setattr(run_tests, "run_pytest", fake_run_pytest)
+    monkeypatch.setenv("FLAKY_REPORT", str(report))
+
+    assert run_tests.run(["tests/test_example.py"], say=lambda _: None) == 1
+    assert report.read_text() == "test_one\n"

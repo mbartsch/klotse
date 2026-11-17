@@ -5,7 +5,8 @@
 * If the pytest process dies in a test (a segmentation fault, say), the tests that had not run yet are run in a new process,
   and so on, so an abort never leaves tests unrun.
 * Tests that failed, and tests the process died in, are run once more at the end, each group in a process of its own.
-  One that passes then is reported as flaky (a warning on GitHub) and does not fail the run; one that fails again does.
+  One that passes then is reported as flaky (a warning on GitHub) and does not fail the run; one that fails again does
+  and is written to FLAKY_REPORT for issue tracking.
 * A process that dies after every test has finished (the known crash while Qt is torn down) is reported as a warning.
 
 tests/conftest.py writes the progress file this reads (KLOTSE_TEST_PROGRESS) and obeys the two lists it writes
@@ -126,15 +127,20 @@ def run(files, runner=None, say=print):
         for test in flaky:
             say(f"::warning::flaky: {test} " + ("made the test process die" if test in died_in else "failed") + " and passed when run again")
         report = os.environ.get("FLAKY_REPORT")
-        if report:  # read by scripts/record_flaky.py, which opens or updates an issue per test
+        if report:  # read by scripts/record_flaky.py; only repeated failures become issues
             with open(report, "w", encoding="utf-8") as handle:
-                handle.write("\n".join(flaky) + ("\n" if flaky else ""))
+                handle.write("\n".join(still_bad) + ("\n" if still_bad else ""))
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
-        if summary and flaky:  # shown on the run's page, which the PR checks link to
+        if summary and (flaky or still_bad):  # shown on the run's page, which the PR checks link to
             with open(summary, "a", encoding="utf-8") as handle:
-                handle.write("### Flaky tests (failed, then passed when run again)\n\n")
-                handle.writelines(f"- `{test}`\n" for test in flaky)
-                handle.write("\nAn issue per test is opened or updated by the workflow (label `flaky-test`).\n")
+                if flaky:
+                    handle.write("### Flaky tests (failed, then passed when run again)\n\n")
+                    handle.writelines(f"- `{test}`\n" for test in flaky)
+                    handle.write("\nThese are warnings only; no issue is opened unless the test fails again.\n")
+                if still_bad:
+                    handle.write("### Tests that failed twice\n\n")
+                    handle.writelines(f"- `{test}`\n" for test in still_bad)
+                    handle.write("\nAn issue per test is opened or updated by the workflow (label `flaky-test`).\n")
         for note in notes:
             say(f"::warning::{note}")
         for test in still_bad:
