@@ -333,6 +333,9 @@ class Navigator(QTreeWidget):
             self._collapsed_clusters = {name: item.isExpanded() for name, item in self._clusters.items()}
         for item in self._clusters.values():
             item.setExpanded(False)
+        # Qt expands a row on double-click. While collapsed, a double-click on a connected cluster must bring its overview
+        # forward (the same as Enter), not open the row again (#527). The arrow still expands it.
+        self.setExpandsOnDoubleClick(False)
 
     def expand_clusters(self):
         """Undo collapse_clusters: each cluster goes back to its remembered state (open when not remembered)."""
@@ -340,6 +343,7 @@ class Navigator(QTreeWidget):
         for name, item in self._clusters.items():
             item.setExpanded(remembered.get(name, True))
         self._collapsed_clusters = None
+        self.setExpandsOnDoubleClick(True)
 
     def _header(self, label):
         h = QTreeWidgetItem([label])
