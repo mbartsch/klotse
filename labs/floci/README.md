@@ -1,6 +1,7 @@
-﻿# Local cloud Terraform lab (#793) — code-first stage
+# Local cloud Terraform lab (#793) — code-first stage
 
-Four independent Terraform roots, each declaring exactly two clusters:
+Four independent Terraform roots, each declaring exactly two clusters with one
+two-node pool per cluster (16 requested worker nodes total):
 
 | Directory | Cluster names | Floci endpoint |
 | --- | --- | --- |
@@ -17,7 +18,9 @@ Provider lock files are committed inputs. Never commit signing keys or state.
 ## Current verification boundary
 
 Terraform 1.9.8: init and validate pass for all four roots; fmt check passes.
-No plan, apply, destroy, cluster connectivity or Klotse UI verification yet.
+Mock-provider plan tests pass for all four roots, asserting two pools with two
+nodes each. These tests do not contact emulators or create resources. No real
+plan, apply, destroy, cluster connectivity or Klotse UI verification yet.
 Emulator startup/teardown orchestration and kubeconfig export instructions are
 still pending; this code-first stage does not complete issue #793.
 
@@ -60,3 +63,10 @@ terraform fmt -check -recursive labs/floci
 
 Real k3s is not real EKS/AKS/GKE/OKE: cloud IAM, networking, VM sizing, costs,
 provider-specific node metadata and live-cloud integration are not verified.
+
+Node counts express the requested cloud API configuration, not proof of actual
+k3s worker count: emulator versions may model pool sizes without starting a
+separate worker container per requested node. GKE's bootstrap default pool is
+removed; the retained pool requests two nodes in a single zone. AKS uses its
+required default pool, EKS a managed node group, and OKE a node pool with
+synthetic local placement. Run `terraform test` in each root for offline checks.

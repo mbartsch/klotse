@@ -36,7 +36,7 @@ resource "google_container_node_pool" "lab" {
   name                      = "lab"
   location                  = google_container_cluster.lab[each.key].location
   cluster                   = google_container_cluster.lab[each.key].name
-  initial_node_count        = 1
+  initial_node_count        = 2
   ignore_node_count_changes = true
 }
 

@@ -63,6 +63,34 @@ resource "aws_eks_cluster" "lab" {
   }
 }
 
+resource "aws_iam_role" "node" {
+  name = "klotse-local-eks-node"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+# Emulator fixture: no live IAM managed-policy attachments or EC2 workers.
+resource "aws_eks_node_group" "lab" {
+  for_each        = aws_eks_cluster.lab
+  cluster_name    = each.value.name
+  node_group_name = "lab"
+  node_role_arn   = aws_iam_role.node.arn
+  subnet_ids      = [for subnet in aws_subnet.lab : subnet.id]
+  instance_types  = ["t3.medium"]
+
+  scaling_config {
+    desired_size = 2
+    min_size     = 2
+    max_size     = 2
+  }
+}
+
 output "clusters" {
   value = { for name, cluster in aws_eks_cluster.lab : name => {
     id       = cluster.id

@@ -67,6 +67,15 @@ resource "oci_containerengine_node_pool" "lab" {
   name               = "${each.key}-pool"
   kubernetes_version = "v1.30.1"
   node_shape         = "VM.Standard.E4.Flex"
+
+  # Synthetic placement matches this local-only emulator's synthetic VCN.
+  node_config_details {
+    size = 2
+    placement_configs {
+      availability_domain = "floci:US-ASHBURN-AD-1"
+      subnet_id           = "ocid1.subnet.oc1.iad.tfapisubnet"
+    }
+  }
 }
 
 output "clusters" {

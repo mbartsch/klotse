@@ -36,7 +36,7 @@ resource "azurerm_kubernetes_cluster" "lab" {
 
   default_node_pool {
     name       = "lab"
-    node_count = 1
+    node_count = 2
     vm_size    = "Standard_D2_v2"
   }
 
