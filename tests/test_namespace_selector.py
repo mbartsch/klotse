@@ -56,6 +56,20 @@ def test_the_selector_is_searchable(qtbot):
     assert completer.completionModel().rowCount() == 1
 
 
+def test_the_selector_shows_a_dropdown_affordance(qtbot):
+    ws = make_ws(qtbot)
+
+    action = ws.ns_dropdown_action
+    assert action in ws.ns_combo.lineEdit().actions()
+    assert action.objectName() == "namespaceDropdownAction"
+    assert not action.icon().isNull()
+    assert action.toolTip() == "Show namespace choices"
+    action.trigger()
+    qtbot.wait(50)
+    assert ws.ns_combo.view().isVisible()
+    ws.ns_combo.hidePopup()
+
+
 def test_a_half_typed_name_never_scopes_a_load(qtbot):
     ws = make_ws(qtbot)
     ws._set_namespaces(rows("default", "team-a"))

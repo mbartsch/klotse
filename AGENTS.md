@@ -12,6 +12,8 @@ Read these before the work they cover; they hold the detail moved out of this fi
 - [Session hand-off (updated 2026-11-12)](docs/agents/session-handoff.md): current state, open issues, owner's workflow notes: read at the start of a session
 - [CI and platform notes (2026-11-12)](docs/agents/ci-and-platforms.md): CI shards, platform notes, Qt testing traps: read before changing workflows or tests
 
+The namespace selector is an editable, searchable combo box. Keep its explicit trailing dropdown affordance (`namespaceDropdownAction`) wired to the existing popup while preserving typing, completion and keyboard selection.
+
 ## Project and local state
 
 - Klotse is a native Kubernetes desktop manager: Python + PySide6/Qt Widgets, the Kubernetes Python client and `kubectl`. No web frontend, database or server.

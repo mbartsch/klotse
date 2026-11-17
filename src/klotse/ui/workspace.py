@@ -9,7 +9,7 @@ from time import monotonic, perf_counter
 from kubernetes.client.exceptions import ApiException
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QSize, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QCompleter, QToolButton, QDialog, QDockWidget, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
+from PySide6.QtWidgets import (QComboBox, QCompleter, QLineEdit, QToolButton, QDialog, QDockWidget, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
                                QStyle, QTabWidget, QToolBar, QSizePolicy, QWidget,
                                QDialogButtonBox, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout)
 from shiboken6 import isValid
@@ -462,6 +462,16 @@ class ClusterWorkspace(QMainWindow):
         # Searchable like the label picker: type any part of a name to filter the list. Only the chosen item counts
         # (see namespace()), so a half-typed name never scopes a load.
         self.ns_combo.setEditable(True)
+        # The themed native drop-down is not consistently visible on every platform;
+        # use one explicit affordance instead of rendering two arrows.
+        self.ns_combo.setStyleSheet("QComboBox::drop-down { width: 0px; border: 0; }")
+        self.ns_dropdown_action = self.ns_combo.lineEdit().addAction(
+            action_icon("dropdown"), QLineEdit.TrailingPosition
+        )
+        self.ns_dropdown_action.setObjectName("namespaceDropdownAction")
+        self.ns_dropdown_action.setText("Show namespace choices")
+        self.ns_dropdown_action.setToolTip("Show namespace choices")
+        self.ns_dropdown_action.triggered.connect(self.ns_combo.showPopup)
         self.ns_combo.setInsertPolicy(QComboBox.NoInsert)
         self.ns_combo.setMinimumContentsLength(18)
         self.ns_combo.setToolTip("Type to search the namespaces")
