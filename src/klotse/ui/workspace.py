@@ -142,6 +142,35 @@ class _PodLoad:
     refused: tuple = ()  # (namespace, explanation) for each chosen namespace that could not be read (#525)
 
 
+class _PagerSet:
+    """Several PodPagers read as one (#525, huge clusters): `next()` takes the next page of the namespaces in turn, skipping
+    the ones that are finished. It has the same fields the list's Load more and paging text use."""
+
+    def __init__(self, pagers):
+        self.pagers, self.busy, self._turn = list(pagers), False, 0
+
+    @property
+    def done(self):
+        return all(pager.done for pager in self.pagers)
+
+    @property
+    def loaded(self):
+        return sum(pager.loaded for pager in self.pagers)
+
+    @property
+    def total(self):
+        totals = [pager.total for pager in self.pagers]
+        return sum(totals) if totals and all(total is not None for total in totals) else None
+
+    def next(self):
+        for offset in range(len(self.pagers)):
+            index = (self._turn + offset) % len(self.pagers)
+            if not self.pagers[index].done:
+                self._turn = (index + 1) % len(self.pagers)
+                return self.pagers[index].next()
+        return []
+
+
 class _InputFilter(QObject):
     """Calls `callback()` for every key press, mouse press or wheel event of the widgets it is installed on; never swallows one."""
 
@@ -617,14 +646,22 @@ class ClusterWorkspace(QMainWindow):
 
     def _read_pods_many(self, namespaces, **options):
         """Pods of several namespaces in one list (#525). Each namespace is read on its own: a refused or failing one is
-        listed in `refused` and the rest still show. Rows keep their namespace, so the namespace column tells them apart."""
-        rows, refused = [], []
+        listed in `refused` and the rest still show. Rows keep their namespace, so the namespace column tells them apart.
+        A huge cluster gets one pager per namespace (first page now, Load more continues them in turn)."""
+        rows, refused, pagers = [], [], []
+        make = getattr(self.service, "pod_pager", None)
+        paged = self.big and self.huge and make is not None
         for namespace in namespaces:
             try:
-                rows.extend(self.service.list_pods(namespace, **options))
+                if paged:
+                    pager = make(namespace, **options)
+                    rows.extend(pager.next())
+                    pagers.append(pager)
+                else:
+                    rows.extend(self.service.list_pods(namespace, **options))
             except Exception as error:  # one namespace must not hide the others; its reason is shown in the list's status
                 refused.append((namespace, explain(str(error), "Pods")))
-        return _PodLoad(rows, refused=tuple(refused))
+        return _PodLoad(rows, pager=_PagerSet(pagers) if paged else None, refused=tuple(refused))
 
     def _pods_loaded(self, result):
         # The serial-validated GUI sink owns both rows and pager; abandoned workers never publish shared state.
