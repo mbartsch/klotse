@@ -310,7 +310,9 @@ Both bundled plugins support CLI sign-in and cluster discovery. Neither has been
 
 Pricing and Overview cost cards are **not implemented**. Help appreciated with safe Retail Prices API integration, pricing semantics, real AKS tests and sovereign clouds: #783. No live AKS, Azure CLI or portal navigation was verified; synthetic offline tests and native Windows plugin-summary captures only.
 
-**GCP (GKE), WIP (#64):** CLI sign-in and cluster discovery exist. Metadata columns and console links are being completed separately; pricing and live validation remain help-wanted work. No guessed prices or cost totals are shown.
+**GCP (GKE), WIP (#64):** adds machine type, reported Spot/Preemptible/Standard capacity and OS image from Node metadata, plus validated Google Compute console links. Sign-in and cluster discovery are preserved. Missing capacity labels remain unknown; OS image is not the Compute boot-image resource. No extra cloud calls or guessed prices/cost totals are shown. Help appreciated with pricing, cost cards, Compute image/launch metadata, Autopilot treatment and live-cloud validation: #785. Console navigation uses the browser account and permissions; no live GKE or cloud login/navigation was verified.
+
+GCP references: https://docs.cloud.google.com/kubernetes-engine/docs/concepts/spot-vms and https://docs.cloud.google.com/kubernetes-engine/docs/how-to/preemptible-vms .
 
 Azure label references: https://learn.microsoft.com/azure/aks/use-labels and https://learn.microsoft.com/azure/architecture/aws-professional/eks-to-aks/node-pools .
 

@@ -1,9 +1,10 @@
-"""Google Cloud (GKE) plugin: signs in to Google Cloud for a GKE cluster's nodes, in a terminal.
+"""Google Cloud (GKE) WIP plugin: node metadata, Compute console links and terminal sign-in.
 
 A GKE kubeconfig runs `gke-gcloud-auth-plugin`, which uses the account `gcloud` is signed in with. Klotse does not run the
 sign-in itself (a browser is needed): the action opens a terminal with `gcloud auth login`, and the user connects again."""
-from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_environment
+from klotse.plugins import Action, Column, Message, OpenUrl, Plugin, Setting, Terminal, parse_environment
 from . import clusters
+from .nodeinfo import console_url, instance_ref, node_values
 
 HELP_GCP = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; gcp accepts this cluster's nodes without it."
 GCE_PREFIX = "gce://"  # the providerID of a node that runs on Compute Engine (GKE nodes do)
@@ -27,11 +28,18 @@ def cloud_forced(settings):
 
 class GcpPlugin(Plugin):
     id = "gcp"
-    name = "Google Cloud (GKE) Plugin"
+    name = "Google Cloud (GKE) Plugin (WIP)"
     version = "0.1"
     requires_api = 12
-    description = "Signs in to Google Cloud (gcloud auth login) for the nodes of a GKE cluster, in a terminal."
+    description = ("WIP; help appreciated. Shows machine type, capacity and OS image from node metadata, "
+                   "opens the Google Compute console and signs in with gcloud auth login. No pricing lookups.")
+    columns = (
+        Column("machine_type", "Machine type", presets=("GCP",)),
+        Column("capacity", "Capacity", presets=("GCP",)),
+        Column("image", "OS image", presets=("GCP",)),
+    )
     actions = (
+        Action("console", "Open in the Google Compute console", kinds=("Node",)),
         Action("sign-in", "Sign in to Google Cloud for this cluster (gcloud auth login)…", kinds=("Node",)),
     )
     cluster_settings = (
@@ -62,7 +70,23 @@ class GcpPlugin(Plugin):
     def process_environment(self, context, settings):
         return parse_environment(settings.get("extra_environment"))
 
+    def enrich(self, request):
+        if request.kind != "Node":
+            return {}
+        return {resource.key: node_values(resource.raw) for resource in request.resources
+                if cloud_forced(request.settings) or instance_ref(resource.raw) is not None}
+
+    def applies(self, action, resource):
+        if action.key == "console":
+            return instance_ref(resource.raw) is not None
+        return super().applies(action, resource)
+
     def run(self, request):
+        if request.action == "console":
+            if request.kind != "Node" or len(request.resources) != 1:
+                return Message("Select one Google Cloud node to open its Compute console.", "warning")
+            url = console_url(request.resources[0].raw)
+            return OpenUrl(url) if url else Message("This node has no valid Google Compute providerID.", "warning")
         if request.action != "sign-in":
             return None
         if not cloud_forced(request.settings) and not any(is_gke_node(resource.raw) for resource in request.resources):

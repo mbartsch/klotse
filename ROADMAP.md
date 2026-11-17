@@ -162,3 +162,5 @@ Menu first-click repair (#777): hide the unopened fleet overview so File/Edit/Vi
 Metrics-source configuration (#379): existing Preferences defaults, per-cluster overrides, stale-entry cleanup and navigator entry now include testing directly in Add/Edit, plus metrics-server/default presets. Native Windows captures use synthetic responses; no live Prometheus or metrics-server verification.
 
 Azure #63 delivers the bounded WIP scope: node metadata and portal links, preserving sign-in/discovery. Help appreciated; pricing, cost cards and live-cloud validation remain in #783.
+
+GCP #64 delivers the bounded WIP scope: node metadata and Compute console links, preserving sign-in/discovery. Help appreciated; pricing, cost cards, richer Compute metadata and live GKE validation remain in #785.
