@@ -1,12 +1,51 @@
 {
   "manifest_version": 1,
   "id": "azure",
-  "name": "Azure (AKS) Plugin",
+  "name": "Azure (AKS) Plugin (WIP)",
   "version": "0.1",
   "requires_api": 12,
-  "description": "Signs in to Azure (az login) for the nodes of an AKS cluster, in a terminal.",
-  "columns": [],
+  "description": "WIP: help appreciated. Node metadata, portal links, sign-in and cluster discovery. Pricing and cost cards are not implemented; real AKS verification is needed.",
+  "columns": [
+    {
+      "key": "machine-type",
+      "title": "Azure VM size",
+      "kinds": [
+        "Node"
+      ]
+    },
+    {
+      "key": "capacity",
+      "title": "Azure capacity",
+      "kinds": [
+        "Node"
+      ]
+    },
+    {
+      "key": "node-image",
+      "title": "Azure node image",
+      "kinds": [
+        "Node"
+      ]
+    },
+    {
+      "key": "region",
+      "title": "Azure region",
+      "kinds": [
+        "Node"
+      ]
+    }
+  ],
   "actions": [
+    {
+      "key": "portal",
+      "title": "Open node in Azure portal…",
+      "kinds": [
+        "Node"
+      ],
+      "multi": false,
+      "confirm": null,
+      "dangerous": false
+    },
     {
       "key": "sign-in",
       "title": "Sign in to Azure for this cluster (az login)…",
