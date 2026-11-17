@@ -19,6 +19,9 @@ def test_invalid_region_is_reported_without_opening_terminal():
     result = plugin.run(request(plugin, 'sign-in', [node('ocid1.instance.oc1.phx.abc', {'topology.kubernetes.io/region': '--endpoint'})]))
     assert isinstance(result, Message)
     assert result.level == 'warning'
+    with pytest.raises(CloudError) as error:
+        oci_login_argv('--endpoint', 'DEFAULT')
+    assert result.text == str(error.value)
 
 
 def test_invalid_profile_is_reported_without_opening_terminal():
@@ -26,8 +29,20 @@ def test_invalid_profile_is_reported_without_opening_terminal():
     result = plugin.run(request(plugin, 'sign-in', [node('ocid1.instance.oc1.phx.abc', {'topology.kubernetes.io/region': 'us-phoenix-1'})], {'oci_profile': '--debug'}))
     assert isinstance(result, Message)
     assert result.level == 'warning'
+    with pytest.raises(CloudError) as error:
+        oci_login_argv('us-phoenix-1', '--debug')
+    assert result.text == str(error.value)
 
 
 def test_wip_and_contribution_invitation_are_visible():
     assert 'WIP' in OciPlugin.name
     assert 'help appreciated' in OciPlugin.description
+
+@pytest.mark.parametrize(('profile', 'expected'), [(None, 'DEFAULT'), ('', 'DEFAULT'), ('   ', 'DEFAULT'), (' OKE ', 'OKE')])
+def test_profile_normalization_at_builder_and_action_boundaries(profile, expected):
+    argv = oci_login_argv(' us-phoenix-1 ', profile)
+    assert argv == ('oci', 'session', 'authenticate', '--region', 'us-phoenix-1', '--profile-name', expected)
+    plugin = OciPlugin()
+    resource = node('ocid1.instance.oc1.phx.abc', {'topology.kubernetes.io/region': 'us-phoenix-1'})
+    result = plugin.run(request(plugin, 'sign-in', [resource], {'oci_profile': profile}))
+    assert result.argv == argv

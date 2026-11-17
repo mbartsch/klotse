@@ -81,7 +81,7 @@ class OciPlugin(Plugin):
         if not region:
             return Message("The node has no region label, so the OCI region for the sign-in is not known.", "warning")
         try:
-            argv = oci_login_argv(region, str(request.settings.get("oci_profile") or ""))
+            argv = oci_login_argv(region, request.settings.get("oci_profile"))
         except CloudError as error:
             return Message(str(error), "warning")
         return Terminal(argv)
