@@ -2,7 +2,7 @@
 
     python scripts/record_flaky.py REPORT_FILE
 
-REPORT_FILE lists one test per line (written by scripts/run_tests.py when a test failed or died and passed when run again).
+REPORT_FILE lists one test per line (written by scripts/run_tests.py only when a test failed twice).
 For each test: no issue yet -> open one (label flaky-test); an open issue -> add a comment; a closed issue -> reopen it and
 comment. The run's link and the PR number (PR_NUMBER, when the run is for a pull request) go into the comment.
 Needs the gh CLI with GH_TOKEN; without a report file it does nothing.
@@ -15,7 +15,7 @@ import sys
 
 LABEL = "flaky-test"
 PREFIX = "Flaky test: "
-PARENT = 385  # the "Flacky Test" tracker issue; new flaky-test issues become its sub-issues
+PARENT = 729  # Parent Flaky Test #3; new flaky-test issues become its sub-issues
 MILESTONE = "1.0.0"
 
 
@@ -48,7 +48,7 @@ def run_url():
 def note(test):
     pr = os.environ.get("PR_NUMBER", "")
     when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    lines = [f"Failed in a test run and passed when run again by itself ({when}).", "", f"Run: {run_url()}"]
+    lines = [f"Failed twice in a test run ({when}).", "", f"Run: {run_url()}"]
     if pr:
         lines.append(f"Pull request: #{pr}")
     lines.append("")
@@ -79,7 +79,7 @@ def record(path, say=print):
         tests = [line.strip() for line in handle if line.strip()]
     if not tests:
         return 0
-    gh("label", "create", LABEL, "--force", "--description", "A test that failed and passed when run again")
+    gh("label", "create", LABEL, "--force", "--description", "A test that failed twice in one CI run")
     issues = json.loads(gh("issue", "list", "--label", LABEL, "--state", "all", "--limit", "1000", "--json", "number,title,state"))
     for action, test, number in plan(issues, tests):
         if action == "create":

@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ inputs.full_suite_runner }}
     permissions:
       contents: read
-      issues: write  # opens or updates an issue per flaky test
+      issues: write  # opens or updates an issue only after a test fails twice
     timeout-minutes: 20  # one of six shards: a passing shard takes a few minutes on any runner
     strategy:
       fail-fast: false
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: write  # opens or updates an issue per flaky test
+      issues: write  # opens or updates an issue only after a test fails twice
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -134,7 +134,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-      issues: write  # opens or updates an issue per flaky test
+      issues: write  # opens or updates an issue only after a test fails twice
     timeout-minutes: 10
     strategy:
       fail-fast: false
