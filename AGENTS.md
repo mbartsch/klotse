@@ -96,3 +96,5 @@ Azure plugin #63 is WIP (help appreciated): metadata-only Node columns and valid
 GCP plugin #64 is WIP (help appreciated): metadata-only Node columns and validated Compute console links; prices/cost cards and live-cloud verification remain in #785. Missing capacity stays unknown; OS image is not a Compute boot-image resource.
 
 OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/profile before opening; no live OCI/browser/MFA/reconnect verification. Further validation and potential contributions: #787.
+
+#790: cloud discovery keeps GCP clusters distinct by name and location; missing-location credential lookup refuses ambiguous results. AWS/GCP/OCI parsers preserve first-seen order while deduplicating. Optional local configuration defaults remain best-effort. No live-cloud verification.

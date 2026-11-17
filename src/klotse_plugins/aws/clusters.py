@@ -42,9 +42,11 @@ def parse(text, region):
     if not isinstance(names, list):
         raise CloudError("the AWS CLI answered with an unexpected list")
     clusters = []
+    seen = set()
     for item in names:
-        name = str(item) if isinstance(item, str) else ""
-        if SAFE_CLUSTER_VALUE.fullmatch(name) and all(c.ref != name for c in clusters):
+        name = item if isinstance(item, str) else ""
+        if SAFE_CLUSTER_VALUE.fullmatch(name) and name not in seen:
+            seen.add(name)
             clusters.append(ClusterRef(name, name, region))
     return clusters
 
