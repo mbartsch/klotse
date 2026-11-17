@@ -1572,7 +1572,7 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Cannot save preferences", str(error))
             return False
-        QApplication.instance().setFont(font)
+        theme.set_application_font(QApplication.instance(), font)
         theme.apply(QApplication.instance(), self.theme_settings.selected())
         for workspace in self.workspaces.values():
             workspace.overview.refresh_theme()
