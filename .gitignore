@@ -1,3 +1,5 @@
+!.codex/skills/
+!.claude/skills/
 .omc/
 .venv/
 .pytest_cache/
@@ -11,3 +13,4 @@ src/klotse/_build_info.py
 .venv-build/
 *.egg-info/
 /graphify-out/
+.codex/
