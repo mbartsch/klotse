@@ -98,3 +98,7 @@ GCP plugin #64 is WIP (help appreciated): metadata-only Node columns and validat
 OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/profile before opening; no live OCI/browser/MFA/reconnect verification. Further validation and potential contributions: #787.
 
 #790: cloud discovery keeps GCP clusters distinct by name and location; missing-location credential lookup refuses ambiguous results. AWS/GCP/OCI parsers preserve first-seen order while deduplicating. Optional local configuration defaults remain best-effort. No live-cloud verification.
+
+## Local Terraform lab (#793)
+
+Terraform-first draft in `labs/floci/` defines two clusters per provider using Floci endpoints. Schema validation only; startup, teardown, kubeconfig workflow and runtime verification remain pending. OCI requires the actual SDK endpoint-override environment variable; HCL input validation is not network isolation.

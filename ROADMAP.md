@@ -168,3 +168,7 @@ GCP #64 delivers the bounded WIP scope: node metadata and Compute console links,
 OCI #458 completes the bounded sign-in scope and visibly marks the plugin WIP/help appreciated. Synthetic sign-in/discovery tests only; live OCI validation and additional contributions tracked in #787.
 
 Cloud cluster parser cleanup (#790): preserve same-name GCP clusters in different locations, refuse ambiguous credential-location lookup, and use ordered set-backed deduplication in AWS/GCP/OCI. Offline regression coverage only; live clouds remain unverified.
+
+## Local Terraform lab (#793)
+
+Terraform-first draft in `labs/floci/` defines two clusters per provider using Floci endpoints. Schema validation only; startup, teardown, kubeconfig workflow and runtime verification remain pending. OCI requires the actual SDK endpoint-override environment variable; HCL input validation is not network isolation.
