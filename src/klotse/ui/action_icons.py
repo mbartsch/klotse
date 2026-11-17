@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QP
 from . import theme
 
 
-NAMES = frozenset({"search", "refresh", "create", "edit", "delete", "copy", "detach", "attach"})
+NAMES = frozenset({"search", "refresh", "create", "edit", "delete", "copy", "detach", "attach", "dropdown"})
 
 
 class _ActionIcon(QIconEngine):
@@ -68,6 +68,10 @@ class _ActionIcon(QIconEngine):
             path.lineTo(12, 20)
             path.moveTo(4, 12)
             path.lineTo(20, 12)
+        elif self.name == "dropdown":
+            path.moveTo(5, 8)
+            path.lineTo(12, 15)
+            path.lineTo(19, 8)
         elif self.name == "edit":
             path.moveTo(4, 17.5)
             path.lineTo(3, 21)

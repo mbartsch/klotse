@@ -2,6 +2,8 @@
 
 Features other Kubernetes desktop tools have and Klotse does not yet. Items marked **done** are merged; the others are not implemented. The list comes from comparing Klotse's source with Aptakube, Headlamp, Lens/Freelens and k9s (the first two from their public pages and release notes, the last two from memory, not re-checked). Each item is tracked as a GitHub issue labelled `enhancement` and is meant to be done gradually, one pull request each.
 
+UX follow-up #767 adds a visible dropdown affordance to the searchable namespace selector; implementation is pending merge.
+
 **Status on 2026-11-16.** Done and merged: 1–11, 12–38 (main table), 39–47, 49–51 (collabnix ideas), all UX #501 follow-ups (parts 1–16), and related infrastructure work (metrics sources, cloud settings, proxy, sign-in, kubeconfig entry, cluster switcher, navigator collapse/auto-refresh, plugin manifest tests, Karpenter, network/AWS resources). Open: #62 (12, several clusters side by side), #63 and #64 (Azure/GCP plugins), #48 (ownership graph). UX issues #495–#500, #502–#503 tracked separately under #231. "Done" means merged with tests; none verified against a live cluster. Every issue carries `enhancement` and an effort label.
 
 | # | Item | Seen in | Effort |
