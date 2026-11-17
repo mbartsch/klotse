@@ -18,6 +18,8 @@ def test_file_and_edit_open_on_first_click_with_configured_font(qapp, qtbot):
     qapp.processEvents()
 
     for action in win.menuBar().actions()[:2]:
+        point = win.menuBar().mapToGlobal(win.menuBar().actionGeometry(action).center())
+        assert qapp.widgetAt(point) is win.menuBar()
         QTest.mouseClick(win.menuBar(), Qt.LeftButton, pos=win.menuBar().actionGeometry(action).center())
         qapp.processEvents()
         assert action.menu().isVisible(), action.text()

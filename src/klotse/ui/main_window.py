@@ -377,6 +377,7 @@ class MainWindow(QMainWindow):
         self.centre.addWidget(self.clusters)
         self.setCentralWidget(self.centre)
         self.cluster_overview = ClusterOverview(self)
+        self.cluster_overview.hide()  # Not in a tab yet: do not overlay the menu bar at (0, 0).
         self.cluster_overview.open_requested.connect(self._open_cluster_from_overview)
         self.cluster_overview.refresh_requested.connect(self._refresh_cluster_from_overview)
         self.cluster_overview.refresh_all_requested.connect(self._refresh_all_clusters)

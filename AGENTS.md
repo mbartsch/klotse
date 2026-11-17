@@ -72,3 +72,5 @@ git diff --check
 - Do not commit credentials, kubeconfig data, real secret values or per-user preferences.
 - Documentation changes do not authorize deployment, cloud-instance termination, pushing branches or live Kubernetes mutations.
 - Pending, not merged at the time of writing: main menu grouping (#232), actionable load states (#234), manifest filter paths (#215; described above), optional All Clusters overview implementation (#531).
+
+- #777: keep the optional All clusters page hidden until added to its workspace tab; an unmanaged visible child intercepts menu-bar mouse input.
