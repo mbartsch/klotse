@@ -1,0 +1,60 @@
+"""Offline tests for lab-only Docker discovery and credential handling."""
+
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+import identity
+import start
+
+
+class BootstrapTest(unittest.TestCase):
+    def test_accepts_owned_loopback_api(self):
+        api = {"server": "https://127.0.0.1:6443", "certificate-authority-data": "dummy"}
+        data = {"clusters": [{"cluster": api}], "users": [{"user": {}}]}
+        container = {"NetworkSettings": {"Ports": {"6443/tcp": [
+            {"HostIp": "127.0.0.1", "HostPort": "16444"},
+        ]}}}
+        with patch.object(identity, "docker", side_effect=[
+            "id", json.dumps([container]), json.dumps(data),
+        ]) as docker:
+            _, cluster = identity.bootstrap("eks", "klotse-eks-1")
+        self.assertEqual(cluster["server"], "https://127.0.0.1:16444")
+        self.assertIn("label=floci_namespace=klotse793", docker.call_args_list[0].args)
+        self.assertIn("label=io.floci.resource-id=klotse-eks-1", docker.call_args_list[0].args)
+
+    def test_rejects_wildcard_or_wrong_port_before_reading_credentials(self):
+        for ip, port in (("0.0.0.0", "16444"), ("::", "16444"), ("127.0.0.1", "6443")):
+            with self.subTest(ip=ip, port=port):
+                container = {"NetworkSettings": {"Ports": {"6443/tcp": [
+                    {"HostIp": ip, "HostPort": port},
+                ]}}}
+                with patch.object(identity, "docker", side_effect=[
+                    "id", json.dumps([container]),
+                ]) as docker:
+                    with self.assertRaises(SystemExit):
+                        identity.bootstrap("eks", "klotse-eks-1")
+                self.assertEqual(docker.call_count, 2)
+
+    def test_existing_config_is_not_overwritten(self):
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / "aws.kubeconfig"
+            identity.write_config(target, {"value": "first"})
+            with self.assertRaises(FileExistsError):
+                identity.write_config(target, {"value": "second"})
+            self.assertEqual(json.loads(target.read_text()), {"value": "first"})
+
+
+class StartTest(unittest.TestCase):
+    def test_refuses_unsafe_default_bridge(self):
+        with patch.object(start.subprocess, "run") as run:
+            run.return_value.stdout = "0.0.0.0\n"
+            with self.assertRaises(SystemExit):
+                start.main()
+        self.assertEqual(run.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -7,3 +7,5 @@
 **/*.crt
 **/*kubeconfig*
 **/terraform.tfvars
+/.local/
+**/__pycache__/

@@ -101,6 +101,4 @@ OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/pro
 
 ## Local Terraform lab (#793)
 
-Terraform-first draft in `labs/floci/` defines two clusters per provider using Floci endpoints. Schema validation only; startup, teardown, kubeconfig workflow and runtime verification remain pending. OCI requires the actual SDK endpoint-override environment variable; HCL input validation is not network isolation.
-
-#793 node-pool follow-up: each of the eight clusters now requests one two-node pool; four mock-provider Terraform plan tests cover pool counts and sizes. Actual emulator worker counts remain unverified.
+The local-only Floci lab in `labs/floci/` defines two clusters with one two-node pool per provider, Docker Compose startup, teardown and separate short-lived Kubernetes identities for Klotse. Use a dedicated daemon with loopback-only published ports. Mock plans pass; real emulator apply/destroy, worker counts and Klotse connectivity remain unverified.
