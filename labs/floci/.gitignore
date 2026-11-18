@@ -1,0 +1,11 @@
+﻿**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/crash.log
+**/*.pem
+**/*.crt
+**/*kubeconfig*
+**/terraform.tfvars
+/.local/
+**/__pycache__/

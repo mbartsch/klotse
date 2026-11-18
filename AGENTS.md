@@ -98,3 +98,7 @@ GCP plugin #64 is WIP (help appreciated): metadata-only Node columns and validat
 OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/profile before opening; no live OCI/browser/MFA/reconnect verification. Further validation and potential contributions: #787.
 
 #790: cloud discovery keeps GCP clusters distinct by name and location; missing-location credential lookup refuses ambiguous results. AWS/GCP/OCI parsers preserve first-seen order while deduplicating. Optional local configuration defaults remain best-effort. No live-cloud verification.
+
+## Local Terraform lab (#793)
+
+The local-only Floci lab in `labs/floci/` defines two clusters with one two-node pool per provider, Docker Compose startup, teardown and separate short-lived Kubernetes identities for Klotse. Use a dedicated daemon with loopback-only published ports. Validated on an isolated Linux daemon: all eight contexts worked through Klotse's Kubernetes service; AWS needed a documented import recovery. Each emulator exposed one Ready k3s node; native GUI interaction and cloud sign-in are not verified.

@@ -1,0 +1,55 @@
+name: klotse793
+
+x-docker-socket: &docker-socket
+  - ${KLOTSE_LAB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+
+services:
+  aws:
+    image: floci/floci:2.5.0
+    ports: ["127.0.0.1:4566:4566"]
+    volumes: *docker-socket
+    environment:
+      FLOCI_DOCKER_RESOURCE_NAMESPACE: klotse793
+      FLOCI_SERVICES_EKS_MOCK: "false"
+      FLOCI_SERVICES_EKS_ECR_REGISTRY_MIRROR: "false"
+      FLOCI_SERVICES_EKS_ENDPOINT_MODE: host
+      FLOCI_SERVICES_EKS_API_SERVER_BASE_PORT: "16443"
+      FLOCI_SERVICES_EKS_API_SERVER_MAX_PORT: "16452"
+  azure:
+    image: floci/floci-az:0.17.0
+    ports: ["127.0.0.1:4577:4577"]
+    volumes: *docker-socket
+    environment:
+      FLOCI_AZ_DOCKER_RESOURCE_NAMESPACE: klotse793
+      FLOCI_AZ_TLS_ENABLED: "true"
+      FLOCI_AZ_TLS_HTTPS_PORT: "0"
+      FLOCI_AZ_SERVICES_AKS_MOCKED: "false"
+      FLOCI_AZ_SERVICES_AKS_API_SERVER_BASE_PORT: "16543"
+      FLOCI_AZ_SERVICES_AKS_API_SERVER_MAX_PORT: "16552"
+  gcp:
+    image: floci/floci-gcp:0.13.0
+    ports: ["127.0.0.1:4588:4588"]
+    volumes: *docker-socket
+    environment:
+      FLOCI_GCP_DOCKER_RESOURCE_NAMESPACE: klotse793
+      FLOCI_GCP_SERVICES_GKE_MOCK: "false"
+      FLOCI_GCP_SERVICES_GKE_ENDPOINT_MODE: host
+      FLOCI_GCP_SERVICES_GKE_API_SERVER_BASE_PORT: "16643"
+      FLOCI_GCP_SERVICES_GKE_API_SERVER_MAX_PORT: "16652"
+  oci:
+    image: floci/floci-oci:0.7.0
+    ports: ["127.0.0.1:4599:4599"]
+    volumes: *docker-socket
+    environment:
+      FLOCI_OCI_DOCKER_RESOURCE_NAMESPACE: klotse793
+      FLOCI_OCI_SERVICES_OKE_MOCK: "false"
+      FLOCI_OCI_SERVICES_OKE_ENDPOINT_MODE: host
+      FLOCI_OCI_SERVICES_OKE_API_SERVER_BASE_PORT: "16743"
+      FLOCI_OCI_SERVICES_OKE_API_SERVER_MAX_PORT: "16752"
+
+# Some Floci releases create k3s on this network; others start on the
+# daemon default bridge. Both networks must default to loopback binds.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
