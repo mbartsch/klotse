@@ -1,6 +1,7 @@
 """Offline tests for lab-only Docker discovery and credential handling."""
 
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -49,11 +50,19 @@ class BootstrapTest(unittest.TestCase):
 
 class StartTest(unittest.TestCase):
     def test_refuses_unsafe_default_bridge(self):
-        with patch.object(start.subprocess, "run") as run:
+        with patch.object(start, "local_engine", return_value=True), patch.object(start.subprocess, "run") as run:
             run.return_value.stdout = "0.0.0.0\n"
             with self.assertRaises(SystemExit):
                 start.main()
         self.assertEqual(run.call_count, 1)
+
+    def test_refuses_remote_engine_before_inspecting_bridge(self):
+        for host in ("ssh://lab.example.invalid", "tcp://127.0.0.1:2375"):
+            with self.subTest(host=host), patch.dict(os.environ, {"DOCKER_HOST": host}, clear=True):
+                with patch.object(start.subprocess, "run") as run:
+                    with self.assertRaises(SystemExit):
+                        start.main()
+                run.assert_not_called()
 
 
 if __name__ == "__main__":
