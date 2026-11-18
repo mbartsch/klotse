@@ -1,7 +1,7 @@
 name: klotse793
 
 x-docker-socket: &docker-socket
-  - /var/run/docker.sock:/var/run/docker.sock
+  - ${KLOTSE_LAB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
 
 services:
   aws:
@@ -11,6 +11,7 @@ services:
     environment:
       FLOCI_DOCKER_RESOURCE_NAMESPACE: klotse793
       FLOCI_SERVICES_EKS_MOCK: "false"
+      FLOCI_SERVICES_EKS_ECR_REGISTRY_MIRROR: "false"
       FLOCI_SERVICES_EKS_ENDPOINT_MODE: host
       FLOCI_SERVICES_EKS_API_SERVER_BASE_PORT: "16443"
       FLOCI_SERVICES_EKS_API_SERVER_MAX_PORT: "16452"
@@ -45,3 +46,10 @@ services:
       FLOCI_OCI_SERVICES_OKE_ENDPOINT_MODE: host
       FLOCI_OCI_SERVICES_OKE_API_SERVER_BASE_PORT: "16743"
       FLOCI_OCI_SERVICES_OKE_API_SERVER_MAX_PORT: "16752"
+
+# Some Floci releases create k3s on this network; others start on the
+# daemon default bridge. Both networks must default to loopback binds.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"

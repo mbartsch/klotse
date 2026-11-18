@@ -21,11 +21,25 @@ the provider dependencies are locked in each Terraform root.
 
 Floci uses the Docker socket to create privileged k3s containers. **Use a
 dedicated Docker daemon** with no unrelated workloads or credentials.
-Before starting the lab, the daemon's default bridge must publish ports only
-on IPv4 loopback (Docker daemon setting `"ip": "127.0.0.1"`). Verify that the
-bridge reports the configured address. Floci publishes the child APIs itself;
-the explicit loopback mapping on the Compose services does not cover them.
-Do not change the Docker daemon used for your normal workloads.
+Before starting the lab, configure that daemon so both its default bridge and
+new bridge networks default to publishing on IPv4 loopback. Example daemon
+configuration (merge these options into the dedicated daemon's JSON config):
+
+```json
+{
+  "ip": "127.0.0.1",
+  "default-network-opts": {
+    "bridge": {"com.docker.network.bridge.host_binding_ipv4": "127.0.0.1"}
+  }
+}
+```
+
+The second option matters because EKS can publish k3s ports on its own
+Docker VPC bridge, not just the default bridge or the Compose network.
+Do not change the Docker daemon used for your normal workloads. For a
+dedicated daemon using a nonstandard Unix socket, point `DOCKER_HOST` to that
+socket. The launcher mounts the selected Unix socket into Floci so the
+emulators and the CLI use the same daemon.
 
 ```sh
 docker network inspect bridge --format '{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}'
@@ -47,7 +61,8 @@ From this directory:
 python3 start.py
 ```
 
-The launcher refuses to start with a non-loopback Docker default bridge.
+The launcher checks the default bridge and creates and removes an empty
+probe bridge to verify the configuration for newly created networks.
 Wait for each emulator to respond at its loopback management endpoint's
 `/_floci/health`. Use HTTP for the health checks (including Azure). Check that
 `container.localhost` resolves to 127.0.0.1; configure that exact loopback
@@ -92,6 +107,30 @@ terraform -chdir=aws plan -out=lab.tfplan
 terraform -chdir=aws apply lab.tfplan
 ```
 
+### AWS: recover a cluster created before a conflict response
+
+Floci 2.5.0 can create an EKS k3s sidecar but report `409 Cluster already
+exists` to Terraform on the initial apply. Do not retry blindly. Confirm the
+matching sidecar belongs to this lab, that the lab EKS cluster has finished
+starting, and that its Terraform address is missing from
+`terraform -chdir=aws state list`. Import **only** each missing address (the
+example is for cluster 1; substitute `klotse-eks-2` for cluster 2 if needed)
+and review and apply a fresh plan to finish creating the node groups:
+
+```sh
+docker ps --filter label=floci_namespace=klotse793 --filter label=io.floci.service=eks
+terraform -chdir=aws import 'aws_eks_cluster.lab["klotse-eks-1"]' klotse-eks-1
+terraform -chdir=aws plan -out=lab.tfplan
+terraform -chdir=aws apply lab.tfplan
+```
+
+### Connect to Kubernetes
+
+After applying, let the k3s APIs finish starting; EKS may restart its
+underlying k3s containers when the node groups are added. If bootstrap
+credentials are not yet readable, wait for the corresponding k3s API to be
+ready before rerunning the identity helper.
+
 Check that the k3s API bindings shown by Docker are exclusively on 127.0.0.1.
 The identity helper refuses to use a sidecar whose API is not loopback-bound.
 Then follow [Local identities and Klotse access](IDENTITIES.md) to create
@@ -116,16 +155,21 @@ connect Klotse without an external cloud login.
 
 ## Verification and limitations
 
-Terraform 1.9.8 validation and mocked plan assertions cover two two-node
-pools per provider. They do not start an emulator, prove live Terraform API
-compatibility, count real workers, or verify Klotse. Compose configuration is
-validated. Run `python3 -m unittest discover -v` from this directory to check
-loopback guards and credential-file handling offline. The current Docker daemon advertises 0.0.0.0 for implicit
-published ports, so runtime access, authentication in Klotse and teardown
-have not been exercised here.
+Terraform 1.9.8 validation and mock plans cover two two-node pools per
+provider. A separate Docker Engine 29.3.1 in a WSL2 Linux network namespace
+with no external route was used to provision, authenticate and remove the
+lab. Azure, GCP and OCI applied directly; AWS needed the import recovery
+above. All eight APIs were loopback-bound. Klotse's Kubernetes client
+connected and listed Nodes and Pods in both contexts for all four providers.
+Client certificates were rotated, the old usernames lost lab access, and
+the new users could not read Secrets. Native Klotse GUI interaction was not
+tested. Run `python3 -m unittest discover -v` from this directory for the
+offline guard tests.
 
-These are k3s-backed fixtures, not EKS, AKS, GKE or OKE. Requested node pool
-size is emulator management metadata, not proof of two running workers.
+These are k3s-backed fixtures, not EKS, AKS, GKE or OKE. Each API reported
+one Ready node in the run above. The two-node pools are management metadata;
+they do not guarantee that Floci launches two workers per cluster. Add-on
+pods may remain Pending without a local image cache or registry.
 Cloud IAM, networking, VM sizes, costs and provider node metadata are not
 validated. GKE removes its bootstrap pool and retains a separate two-node
 pool. OCI uses synthetic network IDs as in the emulator fixture.

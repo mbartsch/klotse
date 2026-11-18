@@ -50,11 +50,28 @@ class BootstrapTest(unittest.TestCase):
 
 class StartTest(unittest.TestCase):
     def test_refuses_unsafe_default_bridge(self):
-        with patch.object(start, "local_engine", return_value=True), patch.object(start.subprocess, "run") as run:
+        with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"), patch.object(start.subprocess, "run") as run:
             run.return_value.stdout = "0.0.0.0\n"
             with self.assertRaises(SystemExit):
                 start.main()
         self.assertEqual(run.call_count, 1)
+
+    def test_refuses_unsafe_user_defined_bridge_and_removes_probe(self):
+        with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"):
+            with patch.object(start, "bridge_bind_ip", side_effect=["127.0.0.1", ""]):
+                with patch.object(start.subprocess, "run") as run:
+                    with self.assertRaises(SystemExit):
+                        start.main()
+        create, remove = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(create[:5], ["docker", "network", "create", "--driver", "bridge"])
+        self.assertEqual(remove, ["docker", "network", "rm", create[-1]])
+
+    def test_passes_selected_engine_socket_to_compose(self):
+        with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"):
+            with patch.object(start.subprocess, "run") as run:
+                run.return_value.stdout = "127.0.0.1\n"
+                start.main()
+        self.assertEqual(run.call_args.kwargs["env"]["KLOTSE_LAB_DOCKER_SOCKET"], "/tmp/lab.sock")
 
     def test_refuses_remote_engine_before_inspecting_bridge(self):
         for host in ("ssh://lab.example.invalid", "tcp://127.0.0.1:2375"):

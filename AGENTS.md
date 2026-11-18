@@ -101,4 +101,4 @@ OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/pro
 
 ## Local Terraform lab (#793)
 
-The local-only Floci lab in `labs/floci/` defines two clusters with one two-node pool per provider, Docker Compose startup, teardown and separate short-lived Kubernetes identities for Klotse. Use a dedicated daemon with loopback-only published ports. Mock plans pass; real emulator apply/destroy, worker counts and Klotse connectivity remain unverified.
+The local-only Floci lab in `labs/floci/` defines two clusters with one two-node pool per provider, Docker Compose startup, teardown and separate short-lived Kubernetes identities for Klotse. Use a dedicated daemon with loopback-only published ports. Validated on an isolated Linux daemon: all eight contexts worked through Klotse's Kubernetes service; AWS needed a documented import recovery. Each emulator exposed one Ready k3s node; native GUI interaction and cloud sign-in are not verified.

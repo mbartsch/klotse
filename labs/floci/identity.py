@@ -54,8 +54,8 @@ def bootstrap(service, resource_id):
     if not base <= port <= base + 9:
         raise SystemExit("k3s published port is outside this provider's lab range.")
     data = json.loads(docker(
-        "exec", ids[0], "k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml",
-        "config", "view",
+        "exec", ids[0], "kubectl", "config", "view",
+        "--kubeconfig", "/etc/rancher/k3s/k3s.yaml",
         "--minify", "--flatten", "--raw", "-o", "json",
     ))
     cluster = data["clusters"][0]["cluster"]

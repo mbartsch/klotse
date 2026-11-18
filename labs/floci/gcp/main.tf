@@ -11,9 +11,11 @@ terraform {
 }
 
 provider "google" {
-  project                   = "klotse-local"
-  region                    = "us-central1"
-  access_token              = "floci-local-test-token"
+  project      = "klotse-local"
+  region       = "us-central1"
+  access_token = "floci-local-test-token"
+  # Non-public universe skips the Google provider's external userinfo probe.
+  universe_domain           = "localhost"
   user_project_override     = false
   container_custom_endpoint = "http://container.localhost:4588/"
 }

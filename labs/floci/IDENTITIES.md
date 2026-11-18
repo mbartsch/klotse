@@ -63,6 +63,12 @@ Do not copy private keys, client kubeconfigs, bootstrap certificates, Terraform 
 raw kubeconfig output into logs, screenshots, issues or Git. Do not set
 `TF_LOG`, `kubectl -v`, or shell tracing during these steps.
 
+For a repeatable headless check with Klotse's runtime dependencies installed,
+run `PYTHONPATH=../../src python3 check_klotse.py <provider>` from this
+directory. It connects with Klotse's own Kubernetes service, lists Nodes
+and Pods on both contexts, and reports only counts. This does not check
+native window rendering or interaction.
+
 ## What this does not authenticate
 
 Klotse uses plain Kubernetes kubeconfig authentication for all four files.
