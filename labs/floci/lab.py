@@ -4,6 +4,9 @@
     python3 lab.py down [--providers ...]                     remove lab identities, destroy the roots, stop the emulators
     python3 lab.py env [--shell sh|powershell]                print the variables for a shell (eval "$(python3 lab.py env)")
 
+    -v / --verbose / --debug   log every health check attempt, command and prepared file (before or after the command)
+    --tf-log LEVEL             (up, down) set TF_LOG for Terraform; its log can contain the lab's fixture credentials
+
 Everything the lab generates (CA bundle, throwaway OCI key and profile, gcloud and az config folders) stays in .local/.
 The commands only talk to the emulators on 127.0.0.1; see README.md for the isolation the lab expects.
 """
@@ -25,12 +28,14 @@ import start
 HERE = Path(__file__).resolve().parent
 LOCAL = HERE / ".local"
 ORDER = ("aws", "azure", "gcp", "oci")  # apply order; destroy runs in reverse
-HEALTH = {
-    "aws": "http://127.0.0.1:4566/_floci/health",
-    "azure": "http://127.0.0.1:4577/_floci/health",  # HTTP also for Azure (README)
-    "gcp": "http://127.0.0.1:4588/_floci/health",
-    "oci": "http://127.0.0.1:4599/_floci/health",
+HEALTH = {  # tried in order; the first answer with HTTP 200 counts
+    "aws": ("http://127.0.0.1:4566/_floci/health",),
+    "azure": ("http://127.0.0.1:4577/_floci/health",),  # HTTP also for Azure (README)
+    # floci-gcp 0.13.0 serves its own prefix (docker/healthcheck.sh: GET /_floci-gcp/health); README: /health is an alias
+    "gcp": ("http://127.0.0.1:4588/_floci-gcp/health", "http://127.0.0.1:4588/health"),
+    "oci": ("http://127.0.0.1:4599/_floci/health",),
 }
+VERBOSE = False  # -v/--verbose/--debug: log each health attempt, command and prepared file
 AZURE_CA_URL = "http://127.0.0.1:4577/_floci/tls-cert"
 OCI_OVERRIDE = "oci_containerengine.ContainerEngineClient=http://127.0.0.1:4599"
 GCP_TOKEN = "floci-local-test-token"  # the same fixture token as gcp/main.tf; Floci accepts any non-empty token
@@ -46,6 +51,17 @@ region=us-ashburn-1
 
 def log(text):
     print(f"[lab] {text}", file=sys.stderr, flush=True)
+
+
+def debug(text):
+    if VERBOSE:
+        print(f"[lab:debug] {text}", file=sys.stderr, flush=True)
+
+
+def run(argv, **kwargs):
+    """subprocess.run with the command logged in verbose mode (the lab passes no secrets on command lines)."""
+    debug("run: " + " ".join(shlex.quote(str(part)) for part in argv))
+    return subprocess.run(argv, **kwargs)
 
 
 def private_dir(path):
@@ -112,18 +128,31 @@ def render(env, shell):
 def wait_healthy(providers, timeout=300, opener=urllib.request.urlopen, sleep=time.sleep, clock=time.monotonic):
     deadline = clock() + timeout
     waiting = list(providers)
+    last = {}  # provider -> the last answer or error per URL, shown when it times out
     while waiting:
         for provider in list(waiting):
-            try:
-                with opener(HEALTH[provider], timeout=5) as answer:
-                    if answer.status == 200:
-                        waiting.remove(provider)
-                        log(f"{provider} emulator is up")
-            except (urllib.error.URLError, OSError):
-                pass
+            for url in HEALTH[provider]:
+                try:
+                    with opener(url, timeout=5) as answer:
+                        result = f"HTTP {answer.status}"
+                        healthy = answer.status == 200
+                except urllib.error.HTTPError as error:
+                    result, healthy = f"HTTP {error.code}", False
+                except (urllib.error.URLError, OSError) as error:
+                    result, healthy = f"{type(error).__name__}: {getattr(error, 'reason', error)}", False
+                debug(f"health {provider}: GET {url} -> {result}")
+                last.setdefault(provider, {})[url] = result
+                if healthy:
+                    waiting.remove(provider)
+                    log(f"{provider} emulator is up ({url})")
+                    break
         if waiting:
             if clock() > deadline:
-                raise SystemExit(f"Emulators did not become healthy: {', '.join(waiting)}")
+                for provider in waiting:
+                    for url, result in last.get(provider, {}).items():
+                        log(f"{provider}: GET {url} -> {result}")
+                raise SystemExit(f"Emulators did not become healthy: {', '.join(waiting)} "
+                                 f"(see `docker compose -f compose.yaml logs {' '.join(waiting)}`; -v shows every attempt)")
             sleep(3)
 
 
@@ -132,7 +161,7 @@ def system_bundle():
 
 
 def oci_fingerprint(key):
-    der = subprocess.run(["openssl", "rsa", "-in", str(key), "-pubout", "-outform", "DER"],
+    der = run(["openssl", "rsa", "-in", str(key), "-pubout", "-outform", "DER"],
                          check=True, capture_output=True).stdout
     digest = hashlib.md5(der, usedforsecurity=False).hexdigest()
     return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
@@ -157,23 +186,29 @@ def prepare(providers, local=LOCAL, fetch=urllib.request.urlopen):
         write_private(p["roots"], system_bundle().read_bytes())
     if "oci" in providers and not p["oci_config"].exists():
         if not p["oci_key"].exists():
-            subprocess.run(["openssl", "genrsa", "-out", str(p["oci_key"]), "2048"], check=True, capture_output=True)
+            run(["openssl", "genrsa", "-out", str(p["oci_key"]), "2048"], check=True, capture_output=True)
             os.chmod(p["oci_key"], 0o600)
         write_private(p["oci_config"], OCI_PROFILE.format(fingerprint=oci_fingerprint(p["oci_key"]),
                                                          key=p["oci_key"].as_posix()))
+    for name, path in p.items():
+        debug(f"prepared {name}: {path} ({'present' if path.exists() else 'missing'})")
 
 
 def terraform(provider, *args, env, capture=False):
     argv = ["terraform", f"-chdir={HERE / provider}", *args]
-    return subprocess.run(argv, check=True, env=env, text=True, capture_output=capture)
+    return run(argv, check=True, env=env, text=True, capture_output=capture)
 
 
-def lab_env():
+def lab_env(tf_log=None):
     env = os.environ.copy()
     for key in list(env):
-        if key.lower().endswith("_proxy") or key == "TF_LOG":
-            env.pop(key)  # README: no proxies or Terraform tracing in the lab
+        if key.lower().endswith("_proxy") or key in ("TF_LOG", "TF_LOG_PATH"):
+            env.pop(key)  # README: no proxies or Terraform tracing in the lab, unless --tf-log asks for it
     env.update(environment())
+    if tf_log:
+        env["TF_LOG"] = tf_log
+        log(f"TF_LOG={tf_log}: Terraform's log may contain the lab's fixture credentials; do not share it as is.")
+    debug("lab variables: " + ", ".join(sorted(environment())))
     return env
 
 
@@ -195,15 +230,16 @@ def identity(action, provider, env):
     argv = [sys.executable, str(HERE / "identity.py"), action, provider]
     if provider == "oci":
         argv += ["--oci-ids", *oci_ids(env)]
-    subprocess.run(argv, check=True, env=env)
+    run(argv, check=True, env=env)
 
 
 def up(args):
     providers = selected(args.providers)
+    debug(f"providers: {', '.join(providers)}; start.py checks the Docker engine and bridges, then runs docker compose up -d")
     start.main()
     wait_healthy(providers, timeout=args.timeout)
     prepare(providers)
-    env = lab_env()
+    env = lab_env(args.tf_log)
     for provider in providers:
         log(f"terraform apply: {provider}")
         try:
@@ -225,7 +261,7 @@ def up(args):
 
 def down(args):
     providers = selected(args.providers)
-    env = lab_env()
+    env = lab_env(args.tf_log)
     failed = []
     for provider in reversed(providers):
         try:
@@ -239,7 +275,7 @@ def down(args):
     if failed:
         raise SystemExit(f"Destroy failed for {', '.join(failed)}; the emulators were left running so you can retry.")
     if set(providers) == set(ORDER):
-        subprocess.run(["docker", "compose", "-f", str(HERE / "compose.yaml"), "down", "--volumes"], check=True)
+        run(["docker", "compose", "-f", str(HERE / "compose.yaml"), "down", "--volumes"], check=True)
         log("Emulators stopped. Check README.md 'Tear down' for leftover containers before deleting state.")
     else:
         log("Only some providers were destroyed; the emulators are still running.")
@@ -252,17 +288,27 @@ def env_command(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    global VERBOSE
+    common = argparse.ArgumentParser(add_help=False)  # accepted before or after the command: lab.py -v up, lab.py up -v
+    common.add_argument("-v", "--verbose", "--debug", dest="verbose", action="store_true", default=argparse.SUPPRESS,
+                        help="log every health check attempt, command run and prepared file")
+    tf = argparse.ArgumentParser(add_help=False)
+    tf.add_argument("--tf-log", metavar="LEVEL", choices=("TRACE", "DEBUG", "INFO", "WARN", "ERROR"),
+                    help="set TF_LOG for Terraform (its log can contain the lab's fixture credentials)")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     parents=[common])
     commands = parser.add_subparsers(dest="command", required=True)
-    up_parser = commands.add_parser("up", help="start the emulators and apply the Terraform roots")
+    up_parser = commands.add_parser("up", parents=[common, tf], help="start the emulators and apply the Terraform roots")
     up_parser.add_argument("--providers", help="comma-separated subset of aws,azure,gcp,oci (default: all)")
     up_parser.add_argument("--identities", action="store_true", help="also create the Klotse lab kubeconfigs (identity.py)")
     up_parser.add_argument("--timeout", type=int, default=300, help="seconds to wait for the emulators (default 300)")
-    down_parser = commands.add_parser("down", help="remove identities, destroy the roots and stop the emulators")
+    down_parser = commands.add_parser("down", parents=[common, tf], help="remove identities, destroy the roots and stop the emulators")
     down_parser.add_argument("--providers", help="comma-separated subset; the emulators stop only when all are destroyed")
-    env_parser = commands.add_parser("env", help="print the lab variables for a shell")
+    env_parser = commands.add_parser("env", parents=[common], help="print the lab variables for a shell")
     env_parser.add_argument("--shell", choices=("sh", "powershell"), default="sh")
     args = parser.parse_args(argv)
+    VERBOSE = getattr(args, "verbose", False)
+    debug(f"lab directory {HERE}; Python {sys.version.split()[0]}")
     {"up": up, "down": down, "env": env_command}[args.command](args)
 
 

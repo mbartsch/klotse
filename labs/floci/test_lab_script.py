@@ -68,9 +68,58 @@ class ProvidersTest(unittest.TestCase):
             lab.wait_healthy(["aws"], opener=opener, sleep=sleep)
         self.assertEqual(sleep.call_count, 2)
         clock = iter([0, 1000, 1000])
-        with self.assertRaises(SystemExit):
-            lab.wait_healthy(["gcp"], timeout=10, opener=MagicMock(side_effect=OSError), sleep=MagicMock(),
+        with patch("sys.stderr", new_callable=io.StringIO) as err, self.assertRaises(SystemExit) as stop:
+            lab.wait_healthy(["gcp"], timeout=10, opener=MagicMock(side_effect=OSError("refused")), sleep=MagicMock(),
                              clock=lambda: next(clock))
+        self.assertIn("logs gcp", str(stop.exception))
+        self.assertIn("gcp: GET http://127.0.0.1:4588/_floci-gcp/health -> OSError: refused", err.getvalue())
+
+    def test_gcp_uses_its_own_health_path(self):
+        asked = []
+
+        def opener(url, timeout):
+            asked.append(url)
+            if url == "http://127.0.0.1:4588/_floci/health":  # what floci-gcp 0.13.0 does not serve
+                raise lab.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            return Answer(b"ok")
+
+        with patch("sys.stderr", new_callable=io.StringIO):
+            lab.wait_healthy(["aws", "gcp"], opener=opener, sleep=MagicMock(side_effect=AssertionError("no retry")))
+        self.assertIn("http://127.0.0.1:4588/_floci-gcp/health", asked)
+        self.assertNotIn("http://127.0.0.1:4588/_floci/health", asked)
+
+    def test_verbose_logs_each_attempt_and_falls_back_to_the_alias(self):
+        def opener(url, timeout):
+            if "_floci-gcp" in url:
+                raise lab.urllib.error.HTTPError(url, 503, "Unavailable", {}, None)
+            return Answer(b"ok")
+
+        with patch.object(lab, "VERBOSE", True), patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.wait_healthy(["gcp"], opener=opener, sleep=MagicMock())
+        text = err.getvalue()
+        self.assertIn("[lab:debug] health gcp: GET http://127.0.0.1:4588/_floci-gcp/health -> HTTP 503", text)
+        self.assertIn("[lab] gcp emulator is up (http://127.0.0.1:4588/health)", text)
+
+    def test_quiet_by_default(self):
+        with patch.object(lab, "VERBOSE", False), patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.debug("hidden")
+        self.assertEqual(err.getvalue(), "")
+
+    def test_verbose_flag_before_or_after_the_command(self):
+        for argv in (["-v", "env"], ["env", "--debug"]):
+            with self.subTest(argv=argv), patch("sys.stdout", new_callable=io.StringIO), \
+                    patch("sys.stderr", new_callable=io.StringIO) as err:
+                lab.main(argv)
+            self.assertIn("[lab:debug]", err.getvalue())
+        with patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.main(["env"])
+        self.assertNotIn("[lab:debug]", err.getvalue())
+
+    def test_tf_log_is_opt_in(self):
+        with patch.dict("os.environ", {"TF_LOG": "TRACE"}, clear=True), patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertNotIn("TF_LOG", lab.lab_env())
+            self.assertEqual(lab.lab_env("DEBUG")["TF_LOG"], "DEBUG")
+        self.assertIn("fixture credentials", err.getvalue())
 
 
 class PrepareTest(unittest.TestCase):

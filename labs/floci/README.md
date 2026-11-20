@@ -61,13 +61,16 @@ Do not reuse these roots or state files in a production environment.
 `lab.py` runs the steps below for you, with the same isolation rules:
 
 ```sh
-python3 lab.py up                      # start.py checks, wait for /_floci/health, prepare .local/, init+plan+apply each root
+python3 lab.py up                      # start.py checks, wait for the health endpoints, prepare .local/, init+plan+apply each root
+python3 lab.py up -v                   # the same, logging every health attempt, command and prepared file (--debug too)
+python3 lab.py up -v --tf-log DEBUG    # also Terraform's own log (it can contain the lab's fixture credentials)
 python3 lab.py up --providers aws,gcp  # a subset; --identities also creates the Klotse kubeconfigs (identity.py create)
 eval "$(python3 lab.py env)"           # export the lab variables in this shell (PowerShell: python lab.py env --shell powershell | iex)
 python3 lab.py down                    # identity.py remove, destroy oci/gcp/azure/aws, then docker compose down --volumes
 ```
 
-`up` keeps what already exists in `.local/` and stops at the first failing root (for AWS, see the 409
+When an emulator does not become healthy, `up` prints the last answer of each health URL and the
+`docker compose logs` command for it. `up` keeps what already exists in `.local/` and stops at the first failing root (for AWS, see the 409
 recovery below, then run `up --providers` for the rest). `down` leaves the emulators running when a destroy
 fails or when only some providers are given. `env` prints the Terraform variables (OCI profile and override,
 the CA bundle once `up` wrote it) and the cloud CLI settings for the emulators: `AWS_ENDPOINT_URL` and test keys,
@@ -90,7 +93,8 @@ The launcher checks the default bridge and creates and removes an empty
 probe bridge to check the configuration for newly created networks; it
 prints a warning when either publishes beyond 127.0.0.1, then starts the lab.
 Wait for each emulator to respond at its loopback management endpoint's
-`/_floci/health`. Use HTTP for the health checks (including Azure). Check that
+`/_floci/health` (GCP: `/_floci-gcp/health`, as floci-gcp's own Docker health check uses).
+Use HTTP for the health checks (including Azure). Check that
 `container.localhost` resolves to 127.0.0.1; configure that exact loopback
 alias in the disposable host if it does not. GKE Terraform uses host routing,
 not a /container/ path.
