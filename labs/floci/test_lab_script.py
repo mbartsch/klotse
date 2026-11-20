@@ -225,7 +225,7 @@ class UpDownTest(unittest.TestCase):
                     lab.main(["down"])
         run.assert_not_called()
 
-    def purge_lab(self, here, listings, destroy_fails=False, listing_fails=False):
+    def purge_lab(self, here, listings, listing_fails=False):
         """Run down --purge against a fake Docker: `listings` maps (listing argv prefix, filter) to the names it
         returns, in turn (the purge lists each kind by label and by name, before and after removing); unlisted
         combinations return nothing."""
@@ -250,15 +250,14 @@ class UpDownTest(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, argv)  # the clusters are already broken
             return subprocess.CompletedProcess(argv, 0, stdout="")
 
-        failure = subprocess.CalledProcessError(1, "terraform") if destroy_fails else None
         with patch.object(lab, "HERE", here), patch.object(lab, "LOCAL", here / ".local"), \
-                patch.object(lab, "terraform", side_effect=failure) as terraform, \
+                patch.object(lab, "terraform") as terraform, \
                 patch.object(lab.subprocess, "run", side_effect=run), \
                 patch("sys.stderr", new_callable=io.StringIO) as err:
             lab.main(["down", "--purge"])
         return calls, terraform, err.getvalue()
 
-    def test_purge_removes_lab_docker_objects_and_state_after_a_failed_destroy(self):
+    def test_purge_skips_terraform_and_removes_lab_docker_objects_and_state(self):
         with TemporaryDirectory() as tmp:
             here = Path(tmp)
             label, name = lab.LAB_LABEL, "name=klotse793"
@@ -269,9 +268,9 @@ class UpDownTest(unittest.TestCase):
                         (("docker", "volume", "ls"), name): [["floci-aws-klotse793-eks-klotse-eks-1",
                                                                "other-klotse793-data"], []],
                         (("docker", "network", "ls"), label): [["n1"], []]}
-            calls, terraform, err = self.purge_lab(here, listings, destroy_fails=True)
-            self.assertEqual([c.args[0] for c in terraform.call_args_list], ["oci", "gcp", "azure", "aws"])
-            self.assertIn("Destroy failed for oci, gcp, azure, aws", err)
+            calls, terraform, err = self.purge_lab(here, listings)
+            terraform.assert_not_called()  # the emulators' state is in Docker; a destroy can hang (VPC DependencyViolation)
+            self.assertNotIn([lab.sys.executable, str(here / "identity.py"), "remove", "aws"], calls)
             self.assertIn(["docker", "compose", "-f", str(here / "compose.yaml"), "down", "--volumes",
                            "--remove-orphans"], calls)
             self.assertIn(["docker", "rm", "-f", "-v", "c1", "c2"], calls)

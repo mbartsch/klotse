@@ -2,8 +2,8 @@
 
     python3 lab.py up [--providers aws,gcp] [--identities]   start the emulators and apply each Terraform root
     python3 lab.py down [--providers ...]                     remove lab identities, destroy the roots, stop the emulators
-    python3 lab.py down --purge                               the same, then remove every Docker object of the lab and
-                                                              its local Terraform state, even after a failed destroy
+    python3 lab.py down --purge                               no Terraform: remove every Docker object of the lab, then
+                                                              its local Terraform state (also after a failed up or down)
     python3 lab.py env [--shell sh|powershell]                print the variables for a shell (eval "$(python3 lab.py env)")
 
   A lab on another machine:
@@ -391,6 +391,12 @@ def purge():
 def down(args):
     if args.purge and args.providers:
         raise SystemExit("--purge removes the whole lab; it cannot be combined with --providers.")
+    if args.purge:
+        # No identity removal or terraform destroy: every emulator keeps its state in Docker, so removing the lab's
+        # Docker objects removes the clusters too, and a destroy can hang for minutes (AWS VPC DependencyViolation
+        # while clusters created before a 409 are missing from state).
+        purge()
+        return
     providers = selected(args.providers)
     env = lab_env(args.tf_log)
     failed = []
@@ -408,11 +414,6 @@ def down(args):
         except subprocess.CalledProcessError:
             if provider not in failed:
                 failed.append(provider)
-    if args.purge:
-        if failed:
-            log(f"Destroy failed for {', '.join(failed)}; --purge removes their Docker resources anyway.")
-        purge()
-        return
     if failed:
         raise SystemExit(f"Destroy failed for {', '.join(failed)}; the emulators were left running so you can retry "
                          "(or down --purge to remove everything).")
@@ -507,9 +508,9 @@ def main(argv=None):
                            "127.0.0.1 (for env --host from another machine; prefer lab.py tunnel)")
     down_parser = commands.add_parser("down", parents=[common, tf], help="remove identities, destroy the roots and stop the emulators")
     down_parser.add_argument("--providers", help="comma-separated subset; the emulators stop only when all are destroyed")
-    down_parser.add_argument("--purge", action="store_true", help="also when a destroy fails: remove every Docker "
-                             "container, volume and network labelled with the lab's namespace, then delete the local "
-                             "Terraform state, plans and lab kubeconfigs")
+    down_parser.add_argument("--purge", action="store_true", help="skip identities and Terraform: remove every Docker "
+                             "container, volume and network of the lab's namespace (the emulators keep their state "
+                             "there), then delete the local Terraform state, plans and lab kubeconfigs")
     env_parser = commands.add_parser("env", parents=[common], help="print the lab variables for a shell")
     env_parser.add_argument("--shell", choices=("sh", "powershell"), default="sh")
     env_parser.add_argument("--host", help="the emulators run on this host (started there with up --bind); "
