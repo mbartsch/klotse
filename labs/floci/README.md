@@ -77,7 +77,8 @@ recovery below, then run `up --providers` for the rest). `down` leaves the emula
 fails or when only some providers are given. Floci starts the k3s sidecars (and AWS's VPC container) itself
 through the Docker socket, so `docker compose down` never removes them, and a cluster missing from Terraform
 state (the AWS 409 case) is never destroyed. `down --purge` covers both: after the destroys, failed or
-not, it removes only Docker objects labelled `floci_namespace=klotse793` (never a broad prune), lists them again,
+not, it removes only Docker objects labelled `floci_namespace=klotse793` or named `floci-<emulator>-klotse793-…`
+(never a broad prune), lists them again,
 and deletes the local Terraform state, plans and `.local/<provider>.kubeconfig` only when none remain (a
 listing Docker cannot answer counts as remaining). Provider
 plugins, lock files and the rest of `.local/` are kept. `env` prints the Terraform variables (OCI profile and override,
@@ -215,7 +216,10 @@ connect Klotse without an external cloud login.
    `docker volume ls --filter label=floci_namespace=klotse793`. If a provider
    left children behind, verify they belong to this exact lab before removing
    them individually. Never run a broad Docker prune. `python3 lab.py down --purge` does steps 1-4 in one go
-   (it removes only objects carrying this lab's label).
+   (it removes only objects carrying this lab's label or Floci's name for them). Floci keeps each EKS cluster's
+   k3s data in an unlabelled volume `floci-aws-klotse793-eks-<cluster>`; a new lab that finds it reuses the old
+   datastore, and k3s exits with `failed to find interface with specified node ip` (the Node keeps the old VPC
+   address). Remove those volumes too.
 4. After verifying destruction, delete the now-unused lab-only .local files,
    plan files and local Terraform state/backups. Close the
    isolated shell. Never delete state while resources still exist.

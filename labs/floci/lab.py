@@ -49,7 +49,9 @@ HEALTH_PATHS = {  # tried in order; the first answer with HTTP 200 counts
     "oci": ("/_floci/health",),
 }
 LOOPBACK = "127.0.0.1"
-LAB_LABEL = "label=floci_namespace=klotse793"  # compose.yaml's FLOCI_*_DOCKER_RESOURCE_NAMESPACE: this lab only
+LAB_NAMESPACE = "klotse793"  # compose.yaml's FLOCI_*_DOCKER_RESOURCE_NAMESPACE: this lab only
+LAB_LABEL = f"label=floci_namespace={LAB_NAMESPACE}"
+LAB_NAME = re.compile(rf"floci-[a-z0-9]+-{LAB_NAMESPACE}-")  # Floci's own object names, e.g. floci-aws-klotse793-eks-…
 STATE_FILES = ("terraform.tfstate", "terraform.tfstate.backup", ".terraform.tfstate.lock.info", "lab.tfplan")
 AZURE_CA_URL = f"http://{LOOPBACK}:4577/_floci/tls-cert"
 VERBOSE = False  # -v/--verbose/--debug: log each health attempt, command and prepared file
@@ -339,18 +341,24 @@ def up(args):
 
 
 def docker_ids(kind):
-    """IDs of this lab's containers, volumes or networks: only those labelled with its own Floci namespace. None when
-    Docker could not list them (unknown is not the same as none)."""
-    argv = ["docker", *(["ps", "-a"] if kind == "container" else [kind, "ls"]), "-q", "--filter", LAB_LABEL]
-    try:
-        result = run(argv, capture_output=True, text=True, check=False)
-    except OSError as error:
-        log(f"Could not run docker: {error}")
-        return None
-    if result.returncode:
-        log(f"Could not list the lab's Docker {kind}s (exit {result.returncode}).")
-        return None
-    return result.stdout.split()
+    """Names of this lab's containers, volumes or networks: those labelled with its own Floci namespace, and those
+    Floci names after it without a label (the k3s data volumes, floci-aws-klotse793-eks-<cluster>). None when Docker
+    could not list them (unknown is not the same as none)."""
+    listing = ["docker", *(["ps", "-a"] if kind == "container" else [kind, "ls"])]
+    name = "{{.Names}}" if kind == "container" else "{{.Name}}"
+    found = []
+    for filter_ in (LAB_LABEL, f"name={LAB_NAMESPACE}"):  # name= is a substring match; LAB_NAME narrows it
+        try:
+            result = run([*listing, "--filter", filter_, "--format", name], capture_output=True, text=True, check=False)
+        except OSError as error:
+            log(f"Could not run docker: {error}")
+            return None
+        if result.returncode:
+            log(f"Could not list the lab's Docker {kind}s (exit {result.returncode}).")
+            return None
+        found += [item for item in result.stdout.split()
+                  if item not in found and (filter_ == LAB_LABEL or LAB_NAME.match(item))]
+    return found
 
 
 def purge():
@@ -366,7 +374,7 @@ def purge():
                          ("network", ["network", "rm"])):
         ids = docker_ids(kind)
         if ids:
-            log(f"Removing {len(ids)} lab {kind}(s) labelled {LAB_LABEL}")
+            log(f"Removing {len(ids)} lab {kind}(s): {' '.join(ids)}")
             run(["docker", *remove, *ids], check=False)
         remaining = docker_ids(kind)
         leftovers += [f"{kind}s (could not list)"] if remaining is None else [f"{kind} {item}" for item in remaining]
