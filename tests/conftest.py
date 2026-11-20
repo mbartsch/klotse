@@ -178,6 +178,9 @@ def own_thread_pool(monkeypatch):
     # pytest-qt closes a test's widgets with deleteLater(), and Qt only carries that out inside a running event loop. Tests that never
     # wait left their windows behind, and the first later test that did wait paid for destroying all of them inside its own wait:
     # the stack dump showed the GUI thread inside that event loop for the whole 5 s while the worker's answer sat in the queue.
+    # It also let a left-over window's timers and signals fire into half-destroyed widgets during that later test (#403: a
+    # deleted QStatusBar, a segmentation fault). This fixture is set up before qtbot, so it ends after qtbot closed the widgets.
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 # ---- progress for scripts/run_tests.py -------------------------------------------------------------------------------------
