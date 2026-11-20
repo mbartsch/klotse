@@ -82,6 +82,14 @@ def test_emulator_cluster_without_a_ca_is_refused_not_made_unverified(tmp_path, 
     assert "token" not in target.read_text(encoding="utf-8")
 
 
+def test_mock_mode_or_starting_cluster_says_to_wait_and_add_again(tmp_path, monkeypatch):
+    # Floci 0.13.0 mock mode reports endpoint 127.0.0.1 (no port) and an empty CA; a real cluster has no CA until k3s is ready.
+    monkeypatch.setenv(clusters.ENDPOINT_VARIABLE, "http://container.localhost:4588/")
+    target = tmp_path / "piece.yaml"
+    with pytest.raises(CloudError, match="finished starting.*mock mode.*add the cluster again"):
+        clusters.cluster_credentials(ClusterRef("c", "c", "l"), {"project": "p"}, target, fake_run("https://127.0.0.1", ca=""))
+
+
 def test_unreadable_gcloud_output_is_a_cloud_error(tmp_path):
     target = tmp_path / "piece.yaml"
     target.write_text("[unclosed", encoding="utf-8")
