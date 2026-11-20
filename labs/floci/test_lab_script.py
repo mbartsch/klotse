@@ -190,10 +190,10 @@ class UpDownTest(unittest.TestCase):
                 patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO) as err:
             with self.assertRaises(SystemExit):
                 lab.main(["up"])
-        self.assertEqual(calls, ["aws", "aws"])  # init, then the recovery's state list; nothing after the failing root
+        self.assertEqual(calls, ["aws"])  # init failed: no recovery (only an apply can lose a CreateCluster), nothing after
         self.assertIn("409 Cluster already exists", err.getvalue())
 
-    def recovery(self, statuses, apply_fails_once=True):
+    def recovery(self, statuses, apply_fails_once=True, in_state=(), plan_actions=None):
         """recover_aws against a fake terraform: the first aws apply fails (the 409), the state lacks both clusters,
         and each refresh reports the next {name: status} from `statuses`."""
         calls, shows = [], list(statuses)
@@ -208,7 +208,12 @@ class UpDownTest(unittest.TestCase):
             if args[0] == "import":
                 imported.add(args[-1])
             if args[0] == "state":
-                return subprocess.CompletedProcess(args, 0, stdout="aws_vpc.lab\n")
+                return subprocess.CompletedProcess(args, 0, stdout="\n".join(
+                    ["aws_vpc.lab", *(lab.eks_address(name) for name in in_state)]))
+            if args[:2] == ("show", "-json") and args[-1] == "lab.tfplan":
+                changes = [{"address": lab.eks_address(n), "type": "aws_eks_cluster", "change": {"actions": a}}
+                           for n, a in (plan_actions or {}).items()]
+                return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"resource_changes": changes}))
             if args[0] == "show":
                 status = shows.pop(0) if len(shows) > 1 else shows[0]
                 resources = [{"type": "aws_eks_cluster", "values": {"name": n, "status": s}} for n, s in status.items()]
@@ -229,8 +234,9 @@ class UpDownTest(unittest.TestCase):
         for name in lab.AWS_CLUSTERS:
             self.assertIn(("aws", "import", "-input=false", lab.eks_address(name), name), calls)
         aws = [c[1] for c in calls if c[0] == "aws"]
-        self.assertEqual(aws[-2:], ["plan", "apply"])  # the node groups after the import and the ACTIVE wait
-        self.assertEqual(aws.count("show"), 2)  # waited through one CREATING refresh
+        self.assertEqual(aws[-3:], ["plan", "show", "apply"])  # node groups after the import, the wait and a plan check
+        self.assertEqual(aws.count("show"), 3)  # waited through one CREATING refresh, then checked the plan
+        self.assertIn(("aws", "apply", "-refresh-only", "-auto-approve", "-input=false"), calls)
         self.assertEqual([c[1] for c in calls if c[0] == "gcp"], ["init", "plan", "apply"])
         self.assertIn("importing klotse-eks-1", err.getvalue())
 
@@ -243,6 +249,52 @@ class UpDownTest(unittest.TestCase):
             lab.recover_aws({}, timeout=150, sleep=lambda _: None)
         self.assertIn("not ACTIVE after 150s", str(stop.exception))
         self.assertNotIn("plan", [c[1] for c in calls])
+
+    def run_recovery(self, terraform):
+        with patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO), \
+                self.assertRaises(SystemExit) as stop:
+            lab.recover_aws({}, timeout=60, sleep=lambda _: None)
+        return str(stop.exception)
+
+    def test_recovery_imports_only_the_missing_cluster(self):
+        active = {name: "ACTIVE" for name in lab.AWS_CLUSTERS}
+        calls, imported, terraform = self.recovery([active], apply_fails_once=False, in_state=["klotse-eks-1"])
+        with patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO):
+            self.assertTrue(lab.recover_aws({}, sleep=lambda _: None))
+        self.assertEqual(imported, {"klotse-eks-2"})
+
+    def test_recovery_stops_at_a_failed_cluster(self):
+        _, _, terraform = self.recovery([{"klotse-eks-1": "ACTIVE", "klotse-eks-2": "FAILED"}], apply_fails_once=False)
+        self.assertIn("klotse-eks-2 FAILED", self.run_recovery(terraform))
+
+    def test_recovery_refuses_a_plan_that_replaces_a_cluster(self):
+        active = {name: "ACTIVE" for name in lab.AWS_CLUSTERS}
+        calls, _, terraform = self.recovery([active], apply_fails_once=False,
+                                            plan_actions={"klotse-eks-1": ["delete", "create"], "klotse-eks-2": ["no-op"]})
+        message = self.run_recovery(terraform)
+        self.assertIn('would replace aws_eks_cluster.lab["klotse-eks-1"]', message)
+        self.assertNotIn("klotse-eks-2", message)
+        self.assertNotIn(("aws", "apply", "-input=false", "lab.tfplan"), calls)
+
+    def test_recovery_reports_output_that_is_not_json(self):
+        def terraform(provider, *args, env, capture=False):
+            return subprocess.CompletedProcess(args, 0, stdout="not json" if args[0] == "show" else "")
+        self.assertIn("did not return JSON", self.run_recovery(terraform))
+
+    def test_a_failed_post_import_apply_names_the_step(self):
+        def terraform(provider, *args, env, capture=False):
+            if args[0] == "apply" and args[-1] == "lab.tfplan":
+                raise subprocess.CalledProcessError(1, ["terraform", "-chdir=aws", *args])
+            if args[0] == "show":
+                return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"values": {"root_module": {"resources": [
+                    {"type": "aws_eks_cluster", "values": {"name": n, "status": "ACTIVE"}} for n in lab.AWS_CLUSTERS]}}}))
+            return subprocess.CompletedProcess(args, 0, stdout="")
+
+        with patch.object(lab.start, "main"), patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"), \
+                patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO) as err, \
+                self.assertRaises(SystemExit):
+            lab.main(["up", "--providers", "aws"])
+        self.assertIn("AWS recovery failed at: apply -input=false lab.tfplan", err.getvalue())
 
     def test_failed_import_reports_the_manual_recovery(self):
         def terraform(provider, *args, env, capture=False):

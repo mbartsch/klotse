@@ -273,9 +273,25 @@ def eks_address(name):
 def eks_status(env):
     """{cluster name: status} for the EKS clusters in the aws state, refreshed from the emulator first."""
     terraform("aws", "apply", "-refresh-only", "-auto-approve", "-input=false", env=env, capture=True)
-    shown = json.loads(terraform("aws", "show", "-json", env=env, capture=True).stdout or "{}")
-    resources = shown.get("values", {}).get("root_module", {}).get("resources", [])
-    return {r["values"]["name"]: r["values"].get("status") for r in resources if r.get("type") == "aws_eks_cluster"}
+    shown = show_json(terraform("aws", "show", "-json", env=env, capture=True).stdout)
+    resources = (shown.get("values") or {}).get("root_module", {}).get("resources", [])
+    clusters = (r.get("values") or {} for r in resources if r.get("type") == "aws_eks_cluster")
+    return {values["name"]: values.get("status") for values in clusters if values.get("name")}
+
+
+def show_json(text):
+    try:
+        return json.loads(text or "{}")
+    except ValueError:
+        raise SystemExit("AWS recovery: terraform show -json did not return JSON.") from None
+
+
+def replaced_clusters(env):
+    """Addresses of EKS clusters the saved plan would delete or replace: applying it after an import would recreate
+    the cluster and hit the same 409."""
+    plan = show_json(terraform("aws", "show", "-json", "lab.tfplan", env=env, capture=True).stdout)
+    return [change.get("address") for change in plan.get("resource_changes", [])
+            if change.get("type") == "aws_eks_cluster" and "delete" in change.get("change", {}).get("actions", [])]
 
 
 def recover_aws(env, timeout=AWS_ACTIVE_TIMEOUT, sleep=None):
@@ -294,6 +310,9 @@ def recover_aws(env, timeout=AWS_ACTIVE_TIMEOUT, sleep=None):
     deadline = time.monotonic() + timeout
     while True:
         status = eks_status(env)
+        failed = sorted(name for name in AWS_CLUSTERS if status.get(name) == "FAILED")
+        if failed:
+            raise SystemExit(f"AWS: Floci reports {', '.join(failed)} FAILED; run down --purge and up again.")
         waiting = sorted(name for name in AWS_CLUSTERS if status.get(name) != "ACTIVE")
         if not waiting:
             break
@@ -303,6 +322,10 @@ def recover_aws(env, timeout=AWS_ACTIVE_TIMEOUT, sleep=None):
         debug(f"AWS: waiting for {', '.join(waiting)} to become ACTIVE")
         (sleep or time.sleep)(5)
     terraform("aws", "plan", "-input=false", "-out=lab.tfplan", env=env)
+    replaced = replaced_clusters(env)
+    if replaced:
+        raise SystemExit(f"AWS: after the import the plan would replace {', '.join(replaced)}; not applied. Review "
+                         "`terraform -chdir=aws plan` (README: AWS recovery).")
     terraform("aws", "apply", "-input=false", "lab.tfplan", env=env)
     return True
 
@@ -366,16 +389,20 @@ def up(args):
     env = lab_env(args.tf_log)
     for provider in providers:
         log(f"terraform apply: {provider}")
+        step = "init"
         try:
             terraform(provider, "init", "-input=false", "-lockfile=readonly", env=env)
+            step = "plan"
             terraform(provider, "plan", "-input=false", "-out=lab.tfplan", env=env)
+            step = "apply"
             terraform(provider, "apply", "-input=false", "lab.tfplan", env=env)
         except subprocess.CalledProcessError:
             try:
-                if provider == "aws" and recover_aws(env):
+                if provider == "aws" and step == "apply" and recover_aws(env):  # only an apply can lose a CreateCluster
                     continue
-            except subprocess.CalledProcessError:
-                pass
+            except subprocess.CalledProcessError as error:
+                log("AWS recovery failed at: " + " ".join(str(part) for part in error.cmd[2:] if part)
+                    if isinstance(error.cmd, (list, tuple)) else f"AWS recovery failed: {error}")
             if provider == "aws":
                 log("AWS failed; if it reported '409 Cluster already exists', follow 'AWS: recover a cluster created before "
                     "a conflict response' in README.md, then run up again with --providers for the rest.")
