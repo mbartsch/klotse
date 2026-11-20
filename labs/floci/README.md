@@ -72,8 +72,8 @@ python3 lab.py down --purge           # no Terraform: remove every klotse793 con
 ```
 
 When an emulator does not become healthy, `up` prints the last answer of each health URL and the
-`docker compose logs` command for it. `up` keeps what already exists in `.local/` and stops at the first failing root (for AWS, see the 409
-recovery below, then run `up --providers` for the rest). `down` leaves the emulators running when a destroy
+`docker compose logs` command for it. `up` keeps what already exists in `.local/` and stops at the first failing root (AWS first imports
+clusters lost to Floci's 409 and finishes, see the 409 recovery below; otherwise run `up --providers` for the rest). `down` leaves the emulators running when a destroy
 fails or when only some providers are given. Floci starts the k3s sidecars (and AWS's VPC container) itself
 through the Docker socket, so `docker compose down` never removes them, and a cluster missing from Terraform
 state (the AWS 409 case) is never destroyed; its subnets then keep the VPC destroy retrying a `DependencyViolation`
@@ -176,8 +176,21 @@ terraform -chdir=aws apply lab.tfplan
 
 ### AWS: recover a cluster created before a conflict response
 
-Floci 2.5.0 can create an EKS k3s sidecar but report `409 Cluster already
-exists` to Terraform on the initial apply. Do not retry blindly. Confirm the
+Floci 2.5.0 creates the EKS clusters but reports `409 Cluster already exists`
+to Terraform on every apply that creates a new VPC. The first `CreateCluster`
+in a VPC makes Floci attach its own container to the VPC's new Docker network,
+which drops the in-flight API connection. The AWS SDK retries with the same
+`clientRequestToken`, and Floci, which does not treat the token as idempotent,
+answers 409 for the cluster the first attempt created (seen in a `TF_LOG=DEBUG`
+trace: attempt 1 has no response, attempt 2 gets the 409).
+
+`lab.py up` recovers automatically. When the AWS apply fails, it imports only
+the lab clusters missing from `terraform -chdir=aws state list` (an import fails
+for a cluster Floci does not have), waits up to 180 s for them to be `ACTIVE`,
+then plans and applies the node groups and continues with the other providers.
+When nothing is missing, or the recovery fails, it stops as before.
+
+To recover by hand (plain Terraform, or an older `lab.py`), do not retry blindly. Confirm the
 matching sidecar belongs to this lab, that the lab EKS cluster has finished
 starting, and that its Terraform address is missing from
 `terraform -chdir=aws state list`. Import **only** each missing address (the
