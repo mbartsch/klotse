@@ -225,7 +225,7 @@ class UpDownTest(unittest.TestCase):
                     lab.main(["down"])
         run.assert_not_called()
 
-    def purge_lab(self, here, listings, destroy_fails=False):
+    def purge_lab(self, here, listings, destroy_fails=False, listing_fails=False):
         """Run down --purge against a fake Docker: `listings` maps a listing argv prefix to the IDs it returns, in
         turn (the purge lists each kind before and after removing)."""
         (here / ".local").mkdir(exist_ok=True)
@@ -240,6 +240,8 @@ class UpDownTest(unittest.TestCase):
 
         def run(argv, **kwargs):
             calls.append(argv)
+            if listing_fails and argv[0] == "docker" and argv[1] != "compose":  # daemon down, socket denied
+                return subprocess.CompletedProcess(argv, 1, stdout="")
             for prefix, answers in listings.items():
                 if tuple(argv[:len(prefix)]) == prefix:
                     return subprocess.CompletedProcess(argv, 0, stdout="\n".join(answers.pop(0) if answers else []))
@@ -287,6 +289,43 @@ class UpDownTest(unittest.TestCase):
                 self.purge_lab(here, listings)
             self.assertIn("container c1", str(stop.exception))
             self.assertTrue((here / "aws" / "terraform.tfstate").exists())
+
+    def test_purge_keeps_state_when_docker_cannot_list(self):
+        with TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            with self.assertRaises(SystemExit) as stop:
+                self.purge_lab(here, {}, listing_fails=True)
+            self.assertIn("containers (could not list)", str(stop.exception))
+            self.assertIn("networks (could not list)", str(stop.exception))
+            for provider in lab.ORDER:
+                self.assertTrue((here / provider / "terraform.tfstate").exists())
+            self.assertTrue((here / ".local" / "aws.kubeconfig").exists())
+
+    def test_purge_without_docker_keeps_state(self):
+        with TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            (here / "aws").mkdir()
+            (here / "aws" / "terraform.tfstate").write_text("{}")
+            with patch.object(lab, "HERE", here), patch.object(lab, "LOCAL", here / ".local"), \
+                    patch.object(lab.subprocess, "run", side_effect=FileNotFoundError("docker")), \
+                    patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as stop:
+                lab.main(["down", "--purge"])
+            self.assertIn("nothing was purged", str(stop.exception))
+            self.assertTrue((here / "aws" / "terraform.tfstate").exists())
+
+    def test_failed_identity_removal_still_destroys(self):
+        with TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            (here / "gcp" / ".terraform").mkdir(parents=True)
+            (here / ".local").mkdir()
+            (here / ".local" / "gcp.kubeconfig").write_text("{}")
+            with patch.object(lab, "HERE", here), patch.object(lab, "LOCAL", here / ".local"), \
+                    patch.object(lab, "terraform") as terraform, \
+                    patch.object(lab.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "identity")), \
+                    patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as stop:
+                lab.main(["down", "--providers", "gcp"])
+        self.assertEqual(terraform.call_args.args[:2], ("gcp", "destroy"))
+        self.assertIn("Destroy failed for gcp", str(stop.exception))
 
     def test_purge_refuses_a_provider_subset(self):
         with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as stop:

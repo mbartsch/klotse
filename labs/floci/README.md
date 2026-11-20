@@ -78,7 +78,8 @@ fails or when only some providers are given. Floci starts the k3s sidecars (and 
 through the Docker socket, so `docker compose down` never removes them, and a cluster missing from Terraform
 state (the AWS 409 case) is never destroyed. `down --purge` covers both: after the destroys, failed or
 not, it removes only Docker objects labelled `floci_namespace=klotse793` (never a broad prune), lists them again,
-and deletes the local Terraform state, plans and `.local/<provider>.kubeconfig` only when none remain. Provider
+and deletes the local Terraform state, plans and `.local/<provider>.kubeconfig` only when none remain (a
+listing Docker cannot answer counts as remaining). Provider
 plugins, lock files and the rest of `.local/` are kept. `env` prints the Terraform variables (OCI profile and override,
 the CA bundle once `up` wrote it) and the cloud CLI settings for the emulators: `AWS_ENDPOINT_URL` and test keys,
 `OCI_CLI_CONFIG_FILE`/`OCI_CLI_ENDPOINT`, and for gcloud a private `CLOUDSDK_CONFIG`, the container endpoint

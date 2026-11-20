@@ -339,12 +339,17 @@ def up(args):
 
 
 def docker_ids(kind):
-    """IDs of this lab's containers, volumes or networks: only those labelled with its own Floci namespace."""
+    """IDs of this lab's containers, volumes or networks: only those labelled with its own Floci namespace. None when
+    Docker could not list them (unknown is not the same as none)."""
     argv = ["docker", *(["ps", "-a"] if kind == "container" else [kind, "ls"]), "-q", "--filter", LAB_LABEL]
-    result = run(argv, capture_output=True, text=True, check=False)
+    try:
+        result = run(argv, capture_output=True, text=True, check=False)
+    except OSError as error:
+        log(f"Could not run docker: {error}")
+        return None
     if result.returncode:
         log(f"Could not list the lab's Docker {kind}s (exit {result.returncode}).")
-        return []
+        return None
     return result.stdout.split()
 
 
@@ -352,7 +357,10 @@ def purge():
     """Remove everything this lab left in Docker and its local Terraform state, whatever the destroy managed.
     Floci starts the cluster sidecars (and AWS's VPC container) itself through the Docker socket, so compose never
     sees them; a cluster missing from Terraform state (the AWS 409 case) is never destroyed either."""
-    run(["docker", "compose", "-f", str(HERE / "compose.yaml"), "down", "--volumes", "--remove-orphans"], check=False)
+    try:
+        run(["docker", "compose", "-f", str(HERE / "compose.yaml"), "down", "--volumes", "--remove-orphans"], check=False)
+    except OSError as error:
+        raise SystemExit(f"Could not run docker ({error}); nothing was purged.") from None
     leftovers = []
     for kind, remove in (("container", ["rm", "-f", "-v"]), ("volume", ["volume", "rm", "-f"]),
                          ("network", ["network", "rm"])):
@@ -360,7 +368,8 @@ def purge():
         if ids:
             log(f"Removing {len(ids)} lab {kind}(s) labelled {LAB_LABEL}")
             run(["docker", *remove, *ids], check=False)
-        leftovers += [f"{kind} {item}" for item in docker_ids(kind)]
+        remaining = docker_ids(kind)
+        leftovers += [f"{kind}s (could not list)"] if remaining is None else [f"{kind} {item}" for item in remaining]
     if leftovers:
         raise SystemExit("Some lab Docker objects remain (" + ", ".join(leftovers) + "); local Terraform state was "
                          "kept. Remove them, then run down --purge again.")
