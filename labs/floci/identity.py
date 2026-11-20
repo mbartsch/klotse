@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 from uuid import uuid4
 from tempfile import TemporaryDirectory
@@ -47,8 +48,12 @@ def bootstrap(service, resource_id):
         raise SystemExit(f"Expected one running lab k3s container for {resource_id}.")
     container = json.loads(docker("inspect", ids[0]))[0]
     ports = container["NetworkSettings"]["Ports"].get("6443/tcp")
-    if not ports or any(item["HostIp"] != "127.0.0.1" for item in ports):
-        raise SystemExit("Refusing k3s API without an IPv4 loopback-only published port.")
+    if not ports:
+        raise SystemExit("The lab k3s container publishes no API port.")
+    if any(item.get("HostIp") != "127.0.0.1" for item in ports):
+        print(f"WARNING: the k3s API of {resource_id} is published beyond 127.0.0.1 and can be reachable from other "
+              "machines; see README.md for a loopback-only Docker daemon. Klotse still connects through 127.0.0.1.",
+              file=sys.stderr)
     port = int(ports[0]["HostPort"])
     base = {"eks": 16443, "aks": 16543, "gke": 16643, "oke": 16743}[service]
     if not base <= port <= base + 9:

@@ -21,9 +21,12 @@ the provider dependencies are locked in each Terraform root.
 
 Floci uses the Docker socket to create privileged k3s containers. **Use a
 dedicated Docker daemon** with no unrelated workloads or credentials.
-Before starting the lab, configure that daemon so both its default bridge and
-new bridge networks default to publishing on IPv4 loopback. Example daemon
-configuration (merge these options into the dedicated daemon's JSON config):
+Recommended, not required: configure that daemon so both its default bridge
+and new bridge networks default to publishing on IPv4 loopback. Without it the
+k3s APIs (where Floci's token webhook gives any token admin access) can be
+reachable from other machines unless a firewall blocks them; the launcher and
+the identity helper warn about it and continue. Example daemon configuration
+(merge these options into the dedicated daemon's JSON config):
 
 ```json
 {
@@ -62,7 +65,8 @@ python3 start.py
 ```
 
 The launcher checks the default bridge and creates and removes an empty
-probe bridge to verify the configuration for newly created networks.
+probe bridge to check the configuration for newly created networks; it
+prints a warning when either publishes beyond 127.0.0.1, then starts the lab.
 Wait for each emulator to respond at its loopback management endpoint's
 `/_floci/health`. Use HTTP for the health checks (including Azure). Check that
 `container.localhost` resolves to 127.0.0.1; configure that exact loopback
@@ -131,8 +135,9 @@ underlying k3s containers when the node groups are added. If bootstrap
 credentials are not yet readable, wait for the corresponding k3s API to be
 ready before rerunning the identity helper.
 
-Check that the k3s API bindings shown by Docker are exclusively on 127.0.0.1.
-The identity helper refuses to use a sidecar whose API is not loopback-bound.
+Check the k3s API bindings shown by Docker; 127.0.0.1 only is recommended.
+The identity helper warns about a sidecar whose API is not loopback-bound and
+still connects through 127.0.0.1.
 Then follow [Local identities and Klotse access](IDENTITIES.md) to create
 one distinct Kubernetes identity per provider across its two clusters and
 connect Klotse without an external cloud login.
