@@ -2,8 +2,8 @@
 
     python3 lab.py up [--providers aws,gcp] [--identities]   start the emulators and apply each Terraform root
     python3 lab.py down [--providers ...]                     remove lab identities, destroy the roots, stop the emulators
-    python3 lab.py down --purge                               the same, then remove every Docker object of the lab and
-                                                              its local Terraform state, even after a failed destroy
+    python3 lab.py down --purge                               no Terraform: remove every Docker object of the lab, then
+                                                              its local Terraform state (also after a failed up or down)
     python3 lab.py env [--shell sh|powershell]                print the variables for a shell (eval "$(python3 lab.py env)")
 
   A lab on another machine:
@@ -49,7 +49,9 @@ HEALTH_PATHS = {  # tried in order; the first answer with HTTP 200 counts
     "oci": ("/_floci/health",),
 }
 LOOPBACK = "127.0.0.1"
-LAB_LABEL = "label=floci_namespace=klotse793"  # compose.yaml's FLOCI_*_DOCKER_RESOURCE_NAMESPACE: this lab only
+LAB_NAMESPACE = "klotse793"  # compose.yaml's FLOCI_*_DOCKER_RESOURCE_NAMESPACE: this lab only
+LAB_LABEL = f"label=floci_namespace={LAB_NAMESPACE}"
+LAB_NAME = re.compile(rf"floci-[a-z0-9]+-{LAB_NAMESPACE}-")  # Floci's own object names, e.g. floci-aws-klotse793-eks-…
 STATE_FILES = ("terraform.tfstate", "terraform.tfstate.backup", ".terraform.tfstate.lock.info", "lab.tfplan")
 AZURE_CA_URL = f"http://{LOOPBACK}:4577/_floci/tls-cert"
 VERBOSE = False  # -v/--verbose/--debug: log each health attempt, command and prepared file
@@ -339,18 +341,24 @@ def up(args):
 
 
 def docker_ids(kind):
-    """IDs of this lab's containers, volumes or networks: only those labelled with its own Floci namespace. None when
-    Docker could not list them (unknown is not the same as none)."""
-    argv = ["docker", *(["ps", "-a"] if kind == "container" else [kind, "ls"]), "-q", "--filter", LAB_LABEL]
-    try:
-        result = run(argv, capture_output=True, text=True, check=False)
-    except OSError as error:
-        log(f"Could not run docker: {error}")
-        return None
-    if result.returncode:
-        log(f"Could not list the lab's Docker {kind}s (exit {result.returncode}).")
-        return None
-    return result.stdout.split()
+    """Names of this lab's containers, volumes or networks: those labelled with its own Floci namespace, and those
+    Floci names after it without a label (the k3s data volumes, floci-aws-klotse793-eks-<cluster>). None when Docker
+    could not list them (unknown is not the same as none)."""
+    listing = ["docker", *(["ps", "-a"] if kind == "container" else [kind, "ls"])]
+    name = "{{.Names}}" if kind == "container" else "{{.Name}}"
+    found = []
+    for filter_ in (LAB_LABEL, f"name={LAB_NAMESPACE}"):  # name= is a substring match; LAB_NAME narrows it
+        try:
+            result = run([*listing, "--filter", filter_, "--format", name], capture_output=True, text=True, check=False)
+        except OSError as error:
+            log(f"Could not run docker: {error}")
+            return None
+        if result.returncode:
+            log(f"Could not list the lab's Docker {kind}s (exit {result.returncode}).")
+            return None
+        found += [item for item in (line.split(",")[0] for line in result.stdout.split())  # ps: name,link/alias
+                  if item not in found and (filter_ == LAB_LABEL or LAB_NAME.match(item))]
+    return found
 
 
 def purge():
@@ -366,7 +374,7 @@ def purge():
                          ("network", ["network", "rm"])):
         ids = docker_ids(kind)
         if ids:
-            log(f"Removing {len(ids)} lab {kind}(s) labelled {LAB_LABEL}")
+            log(f"Removing {len(ids)} lab {kind}(s): {' '.join(ids)}")
             run(["docker", *remove, *ids], check=False)
         remaining = docker_ids(kind)
         leftovers += [f"{kind}s (could not list)"] if remaining is None else [f"{kind} {item}" for item in remaining]
@@ -383,6 +391,12 @@ def purge():
 def down(args):
     if args.purge and args.providers:
         raise SystemExit("--purge removes the whole lab; it cannot be combined with --providers.")
+    if args.purge:
+        # No identity removal or terraform destroy: every emulator keeps its state in Docker, so removing the lab's
+        # Docker objects removes the clusters too, and a destroy can hang for minutes (AWS VPC DependencyViolation
+        # while clusters created before a 409 are missing from state).
+        purge()
+        return
     providers = selected(args.providers)
     env = lab_env(args.tf_log)
     failed = []
@@ -400,11 +414,6 @@ def down(args):
         except subprocess.CalledProcessError:
             if provider not in failed:
                 failed.append(provider)
-    if args.purge:
-        if failed:
-            log(f"Destroy failed for {', '.join(failed)}; --purge removes their Docker resources anyway.")
-        purge()
-        return
     if failed:
         raise SystemExit(f"Destroy failed for {', '.join(failed)}; the emulators were left running so you can retry "
                          "(or down --purge to remove everything).")
@@ -499,9 +508,9 @@ def main(argv=None):
                            "127.0.0.1 (for env --host from another machine; prefer lab.py tunnel)")
     down_parser = commands.add_parser("down", parents=[common, tf], help="remove identities, destroy the roots and stop the emulators")
     down_parser.add_argument("--providers", help="comma-separated subset; the emulators stop only when all are destroyed")
-    down_parser.add_argument("--purge", action="store_true", help="also when a destroy fails: remove every Docker "
-                             "container, volume and network labelled with the lab's namespace, then delete the local "
-                             "Terraform state, plans and lab kubeconfigs")
+    down_parser.add_argument("--purge", action="store_true", help="skip identities and Terraform: remove every Docker "
+                             "container, volume and network of the lab's namespace (the emulators keep their state "
+                             "there), then delete the local Terraform state, plans and lab kubeconfigs")
     env_parser = commands.add_parser("env", parents=[common], help="print the lab variables for a shell")
     env_parser.add_argument("--shell", choices=("sh", "powershell"), default="sh")
     env_parser.add_argument("--host", help="the emulators run on this host (started there with up --bind); "

@@ -225,9 +225,10 @@ class UpDownTest(unittest.TestCase):
                     lab.main(["down"])
         run.assert_not_called()
 
-    def purge_lab(self, here, listings, destroy_fails=False, listing_fails=False):
-        """Run down --purge against a fake Docker: `listings` maps a listing argv prefix to the IDs it returns, in
-        turn (the purge lists each kind before and after removing)."""
+    def purge_lab(self, here, listings, listing_fails=False):
+        """Run down --purge against a fake Docker: `listings` maps (listing argv prefix, filter) to the names it
+        returns, in turn (the purge lists each kind by label and by name, before and after removing); unlisted
+        combinations return nothing."""
         (here / ".local").mkdir(exist_ok=True)
         for provider in lab.ORDER:
             (here / provider / ".terraform").mkdir(parents=True, exist_ok=True)
@@ -242,37 +243,42 @@ class UpDownTest(unittest.TestCase):
             calls.append(argv)
             if listing_fails and argv[0] == "docker" and argv[1] != "compose":  # daemon down, socket denied
                 return subprocess.CompletedProcess(argv, 1, stdout="")
-            for prefix, answers in listings.items():
-                if tuple(argv[:len(prefix)]) == prefix:
+            for (prefix, filter_), answers in listings.items():
+                if tuple(argv[:len(prefix)]) == prefix and filter_ in argv:
                     return subprocess.CompletedProcess(argv, 0, stdout="\n".join(answers.pop(0) if answers else []))
             if argv[:2] == [lab.sys.executable, str(here / "identity.py")]:
                 raise subprocess.CalledProcessError(1, argv)  # the clusters are already broken
             return subprocess.CompletedProcess(argv, 0, stdout="")
 
-        failure = subprocess.CalledProcessError(1, "terraform") if destroy_fails else None
         with patch.object(lab, "HERE", here), patch.object(lab, "LOCAL", here / ".local"), \
-                patch.object(lab, "terraform", side_effect=failure) as terraform, \
+                patch.object(lab, "terraform") as terraform, \
                 patch.object(lab.subprocess, "run", side_effect=run), \
                 patch("sys.stderr", new_callable=io.StringIO) as err:
             lab.main(["down", "--purge"])
         return calls, terraform, err.getvalue()
 
-    def test_purge_removes_lab_docker_objects_and_state_after_a_failed_destroy(self):
+    def test_purge_skips_terraform_and_removes_lab_docker_objects_and_state(self):
         with TemporaryDirectory() as tmp:
             here = Path(tmp)
-            listings = {("docker", "ps"): [["c1", "c2"], []], ("docker", "volume", "ls"): [["v1"], []],
-                        ("docker", "network", "ls"): [["n1"], []]}
-            calls, terraform, err = self.purge_lab(here, listings, destroy_fails=True)
-            self.assertEqual([c.args[0] for c in terraform.call_args_list], ["oci", "gcp", "azure", "aws"])
-            self.assertIn("Destroy failed for oci, gcp, azure, aws", err)
+            label, name = lab.LAB_LABEL, "name=klotse793"
+            listings = {(("docker", "ps"), label): [["c1", "c2"], []],
+                        (("docker", "ps"), name): [["c2"], []],  # the same container by name: removed once
+                        (("docker", "volume", "ls"), label): [["v1"], []],
+                        # unlabelled k3s data volumes Floci names after the namespace; a look-alike is kept
+                        (("docker", "volume", "ls"), name): [["floci-aws-klotse793-eks-klotse-eks-1",
+                                                               "other-klotse793-data"], []],
+                        (("docker", "network", "ls"), label): [["n1"], []]}
+            calls, terraform, err = self.purge_lab(here, listings)
+            terraform.assert_not_called()  # the emulators' state is in Docker; a destroy can hang (VPC DependencyViolation)
+            self.assertNotIn([lab.sys.executable, str(here / "identity.py"), "remove", "aws"], calls)
             self.assertIn(["docker", "compose", "-f", str(here / "compose.yaml"), "down", "--volumes",
                            "--remove-orphans"], calls)
             self.assertIn(["docker", "rm", "-f", "-v", "c1", "c2"], calls)
-            self.assertIn(["docker", "volume", "rm", "-f", "v1"], calls)
+            self.assertIn(["docker", "volume", "rm", "-f", "v1", "floci-aws-klotse793-eks-klotse-eks-1"], calls)
             self.assertIn(["docker", "network", "rm", "n1"], calls)
-            for argv in calls:  # every listing is scoped to this lab's namespace label
+            for argv in calls:  # every listing is scoped to this lab's namespace
                 if argv[:2] == ["docker", "ps"] or argv[2:3] == ["ls"]:
-                    self.assertEqual(argv[-2:], ["--filter", "label=floci_namespace=klotse793"])
+                    self.assertIn(argv[argv.index("--filter") + 1], (label, name))
             for provider in lab.ORDER:
                 for name in lab.STATE_FILES:
                     self.assertFalse((here / provider / name).exists(), (provider, name))
@@ -283,8 +289,7 @@ class UpDownTest(unittest.TestCase):
     def test_purge_keeps_state_when_docker_objects_remain(self):
         with TemporaryDirectory() as tmp:
             here = Path(tmp)
-            listings = {("docker", "ps"): [["c1"], ["c1"]], ("docker", "volume", "ls"): [[], []],
-                        ("docker", "network", "ls"): [[], []]}
+            listings = {(("docker", "ps"), lab.LAB_LABEL): [["c1"], ["c1"]]}
             with self.assertRaises(SystemExit) as stop:
                 self.purge_lab(here, listings)
             self.assertIn("container c1", str(stop.exception))
