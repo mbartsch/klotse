@@ -1,9 +1,12 @@
 """Add clusters from the cloud, per cloud plugin: the listing, the credentials command, the local defaults, and which plugins the
 dialog offers. The CLI is replaced by a fake that records the argv (no cloud, no network)."""
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 
+from klotse.k8s import cloud_clusters as cloud
 from klotse.plugins.api import CloudError, ClusterRef
 from klotse.plugins.manager import PluginManager
 from klotse_plugins.aws import AwsPlugin
@@ -139,7 +142,71 @@ def test_aks_listing_and_credentials():
     assert found[0].group == "rg-demo" and found[0].state == "Succeeded"
     AzurePlugin().cluster_credentials(aks.SOURCE, found[0], {"subscription": "demo-sub"}, "piece.yaml", run)
     assert run.calls[1] == ["az", "aks", "get-credentials", "--name", "demo-aks", "--file", "piece.yaml", "--resource-group", "rg-demo",
-                            "--subscription", "demo-sub"]
+                            "--context", "demo-aks", "--subscription", "demo-sub"]
+
+
+def _generic_kubeconfig(server, ca):
+    """What an emulator-backed `az aks get-credentials` can write: every entry named `default` (#796)."""
+    return yaml.safe_dump({"apiVersion": "v1", "kind": "Config", "current-context": "default",
+                           "clusters": [{"name": "default", "cluster": {"server": server, "certificate-authority-data": ca}}],
+                           "users": [{"name": "default", "user": {"token": f"token-{ca}"}}],
+                           "contexts": [{"name": "default", "context": {"cluster": "default", "user": "default"}}]})
+
+
+class WritingRun(FakeRun):
+    """A fake `az` that writes the given kubeconfig text to the `--file` argument, like the real CLI."""
+
+    def __init__(self, text):
+        super().__init__("")
+        self.text = text
+
+    def __call__(self, argv, env=None, timeout=None):
+        Path(argv[argv.index("--file") + 1]).write_text(self.text, encoding="utf-8")
+        return super().__call__(argv, env, timeout)
+
+
+def test_aks_generic_default_names_from_the_cli_take_the_selected_cluster_name(tmp_path):
+    piece = tmp_path / "piece.yaml"
+    cluster = ClusterRef("floci-aks", "floci-aks", "westeurope", "rg-lab", "Succeeded")
+    AzurePlugin().cluster_credentials(aks.SOURCE, cluster, {}, piece, WritingRun(_generic_kubeconfig("https://a:1", "CA-A")))
+    data = yaml.safe_load(piece.read_text(encoding="utf-8"))
+    assert [c["name"] for c in data["clusters"]] == ["floci-aks"]
+    assert [u["name"] for u in data["users"]] == ["clusterUser_rg-lab_floci-aks"]
+    assert data["contexts"] == [{"name": "floci-aks", "context": {"cluster": "floci-aks", "user": "clusterUser_rg-lab_floci-aks"}}]
+    assert data["current-context"] == "floci-aks"
+
+
+def test_two_aks_imports_with_generic_names_stay_distinct_and_keep_existing_entries(tmp_path):
+    target = tmp_path / "config"
+    target.write_text(_generic_kubeconfig("https://mine:6443", "CA-MINE"), encoding="utf-8")  # the user's own `default`
+    for name, server, ca in (("aks-one", "https://one:1", "CA-1"), ("aks-two", "https://two:2", "CA-2")):
+        piece = tmp_path / f"{name}.yaml"
+        cluster = ClusterRef(name, name, "westeurope", "rg-lab", "Succeeded")
+        AzurePlugin().cluster_credentials(aks.SOURCE, cluster, {}, piece, WritingRun(_generic_kubeconfig(server, ca)))
+        added, skipped = cloud.merge_into(target, piece)
+        assert (added, skipped) == ([name], [])
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    clusters = {c["name"]: c["cluster"] for c in data["clusters"]}
+    users = {u["name"]: u["user"] for u in data["users"]}
+    contexts = {c["name"]: c["context"] for c in data["contexts"]}
+    assert clusters["default"] == {"server": "https://mine:6443", "certificate-authority-data": "CA-MINE"}
+    assert users["default"] == {"token": "token-CA-MINE"} and contexts["default"] == {"cluster": "default", "user": "default"}
+    assert data["current-context"] == "default"
+    for name, server, ca in (("aks-one", "https://one:1", "CA-1"), ("aks-two", "https://two:2", "CA-2")):
+        context = contexts[name]
+        assert clusters[context["cluster"]] == {"server": server, "certificate-authority-data": ca}
+        assert users[context["user"]] == {"token": f"token-{ca}"}
+
+
+def test_aks_normal_azure_names_are_left_unchanged(tmp_path):
+    text = yaml.safe_dump({"apiVersion": "v1", "kind": "Config", "current-context": "demo-aks",
+                           "clusters": [{"name": "demo-aks", "cluster": {"server": "https://demo.hcp.westeurope.azmk8s.io:443"}}],
+                           "users": [{"name": "clusterUser_rg-demo_demo-aks", "user": {"token": "t"}}],
+                           "contexts": [{"name": "demo-aks", "context": {"cluster": "demo-aks", "user": "clusterUser_rg-demo_demo-aks"}}]})
+    piece = tmp_path / "piece.yaml"
+    cluster = ClusterRef("demo-aks", "demo-aks", "westeurope", "rg-demo", "Succeeded")
+    AzurePlugin().cluster_credentials(aks.SOURCE, cluster, {}, piece, WritingRun(text))
+    assert piece.read_text(encoding="utf-8") == text
 
 
 def test_aks_default_subscription_is_the_one_marked_default_and_a_byte_order_mark_is_accepted(tmp_path):
