@@ -6,7 +6,7 @@ x-docker-socket: &docker-socket
 services:
   aws:
     image: floci/floci:2.5.0
-    ports: ["127.0.0.1:4566:4566"]
+    ports: ["${KLOTSE_LAB_BIND:-127.0.0.1}:4566:4566"]
     volumes: *docker-socket
     environment:
       FLOCI_DOCKER_RESOURCE_NAMESPACE: klotse793
@@ -17,7 +17,7 @@ services:
       FLOCI_SERVICES_EKS_API_SERVER_MAX_PORT: "16452"
   azure:
     image: floci/floci-az:0.17.0
-    ports: ["127.0.0.1:4577:4577"]
+    ports: ["${KLOTSE_LAB_BIND:-127.0.0.1}:4577:4577"]
     volumes: *docker-socket
     environment:
       FLOCI_AZ_DOCKER_RESOURCE_NAMESPACE: klotse793
@@ -28,7 +28,7 @@ services:
       FLOCI_AZ_SERVICES_AKS_API_SERVER_MAX_PORT: "16552"
   gcp:
     image: floci/floci-gcp:0.13.0
-    ports: ["127.0.0.1:4588:4588"]
+    ports: ["${KLOTSE_LAB_BIND:-127.0.0.1}:4588:4588"]
     volumes: *docker-socket
     environment:
       FLOCI_GCP_DOCKER_RESOURCE_NAMESPACE: klotse793
@@ -38,7 +38,7 @@ services:
       FLOCI_GCP_SERVICES_GKE_API_SERVER_MAX_PORT: "16652"
   oci:
     image: floci/floci-oci:0.7.0
-    ports: ["127.0.0.1:4599:4599"]
+    ports: ["${KLOTSE_LAB_BIND:-127.0.0.1}:4599:4599"]
     volumes: *docker-socket
     environment:
       FLOCI_OCI_DOCKER_RESOURCE_NAMESPACE: klotse793

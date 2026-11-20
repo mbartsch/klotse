@@ -225,6 +225,104 @@ class UpDownTest(unittest.TestCase):
                     lab.main(["down"])
         run.assert_not_called()
 
+    def test_up_passes_the_bind_address_to_compose_and_checks_health_there(self):
+        for bind, check in ((None, "127.0.0.1"), ("0.0.0.0", "127.0.0.1"), ("192.168.5.2", "192.168.5.2")):
+            with self.subTest(bind=bind), patch.dict("os.environ", {}, clear=False), \
+                    patch.object(lab.start, "main"), patch.object(lab, "wait_healthy") as wait, \
+                    patch.object(lab, "prepare") as prepare, patch.object(lab, "terraform"), \
+                    patch("sys.stderr", new_callable=io.StringIO) as err:
+                lab.main(["up"] + (["--bind", bind] if bind else []))
+                self.assertEqual(lab.os.environ["KLOTSE_LAB_BIND"], bind or "127.0.0.1")
+            self.assertEqual(wait.call_args.kwargs["host"], check)
+            self.assertEqual(prepare.call_args.kwargs["host"], check)
+            self.assertEqual("WARNING" in err.getvalue(), bool(bind))
+
+    def test_bind_refuses_a_host_name(self):
+        with self.assertRaises(SystemExit):
+            lab.bind_address("labhost")
+
+
+class RemoteTest(unittest.TestCase):
+    def test_compose_publishes_on_the_bind_address_defaulting_to_loopback(self):
+        text = (Path(lab.HERE) / "compose.yaml").read_text()
+        for port in lab.PORTS.values():
+            self.assertIn(f'"${{KLOTSE_LAB_BIND:-127.0.0.1}}:{port}:{port}"', text)
+
+    def test_env_for_a_remote_host(self):
+        with TemporaryDirectory() as tmp:
+            env = lab.environment(Path(tmp), host="10.0.0.5")
+        self.assertEqual(env["AWS_ENDPOINT_URL"], "http://10.0.0.5:4566")
+        self.assertEqual(env["OCI_CLI_ENDPOINT"], "http://10.0.0.5:4599")
+        self.assertEqual(env["CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER"], "http://10.0.0.5:4588/container/")
+        self.assertEqual(env["KLOTSE_INSECURE_NET"], "true")
+        self.assertEqual(env["TF_VAR_CLIENT_HOST_OVERRIDES"], lab.OCI_OVERRIDE)  # Terraform runs on the lab host
+        with TemporaryDirectory() as tmp:
+            local = lab.environment(Path(tmp))
+        self.assertNotIn("KLOTSE_INSECURE_NET", local)
+        self.assertEqual(local["CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER"], "http://localhost:4588/container/")
+
+    def test_hosts_are_validated_and_ipv6_is_bracketed(self):
+        self.assertEqual(lab.url_host("::1"), "[::1]")
+        self.assertEqual(lab.url_host("lab-1.example.test"), "lab-1.example.test")
+        for bad in ("-oProxyCommand=x", "a b", "host/path", "", "user@host"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                lab.url_host(bad)
+
+    def test_env_host_prints_notes_and_prepare_skips_openssl_requirement(self):
+        with patch.object(lab, "prepare") as prepare, patch("sys.stdout", new_callable=io.StringIO) as out, \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.main(["env", "--host", "labhost", "--prepare"])
+        self.assertEqual(prepare.call_args.kwargs, {"host": "labhost", "need_openssl": False})
+        self.assertIn("export AWS_ENDPOINT_URL=http://labhost:4566", out.getvalue())
+        self.assertIn("lab.py tunnel", err.getvalue())
+
+    def test_tunnel_forwards_every_port_on_loopback_and_refuses_options(self):
+        argv = lab.tunnel_argv("me@lab", ["aws", "oci"], ssh_port=2222, identity_file="key")
+        forwards = [argv[i + 1] for i, part in enumerate(argv) if part == "-L"]
+        self.assertEqual(len(forwards), 22)
+        self.assertIn("127.0.0.1:4566:127.0.0.1:4566", forwards)
+        self.assertIn("127.0.0.1:16752:127.0.0.1:16752", forwards)
+        self.assertEqual(argv[-2:], ["--", "me@lab"])
+        self.assertEqual(argv[argv.index("-p") + 1], "2222")
+        for bad in ("-oProxyCommand=x", "me@lab;rm", "a b", ""):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                lab.tunnel_argv(bad, ["aws"])
+
+    @staticmethod
+    def tunnel_args():
+        return lab.argparse.Namespace(destination="me@lab", providers="gcp", port=None, identity_file=None,
+                                      timeout=5, print=False)
+
+    def test_tunnel_waits_through_the_forward_prepares_and_closes(self):
+        process = MagicMock()
+        process.poll.return_value = None
+        with patch.object(lab, "wait_healthy") as wait, patch.object(lab, "prepare") as prepare, \
+                patch("sys.stderr", new_callable=io.StringIO):
+            lab.tunnel(self.tunnel_args(), popen=MagicMock(return_value=process))
+        self.assertEqual(wait.call_args.args[0], ["gcp"])
+        prepare.assert_called_once_with(["gcp"], need_openssl=False)
+        process.wait.assert_called()
+        process.terminate.assert_called_once()  # still running after wait() returned (mocked): closed on the way out
+
+    def test_tunnel_reports_ssh_exiting(self):
+        process = MagicMock()
+        process.poll.return_value = 255
+        process.returncode = 255
+        with patch.object(lab, "prepare") as prepare, patch("sys.stderr", new_callable=io.StringIO), \
+                self.assertRaises(SystemExit) as stop:
+            lab.tunnel(self.tunnel_args(), popen=MagicMock(return_value=process))
+        self.assertIn("ssh exited with status 255", str(stop.exception))
+        prepare.assert_not_called()
+
+    def test_prepare_on_a_client_without_openssl_skips_oci(self):
+        with TemporaryDirectory() as tmp, patch.object(lab.shutil, "which", return_value=None), \
+                patch.object(lab, "run") as run, patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.prepare(["gcp", "oci"], Path(tmp), need_openssl=False)
+            self.assertFalse(Path(tmp, "oci-config").exists())
+            self.assertTrue(Path(tmp, "gcp-token").exists())
+        run.assert_not_called()
+        self.assertIn("openssl not found", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,19 +4,27 @@
     python3 lab.py down [--providers ...]                     remove lab identities, destroy the roots, stop the emulators
     python3 lab.py env [--shell sh|powershell]                print the variables for a shell (eval "$(python3 lab.py env)")
 
+  A lab on another machine:
+    python3 lab.py tunnel user@labhost                        (recommended) SSH-forward its ports here; env works unchanged
+    python3 lab.py up --bind 0.0.0.0                          on the lab host: publish the management APIs beyond loopback
+    python3 lab.py env --host labhost [--prepare]             on the client: variables for those APIs (no cluster APIs)
+
     -v / --verbose / --debug   log every health check attempt, command and prepared file (before or after the command)
     --tf-log LEVEL             (up, down) set TF_LOG for Terraform; its log can contain the lab's fixture credentials
 
 Everything the lab generates (CA bundle, throwaway OCI key and profile, gcloud and az config folders) stays in .local/.
-The commands only talk to the emulators on 127.0.0.1; see README.md for the isolation the lab expects.
+By default the commands only talk to the emulators on 127.0.0.1; see README.md for the isolation the lab expects.
 """
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -28,15 +36,52 @@ import start
 HERE = Path(__file__).resolve().parent
 LOCAL = HERE / ".local"
 ORDER = ("aws", "azure", "gcp", "oci")  # apply order; destroy runs in reverse
-HEALTH = {  # tried in order; the first answer with HTTP 200 counts
-    "aws": ("http://127.0.0.1:4566/_floci/health",),
-    "azure": ("http://127.0.0.1:4577/_floci/health",),  # HTTP also for Azure (README)
+PORTS = {"aws": 4566, "azure": 4577, "gcp": 4588, "oci": 4599}  # management APIs (compose.yaml)
+K3S_PORTS = {provider: range(base, base + 10)  # the k3s API host ports compose.yaml gives each emulator
+             for provider, base in {"aws": 16443, "azure": 16543, "gcp": 16643, "oci": 16743}.items()}
+HEALTH_PATHS = {  # tried in order; the first answer with HTTP 200 counts
+    "aws": ("/_floci/health",),
+    "azure": ("/_floci/health",),  # HTTP also for Azure (README)
     # floci-gcp 0.13.0 serves its own prefix (docker/healthcheck.sh: GET /_floci-gcp/health); README: /health is an alias
-    "gcp": ("http://127.0.0.1:4588/_floci-gcp/health", "http://127.0.0.1:4588/health"),
-    "oci": ("http://127.0.0.1:4599/_floci/health",),
+    "gcp": ("/_floci-gcp/health", "/health"),
+    "oci": ("/_floci/health",),
 }
+LOOPBACK = "127.0.0.1"
+AZURE_CA_URL = f"http://{LOOPBACK}:4577/_floci/tls-cert"
 VERBOSE = False  # -v/--verbose/--debug: log each health attempt, command and prepared file
-AZURE_CA_URL = "http://127.0.0.1:4577/_floci/tls-cert"
+HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})")
+SSH_DESTINATION = re.compile(r"(?:[A-Za-z0-9._-]{1,64}@)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,252})")
+
+
+def url_host(host):
+    """`host` for use in a URL (IPv6 in brackets); SystemExit for anything that is not a host name or an IP address."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if not HOST_NAME.fullmatch(host or ""):
+            raise SystemExit(f"Not a host name or IP address: {host!r}") from None
+        return host
+    return f"[{address}]" if address.version == 6 else str(address)
+
+
+def is_loopback(host):
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def base_url(provider, host=LOOPBACK):
+    return f"http://{url_host(host)}:{PORTS[provider]}"
+
+
+def health_urls(provider, host=LOOPBACK):
+    return tuple(base_url(provider, host) + path for path in HEALTH_PATHS[provider])
+
+
+HEALTH = {provider: health_urls(provider) for provider in PORTS}
 OCI_OVERRIDE = "oci_containerengine.ContainerEngineClient=http://127.0.0.1:4599"
 GCP_TOKEN = "floci-local-test-token"  # the same fixture token as gcp/main.tf; Floci accepts any non-empty token
 SYSTEM_BUNDLES = ("/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem")
@@ -89,34 +134,39 @@ def paths(local=LOCAL):
     }
 
 
-def environment(local=LOCAL):
-    """The variables Terraform and the cloud CLIs need to reach the emulators (none are real credentials)."""
+def environment(local=LOCAL, host=LOOPBACK):
+    """The variables Terraform and the cloud CLIs need to reach the emulators (none are real credentials). `host` is where
+    the emulators answer: this computer (also through `lab.py tunnel`), or another one with `env --host`."""
     p = paths(local)
+    gcp = base_url("gcp", "localhost" if is_loopback(host) else host)  # floci-gcp's documented form is localhost
     env = {}
     if p["roots"].is_file():  # written by `up`; never point a shell at a CA bundle that does not exist
         # Terraform azurerm (Go) and the az CLI (Python requests) trust Floci Azure's generated CA through these.
         env["SSL_CERT_FILE"] = env["REQUESTS_CA_BUNDLE"] = str(p["roots"])
-    return env | {
+    env |= {
         "AZURE_CONFIG_DIR": str(p["azure_config"]),
-        # OCI: Terraform reads both TF_VAR_ values; the OCI CLI reads the last two.
+        # OCI: Terraform reads both TF_VAR_ values (it runs on the lab host); the OCI CLI reads the next two.
         "TF_VAR_oci_config_file": str(p["oci_config"]),
         "TF_VAR_CLIENT_HOST_OVERRIDES": OCI_OVERRIDE,
         "OCI_CLI_CONFIG_FILE": str(p["oci_config"]),
-        "OCI_CLI_ENDPOINT": "http://127.0.0.1:4599",
+        "OCI_CLI_ENDPOINT": base_url("oci", host),
         "SUPPRESS_LABEL_WARNING": "True",
         # AWS CLI and SDKs.
-        "AWS_ENDPOINT_URL": "http://127.0.0.1:4566",
+        "AWS_ENDPOINT_URL": base_url("aws", host),
         "AWS_ACCESS_KEY_ID": "test",
         "AWS_SECRET_ACCESS_KEY": "test",
         "AWS_DEFAULT_REGION": "us-east-1",
         # gcloud: a private config folder, the emulator's endpoints (floci-gcp docs/services/gke.md) and a fixture token.
         "CLOUDSDK_CONFIG": str(p["gcloud"]),
-        "CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER": "http://localhost:4588/container/",
-        "CLOUDSDK_API_ENDPOINT_OVERRIDES_SERVICEUSAGE": "http://localhost:4588/",
+        "CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER": gcp + "/container/",
+        "CLOUDSDK_API_ENDPOINT_OVERRIDES_SERVICEUSAGE": gcp + "/",
         "CLOUDSDK_CORE_SHOULD_PROMPT_TO_ENABLE_API": "false",
         "CLOUDSDK_CORE_PROJECT": "klotse-local",
         "CLOUDSDK_AUTH_ACCESS_TOKEN_FILE": str(p["gcp_token"]),
     }
+    if not is_loopback(host):
+        env["KLOTSE_INSECURE_NET"] = "true"  # Klotse allows plain http only to this computer otherwise (testing only)
+    return env
 
 
 def render(env, shell):
@@ -125,13 +175,18 @@ def render(env, shell):
     return "".join(f"export {name}={shlex.quote(value)}\n" for name, value in env.items())
 
 
-def wait_healthy(providers, timeout=300, opener=urllib.request.urlopen, sleep=time.sleep, clock=time.monotonic):
+def wait_healthy(providers, timeout=300, opener=urllib.request.urlopen, sleep=time.sleep, clock=time.monotonic,
+                 host=LOOPBACK, alive=None):
+    """Wait until every provider's emulator answers its health URL on `host`. `alive()` (optional) is called each round
+    and raises SystemExit when what the URLs depend on (an SSH tunnel) has gone away."""
     deadline = clock() + timeout
     waiting = list(providers)
     last = {}  # provider -> the last answer or error per URL, shown when it times out
     while waiting:
+        if alive:
+            alive()
         for provider in list(waiting):
-            for url in HEALTH[provider]:
+            for url in health_urls(provider, host):
                 try:
                     with opener(url, timeout=5) as answer:
                         result = f"HTTP {answer.status}"
@@ -167,16 +222,20 @@ def oci_fingerprint(key):
     return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
 
 
-def prepare(providers, local=LOCAL, fetch=urllib.request.urlopen):
-    """Create the lab-only files under .local/ that the chosen providers need. Existing files are kept."""
+def prepare(providers, local=LOCAL, fetch=urllib.request.urlopen, host=LOOPBACK, need_openssl=True):
+    """Create the lab-only files under .local/ that the chosen providers need. Existing files are kept. On a client of a
+    remote lab (need_openssl=False) a missing openssl skips the OCI profile with a warning instead of failing."""
     p = paths(local)
     private_dir(local)
     private_dir(p["gcloud"])
     private_dir(p["azure_config"])
     if not p["gcp_token"].exists():
         write_private(p["gcp_token"], GCP_TOKEN + "\n")
+    if "oci" in providers and not need_openssl and not p["oci_config"].exists() and not shutil.which("openssl"):
+        log("openssl not found: the OCI CLI profile (.local/oci-config) was not created on this computer.")
+        providers = [provider for provider in providers if provider != "oci"]
     if "azure" in providers:
-        with fetch(AZURE_CA_URL, timeout=10) as answer:
+        with fetch(base_url("azure", host) + "/_floci/tls-cert", timeout=10) as answer:
             ca = answer.read()
         write_private(p["azure_ca"], ca)
         bundle = system_bundle()
@@ -233,12 +292,28 @@ def identity(action, provider, env):
     run(argv, check=True, env=env)
 
 
+def bind_address(value):
+    """The address compose.yaml publishes the management APIs on (KLOTSE_LAB_BIND), and the host to check them on."""
+    try:
+        address = ipaddress.ip_address(value or LOOPBACK)
+    except ValueError:
+        raise SystemExit(f"--bind takes an IP address of this computer, not {value!r}") from None
+    if not address.is_loopback:
+        log(f"WARNING: the emulators' management APIs will listen on {address}, reachable from other machines with fixture "
+            "credentials; use this only on an isolated network (lab.py tunnel needs no --bind).")
+    check = LOOPBACK if address.is_unspecified or address.is_loopback else str(address)
+    return str(address), check
+
+
 def up(args):
     providers = selected(args.providers)
-    debug(f"providers: {', '.join(providers)}; start.py checks the Docker engine and bridges, then runs docker compose up -d")
+    bind, check = bind_address(args.bind)
+    os.environ["KLOTSE_LAB_BIND"] = bind  # compose.yaml: ${KLOTSE_LAB_BIND:-127.0.0.1}:<port>:<port>
+    debug(f"providers: {', '.join(providers)}; bind {bind}; start.py checks the Docker engine and bridges, "
+          "then runs docker compose up -d")
     start.main()
-    wait_healthy(providers, timeout=args.timeout)
-    prepare(providers)
+    wait_healthy(providers, timeout=args.timeout, host=check)
+    prepare(providers, host=check)
     env = lab_env(args.tf_log)
     for provider in providers:
         log(f"terraform apply: {provider}")
@@ -281,10 +356,69 @@ def down(args):
         log("Only some providers were destroyed; the emulators are still running.")
 
 
+REMOTE_NOTES = (
+    "Variables point at the emulators on {host}. They must listen there (on the lab host: lab.py up --bind 0.0.0.0).",
+    "KLOTSE_INSECURE_NET=true is set: Klotse allows plain http to other hosts only with it (testing only).",
+    "Cluster APIs are not covered: the emulators report them as localhost:<port> with certificates for localhost, and "
+    "Klotse's GCP emulator import uses its test token only for clusters on this computer. Use `lab.py tunnel` for those.",
+)
+
+
 def env_command(args):
+    host = args.host or LOOPBACK
+    url_host(host)  # refuse anything that is not a host name or address before it reaches a URL
+    if args.prepare:
+        prepare(list(ORDER), host=host, need_openssl=False)
     if not paths()["roots"].is_file():
-        log("No .local/roots.pem yet (run `lab.py up`): SSL_CERT_FILE and REQUESTS_CA_BUNDLE are left out.")
-    sys.stdout.write(render(environment(), args.shell))
+        log("No .local/roots.pem yet (run `lab.py up`, or env --prepare): SSL_CERT_FILE and REQUESTS_CA_BUNDLE are left out.")
+    if not is_loopback(host):
+        for note in REMOTE_NOTES:
+            log(note.format(host=host))
+    sys.stdout.write(render(environment(host=host), args.shell))
+
+
+def tunnel_argv(destination, providers, ssh_port=None, identity_file=None):
+    """ssh -N with one -L per management port and per k3s API port of each provider, all on 127.0.0.1 at both ends, so
+    every address the lab prints (and the localhost certificates) work unchanged on this computer."""
+    if not SSH_DESTINATION.fullmatch(destination or ""):
+        raise SystemExit(f"Not an SSH destination ([user@]host or an ssh config alias): {destination!r}")
+    argv = ["ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=30"]
+    if ssh_port:
+        argv += ["-p", str(int(ssh_port))]
+    if identity_file:
+        argv += ["-i", str(identity_file)]
+    for provider in providers:
+        for port in (PORTS[provider], *K3S_PORTS[provider]):
+            argv += ["-L", f"{LOOPBACK}:{port}:{LOOPBACK}:{port}"]
+    return argv + ["--", destination]
+
+
+def tunnel(args, popen=subprocess.Popen):
+    providers = selected(args.providers)
+    argv = tunnel_argv(args.destination, providers, args.port, args.identity_file)
+    if args.print:
+        print(" ".join(shlex.quote(part) for part in argv))
+        return
+    debug("run: " + " ".join(shlex.quote(part) for part in argv))
+    process = popen(argv)
+
+    def alive():
+        if process.poll() is not None:
+            raise SystemExit(f"ssh exited with status {process.returncode} (a local port in use, or the login failed; -v "
+                             "shows the command)")
+
+    try:
+        wait_healthy(providers, timeout=args.timeout, alive=alive)
+        prepare(providers, need_openssl=False)
+        log(f"Tunnel to {args.destination} is up. In another shell: eval \"$(python3 lab.py env)\". Copy the Klotse "
+            "kubeconfigs from the lab host's labs/floci/.local/<provider>.kubeconfig. Ctrl-C closes the tunnel.")
+        process.wait()
+    except KeyboardInterrupt:
+        log("Closing the tunnel.")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait()
 
 
 def main(argv=None):
@@ -302,14 +436,27 @@ def main(argv=None):
     up_parser.add_argument("--providers", help="comma-separated subset of aws,azure,gcp,oci (default: all)")
     up_parser.add_argument("--identities", action="store_true", help="also create the Klotse lab kubeconfigs (identity.py)")
     up_parser.add_argument("--timeout", type=int, default=300, help="seconds to wait for the emulators (default 300)")
+    up_parser.add_argument("--bind", metavar="ADDRESS", help="publish the management APIs on this address instead of "
+                           "127.0.0.1 (for env --host from another machine; prefer lab.py tunnel)")
     down_parser = commands.add_parser("down", parents=[common, tf], help="remove identities, destroy the roots and stop the emulators")
     down_parser.add_argument("--providers", help="comma-separated subset; the emulators stop only when all are destroyed")
     env_parser = commands.add_parser("env", parents=[common], help="print the lab variables for a shell")
     env_parser.add_argument("--shell", choices=("sh", "powershell"), default="sh")
+    env_parser.add_argument("--host", help="the emulators run on this host (started there with up --bind); "
+                            "default: this computer, also through lab.py tunnel")
+    env_parser.add_argument("--prepare", action="store_true", help="create .local/ on this computer first "
+                            "(Azure CA from the host, gcloud folder and token, OCI profile when openssl is installed)")
+    tunnel_parser = commands.add_parser("tunnel", parents=[common], help="forward a remote lab's ports to this computer over SSH")
+    tunnel_parser.add_argument("destination", help="[user@]host or an ssh config alias of the lab host")
+    tunnel_parser.add_argument("--providers", help="comma-separated subset of aws,azure,gcp,oci (default: all)")
+    tunnel_parser.add_argument("-p", "--port", type=int, help="SSH port of the lab host")
+    tunnel_parser.add_argument("-i", "--identity-file", help="SSH private key file")
+    tunnel_parser.add_argument("--timeout", type=int, default=60, help="seconds to wait for the emulators through the tunnel")
+    tunnel_parser.add_argument("--print", action="store_true", help="only print the ssh command")
     args = parser.parse_args(argv)
     VERBOSE = getattr(args, "verbose", False)
     debug(f"lab directory {HERE}; Python {sys.version.split()[0]}")
-    {"up": up, "down": down, "env": env_command}[args.command](args)
+    {"up": up, "down": down, "env": env_command, "tunnel": tunnel}[args.command](args)
 
 
 if __name__ == "__main__":
