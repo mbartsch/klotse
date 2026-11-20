@@ -107,6 +107,8 @@ Also not implemented and **no issue filed yet**; effort and value are estimates.
 | 51 | Filter expressions on columns (`Restarts > 3`, `CPULim = 2*CPUReq`, `Kind = Deployment`, `Name ~ regex`, and/or) (**done**, #165) | Medium | #165 |
 | 50 | Big-cluster mode (**done**): clusters with 50+ nodes or 1,500+ pods are marked and read more lightly (Warning events only on the Overview, 2,000-item pages, parallel Health/Capacity/metrics reads, heavy lists reload at most every 30 s) | Medium | |
 | 49 | Timing log (debug option, **done**): `timings.log` shows where load time goes, to measure big clusters | Small | |
+| 52 | Plugin metric sources in Usage history (plugin API 13: `MetricSource`, `metrics()`; **core extension point done**, offline tests only; no bundled plugin uses it yet) | Large | #432 |
+| 53 | AWS CloudWatch metrics for EC2 nodes, attached EBS volumes and ENIs, on the item 52 extension point | Large | #800 |
 
 Also seen there and already planned: unused objects (kor, item 24), right-sizing (Goldilocks, item 22), RBAC reverse lookup (kube-who-can, item 25), health check (item 21), Trivy reports. Seen and not planned: AI assistants and MCP servers, chaos testing, packet capture, local-development tools (Tilt, Telepresence) and cluster provisioning.
 

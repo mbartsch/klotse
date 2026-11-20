@@ -20,7 +20,7 @@ from ..k8s.permissions import Permissions
 from ..k8s.helm import HelmError, helm_uninstall_args
 from ..k8s.resources import (CRD_GROUP_COLUMNS, DELETABLE_KINDS, HELM_COLUMNS, SPEC_BY_KEY, SPEC_BY_KIND, SPECS, crd_groups,
                              custom_columns)
-from ..plugins.host import PluginHost
+from ..plugins.host import PluginHost, read_metrics, resource_info
 from ..workers import Worker
 from .account_directory import AccountDirectory, ConfigMapDirectory, IngressClassDirectory, LabelDirectory, SecretDirectory, ServiceDirectory
 from .api_index_loader import ApiIndexLoader
@@ -2188,8 +2188,27 @@ class ClusterWorkspace(QMainWindow):
         dialog.source_requested.connect(lambda: self._configure_prometheus(dialog, kind, row, selector))
         dialog.show()
         self._metrics_dialogs.append(dialog)
+        self._offer_plugin_metrics(dialog, kind, row)
         self._offer_prometheus(dialog, kind, row, selector)
         return dialog
+
+    def _offer_plugin_metrics(self, dialog, kind, row):
+        """Add the metric sources of the enabled plugins for `kind` (API 13) to a Usage history window. Each read runs on the
+        window's worker through plugins.host.read_metrics, which checks the plugin's answer before it reaches the chart."""
+        if self.plugins is None:
+            return
+        info = resource_info(row)
+        for plugin, source in self.plugins.metric_sources_for(kind):
+            settings = self.plugins.settings_for(plugin.id, self.context)
+            cache_dir = self.plugins.cache_dir(plugin.id)
+
+            def fetch(seconds, plugin=plugin, source=source, settings=settings, cache_dir=cache_dir):
+                series, warnings = read_metrics(plugin, source, kind, self.context, info, settings, seconds, cache_dir=cache_dir,
+                                                api_client=lambda: self.service.api_client())
+                return {key: {row.name: points} for key, points in series.items()}, warnings
+
+            dialog.add_plugin_source(f"plugin:{plugin.id}:{source.key}", f"{source.title} · {plugin.name or plugin.id}",
+                                     plugin.name or plugin.id, [(s.key, s.title, s.unit) for s in source.series], fetch)
 
     def show_metrics_many(self, kind, rows):
         """Right-click two or more rows > Usage history of N …: one chart with a line per object and a total, sampled from metrics-server

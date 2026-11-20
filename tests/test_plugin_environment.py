@@ -55,7 +55,7 @@ def aws(**settings):
 
 
 def test_the_api_grew_and_passing_is_on_unless_turned_off():
-    assert API_VERSION == 12 and AwsPlugin.requires_api == 12
+    assert API_VERSION == 13 and AwsPlugin.requires_api == 12
     assert next(s for s in AwsPlugin.settings if s.key == "pass_environment").default is True
     assert aws() == {}  # nothing filled in: nothing is set
     assert aws(aws_profile="work") == {"AWS_PROFILE": "work"}

@@ -97,6 +97,8 @@ GCP plugin #64 is WIP (help appreciated): metadata-only Node columns and validat
 
 OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/profile before opening; no live OCI/browser/MFA/reconnect verification. Further validation and potential contributions: #787.
 
+#432 (core only): plugin API 13 adds metric sources (`MetricSource`/`MetricSeries`, `Plugin.metrics(MetricsRequest)`, manifest `metric_sources`), offered in Usage history for one resource of the declared kinds; `plugins.host.read_metrics` runs on the window's worker and bounds/validates the answer. No bundled plugin uses it; AWS CloudWatch is #800.
+
 #790: cloud discovery keeps GCP clusters distinct by name and location; missing-location credential lookup refuses ambiguous results. AWS/GCP/OCI parsers preserve first-seen order while deduplicating. Optional local configuration defaults remain best-effort. No live-cloud verification.
 
 ## Local Terraform lab (#793)

@@ -3,11 +3,12 @@ import json
 from dataclasses import fields
 from pathlib import Path
 
-from .api import API_VERSION, Action, Column, OverviewCard, Plugin, Setting, valid_id
+from .api import (API_VERSION, Action, Column, MetricSeries, MetricSource, OverviewCard, Plugin, Setting,
+                  check_metric_source, valid_id)
 
 MANIFEST_VERSION = 1
 GROUPS = {"columns": Column, "actions": Action, "overview_cards": OverviewCard,
-          "settings": Setting, "cluster_settings": Setting}
+          "settings": Setting, "cluster_settings": Setting, "metric_sources": MetricSource}
 METADATA = ("id", "name", "description", "version", "requires_api")
 
 
@@ -61,7 +62,20 @@ def read_manifest(path):
                 if not isinstance(entry["presets"], list) or not all(isinstance(p, str) and p.strip() for p in entry["presets"]):
                     raise ValueError("manifest presets must be a list of non-empty names")
                 entry["presets"] = tuple(entry["presets"])
+            if "series" in entry:
+                raw_series = entry["series"]
+                allowed_series = {f.name for f in fields(MetricSeries)}
+                if not isinstance(raw_series, list) or not all(
+                        isinstance(s, dict) and not set(s) - allowed_series and all(isinstance(v, str) for v in s.values())
+                        for s in raw_series):
+                    raise ValueError("manifest series must be a list of {key, title, unit} objects with text values")
+                try:
+                    entry["series"] = tuple(MetricSeries(**s) for s in raw_series)
+                except TypeError as error:
+                    raise ValueError("manifest series need a key and a title") from error
             item = cls(**entry)
+            if isinstance(item, MetricSource):
+                check_metric_source(item)
             for key in ("key", "title", "label", "help", "pattern", "kind", "section"):
                 if hasattr(item, key) and not isinstance(getattr(item, key), str):
                     raise ValueError(f"manifest declaration {key} must be text")

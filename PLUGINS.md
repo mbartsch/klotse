@@ -4,18 +4,22 @@ A plugin adds information and commands to Klotse without being part of it. A plu
 
 - add **columns** to the resource lists (Nodes, Pods, ...), filled in in the background so it may call the network;
 - add **actions** to the right-click menu of resources (and of several selected rows), such as "Copy instance ID" or
-  "Open in the AWS console".
+  "Open in the AWS console";
+- add **metric sources** to the Usage history window of one resource (API 13), such as a cloud provider's monitoring
+  for the instance behind a node (see "Metric sources").
 
 Everything a plugin author needs is in `klotse.plugins`:
 
 | Name | What it is |
 | --- | --- |
-| `Plugin` | Base class. Set `id`, `name`, `description`, `version`, `requires_api`, `columns`, `actions`, `settings`, `refresh_s` and override `enrich()` (columns), `run()` (actions) and optionally `applies()`. |
+| `Plugin` | Base class. Set `id`, `name`, `description`, `version`, `requires_api`, `columns`, `actions`, `settings`, `refresh_s`, `metric_sources` and override `enrich()` (columns), `run()` (actions), `metrics()` (metric sources) and optionally `applies()`. |
 | `Column(key, title, kinds=("Node",), format=None, presets=())` | A column for tables of those kinds (`"Node"`, `"Pod"`, `"Deployment"`, ...). `format` is an optional `value -> str` for display; sorting uses the raw value, so numbers stay numbers. |
 | `Action(key, title, kinds=("Node",), multi=False, confirm=None, dangerous=False)` | A right-click entry. `multi`: also offered when several rows are selected. `confirm`: a Yes/No question asked first. `dangerous`: it changes things; marked with ⚠ and always asks first. |
 | `Setting(key, label, default, kind="text" or "password" or "note" or "multiline" or "bool", help="")` | A setting the Plugins dialog shows ("multiline" is a text box for lists, one entry per line; "note" shows its label as a large warning box and holds no value; "password" hides what is typed, but it is saved as plain text in the settings file like every other setting); its value reaches `enrich()` and `run()` in `request.settings`. |
 | `EnrichRequest` | What `enrich()` receives: `plugin_id`, `kind`, `context` (the kubeconfig context), `resources`, `settings`, `cache_dir` (a folder to keep downloaded data in; create it when needed), `api_client()` (optional factory for an authenticated cluster `kubernetes.client.ApiClient`; use it only on the worker thread), and `warn(text)` (report a problem without giving up: the values you return are still used and the text is shown in the Plugins page). |
 | `ActionRequest` | What `run()` receives: `plugin_id`, `action` (the key), `kind`, `context`, `resources`, `settings`, plus `log(line)`, `api_client()`, `kubectl` and `cache_dir`. |
+| `MetricSource(key, title, kinds=("Node",), series=())`, `MetricSeries(key, title, unit="")` | A source of history in the Usage history window for resources of those kinds, with 1 to 16 series (API 13). |
+| `MetricsRequest` | What `metrics()` receives: `plugin_id`, `source` (the key), `kind`, `context`, `resources` (one today), `settings`, `start`, `end` and `step` (Unix seconds), `cache_dir`, `api_client()` and `warn(text)`. |
 | `ResourceInfo` | One resource: `name`, `namespace`, `raw` (the full manifest, read-only), `key` (`name`, or `namespace/name`), `uid`. |
 | `Message`, `Copy`, `OpenUrl`, `ShowText`, `Terminal`, `Reload` | What `run()` may return (see below). |
 
@@ -65,8 +69,9 @@ The manifest is required. Klotse reads it to list the plugin without importing P
 The ID, display metadata, API requirement and declarations must match the Python plugin;
 `version` defaults to an empty string, omitted declaration lists to empty lists, and omitted
 declaration fields to their API defaults (for example column/action `kinds` defaults to `["Node"]`).
-Declare `columns`, `actions`, `overview_cards`, `settings` and `cluster_settings` with the same
-fields as their API classes, using JSON arrays for `kinds`. Omit Python column `format` callables.
+Declare `columns`, `actions`, `overview_cards`, `settings`, `cluster_settings` and `metric_sources` with the same
+fields as their API classes, using JSON arrays for `kinds` and for a metric source's `series` (objects with `key`,
+`title` and optional `unit`). Omit Python column `format` callables.
 
 ## Columns
 
@@ -109,6 +114,40 @@ offered and `request.resources` has all of them.
 | `Reload(kinds=())` | reloads the open lists of those kinds (all open lists if empty), e.g. after changing something |
 
 An exception from `run()` is shown to the user and recorded in the Plugins dialog; it never stops Klotse.
+
+## Metric sources
+
+A `MetricSource` adds an entry to the Source box of the Usage history window (right-click > Usage history…) for one
+resource of its `kinds`, next to metrics-server and Prometheus/VictoriaMetrics, which stay as they are. It is offered,
+not selected. When the user picks it, Klotse calls `metrics(request)` on a worker thread (no Qt there) for the chosen
+range (15 minutes to 7 days), again every 30 seconds unless paused, and draws one series at a time in the first chart;
+a Series box switches between them without asking again. A newer request (another range or source) makes an older
+answer be ignored. Not offered when several rows are picked together.
+
+```python
+from klotse.plugins import MetricSeries, MetricSource, Plugin
+
+class InstanceMetrics(Plugin):
+    id = "instance-metrics"
+    requires_api = 13
+    metric_sources = (MetricSource("cloud", "Cloud monitoring", kinds=("Node",),
+                                   series=(MetricSeries("cpu", "Instance CPU", "%"),
+                                           MetricSeries("net_in", "Network in", "bytes/s"))),)
+
+    def metrics(self, request):
+        node = request.resources[0]
+        points = ...  # [(unix seconds, number)], about one per request.step from request.start to request.end
+        return {node.key: {"cpu": points}}
+```
+
+`metrics()` returns `{resource.key: {series key: [(unix seconds, number), ...]}}`. Klotse checks the answer before it
+reaches the chart: an answer that is not a dict (or a resource entry that is not a dict) is an error; unknown series are
+ignored; a point that is not two finite numbers (bools, text, NaN and infinity included) is left out; points are sorted by
+time and at most 5,000 per series are kept (the latest). Left-out points and `request.warn(text)` are shown in the
+window's status line. An exception is shown there as "Could not read …". Put credentials in settings (`password`) or the
+cloud's own configuration; never put them in warnings or errors.
+
+The extension point is in core; no bundled plugin uses it yet (cloud metrics for AWS are planned separately).
 
 ## Installing a plugin
 
@@ -155,16 +194,16 @@ legacy import fallback. Duplicate IDs and unsupported `requires_api` values are 
 
 ## API versions
 
-`klotse.plugins.API_VERSION` is 12: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
+`klotse.plugins.API_VERSION` is 13: version 1 had columns, version 2 added actions, version 3 added `cache_dir` and
 `EnrichRequest.warn`, version 4 added multi-line settings, version 5 added Overview cards, version 6 added cluster
 settings, version 7 added password settings, version 8 requires manifests and defers imports until enablement, and
 version 9 gives `EnrichRequest` an optional authenticated cluster `api_client()` factory.
 Version 10 adds node column presets. Set `presets=("AWS", "Core")` on a column to contribute it to the named AWS preset and the built-in Core preset. `All` always shows all available columns. List the same names in the manifest as a JSON array. Named presets from disabled plugins disappear.
 
-Version 11 adds cluster sources (File > Add clusters from the cloud…). Version 12 adds `process_environment` (see "Variables for commands and terminals").
+Version 11 adds cluster sources (File > Add clusters from the cloud…). Version 12 adds `process_environment` (see "Variables for commands and terminals"). Version 13 adds metric sources (`metric_sources`, `metrics()`; see "Metric sources").
 
 The manifest requirement applies to every plugin, including plugins declaring an older API. Set `requires_api` to the lowest
-version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings, 5 for Overview cards, 6 for cluster settings, 7 for password settings, 9 for `EnrichRequest.api_client`); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
+version that has what your plugin uses (2 for actions, 3 for `cache_dir` or `warn`, 4 for multi-line settings, 5 for Overview cards, 6 for cluster settings, 7 for password settings, 9 for `EnrichRequest.api_client`, 13 for metric sources); a Klotse that only knows version 1 then lists it as not loadable instead of failing oddly.
 
 ## Cluster settings
 
