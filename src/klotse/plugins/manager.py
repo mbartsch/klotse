@@ -10,7 +10,8 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer, Signal, Slot
 
 from ..ui.settings_store import default_store
-from .api import API_VERSION, ENV_NAME, Action, Column, OverviewCard, Plugin, Setting, column_attr, valid_id
+from .api import (API_VERSION, ENV_NAME, Action, Column, MetricSource, OverviewCard, Plugin, Setting, check_metric_source,
+                  column_attr, valid_id)
 from .manifest import declarations, read_manifest
 
 ENTRY_POINT_GROUP = "klotse.plugins"
@@ -60,6 +61,14 @@ def _as_plugin(obj):
             raise ValueError(f"plugin {obj.id}: column and setting keys must be non-empty and unique")
     if not all(isinstance(item.kinds, tuple) and item.kinds for item in (*obj.columns, *obj.actions)):
         raise ValueError(f"plugin {obj.id}: the kinds of a column or action must be a non-empty tuple such as ('Node',)")
+    sources = getattr(obj, "metric_sources", ())
+    if not isinstance(sources, tuple) or not all(isinstance(item, MetricSource) for item in sources):
+        raise TypeError(f"plugin {obj.id}: metric_sources must be a tuple of MetricSource objects")
+    keys = [item.key for item in sources]
+    if len(keys) != len(set(keys)) or not all(isinstance(k, str) and k for k in keys):
+        raise ValueError(f"plugin {obj.id}: metric source keys must be non-empty and unique")
+    for source in sources:
+        check_metric_source(source)
     if any(not isinstance(col.presets, tuple) or any(not isinstance(name, str) or not name.strip() for name in col.presets)
            for col in obj.columns):
         raise ValueError(f"plugin {obj.id}: column presets must be a tuple of non-empty names")
@@ -401,6 +410,11 @@ class PluginManager(QObject):
     def overview_plugins(self):
         """The enabled plugins that add cards to the cluster Overview."""
         return [plugin for plugin in self.active() if plugin.overview_cards]
+
+    def metric_sources_for(self, kind):
+        """[(plugin, MetricSource)] the enabled plugins add to the Usage history window of a resource of `kind`."""
+        return [(plugin, source) for plugin in self.active() for source in getattr(plugin, "metric_sources", ())
+                if kind in source.kinds]
 
     def actions_for(self, kind, multi=False):
         """The enabled plugins' actions for `kind` as [(plugin, [actions])]; with several rows selected only the

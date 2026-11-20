@@ -1,15 +1,79 @@
+import math
+import time
 from time import monotonic
 
 from PySide6.QtCore import QObject, Signal
 
+from ..k8s.prometheus import step_for
 from ..k8s.timing import timings
-from .api import EnrichRequest, OverviewRequest, ResourceInfo, column_attr
+from .api import EnrichRequest, MetricsRequest, OverviewRequest, ResourceInfo, column_attr
 
 RETRY_AFTER_S = 60  # a plugin whose enrich() failed is left alone for this long
+MAX_METRIC_POINTS = 5000  # points kept per series of a plugin metric source (the latest ones)
 
 
 def resource_info(row):
     return ResourceInfo(row.name, getattr(row, "namespace", "") or "", row.raw or {})
+
+
+def _number(value):
+    """A finite float, or None for anything else (bools, text, NaN, infinity)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def clean_metric_series(source, values):
+    """{series key: [(t, value)]} from what a plugin answered for one resource: only the source's series, only points that
+    are two finite numbers, sorted by time, at most MAX_METRIC_POINTS (the latest). Returns (series, points left out)."""
+    if values is None:
+        return {}, 0
+    if not isinstance(values, dict):
+        raise ValueError(f"metrics() returned {type(values).__name__} for the resource, expected a dict of series")
+    series, dropped = {}, 0
+    for declared in source.series:
+        raw = values.get(declared.key)
+        if raw is None:
+            continue
+        if not isinstance(raw, (list, tuple)):
+            dropped += 1
+            continue
+        points = []
+        for point in raw[-MAX_METRIC_POINTS * 2:]:  # bounded work for a huge answer; sorted and trimmed below
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                dropped += 1
+                continue
+            stamp, value = _number(point[0]), _number(point[1])
+            if stamp is None or value is None:
+                dropped += 1
+                continue
+            points.append((stamp, value))
+        dropped += max(0, len(raw) - MAX_METRIC_POINTS * 2)
+        points.sort(key=lambda p: p[0])
+        dropped += max(0, len(points) - MAX_METRIC_POINTS)
+        series[declared.key] = points[-MAX_METRIC_POINTS:]
+    return series, dropped
+
+
+def read_metrics(plugin, source, kind, context, info, settings, seconds, cache_dir=None, api_client=None, now=time.time):
+    """Ask `plugin` for the series of `source` for one resource (`info`, a ResourceInfo) over the last `seconds`. Call it on a
+    worker thread. Returns ({series key: [(t, value)]}, [warnings]); raises when the plugin fails or answers with a wrong shape."""
+    end = float(now())
+    request = MetricsRequest(plugin.id, source.key, kind, context, [info], settings, end - seconds, end,
+                             float(step_for(seconds)), cache_dir=cache_dir, api_client=api_client)
+    with timings.timed("plugin", "metrics", plugin=plugin.id, resource_kind=kind, resources=1) as timing:
+        timing["outcome"] = "error"
+        result = plugin.metrics(request)
+        if not isinstance(result, dict):
+            timing["outcome"] = "invalid"
+            raise ValueError(f"metrics() returned {type(result).__name__}, expected a dict")
+        series, dropped = clean_metric_series(source, result.get(info.key))
+        timing["outcome"] = "warning" if request.warnings or dropped else "ok"
+    warnings = list(request.warnings)
+    if dropped:
+        warnings.append(f"{dropped} point{'s' if dropped != 1 else ''} left out (not two finite numbers, or past the limit)")
+    return series, warnings
 
 
 class PluginHost(QObject):

@@ -4,9 +4,10 @@ A plugin adds information and commands to Klotse without being part of it. It ca
 
 * add **columns** to the resource lists: declare `Column`s and fill them in `enrich()`;
 * add **actions** to the right-click menu of resources: declare `Action`s and do the work in `run()`;
-* add **cards** to the cluster Overview (a total cost, say): declare `OverviewCard`s and compute them in `overview()`.
+* add **cards** to the cluster Overview (a total cost, say): declare `OverviewCard`s and compute them in `overview()`;
+* add **metric sources** to the Usage history window (cloud metrics, say): declare `MetricSource`s and read them in `metrics()`.
 
-Both run on a worker thread, so they may use the network, and neither may touch Qt. Klotse caches column values per
+All of these run on a worker thread, so they may use the network, and neither may touch Qt. Klotse caches column values per
 resource and only asks again for new resources, or after `refresh_s` seconds when the values go stale.
 
 A minimal plugin (a .py file in the plugins folder, or any importable module):
@@ -37,7 +38,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 12  # 12: process_environment (variables for the kubectl, helm and terminal processes of a cluster). 11: cluster sources (Add clusters from the cloud). 10: plugin column presets. 9: enrichment receives the cluster ApiClient factory. 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
+API_VERSION = 13  # 13: metric sources (extra series in Usage history, read by metrics()). 12: process_environment (variables for the kubectl, helm and terminal processes of a cluster). 11: cluster sources (Add clusters from the cloud). 10: plugin column presets. 9: enrichment receives the cluster ApiClient factory. 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -94,6 +95,42 @@ class OverviewCard:
 
     key: str
     title: str
+
+
+@dataclass(frozen=True)
+class MetricSeries:
+    """One series of a `MetricSource`: a chart in the Usage history window. `unit` is shown after each value ("%", "bytes/s")."""
+
+    key: str
+    title: str
+    unit: str = ""
+
+
+@dataclass(frozen=True)
+class MetricSource:
+    """A source of usage history a plugin adds to the Usage history window of resources of `kinds` (one resource at a
+    time), next to metrics-server and Prometheus. `series` are `MetricSeries`; `metrics()` returns their points."""
+
+    key: str
+    title: str
+    kinds: tuple = ("Node",)
+    series: tuple = ()
+
+
+MAX_METRIC_SERIES = 16  # series one MetricSource may declare
+
+
+def check_metric_source(source):
+    """ValueError when a MetricSource is not usable: no kinds or series, too many series, or keys that are empty or repeated."""
+    if not isinstance(source.kinds, tuple) or not source.kinds or not all(isinstance(k, str) and k for k in source.kinds):
+        raise ValueError(f"metric source {source.key!r}: kinds must be a non-empty tuple such as ('Node',)")
+    if not isinstance(source.series, tuple) or not source.series or len(source.series) > MAX_METRIC_SERIES:
+        raise ValueError(f"metric source {source.key!r}: series must be a tuple of 1 to {MAX_METRIC_SERIES} MetricSeries")
+    if not all(isinstance(s, MetricSeries) and all(isinstance(v, str) for v in (s.key, s.title, s.unit)) for s in source.series):
+        raise ValueError(f"metric source {source.key!r}: series must be MetricSeries with text key, title and unit")
+    keys = [s.key for s in source.series]
+    if not all(keys) or len(keys) != len(set(keys)):
+        raise ValueError(f"metric source {source.key!r}: series keys must be non-empty and unique")
 
 
 @dataclass(frozen=True)
@@ -159,6 +196,30 @@ class OverviewRequest:
     settings: dict
     cache_dir: object = None
     warnings: list = field(default_factory=list)
+
+    def warn(self, text):
+        if text not in self.warnings:
+            self.warnings.append(text)
+
+
+@dataclass
+class MetricsRequest:
+    """What `metrics()` receives: the `source` key, the resources of `kind` (one today) and the time range `start` to
+    `end` (Unix seconds) with the wanted spacing `step` (seconds). `cache_dir`, `api_client` and `warn(text)` work as in
+    `EnrichRequest`."""
+
+    plugin_id: str
+    source: str
+    kind: str
+    context: str
+    resources: list
+    settings: dict
+    start: float
+    end: float
+    step: float
+    cache_dir: object = None
+    warnings: list = field(default_factory=list)
+    api_client: object = None
 
     def warn(self, text):
         if text not in self.warnings:
@@ -342,6 +403,14 @@ class Plugin:
     def overview(self, request):
         """Return {card key: text or number} for the cluster Overview, from `request.nodes`; a card whose key is missing
         (or None) is not shown, so a plugin that does not apply to this cluster returns {}. Runs on a worker thread."""
+        return {}
+
+    metric_sources = ()  # MetricSource objects: extra sources in the Usage history window (API 13)
+
+    def metrics(self, request):
+        """Return {resource.key: {series key: [(unix seconds, number), ...]}} for the `MetricsRequest`, about one point per
+        `request.step` between `request.start` and `request.end`. Runs on a worker thread; no Qt here. Unknown series,
+        points that are not two finite numbers and points past the limit are left out."""
         return {}
 
     def applies(self, action, resource):
