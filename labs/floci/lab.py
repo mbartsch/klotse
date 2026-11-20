@@ -356,7 +356,7 @@ def docker_ids(kind):
         if result.returncode:
             log(f"Could not list the lab's Docker {kind}s (exit {result.returncode}).")
             return None
-        found += [item for item in result.stdout.split()
+        found += [item for item in (line.split(",")[0] for line in result.stdout.split())  # ps: name,link/alias
                   if item not in found and (filter_ == LAB_LABEL or LAB_NAME.match(item))]
     return found
 
