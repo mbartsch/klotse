@@ -79,6 +79,33 @@ override, project `klotse-local` and a fixture access-token file. `AZURE_CONFIG_
 `az` CLI still needs `az cloud register` for Floci (not done here). Use these variables only in the lab shell:
 they point every cloud CLI started from it at the emulators.
 
+### A lab on another machine
+
+Recommended: an SSH tunnel. Nothing on the lab host changes and every address the emulators report
+(`localhost:<port>` for the cluster APIs, with certificates made for localhost) works unchanged here:
+
+```sh
+python3 lab.py tunnel user@labhost        # -p PORT, -i KEY, --providers ...; --print only shows the ssh command
+eval "$(python3 lab.py env)"              # in another shell, as for a local lab
+```
+
+`tunnel` forwards the four management ports and each provider's ten k3s API ports on 127.0.0.1 (both ends),
+waits until the emulators answer through it, prepares `.local/` on this computer (the Azure CA comes through the
+tunnel; without openssl here the OCI CLI profile is skipped with a warning) and runs until Ctrl-C. Local ports in
+use make ssh fail at once. Copy the Klotse kubeconfigs from the lab host's `.local/<provider>.kubeconfig`.
+
+Without SSH, publish the management APIs on the network and point the variables at the host:
+
+```sh
+python3 lab.py up --bind 0.0.0.0                  # on the lab host (warns: fixture credentials on the network)
+python3 lab.py env --host labhost --prepare       # on the client; --prepare creates .local/ there first
+```
+
+This covers the cloud CLIs only. `env --host` also sets `KLOTSE_INSECURE_NET=true`, which Klotse needs for plain http
+to another host (testing only). The cluster APIs are still reported as `localhost:<port>` with localhost certificates,
+and Klotse's GCP emulator import uses its test token only for clusters on this computer, so connecting to the clusters
+still needs the tunnel. Use `--bind` only on an isolated network.
+
 The manual steps follow.
 
 ## Start and provision
