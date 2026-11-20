@@ -135,8 +135,12 @@ def use_emulator_token(target):
         if not isinstance(cluster, dict) or user is None or not _loopback(cluster.get("server")):
             continue
         if not cluster.get("certificate-authority-data") and not cluster.get("certificate-authority"):
+            # Floci fills masterAuth.clusterCaCertificate from the k3s kubeconfig only once the API server is ready, and never
+            # in mock mode (FLOCI_GCP_SERVICES_GKE_MOCK, which starts no API server at all).
             raise CloudError(f"the local emulator gave no CA certificate for {item.get('name')}; Klotse does not turn off TLS "
-                             "verification, so the cluster was not added")
+                             "verification, so the cluster was not added. The emulator reports the CA only after the cluster's "
+                             "Kubernetes API has finished starting (and never in mock mode, which has no API server): wait, "
+                             "then add the cluster again")
         user["user"] = {"token": EMULATOR_TOKEN}
         changed = True
     if changed:
