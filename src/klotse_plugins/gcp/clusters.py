@@ -4,6 +4,10 @@ The plugin owns this logic; core only runs the commands and merges the result in
 import json
 import os
 import re
+import urllib.parse
+from pathlib import Path
+
+import yaml
 
 from klotse.plugins.api import CloudError, ClusterField, ClusterRef, ClusterSource, SAFE_CLUSTER_VALUE, checked_value, env_value, read_ini_file
 
@@ -85,3 +89,55 @@ def cluster_credentials(cluster, scope, target, run):
         raise CloudError(f"could not find the location of {cluster.name}: enter its zone or region in Location and try again")
     run(["gcloud", "container", "clusters", "get-credentials", cluster.name, "--project", s["project"], "--location", location],
         env={"KUBECONFIG": str(target)})
+    if local_emulator():
+        use_emulator_token(target)
+
+
+ENDPOINT_VARIABLE = "CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER"  # gcloud's GKE API address; Floci sets it to a local one
+EMULATOR_TOKEN = "klotse-local-emulator"  # not a secret: only written for clusters on this computer, whose emulator accepts any token
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _loopback(url):
+    try:
+        host = (urllib.parse.urlsplit(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in LOOPBACK_HOSTS or host.endswith(".localhost")
+
+
+def local_emulator(environ=None):
+    """Whether gcloud is pointed at a GKE emulator on this computer (Floci): CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER names
+    localhost, a *.localhost name, 127.0.0.1 or ::1. Real Google Cloud never sets it, so imports from it are unchanged."""
+    return _loopback((os.environ if environ is None else environ).get(ENDPOINT_VARIABLE, "").strip())
+
+
+def use_emulator_token(target):
+    """Rewrite the kubeconfig gcloud wrote for an emulator cluster: its user gets a fixed test token instead of
+    gke-gcloud-auth-plugin, which needs a Google sign-in the emulator does not have (#795). Only clusters whose server is on this
+    computer are changed, so the token never goes elsewhere. The cluster's CA from the emulator is kept and TLS stays verified;
+    a cluster without a CA is refused, never turned into an unverified one."""
+    path = Path(target)
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        raise CloudError("gcloud wrote a kubeconfig that cannot be read") from None
+    if not isinstance(data, dict):
+        raise CloudError("gcloud wrote something that is not a kubeconfig")
+    clusters = {item.get("name"): item.get("cluster") for item in data.get("clusters") or [] if isinstance(item, dict)}
+    users = {item.get("name"): item for item in data.get("users") or [] if isinstance(item, dict)}
+    changed = False
+    for item in data.get("contexts") or []:
+        context = item.get("context") if isinstance(item, dict) else None
+        if not isinstance(context, dict):
+            continue
+        cluster, user = clusters.get(context.get("cluster")), users.get(context.get("user"))
+        if not isinstance(cluster, dict) or user is None or not _loopback(cluster.get("server")):
+            continue
+        if not cluster.get("certificate-authority-data") and not cluster.get("certificate-authority"):
+            raise CloudError(f"the local emulator gave no CA certificate for {item.get('name')}; Klotse does not turn off TLS "
+                             "verification, so the cluster was not added")
+        user["user"] = {"token": EMULATOR_TOKEN}
+        changed = True
+    if changed:
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")

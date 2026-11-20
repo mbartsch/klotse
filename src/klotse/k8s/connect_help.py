@@ -3,9 +3,11 @@
 The Kubernetes Python client runs an `exec` credential helper (`aws eks get-token`, `aws-iam-authenticator`, `kubelogin`, `gke-gcloud-auth-plugin`...)
 without a terminal, so a helper that needs a browser, an MFA code or an expired SSO session fails with its own message. `explain` puts
 that into words and names the command to run in a terminal. Nothing here runs the helper."""
+import contextlib
 import os
 import re
 import shutil
+import threading
 
 import yaml
 
@@ -84,6 +86,8 @@ def explain(message, info=None):
             lines.append(f"The sign-in helper `{helper or 'exec'}` failed (exit code {code}).")
             if said:
                 lines.append(f"It said: {said[:500]}")
+            else:  # stderr went to the terminal Klotse was started from (the client does that when stdout is a terminal)
+                lines.append("It gave no message Klotse could read; if Klotse was started from a terminal, its messages are there.")
         else:
             lines.append(f"The sign-in helper `{helper or 'exec'}` gave an answer Klotse cannot use.")
             lines.append(text.strip()[:500])
@@ -122,9 +126,50 @@ def guard_helper_stdin():
     def guarded(*args, **kwargs):
         if kwargs.get("stdin") is None:
             kwargs["stdin"] = subprocess.DEVNULL
-        return popen(*args, **kwargs)
+        process = popen(*args, **kwargs)
+        if kwargs.get("stderr") is not subprocess.PIPE:
+            # Started from a terminal, the client lets the helper write to it, so communicate() returns None for stderr and the
+            # client's own failure path raises "'NoneType' object has no attribute 'strip'" instead of the exit code (#795).
+            communicate = process.communicate
+
+            def communicate_text(*a, **k):
+                out, err = communicate(*a, **k)
+                return out, "" if err is None else err
+
+            process.communicate = communicate_text
+        return process
 
     guarded._klotse_guard = True
     exec_provider.subprocess = type("_Subprocess", (), {**{k: getattr(subprocess, k) for k in dir(subprocess) if not k.startswith("__")},
                                                         "Popen": staticmethod(guarded)})
     return True
+
+
+_FAILURES = threading.local()
+
+
+@contextlib.contextmanager
+def helper_failures():
+    """Collect the errors of the kubeconfig's sign-in helper on this thread while the kubeconfig is loaded. The client logs a failed
+    helper and goes on without credentials, so the user would see a later, misleading error (401, a TLS failure); the caller raises
+    the first collected error instead. Yields the list."""
+    from kubernetes.config import exec_provider
+    run = exec_provider.ExecProvider.run
+    if not getattr(run, "_klotse_guard", False):
+        def recorded(self, *args, **kwargs):
+            try:
+                return run(self, *args, **kwargs)
+            except Exception as error:  # noqa: BLE001 - recorded and re-raised unchanged
+                found = getattr(_FAILURES, "items", None)
+                if found is not None:
+                    found.append(error)
+                raise
+
+        recorded._klotse_guard = True
+        exec_provider.ExecProvider.run = recorded
+    previous = getattr(_FAILURES, "items", None)
+    _FAILURES.items = []
+    try:
+        yield _FAILURES.items
+    finally:
+        _FAILURES.items = previous

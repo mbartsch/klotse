@@ -480,7 +480,10 @@ class KubeService:
 
     def _connect(self, context, variables=None):
         cfg = client.Configuration()
-        self._load_kube_config(context, cfg, variables or {})
+        with connect_help.helper_failures() as failures:
+            self._load_kube_config(context, cfg, variables or {})
+        if failures:  # the client only logged it and carried on without credentials: report the helper, not the later error
+            raise failures[0]
         self.apply_proxy(cfg, context)
         cfg.retries = 1  # the default (3 retries with backoff) makes a dead cluster take ~9s to report
         api = client.ApiClient(cfg)
