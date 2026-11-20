@@ -1,6 +1,7 @@
 """Offline tests for lab.py: no Docker, Terraform, openssl or network is used."""
 
 import io
+import json
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -147,13 +148,15 @@ class PrepareTest(unittest.TestCase):
 
 
 class UpDownTest(unittest.TestCase):
-    def run_up(self, argv, fail=None):
+    def run_up(self, argv, fail=None, state="", show="{}"):
         calls = []
 
         def terraform(provider, *args, env, capture=False):
             calls.append((provider, args[0]))
             if (provider, args[0]) == fail:
                 raise subprocess.CalledProcessError(1, "terraform")
+            out = {"state": state, "show": show}.get(args[0], "")
+            return subprocess.CompletedProcess(args, 0, stdout=out)
 
         with patch.object(lab.start, "main") as start, patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"), \
                 patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO) as err:
@@ -171,7 +174,9 @@ class UpDownTest(unittest.TestCase):
     def test_up_stops_at_a_failure_and_explains_the_aws_conflict(self):
         with patch("sys.stderr", new_callable=io.StringIO) as err:
             with self.assertRaises(SystemExit) as stop:
-                self.run_up(["up"], fail=("aws", "apply"))
+                # every lab cluster is in state: the failure was not the 409, so nothing is imported
+                calls, _ = self.run_up(["up"], fail=("aws", "apply"), state="\n".join(
+                    lab.eks_address(name) for name in lab.AWS_CLUSTERS))
         self.assertIn("terraform failed for aws", str(stop.exception))
 
     def test_aws_failure_mentions_the_409_recovery(self):
@@ -185,8 +190,78 @@ class UpDownTest(unittest.TestCase):
                 patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO) as err:
             with self.assertRaises(SystemExit):
                 lab.main(["up"])
-        self.assertEqual(calls, ["aws"])  # nothing after the failing root
+        self.assertEqual(calls, ["aws", "aws"])  # init, then the recovery's state list; nothing after the failing root
         self.assertIn("409 Cluster already exists", err.getvalue())
+
+    def recovery(self, statuses, apply_fails_once=True):
+        """recover_aws against a fake terraform: the first aws apply fails (the 409), the state lacks both clusters,
+        and each refresh reports the next {name: status} from `statuses`."""
+        calls, shows = [], list(statuses)
+        imported = set()
+        pending_409 = [apply_fails_once]
+
+        def terraform(provider, *args, env, capture=False):
+            calls.append((provider, *args))
+            if provider == "aws" and args[-1] == "lab.tfplan" and args[0] == "apply" and pending_409[0]:
+                pending_409[0] = False
+                raise subprocess.CalledProcessError(1, "terraform")
+            if args[0] == "import":
+                imported.add(args[-1])
+            if args[0] == "state":
+                return subprocess.CompletedProcess(args, 0, stdout="aws_vpc.lab\n")
+            if args[0] == "show":
+                status = shows.pop(0) if len(shows) > 1 else shows[0]
+                resources = [{"type": "aws_eks_cluster", "values": {"name": n, "status": s}} for n, s in status.items()]
+                return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"values": {"root_module": {
+                    "resources": resources}}}))
+            return subprocess.CompletedProcess(args, 0, stdout="")
+
+        return calls, imported, terraform
+
+    def test_up_imports_clusters_lost_to_the_409_then_finishes_and_continues(self):
+        active = {name: "ACTIVE" for name in lab.AWS_CLUSTERS}
+        calls, imported, terraform = self.recovery([{n: "CREATING" for n in lab.AWS_CLUSTERS}, active])
+        with patch.object(lab.start, "main"), patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"), \
+                patch.object(lab, "terraform", side_effect=terraform), patch.object(lab.time, "sleep"), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.main(["up", "--providers", "aws,gcp"])
+        self.assertEqual(imported, set(lab.AWS_CLUSTERS))
+        for name in lab.AWS_CLUSTERS:
+            self.assertIn(("aws", "import", "-input=false", lab.eks_address(name), name), calls)
+        aws = [c[1] for c in calls if c[0] == "aws"]
+        self.assertEqual(aws[-2:], ["plan", "apply"])  # the node groups after the import and the ACTIVE wait
+        self.assertEqual(aws.count("show"), 2)  # waited through one CREATING refresh
+        self.assertEqual([c[1] for c in calls if c[0] == "gcp"], ["init", "plan", "apply"])
+        self.assertIn("importing klotse-eks-1", err.getvalue())
+
+    def test_recovery_stops_when_imported_clusters_never_become_active(self):
+        calls, _, terraform = self.recovery([{n: "CREATING" for n in lab.AWS_CLUSTERS}], apply_fails_once=False)
+        clock = iter(range(0, 1000, 100))
+        with patch.object(lab, "terraform", side_effect=terraform), patch.object(lab.time, "monotonic",
+                                                                             side_effect=lambda: next(clock)), \
+                patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as stop:
+            lab.recover_aws({}, timeout=150, sleep=lambda _: None)
+        self.assertIn("not ACTIVE after 150s", str(stop.exception))
+        self.assertNotIn("plan", [c[1] for c in calls])
+
+    def test_failed_import_reports_the_manual_recovery(self):
+        def terraform(provider, *args, env, capture=False):
+            if args[0] == "state":
+                return subprocess.CompletedProcess(args, 0, stdout="")
+            if args[0] in ("apply", "import"):  # Floci has no such cluster: the import fails too
+                raise subprocess.CalledProcessError(1, "terraform")
+            return subprocess.CompletedProcess(args, 0, stdout="")
+
+        with patch.object(lab.start, "main"), patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"), \
+                patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO) as err, \
+                self.assertRaises(SystemExit) as stop:
+            lab.main(["up", "--providers", "aws"])
+        self.assertIn("terraform failed for aws", str(stop.exception))
+        self.assertIn("409 Cluster already exists", err.getvalue())
+
+    def test_aws_clusters_match_the_terraform_root(self):
+        main_tf = (Path(lab.__file__).parent / "aws" / "main.tf").read_text()
+        self.assertIn("clusters = toset([" + ", ".join(f'"{n}"' for n in lab.AWS_CLUSTERS) + "])", main_tf)
 
     def test_down_destroys_in_reverse_then_stops_emulators(self):
         with TemporaryDirectory() as tmp:

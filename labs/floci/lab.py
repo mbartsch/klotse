@@ -49,6 +49,8 @@ HEALTH_PATHS = {  # tried in order; the first answer with HTTP 200 counts
     "oci": ("/_floci/health",),
 }
 LOOPBACK = "127.0.0.1"
+AWS_CLUSTERS = ("klotse-eks-1", "klotse-eks-2")  # aws/main.tf local.clusters
+AWS_ACTIVE_TIMEOUT = 180  # seconds for imported EKS clusters to become ACTIVE (Floci took about 15)
 LAB_NAMESPACE = "klotse793"  # compose.yaml's FLOCI_*_DOCKER_RESOURCE_NAMESPACE: this lab only
 LAB_LABEL = f"label=floci_namespace={LAB_NAMESPACE}"
 LAB_NAME = re.compile(rf"floci-[a-z0-9]+-{LAB_NAMESPACE}-")  # Floci's own object names, e.g. floci-aws-klotse793-eks-…
@@ -264,6 +266,47 @@ def terraform(provider, *args, env, capture=False):
     return run(argv, check=True, env=env, text=True, capture_output=capture)
 
 
+def eks_address(name):
+    return f'aws_eks_cluster.lab["{name}"]'
+
+
+def eks_status(env):
+    """{cluster name: status} for the EKS clusters in the aws state, refreshed from the emulator first."""
+    terraform("aws", "apply", "-refresh-only", "-auto-approve", "-input=false", env=env, capture=True)
+    shown = json.loads(terraform("aws", "show", "-json", env=env, capture=True).stdout or "{}")
+    resources = shown.get("values", {}).get("root_module", {}).get("resources", [])
+    return {r["values"]["name"]: r["values"].get("status") for r in resources if r.get("type") == "aws_eks_cluster"}
+
+
+def recover_aws(env, timeout=AWS_ACTIVE_TIMEOUT, sleep=None):
+    """Finish an AWS apply that Floci answered with '409 Cluster already exists'. Floci 2.5.0 drops the connection of
+    the first CreateCluster in a new VPC while it attaches itself to the VPC's Docker network; the SDK retries, and the
+    retry finds the cluster the first attempt created. Import only the lab clusters missing from state (an import
+    fails for a cluster Floci does not have), wait until they are ACTIVE, then plan and apply the rest. False when
+    nothing is missing: the failure was something else."""
+    state = terraform("aws", "state", "list", env=env, capture=True).stdout.split()
+    missing = [name for name in AWS_CLUSTERS if eks_address(name) not in state]
+    if not missing:
+        return False
+    for name in missing:
+        log(f"AWS: importing {name}, created by a CreateCluster whose answer was lost (Floci 409, see README.md)")
+        terraform("aws", "import", "-input=false", eks_address(name), name, env=env)
+    deadline = time.monotonic() + timeout
+    while True:
+        status = eks_status(env)
+        waiting = sorted(name for name in AWS_CLUSTERS if status.get(name) != "ACTIVE")
+        if not waiting:
+            break
+        if time.monotonic() >= deadline:
+            raise SystemExit(f"AWS: {', '.join(waiting)} not ACTIVE after {timeout}s "
+                             f"({', '.join(f'{n}={status.get(n)}' for n in waiting)}).")
+        debug(f"AWS: waiting for {', '.join(waiting)} to become ACTIVE")
+        (sleep or time.sleep)(5)
+    terraform("aws", "plan", "-input=false", "-out=lab.tfplan", env=env)
+    terraform("aws", "apply", "-input=false", "lab.tfplan", env=env)
+    return True
+
+
 def lab_env(tf_log=None):
     env = os.environ.copy()
     for key in list(env):
@@ -328,6 +371,11 @@ def up(args):
             terraform(provider, "plan", "-input=false", "-out=lab.tfplan", env=env)
             terraform(provider, "apply", "-input=false", "lab.tfplan", env=env)
         except subprocess.CalledProcessError:
+            try:
+                if provider == "aws" and recover_aws(env):
+                    continue
+            except subprocess.CalledProcessError:
+                pass
             if provider == "aws":
                 log("AWS failed; if it reported '409 Cluster already exists', follow 'AWS: recover a cluster created before "
                     "a conflict response' in README.md, then run up again with --providers for the rest.")
