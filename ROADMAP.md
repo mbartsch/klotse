@@ -169,6 +169,8 @@ OCI #458 completes the bounded sign-in scope and visibly marks the plugin WIP/he
 
 Cloud cluster parser cleanup (#790): preserve same-name GCP clusters in different locations, refuse ambiguous credential-location lookup, and use ordered set-backed deduplication in AWS/GCP/OCI. Offline regression coverage only; live clouds remain unverified.
 
+GCP Floci auth (#795, part): a failing sign-in helper is reported with its message instead of `'NoneType' object has no attribute 'strip'` and a later TLS error; GCP imports against a loopback GKE emulator use a fixed test token and keep the emulator's CA (refused without one). Offline tests only; not run against Floci or GCP.
+
 ## Local Terraform lab (#793)
 
 Local Terraform fixtures, Floci Compose startup/teardown and dedicated per-provider Kubernetes credentials for Klotse are documented in [labs/floci](labs/floci/README.md). Offline plans and all eight Klotse client connections were tested on an isolated loopback-only Docker daemon. AWS needed a documented import recovery. Each API reported one Ready k3s node; native GUI and cloud IAM are unverified.

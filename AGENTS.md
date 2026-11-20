@@ -99,6 +99,8 @@ OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/pro
 
 #790: cloud discovery keeps GCP clusters distinct by name and location; missing-location credential lookup refuses ambiguous results. AWS/GCP/OCI parsers preserve first-seen order while deduplicating. Optional local configuration defaults remain best-effort. No live-cloud verification.
 
+#795: a failing kubeconfig sign-in helper fails the connection with its exit code and stderr (`connect_help.helper_failures`; the Popen guard turns a terminal-launch `None` stderr into "", which was the `'NoneType' ... strip` error) instead of a later TLS/401 error. GCP import with `CLOUDSDK_API_ENDPOINT_OVERRIDES_CONTAINER` on loopback/`*.localhost` (Floci) replaces the gke-gcloud-auth-plugin exec with a fixed test token, only for loopback servers; the emulator's CA is kept, and a cluster without one is refused. No real Floci/GCP verification.
+
 ## Local Terraform lab (#793)
 
 The local-only Floci lab in `labs/floci/` defines two clusters with one two-node pool per provider, Docker Compose startup, teardown and separate short-lived Kubernetes identities for Klotse. Use a dedicated daemon with loopback-only published ports. Validated on an isolated Linux daemon: all eight contexts worked through Klotse's Kubernetes service; AWS needed a documented import recovery. Each emulator exposed one Ready k3s node; native GUI interaction and cloud sign-in are not verified.
