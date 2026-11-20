@@ -56,6 +56,28 @@ container images). Do not route traffic from a cloud CLI to its real service.
 The Terraform endpoint overrides and fixture credentials are not a firewall.
 Do not reuse these roots or state files in a production environment.
 
+## One command: lab.py
+
+`lab.py` runs the steps below for you, with the same isolation rules:
+
+```sh
+python3 lab.py up                      # start.py checks, wait for /_floci/health, prepare .local/, init+plan+apply each root
+python3 lab.py up --providers aws,gcp  # a subset; --identities also creates the Klotse kubeconfigs (identity.py create)
+eval "$(python3 lab.py env)"           # export the lab variables in this shell (PowerShell: python lab.py env --shell powershell | iex)
+python3 lab.py down                    # identity.py remove, destroy oci/gcp/azure/aws, then docker compose down --volumes
+```
+
+`up` keeps what already exists in `.local/` and stops at the first failing root (for AWS, see the 409
+recovery below, then run `up --providers` for the rest). `down` leaves the emulators running when a destroy
+fails or when only some providers are given. `env` prints the Terraform variables (OCI profile and override,
+the CA bundle once `up` wrote it) and the cloud CLI settings for the emulators: `AWS_ENDPOINT_URL` and test keys,
+`OCI_CLI_CONFIG_FILE`/`OCI_CLI_ENDPOINT`, and for gcloud a private `CLOUDSDK_CONFIG`, the container endpoint
+override, project `klotse-local` and a fixture access-token file. `AZURE_CONFIG_DIR` is private too, but the
+`az` CLI still needs `az cloud register` for Floci (not done here). Use these variables only in the lab shell:
+they point every cloud CLI started from it at the emulators.
+
+The manual steps follow.
+
 ## Start and provision
 
 From this directory:
