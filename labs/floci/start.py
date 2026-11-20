@@ -1,9 +1,19 @@
-"""Start the lab only when Docker defaults keep k3s ports on loopback."""
+"""Start the lab; warn when Docker defaults would publish k3s ports beyond loopback."""
 
 import os
 from pathlib import Path
 import subprocess
+import sys
 from uuid import uuid4
+
+EXPOSED = ("WARNING: {what} publishes ports on {ip}, not only on 127.0.0.1, so the lab's k3s APIs "
+           "(admin access through any token) can be reachable from other machines. Recommended: a dedicated "
+           "Docker daemon with \"ip\": \"127.0.0.1\" and default-network-opts host_binding_ipv4 127.0.0.1 "
+           "(see README.md), or a firewall. Continuing.")
+
+
+def warn(text):
+    print(text, file=sys.stderr)
 
 
 def engine_host():
@@ -30,9 +40,9 @@ def main():
     host = engine_host()
     if not host.startswith(("unix:///", "npipe:////./pipe/")):
         raise SystemExit("Use a local Docker Unix socket or Windows named pipe, not a remote engine.")
-    if bridge_bind_ip("bridge") != "127.0.0.1":
-        raise SystemExit("Unsafe Docker default bridge: configure a dedicated local daemon "
-                         "with default published IP 127.0.0.1 before launching the lab.")
+    default_ip = bridge_bind_ip("bridge")
+    if default_ip != "127.0.0.1":
+        warn(EXPOSED.format(what="Docker's default bridge", ip=default_ip or "all interfaces"))
 
     # EKS may publish on a bridge it creates for the emulated VPC rather
     # than on Docker's default bridge or the Compose network.
@@ -40,9 +50,9 @@ def main():
     subprocess.run(["docker", "network", "create", "--driver", "bridge", probe],
                    check=True, capture_output=True)
     try:
-        if bridge_bind_ip(probe) != "127.0.0.1":
-            raise SystemExit("Unsafe Docker user-defined bridge defaults: configure "
-                             "default-network-opts for loopback publication.")
+        probe_ip = bridge_bind_ip(probe)
+        if probe_ip != "127.0.0.1":
+            warn(EXPOSED.format(what="A new Docker bridge network (default-network-opts)", ip=probe_ip or "all interfaces"))
     finally:
         subprocess.run(["docker", "network", "rm", probe], check=True, capture_output=True)
 

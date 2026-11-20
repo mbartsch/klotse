@@ -177,4 +177,4 @@ AKS import naming (#796): imported AKS contexts take the selected cluster name i
 
 ## Local Terraform lab (#793)
 
-Local Terraform fixtures, Floci Compose startup/teardown and dedicated per-provider Kubernetes credentials for Klotse are documented in [labs/floci](labs/floci/README.md). Offline plans and all eight Klotse client connections were tested on an isolated loopback-only Docker daemon. AWS needed a documented import recovery. Each API reported one Ready k3s node; native GUI and cloud IAM are unverified.
+Local Terraform fixtures, Floci Compose startup/teardown and dedicated per-provider Kubernetes credentials for Klotse are documented in [labs/floci](labs/floci/README.md). Offline plans and all eight Klotse client connections were tested on an isolated loopback-only Docker daemon. AWS needed a documented import recovery. Each API reported one Ready k3s node; native GUI and cloud IAM are unverified. The loopback-only Docker daemon setting is a recommendation: the launcher and identity helper warn and continue without it (offline unit tests only).

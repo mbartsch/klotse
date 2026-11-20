@@ -1,5 +1,6 @@
 """Offline tests for lab-only Docker discovery and credential handling."""
 
+import io
 import json
 import os
 from pathlib import Path
@@ -26,8 +27,20 @@ class BootstrapTest(unittest.TestCase):
         self.assertIn("label=floci_namespace=klotse793", docker.call_args_list[0].args)
         self.assertIn("label=io.floci.resource-id=klotse-eks-1", docker.call_args_list[0].args)
 
-    def test_rejects_wildcard_or_wrong_port_before_reading_credentials(self):
-        for ip, port in (("0.0.0.0", "16444"), ("::", "16444"), ("127.0.0.1", "6443")):
+    def test_wildcard_binding_warns_and_still_uses_loopback(self):
+        for ip in ("0.0.0.0", "::"):
+            with self.subTest(ip=ip):
+                api = {"server": "https://0.0.0.0:6443", "certificate-authority-data": "dummy"}
+                data = {"clusters": [{"cluster": api}], "users": [{"user": {}}]}
+                container = {"NetworkSettings": {"Ports": {"6443/tcp": [{"HostIp": ip, "HostPort": "16444"}]}}}
+                with patch.object(identity, "docker", side_effect=["id", json.dumps([container]), json.dumps(data)]):
+                    with patch("sys.stderr", new_callable=io.StringIO) as err:
+                        _, cluster = identity.bootstrap("eks", "klotse-eks-1")
+                self.assertEqual(cluster["server"], "https://127.0.0.1:16444")
+                self.assertIn("WARNING", err.getvalue())
+
+    def test_rejects_missing_or_wrong_port_before_reading_credentials(self):
+        for ip, port in (("127.0.0.1", "6443"), ("0.0.0.0", "6443")):
             with self.subTest(ip=ip, port=port):
                 container = {"NetworkSettings": {"Ports": {"6443/tcp": [
                     {"HostIp": ip, "HostPort": port},
@@ -49,22 +62,33 @@ class BootstrapTest(unittest.TestCase):
 
 
 class StartTest(unittest.TestCase):
-    def test_refuses_unsafe_default_bridge(self):
+    def test_warns_about_unsafe_default_bridge_and_starts(self):
         with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"), patch.object(start.subprocess, "run") as run:
             run.return_value.stdout = "0.0.0.0\n"
-            with self.assertRaises(SystemExit):
+            with patch("sys.stderr", new_callable=io.StringIO) as err:
                 start.main()
-        self.assertEqual(run.call_count, 1)
+        self.assertIn("Docker's default bridge publishes ports on 0.0.0.0", err.getvalue())
+        self.assertEqual(run.call_args.args[0][:2], ["docker", "compose"])
 
-    def test_refuses_unsafe_user_defined_bridge_and_removes_probe(self):
+    def test_warns_about_unsafe_user_defined_bridge_and_removes_probe(self):
         with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"):
             with patch.object(start, "bridge_bind_ip", side_effect=["127.0.0.1", ""]):
                 with patch.object(start.subprocess, "run") as run:
-                    with self.assertRaises(SystemExit):
+                    with patch("sys.stderr", new_callable=io.StringIO) as err:
                         start.main()
-        create, remove = [call.args[0] for call in run.call_args_list]
+        create, remove, compose = [call.args[0] for call in run.call_args_list]
         self.assertEqual(create[:5], ["docker", "network", "create", "--driver", "bridge"])
         self.assertEqual(remove, ["docker", "network", "rm", create[-1]])
+        self.assertEqual(compose[:2], ["docker", "compose"])
+        self.assertIn("new Docker bridge network", err.getvalue())
+        self.assertIn("all interfaces", err.getvalue())
+
+    def test_loopback_defaults_give_no_warning(self):
+        with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"), patch.object(start.subprocess, "run") as run:
+            run.return_value.stdout = "127.0.0.1\n"
+            with patch("sys.stderr", new_callable=io.StringIO) as err:
+                start.main()
+        self.assertEqual(err.getvalue(), "")
 
     def test_passes_selected_engine_socket_to_compose(self):
         with patch.object(start, "engine_host", return_value="unix:///tmp/lab.sock"):
