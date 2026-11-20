@@ -67,12 +67,20 @@ python3 lab.py up -v --tf-log DEBUG    # also Terraform's own log (it can contai
 python3 lab.py up --providers aws,gcp  # a subset; --identities also creates the Klotse kubeconfigs (identity.py create)
 eval "$(python3 lab.py env)"           # export the lab variables in this shell (PowerShell: python lab.py env --shell powershell | iex)
 python3 lab.py down                    # identity.py remove, destroy oci/gcp/azure/aws, then docker compose down --volumes
+python3 lab.py down --purge           # the same even when a destroy fails, then remove every klotse793 container,
+                                       # volume and network and delete the Terraform state, plans and lab kubeconfigs
 ```
 
 When an emulator does not become healthy, `up` prints the last answer of each health URL and the
 `docker compose logs` command for it. `up` keeps what already exists in `.local/` and stops at the first failing root (for AWS, see the 409
 recovery below, then run `up --providers` for the rest). `down` leaves the emulators running when a destroy
-fails or when only some providers are given. `env` prints the Terraform variables (OCI profile and override,
+fails or when only some providers are given. Floci starts the k3s sidecars (and AWS's VPC container) itself
+through the Docker socket, so `docker compose down` never removes them, and a cluster missing from Terraform
+state (the AWS 409 case) is never destroyed. `down --purge` covers both: after the destroys, failed or
+not, it removes only Docker objects labelled `floci_namespace=klotse793` (never a broad prune), lists them again,
+and deletes the local Terraform state, plans and `.local/<provider>.kubeconfig` only when none remain (a
+listing Docker cannot answer counts as remaining). Provider
+plugins, lock files and the rest of `.local/` are kept. `env` prints the Terraform variables (OCI profile and override,
 the CA bundle once `up` wrote it) and the cloud CLI settings for the emulators: `AWS_ENDPOINT_URL` and test keys,
 `OCI_CLI_CONFIG_FILE`/`OCI_CLI_ENDPOINT`, and for gcloud a private `CLOUDSDK_CONFIG`, the container endpoint
 override, project `klotse-local` and a fixture access-token file. `AZURE_CONFIG_DIR` is private too, but the
@@ -206,7 +214,8 @@ connect Klotse without an external cloud login.
    `docker ps -a --filter label=floci_namespace=klotse793` and
    `docker volume ls --filter label=floci_namespace=klotse793`. If a provider
    left children behind, verify they belong to this exact lab before removing
-   them individually. Never run a broad Docker prune.
+   them individually. Never run a broad Docker prune. `python3 lab.py down --purge` does steps 1-4 in one go
+   (it removes only objects carrying this lab's label).
 4. After verifying destruction, delete the now-unused lab-only .local files,
    plan files and local Terraform state/backups. Close the
    isolated shell. Never delete state while resources still exist.
