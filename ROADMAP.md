@@ -169,6 +169,7 @@ OCI #458 completes the bounded sign-in scope and visibly marks the plugin WIP/he
 
 Cloud cluster parser cleanup (#790): preserve same-name GCP clusters in different locations, refuse ambiguous credential-location lookup, and use ordered set-backed deduplication in AWS/GCP/OCI. Offline regression coverage only; live clouds remain unverified.
 
+Teleport clusters (#377): a bundled Teleport plugin on the existing cluster-source extension point lists clusters with `tsh kube ls --format=json` and adds them with `tsh kube login` into Klotse's private temporary kubeconfig (merged as for the clouds; the target's current-context is kept). Sign-in stays in a terminal (`tsh login`). Fake-tsh tests only; the tsh JSON field names, context names, MFA and expired-session behaviour are not verified against a real Teleport.
 AKS import naming (#796): imported AKS contexts take the selected cluster name instead of a generic `default`; generic cluster/user entries are renamed with their references so two imports keep their own endpoint and CA. Offline regression coverage only; Floci and real Azure unverified.
 
 ## Local Terraform lab (#793)

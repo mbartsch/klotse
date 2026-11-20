@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "teleport",
+  "name": "Teleport Plugin",
+  "version": "0.1",
+  "requires_api": 11,
+  "description": "Adds the Kubernetes clusters of a signed-in Teleport user with tsh (File > Add clusters from the cloud). Sign in with tsh login in a terminal first. Not verified against a real Teleport cluster.",
+  "columns": [],
+  "actions": [],
+  "overview_cards": [],
+  "settings": [],
+  "cluster_settings": []
+}

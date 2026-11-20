@@ -18,7 +18,7 @@ from ..workers import Worker
 from .dialog_actions import action_box
 
 NO_PLUGIN_TEXT = ("No cloud plugin is enabled. Enable one in Plugins (for example Google Cloud (GKE) Plugin, AWS Plugin, "
-                  "Azure (AKS) Plugin or Oracle Cloud (OKE) Plugin), then open this dialog again.")
+                  "Azure (AKS) Plugin, Oracle Cloud (OKE) Plugin or Teleport Plugin), then open this dialog again.")
 
 
 def _short(message):
