@@ -225,6 +225,79 @@ class UpDownTest(unittest.TestCase):
                     lab.main(["down"])
         run.assert_not_called()
 
+    def purge_lab(self, here, listings, destroy_fails=False):
+        """Run down --purge against a fake Docker: `listings` maps a listing argv prefix to the IDs it returns, in
+        turn (the purge lists each kind before and after removing)."""
+        (here / ".local").mkdir(exist_ok=True)
+        for provider in lab.ORDER:
+            (here / provider / ".terraform").mkdir(parents=True, exist_ok=True)
+            (here / provider / ".terraform.lock.hcl").write_text("lock")
+            for name in lab.STATE_FILES:
+                (here / provider / name).write_text("{}")
+        (here / ".local" / "aws.kubeconfig").write_text("{}")
+        (here / ".local" / "roots.pem").write_text("pem")
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            for prefix, answers in listings.items():
+                if tuple(argv[:len(prefix)]) == prefix:
+                    return subprocess.CompletedProcess(argv, 0, stdout="\n".join(answers.pop(0) if answers else []))
+            if argv[:2] == [lab.sys.executable, str(here / "identity.py")]:
+                raise subprocess.CalledProcessError(1, argv)  # the clusters are already broken
+            return subprocess.CompletedProcess(argv, 0, stdout="")
+
+        failure = subprocess.CalledProcessError(1, "terraform") if destroy_fails else None
+        with patch.object(lab, "HERE", here), patch.object(lab, "LOCAL", here / ".local"), \
+                patch.object(lab, "terraform", side_effect=failure) as terraform, \
+                patch.object(lab.subprocess, "run", side_effect=run), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            lab.main(["down", "--purge"])
+        return calls, terraform, err.getvalue()
+
+    def test_purge_removes_lab_docker_objects_and_state_after_a_failed_destroy(self):
+        with TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            listings = {("docker", "ps"): [["c1", "c2"], []], ("docker", "volume", "ls"): [["v1"], []],
+                        ("docker", "network", "ls"): [["n1"], []]}
+            calls, terraform, err = self.purge_lab(here, listings, destroy_fails=True)
+            self.assertEqual([c.args[0] for c in terraform.call_args_list], ["oci", "gcp", "azure", "aws"])
+            self.assertIn("Destroy failed for oci, gcp, azure, aws", err)
+            self.assertIn(["docker", "compose", "-f", str(here / "compose.yaml"), "down", "--volumes",
+                           "--remove-orphans"], calls)
+            self.assertIn(["docker", "rm", "-f", "-v", "c1", "c2"], calls)
+            self.assertIn(["docker", "volume", "rm", "-f", "v1"], calls)
+            self.assertIn(["docker", "network", "rm", "n1"], calls)
+            for argv in calls:  # every listing is scoped to this lab's namespace label
+                if argv[:2] == ["docker", "ps"] or argv[2:3] == ["ls"]:
+                    self.assertEqual(argv[-2:], ["--filter", "label=floci_namespace=klotse793"])
+            for provider in lab.ORDER:
+                for name in lab.STATE_FILES:
+                    self.assertFalse((here / provider / name).exists(), (provider, name))
+                self.assertTrue((here / provider / ".terraform.lock.hcl").exists())
+            self.assertFalse((here / ".local" / "aws.kubeconfig").exists())
+            self.assertTrue((here / ".local" / "roots.pem").exists())
+
+    def test_purge_keeps_state_when_docker_objects_remain(self):
+        with TemporaryDirectory() as tmp:
+            here = Path(tmp)
+            listings = {("docker", "ps"): [["c1"], ["c1"]], ("docker", "volume", "ls"): [[], []],
+                        ("docker", "network", "ls"): [[], []]}
+            with self.assertRaises(SystemExit) as stop:
+                self.purge_lab(here, listings)
+            self.assertIn("container c1", str(stop.exception))
+            self.assertTrue((here / "aws" / "terraform.tfstate").exists())
+
+    def test_purge_refuses_a_provider_subset(self):
+        with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as stop:
+            lab.main(["down", "--purge", "--providers", "aws"])
+        self.assertIn("cannot be combined", str(stop.exception))
+
+    def test_lab_label_matches_the_compose_namespace(self):
+        compose = (Path(lab.__file__).parent / "compose.yaml").read_text()
+        namespace = lab.LAB_LABEL.rsplit("=", 1)[1]
+        self.assertEqual(compose.count(f"DOCKER_RESOURCE_NAMESPACE: {namespace}"), 4)
+
     def test_up_passes_the_bind_address_to_compose_and_checks_health_there(self):
         for bind, check in ((None, "127.0.0.1"), ("0.0.0.0", "127.0.0.1"), ("192.168.5.2", "192.168.5.2")):
             with self.subTest(bind=bind), patch.dict("os.environ", {}, clear=False), \
