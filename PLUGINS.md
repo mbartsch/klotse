@@ -363,6 +363,14 @@ The bundled OCI plugin supports terminal-based `oci session authenticate --regio
 
 OCI CLI reference: https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/session/authenticate.html .
 
+## Teleport: clusters with tsh
+
+The bundled Teleport plugin (#377, off until enabled) adds a **Teleport** source to File > Add clusters from the cloud…. Listing runs `tsh kube ls --format=json`; adding runs `tsh kube login <name>` with `KUBECONFIG` set to the private temporary file that Klotse merges afterwards, so tsh never edits your kubeconfig and its switch of current-context does not reach it. The dialog has two optional fields: the Teleport proxy (`host` or `host:port`, also read from `TELEPORT_PROXY`) and the tsh command (empty means `tsh` on the PATH; otherwise the full path of `tsh`/`tsh.exe`).
+
+Sign in first with `tsh login --proxy=<proxy>` in a terminal: Klotse runs tsh without a terminal, so it cannot show a browser sign-in or an MFA prompt, and it says so in plain words when tsh reports that you are not signed in or the session expired. Cluster names come from Teleport and are untrusted: a name that is empty, starts with `-` or has control characters is left out of the list and refused when adding. Commands are argv lists without a shell, with stdin closed, no console window and a timeout.
+
+Not verified against a real Teleport cluster: the JSON field names (`kube_cluster_name`, `labels`, `selected`; `name` and `metadata.name`/`metadata.labels` are accepted too), the context names tsh writes and per-session MFA behaviour come from documentation and memory. Tests use a fake tsh.
+
 ## Things to know
 
 - **Plugins are trusted code.** They run with your permissions, in Klotse's process, receive the manifests of the

@@ -101,6 +101,9 @@ OCI plugin #458 is WIP (help appreciated): terminal sign-in validates region/pro
 
 #790: cloud discovery keeps GCP clusters distinct by name and location; missing-location credential lookup refuses ambiguous results. AWS/GCP/OCI parsers preserve first-seen order while deduplicating. Optional local configuration defaults remain best-effort. No live-cloud verification.
 
+#377: the bundled Teleport plugin (off until enabled) is a cluster source for Add clusters from the cloud: `tsh kube ls --format=json`, then `tsh kube login <name>` with KUBECONFIG set to Klotse's private temporary file; optional proxy and tsh path are dialog fields. Untrusted names (leading `-`, control characters) are refused. JSON field names and live Teleport are unverified.
+#796: AKS credentials pass `--context <cluster>`; the Azure plugin renames generic (`default`/empty) cluster, user and context entries in the CLI output to the selected cluster (`clusterUser_<group>_<name>` for users) and rewrites references, so repeated imports stay distinct. Specific Azure names are untouched. Not verified against real Azure or Floci.
+
 ## Local Terraform lab (#793)
 
 The local-only Floci lab in `labs/floci/` defines two clusters with one two-node pool per provider, Docker Compose startup, teardown and separate short-lived Kubernetes identities for Klotse. Use a dedicated daemon with loopback-only published ports. Validated on an isolated Linux daemon: all eight contexts worked through Klotse's Kubernetes service; AWS needed a documented import recovery. Each emulator exposed one Ready k3s node; native GUI interaction and cloud sign-in are not verified.

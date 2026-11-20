@@ -604,7 +604,7 @@ class MainWindow(QMainWindow):
         if not sources:  # the cluster listing belongs to the cloud plugins: say what to enable
             QMessageBox.information(self, "Add clusters from the cloud",
                                     "No cloud plugin is enabled. Enable one in Plugins (for example Google Cloud (GKE) Plugin, "
-                                    "AWS Plugin, Azure (AKS) Plugin or Oracle Cloud (OKE) Plugin), then try again.")
+                                    "AWS Plugin, Azure (AKS) Plugin, Oracle Cloud (OKE) Plugin or Teleport Plugin), then try again.")
             return
         dialog = CloudClustersDialog(self.cloud_target, sources, self)
         dialog.clusters_added.connect(self._cloud_clusters_added)
