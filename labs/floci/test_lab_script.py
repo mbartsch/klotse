@@ -11,6 +11,9 @@ from unittest.mock import MagicMock, call, patch
 import lab
 
 
+KEY = {"id": "AKIA4FSC7A8BEXAMPLE", "secret": "c2VjcmV0/+="}  # an invented fixture key
+
+
 class Answer(io.BytesIO):
     status = 200
 
@@ -30,6 +33,19 @@ class EnvTest(unittest.TestCase):
         for name, value in env.items():
             if name.endswith(("_URL", "_ENDPOINT", "_CONTAINER", "_SERVICEUSAGE")):
                 self.assertRegex(value, r"^http://(127\.0\.0\.1|localhost):", name)
+
+    def test_environment_exports_the_saved_lab_iam_key_and_falls_back_to_the_test_pair(self):
+        with TemporaryDirectory() as tmp:
+            env = lab.environment(Path(tmp))
+            self.assertEqual((env["AWS_ACCESS_KEY_ID"], env["AWS_SECRET_ACCESS_KEY"]), ("test", "test"))
+            key_file = lab.paths(Path(tmp))["aws_key"]
+            key_file.write_text(json.dumps(KEY))
+            env = lab.environment(Path(tmp))
+            self.assertEqual((env["AWS_ACCESS_KEY_ID"], env["AWS_SECRET_ACCESS_KEY"]), (KEY["id"], KEY["secret"]))
+            for bad in ("not json", json.dumps({"id": "AKIA x", "secret": "s"}), json.dumps({"id": "AKIA"}),
+                        json.dumps({"id": "AKIA", "secret": "$(touch x)"}), json.dumps(["AKIA", "s"])):
+                key_file.write_text(bad)
+                self.assertEqual(lab.environment(Path(tmp))["AWS_ACCESS_KEY_ID"], "test", bad)
 
     def test_render_quotes_for_sh_and_powershell(self):
         env = {"A": "it's here", "B": "plain"}
@@ -152,6 +168,12 @@ class UpDownTest(unittest.TestCase):
         which = patch.object(lab.shutil, "which", side_effect=lambda tool: f"/bin/{tool}")  # docker, terraform, kubectl
         which.start()
         self.addCleanup(which.stop)
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.local = Path(tmp.name, ".local")
+        local = patch.object(lab, "LOCAL", self.local)  # up saves the AWS key there; never the real .local
+        local.start()
+        self.addCleanup(local.stop)
 
     def run_up(self, argv, fail=None, state="", show="{}"):
         calls = []
@@ -160,7 +182,7 @@ class UpDownTest(unittest.TestCase):
             calls.append((provider, args[0]))
             if (provider, args[0]) == fail:
                 raise subprocess.CalledProcessError(1, "terraform")
-            out = {"state": state, "show": show}.get(args[0], "")
+            out = {"state": state, "show": show, "output": json.dumps(KEY)}.get(args[0], "")
             return subprocess.CompletedProcess(args, 0, stdout=out)
 
         with patch.object(lab.start, "main") as start, patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"), \
@@ -174,7 +196,7 @@ class UpDownTest(unittest.TestCase):
     def test_up_applies_each_root_with_a_saved_plan(self):
         calls, _ = self.run_up(["up", "--providers", "gcp,aws"])
         self.assertEqual(calls, [("aws", "init"), ("aws", "plan"), ("aws", "apply"),
-                                 ("gcp", "init"), ("gcp", "plan"), ("gcp", "apply")])
+                                 ("gcp", "init"), ("gcp", "plan"), ("gcp", "apply"), ("aws", "output")])
 
     def test_up_stops_at_a_failure_and_explains_the_aws_conflict(self):
         with patch("sys.stderr", new_callable=io.StringIO) as err:
@@ -212,6 +234,8 @@ class UpDownTest(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, "terraform")
             if args[0] == "import":
                 imported.add(args[-1])
+            if args[0] == "output":
+                return subprocess.CompletedProcess(args, 0, stdout=json.dumps(KEY))
             if args[0] == "state":
                 return subprocess.CompletedProcess(args, 0, stdout="\n".join(
                     ["aws_vpc.lab", *(lab.eks_address(name) for name in in_state)]))
@@ -239,7 +263,8 @@ class UpDownTest(unittest.TestCase):
         for name in lab.AWS_CLUSTERS:
             self.assertIn(("aws", "import", "-input=false", lab.eks_address(name), name), calls)
         aws = [c[1] for c in calls if c[0] == "aws"]
-        self.assertEqual(aws[-3:], ["plan", "show", "apply"])  # node groups after the import, the wait and a plan check
+        # node groups after the import, the wait and a plan check; then up saves the lab IAM key
+        self.assertEqual(aws[-4:], ["plan", "show", "apply", "output"])
         self.assertEqual(aws.count("show"), 3)  # waited through one CREATING refresh, then checked the plan
         self.assertIn(("aws", "apply", "-refresh-only", "-auto-approve", "-input=false"), calls)
         self.assertEqual([c[1] for c in calls if c[0] == "gcp"], ["init", "plan", "apply"])
@@ -478,13 +503,32 @@ class UpDownTest(unittest.TestCase):
         for bind, check in ((None, "127.0.0.1"), ("0.0.0.0", "127.0.0.1"), ("192.168.5.2", "192.168.5.2")):
             with self.subTest(bind=bind), patch.dict("os.environ", {}, clear=False), \
                     patch.object(lab.start, "main"), patch.object(lab, "wait_healthy") as wait, \
-                    patch.object(lab, "prepare") as prepare, patch.object(lab, "terraform"), \
+                    patch.object(lab, "prepare") as prepare, patch.object(lab, "terraform"), patch.object(lab, "save_aws_key"), \
                     patch("sys.stderr", new_callable=io.StringIO) as err:
                 lab.main(["up"] + (["--bind", bind] if bind else []))
                 self.assertEqual(lab.os.environ["KLOTSE_LAB_BIND"], bind or "127.0.0.1")
             self.assertEqual(wait.call_args.kwargs["host"], check)
             self.assertEqual(prepare.call_args.kwargs["host"], check)
             self.assertEqual("WARNING" in err.getvalue(), bool(bind))
+
+    def test_up_saves_the_lab_iam_key_from_the_aws_output_only_with_aws(self):
+        calls, _ = self.run_up(["up", "--providers", "gcp"])
+        self.assertNotIn(("aws", "output"), calls)
+        self.assertFalse((self.local / "aws-key.json").exists())
+        calls, _ = self.run_up(["up", "--providers", "aws"])
+        self.assertEqual(calls[-1], ("aws", "output"))
+        self.assertEqual(lab.aws_key(self.local / "aws-key.json"), (KEY["id"], KEY["secret"]))
+        if lab.os.name == "posix":
+            self.assertEqual((self.local / "aws-key.json").stat().st_mode & 0o077, 0)
+
+    def test_up_refuses_a_malformed_key_output(self):
+        def terraform(provider, *args, env, capture=False):
+            return subprocess.CompletedProcess(args, 0, stdout='{"id": "AKIA", "secret": "a b"}' if args[0] == "output" else "")
+
+        with patch.object(lab.start, "main"), patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"),                 patch.object(lab, "terraform", side_effect=terraform), patch("sys.stderr", new_callable=io.StringIO),                 self.assertRaises(SystemExit) as stop:
+            lab.main(["up", "--providers", "aws"])
+        self.assertIn("klotse_access_key", str(stop.exception))
+        self.assertFalse((self.local / "aws-key.json").exists())
 
     def test_up_refuses_before_starting_when_a_tool_is_missing(self):
         present = {"docker", "terraform"}
