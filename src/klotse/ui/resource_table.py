@@ -161,6 +161,7 @@ class ResourceTable(QWidget):
         self._saved_widths = dict(self._column_widths)  # only the widths the user dragged: what the next start keeps (#501)
         self._width_guard = False  # set while the table sizes its own columns: those widths are not the user's
         self._has_loaded = False
+        self._told = None  # the row last sent with `selected` (None: nothing), so a one-row selection is sent once (#821)
         self.permission_check = None  # (kind, action, row) -> True / False / None, set by the workspace; False adds a note to a menu entry
         if customizable is None:
             customizable = kind not in NOT_CUSTOMIZABLE
@@ -347,8 +348,28 @@ class ResourceTable(QWidget):
         count = len(self.view.selectionModel().selectedRows())
         self.selection_count.setText(f"{count} selected")
         self.selection_count_changed.emit(count)  # Details shows "N selected" with no single-row actions when N > 1 (#503)
-        if emit_empty and count == 0:
-            self.selected.emit(None)
+        if not emit_empty:  # a reload restoring the selection stays silent
+            return
+        if count == 0:
+            self._tell(None)
+        elif count == 1:
+            # Ctrl+click a row off and click it again, or Ctrl+click one of two off: the current row does not move, so
+            # currentRowChanged (_on_row) is not emitted and Details would stay empty or on "2 selected" (#821)
+            row = self.selected_rows()[0]
+            if row is not self._told:
+                self._tell(row)
+        else:
+            self._told = None  # Details shows "N selected"; going back to one row tells it again
+
+    def _tell(self, row):
+        """Send `row` (or None) to Details with `selected`, noting the row's kind for its Related view."""
+        if row is not None:
+            try:
+                row.table_kind = self.kind  # what kind of object this row is: the list manifests carry no `kind`, Details needs it
+            except AttributeError:  # a row type without room for it simply has no Related view
+                pass
+        self._told = row
+        self.selected.emit(row)
 
     def set_loading(self):
         self._load_clock.start()
@@ -1298,16 +1319,10 @@ class ResourceTable(QWidget):
 
     def _on_row(self, current, _prev):
         if current.isValid():
-            src = self.proxy.mapToSource(current)
-            row = self.model.rows[src.row()]
-            try:
-                row.table_kind = self.kind  # what kind of object this row is: the list manifests carry no `kind`, Details needs it
-            except AttributeError:  # a row type without room for it simply has no Related view
-                pass
-            self.selected.emit(row)
+            self._tell(self.model.rows[self.proxy.mapToSource(current).row()])
         else:
             rows = self.selected_rows()
-            self.selected.emit(rows[0] if rows else None)
+            self._tell(rows[0] if rows else None)
 
     DOUBLE_CLICK = {"Pod": "containers", "Container": "logs", "Node": "node-pods", "Namespace": "open-namespace",
                     "CustomResourceDefinition": "open-crd", "CRDGroup": "open-crd-group",
