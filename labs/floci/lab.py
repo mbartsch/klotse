@@ -56,6 +56,13 @@ LAB_LABEL = f"label=floci_namespace={LAB_NAMESPACE}"
 LAB_NAME = re.compile(rf"floci-[a-z0-9]+-{LAB_NAMESPACE}-")  # Floci's own object names, e.g. floci-aws-klotse793-eks-…
 STATE_FILES = ("terraform.tfstate", "terraform.tfstate.backup", ".terraform.tfstate.lock.info", "lab.tfplan")
 AZURE_CA_URL = f"http://{LOOPBACK}:4577/_floci/tls-cert"
+# az CLI in the lab's private AZURE_CONFIG_DIR: Floci Azure as a registered cloud and its seeded test service principal
+# (floci-az docs/services/entra.md; the same fixture values as azure/main.tf). Public test values, not secrets.
+AZ_CLOUD = "FlociLab"
+AZ_TENANT = "00000000-0000-0000-0000-000000000002"
+AZ_CLIENT = "11111111-1111-1111-1111-111111111111"
+AZ_SECRET = "floci-az-dev-secret"
+AZ_SUBSCRIPTION = "00000000-0000-0000-0000-000000000001"
 VERBOSE = False  # -v/--verbose/--debug: log each health attempt, command and prepared file
 HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})")
 AWS_KEY_VALUE = re.compile(r"[A-Za-z0-9/+=]{1,128}")  # an access key id or secret: no whitespace, quotes or shell syntax
@@ -263,6 +270,44 @@ def oci_fingerprint(key):
     return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
 
 
+def az_setup_steps():
+    """The az commands that make the lab's private az folder use Floci: (name, argv, must succeed). Logs show only the
+    fixed name, never the argv (the sign-in carries the floci-az test secret). The cloud is registered again each time
+    (unregister needs another active cloud first), with explicit endpoints: discovery alone gave an AD endpoint without
+    the port. Instance discovery is off so MSAL does not ask login.microsoftonline.com about the authority
+    (core.instance_discovery, for private clouds)."""
+    return [
+        ("az cloud set AzureCloud", ["az", "cloud", "set", "--name", "AzureCloud"], False),
+        ("az cloud unregister", ["az", "cloud", "unregister", "--name", AZ_CLOUD], False),
+        ("az cloud register", ["az", "cloud", "register", "--name", AZ_CLOUD,
+                               "--endpoint-resource-manager", f"https://localhost:{PORTS['azure']}/",
+                               "--endpoint-active-directory", f"https://localhost:{PORTS['azure']}",
+                               "--endpoint-active-directory-resource-id", "https://management.core.windows.net/"], True),
+        (f"az cloud set {AZ_CLOUD}", ["az", "cloud", "set", "--name", AZ_CLOUD], True),
+        ("az config set core.instance_discovery=false", ["az", "config", "set", "core.instance_discovery=false"], True),
+        ("az login --service-principal", ["az", "login", "--service-principal", "--username", AZ_CLIENT,
+                                          "--password", AZ_SECRET, "--tenant", AZ_TENANT, "--output", "none"], True),
+        ("az account set", ["az", "account", "set", "--subscription", AZ_SUBSCRIPTION], True),
+    ]
+
+
+def setup_az(env):
+    """Sign the lab's az folder in to Floci Azure, so `az aks list` (Klotse's Add clusters from the cloud) works from
+    the lab shell. Optional: without az, or when a step fails, it warns and the rest of the lab is unaffected."""
+    if not shutil.which("az"):
+        log("az not found: skipped the Azure CLI sign-in (Klotse lists AKS clusters through az; README.md: Azure CLI).")
+        return False
+    for name, argv, required in az_setup_steps():
+        debug(f"run: {name}")
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+        if result.returncode and required:
+            log(f"WARNING: `{name}` failed (exit {result.returncode}); az is not signed in to Floci Azure. "
+                "README.md: Azure CLI has the commands to run by hand.")
+            return False
+    log(f"az signed in to Floci Azure (cloud {AZ_CLOUD}, subscription {AZ_SUBSCRIPTION}) in .local/azure.")
+    return True
+
+
 def prepare(providers, local=LOCAL, fetch=urllib.request.urlopen, host=LOOPBACK, need_openssl=True):
     """Create the lab-only files under .local/ that the chosen providers need. Existing files are kept. On a client of a
     remote lab (need_openssl=False) a missing openssl skips the OCI profile with a warning instead of failing."""
@@ -451,6 +496,8 @@ def up(args):
             raise SystemExit(f"terraform failed for {provider}; the emulators are still running (lab.py down stops them).")
     if "aws" in providers:
         save_aws_key(env)
+    if "azure" in providers:
+        setup_az(env)
     if args.identities:
         for provider in providers:
             if not (LOCAL / f"{provider}.kubeconfig").exists():
@@ -600,6 +647,8 @@ def tunnel(args, popen=subprocess.Popen):
     try:
         wait_healthy(providers, timeout=args.timeout, alive=alive)
         prepare(providers, need_openssl=False)
+        if "azure" in providers:
+            setup_az(lab_env())  # this computer's own az folder, through the forwarded port
         log(f"Tunnel to {args.destination} is up. In another shell: eval \"$(python3 lab.py env)\". Copy the Klotse "
             "kubeconfigs from the lab host's labs/floci/.local/<provider>.kubeconfig, and .local/aws-key.json for EKS imports. "
             "Ctrl-C closes the tunnel.")

@@ -174,6 +174,9 @@ class UpDownTest(unittest.TestCase):
         local = patch.object(lab, "LOCAL", self.local)  # up saves the AWS key there; never the real .local
         local.start()
         self.addCleanup(local.stop)
+        az = patch.object(lab, "setup_az")  # never the real az CLI (AzTest covers it)
+        az.start()
+        self.addCleanup(az.stop)
 
     def run_up(self, argv, fail=None, state="", show="{}"):
         calls = []
@@ -548,6 +551,51 @@ class UpDownTest(unittest.TestCase):
     def test_bind_refuses_a_host_name(self):
         with self.assertRaises(SystemExit):
             lab.bind_address("labhost")
+
+
+class AzTest(unittest.TestCase):
+    def test_setup_registers_floci_with_explicit_endpoints_and_signs_in(self):
+        result = subprocess.CompletedProcess([], 0)
+        with patch.object(lab.shutil, "which", return_value="/bin/az"), \
+                patch.object(lab.subprocess, "run", return_value=result) as run, patch.object(lab, "VERBOSE", True), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertTrue(lab.setup_az({"AZURE_CONFIG_DIR": "/lab/.local/azure"}))
+        self.assertNotIn(lab.AZ_SECRET, err.getvalue())  # verbose logs show the slot, never the value
+        self.assertIn(lab.AZ_SECRET, next(c.args[0] for c in run.call_args_list if c.args[0][1] == "login"))
+        argvs = [c.args[0] for c in run.call_args_list]
+        self.assertTrue(all(c.kwargs["env"] == {"AZURE_CONFIG_DIR": "/lab/.local/azure"} for c in run.call_args_list))
+        register = next(a for a in argvs if a[1:3] == ["cloud", "register"])
+        self.assertEqual(register[register.index("--endpoint-active-directory") + 1], "https://localhost:4577")
+        self.assertIn(["az", "config", "set", "core.instance_discovery=false"], argvs)
+        self.assertLess(argvs.index(["az", "cloud", "set", "--name", "FlociLab"]),
+                        next(i for i, a in enumerate(argvs) if a[1] == "login"))
+        self.assertEqual(argvs[-1], ["az", "account", "set", "--subscription", lab.AZ_SUBSCRIPTION])
+
+    def test_setup_tolerates_a_first_unregister_and_warns_on_a_failed_login(self):
+        def run(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1 if argv[2] in ("unregister", "--service-principal") else 0)
+
+        with patch.object(lab.shutil, "which", return_value="/bin/az"), patch.object(lab.subprocess, "run", side_effect=run), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertFalse(lab.setup_az({}))
+        self.assertIn("`az login --service-principal` failed", err.getvalue())
+        self.assertNotIn("unregister", err.getvalue())
+
+    def test_setup_without_az_only_warns(self):
+        with patch.object(lab.shutil, "which", return_value=None), patch.object(lab.subprocess, "run") as run, \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertFalse(lab.setup_az({}))
+        run.assert_not_called()
+        self.assertIn("az not found", err.getvalue())
+
+    def test_up_signs_az_in_only_with_azure(self):
+        for providers, expected in (("gcp", False), ("azure,gcp", True)):
+            with self.subTest(providers=providers), patch.object(lab.shutil, "which", return_value="/bin/x"), \
+                    patch.object(lab.start, "main"), patch.object(lab, "wait_healthy"), patch.object(lab, "prepare"), \
+                    patch.object(lab, "terraform"), patch.object(lab, "setup_az") as setup, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                lab.main(["up", "--providers", providers])
+            self.assertEqual(setup.called, expected)
 
 
 class RemoteTest(unittest.TestCase):
