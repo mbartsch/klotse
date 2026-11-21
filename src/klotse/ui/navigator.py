@@ -92,6 +92,7 @@ class Navigator(QTreeWidget):
     sign_in_requested = Signal(str)  # context name: run the kubeconfig's sign-in helper in a terminal, then connect again
     config_requested = Signal(str)  # context name: show what the kubeconfig says about it, read-only
     alias_requested = Signal(str)  # rename the display alias for a cluster context
+    remove_requested = Signal(object)  # (context names,): forget clusters added from the cloud (#815); the owner confirms
     groups_changed = Signal()  # the groups were edited; whoever owns the ClusterGroups saves them
     auto_refresh_requested = Signal(str)  # "pause", "enable" or "restore": auto-refresh on all open clusters (CONNECTED header menu)
     auto_refresh_clusters_requested = Signal(object, bool)  # [context names], enabled: the cluster menu's Enable/Disable entries
@@ -128,6 +129,7 @@ class Navigator(QTreeWidget):
         self.groups = None  # a ClusterGroups, or None for a plain list
         self.retry_pending = lambda _ctx: False
         self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
+        self.removable = None  # context -> bool: may "Remove from Klotse…" forget it (#815; set by the window)
         self._group_items = {}  # group path -> its folder item
         self._collapsed_clusters = None  # cluster name -> expanded before collapse_clusters, while collapsed
         self._connected_hdr = self._idle_hdr = None
@@ -600,6 +602,10 @@ class Navigator(QTreeWidget):
             if self._states.get(name) not in ACTIVE_STATES:
                 menu.addAction("Sign in with the helper…", lambda c=name: self.sign_in_requested.emit(c))
             menu.addAction("Show kubeconfig entry…", lambda c=name: self.config_requested.emit(c))  # works before connecting
+            removable = self._removable_targets(cluster, name)
+            if removable:
+                suffix = f" ({len(removable)})" if len(removable) > 1 else ""
+                menu.addAction(f"Remove from Klotse{suffix}…", lambda t=removable: self.remove_requested.emit(t))
             if self._states.get(name) in ACTIVE_STATES:
                 targets = self._auto_refresh_targets(cluster, name)
                 suffix = f" ({len(targets)})" if len(targets) > 1 else ""
@@ -637,6 +643,16 @@ class Navigator(QTreeWidget):
         if item in self.selectedItems() and len(selected) > 1:
             return selected
         return [name]
+
+    def _removable_targets(self, item, name):
+        """The clusters "Remove from Klotse…" acts on (#815): disconnected ones that `removable` accepts (those added from the
+        cloud to Klotse's own file). The selected ones when the clicked cluster is among several selected; else the clicked one."""
+        if self.removable is None or self._states.get(name) in ACTIVE_STATES or not self.removable(name):
+            return ()
+        selected = [i.data(0, self.ROLE_KEY) for i in self._selected_disconnected_clusters()]
+        if item in self.selectedItems() and len(selected) > 1:
+            return tuple(ctx for ctx in selected if self.removable(ctx))
+        return (name,)
 
     def _selected_disconnected_clusters(self):
         return [item for item in self.selectedItems()
