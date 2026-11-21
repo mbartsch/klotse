@@ -89,9 +89,34 @@ and `env` falls back to the `test`/`test` pair before that). Floci's EKS token w
 `test`/`test` (the account root, which would be cluster-admin), so EKS clusters imported with "Add clusters from the
 cloud" only connect from a shell with the IAM user's key (`aws sts get-caller-identity` shows `user/klotse-local`). It also prints
 `OCI_CLI_CONFIG_FILE`/`OCI_CLI_ENDPOINT`, and for gcloud a private `CLOUDSDK_CONFIG`, the container endpoint
-override, project `klotse-local` and a fixture access-token file. `AZURE_CONFIG_DIR` is private too, but the
-`az` CLI still needs `az cloud register` for Floci (not done here). Use these variables only in the lab shell:
+override, project `klotse-local` and a fixture access-token file. `AZURE_CONFIG_DIR` is private too: `up` (and
+`tunnel`) sign the `az` CLI in that folder in to Floci Azure (below). Use these variables only in the lab shell:
 they point every cloud CLI started from it at the emulators.
+
+### Azure CLI
+
+Klotse lists AKS clusters with `az aks list`, which needs a signed-in account. When Azure is selected and `az` is
+installed, `up` and `tunnel` run these in the lab's private `AZURE_CONFIG_DIR` (your own `az` setup is untouched;
+without `az` they warn and skip). To run them by hand, from the lab shell:
+
+```sh
+az cloud set --name AzureCloud; az cloud unregister --name FlociLab   # only when registered before
+az cloud register --name FlociLab \
+  --endpoint-resource-manager https://localhost:4577/ \
+  --endpoint-active-directory https://localhost:4577 \
+  --endpoint-active-directory-resource-id https://management.core.windows.net/
+az cloud set --name FlociLab
+az config set core.instance_discovery=false
+az login --service-principal --username 11111111-1111-1111-1111-111111111111 \
+  --password floci-az-dev-secret --tenant 00000000-0000-0000-0000-000000000002
+az account set --subscription 00000000-0000-0000-0000-000000000001
+az aks list --query '[].name'
+```
+
+The endpoints are explicit because registering with only the resource manager gave an Active Directory endpoint
+without the port (`https://localhost/<tenant>`). `core.instance_discovery=false` stops MSAL from asking
+`login.microsoftonline.com` about the authority first, which fails on an isolated lab. The service principal and
+subscription are floci-az's public test values (`docs/services/entra.md`), the same ones `azure/main.tf` uses.
 
 ### A lab on another machine
 
