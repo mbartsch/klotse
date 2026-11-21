@@ -391,7 +391,7 @@ class Plugin:
     actions = ()  # Action objects
     overview_cards = ()  # OverviewCard objects
     settings = ()  # Setting objects
-    cluster_settings = ()  # Setting objects (text only) the user sets for each cluster, from the Plugins menu; they reach
+    cluster_settings = ()  # Setting objects (text only) the user sets for each cluster, from the cluster list's menu; they reach
     #                        `request.settings` for that cluster only, next to `settings`; empty = not set for the cluster
     refresh_s = None  # ask again for known resources after this many seconds; None = once per resource
     overview_refresh_s = 300  # compute the Overview cards again after this many seconds (the last values stay shown)

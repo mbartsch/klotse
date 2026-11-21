@@ -145,7 +145,7 @@ class AwsPlugin(Plugin):
         Setting("pass_environment", "Pass the AWS profile or access key to kubectl, helm and the terminals Klotse opens", True,
                 kind="bool", section="Commands and terminals",
                 help="Sets variables in the environment of those commands, so the kubeconfig's 'aws eks get-token' and the "
-                     "aws CLI in a shell Klotse opens can sign in. A cluster with its own profile (Plugins menu, or 'AWS "
+                     "aws CLI in a shell Klotse opens can sign in. A cluster with its own profile (the cluster list's menu, or 'AWS "
                      "profile for each cluster') gets AWS_PROFILE and never the typed access key. Any other cluster gets "
                      "the typed access key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) when one is "
                      "filled in, else AWS_PROFILE for the default profile. Nothing is set when nothing is filled in. "
@@ -153,7 +153,7 @@ class AwsPlugin(Plugin):
         Setting("extra_environment", "Extra variables for those commands", "", kind="multiline", section="Commands and terminals",
                 help="One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AWS_REGION=eu-west-1 or AWS_CONFIG_FILE=/path/to/config. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs."),
     )
-    cluster_settings = (  # Plugins menu -> AWS Plugin -> settings for the cluster in front
+    cluster_settings = (  # cluster list menu -> AWS Plugin: settings for this cluster
         Setting("cluster_region", "AWS region", "", pattern=r"[a-z]{2}(?:-gov)?-[a-z]+-\d+",
                 help="For AWS volumes without a region in their topology labels. Empty uses an EKS ARN context's region. Load-balancer hostnames supply their own region."),
         Setting("cluster_profile", "AWS profile", "",

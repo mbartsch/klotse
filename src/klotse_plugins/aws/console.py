@@ -56,7 +56,7 @@ def keys_from(settings):
 
 def profile_for(context, settings):
     """What identifies the AWS credentials of a cluster: an access key typed into the settings (it replaces every profile),
-    else what was set for the cluster in the Plugins menu, else its entry in "AWS profile for each cluster", else the
+    else what was set for the cluster in the cluster list's menu, else its entry in "AWS profile for each cluster", else the
     default profile ("" = the default credentials). Anything but a name is an `AwsCredentials`: str() is safe to show."""
     keys = keys_from(settings)
     if keys is not None:
@@ -65,13 +65,13 @@ def profile_for(context, settings):
 
 
 def cluster_profile_for(context, settings):
-    """The profile chosen for this cluster only: set in the Plugins menu, else its entry in "AWS profile for each cluster";
+    """The profile chosen for this cluster only: set in the cluster list's menu, else its entry in "AWS profile for each cluster";
     "" when the cluster has none (it then uses the typed access key or the default profile)."""
     return str(settings.get("cluster_profile") or "").strip() or parse_pairs(settings.get("profile_map")).get(context) or ""
 
 
 def account_for(context, settings):
-    """The AWS account of a cluster: set in the Plugins menu, else in "Account for each cluster", else the EKS ARN."""
+    """The AWS account of a cluster: set in the cluster list's menu, else in "Account for each cluster", else the EKS ARN."""
     chosen = str(settings.get("cluster_account") or "").strip()
     if ACCOUNT_ID.fullmatch(chosen):
         return chosen
