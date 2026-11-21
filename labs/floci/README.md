@@ -113,6 +113,17 @@ az account set --subscription 00000000-0000-0000-0000-000000000001
 az aks list --query '[].name'
 ```
 
+After importing AKS clusters in Klotse, run `python3 lab.py aks-kubeconfig` on the lab host (or pass the kubeconfig
+file Klotse wrote to, if not `~/.kube/klotse-cloud.klotse`). floci-az 0.17.0 reports each cluster's API server, in the
+kubeconfig and in its `fqdn`, as its k3s container name and in-network port
+(`https://floci-az-klotse793-aks-<id>:6443`): this computer cannot resolve that name and the certificate does not name
+it. The certificate does name `localhost`, and the container publishes 6443 on 127.0.0.1, so the command rewrites each
+such server to `https://localhost:<published port>` (from `docker port`) and keeps the CA. Only servers of this lab's
+running floci-az containers change; a cluster from an earlier lab is left as is and must be imported again.
+Upstream: [floci-az#725](https://github.com/floci-io/floci-az/issues/725). A floci-az release containing #697 can
+report localhost itself with `FLOCI_AZ_DOCKER_ENDPOINT_MODE=published` (broken in 0.17.0 with a local Docker socket:
+the cluster stays Creating).
+
 The endpoints are explicit because registering with only the resource manager gave an Active Directory endpoint
 without the port (`https://localhost/<tenant>`). `core.instance_discovery=false` stops MSAL from asking
 `login.microsoftonline.com` about the authority first, which fails on an isolated lab. The service principal and

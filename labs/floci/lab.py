@@ -5,6 +5,8 @@
     python3 lab.py down --purge                               no Terraform: remove every Docker object of the lab, then
                                                               its local Terraform state (also after a failed up or down)
     python3 lab.py env [--shell sh|powershell]                print the variables for a shell (eval "$(python3 lab.py env)")
+    python3 lab.py aks-kubeconfig [FILE]                      point AKS clusters imported from Floci at localhost (default
+                                                              ~/.kube/klotse-cloud.klotse, Klotse's cloud import file)
 
   A lab on another machine:
     python3 lab.py tunnel user@labhost                        (recommended) SSH-forward its ports here; env works unchanged
@@ -601,6 +603,62 @@ REMOTE_NOTES = (
 )
 
 
+AKS_SERVER = re.compile(rf"(?m)^([ \t]*server:[ \t]*)https://(floci-az-{LAB_NAMESPACE}-aks-[a-z0-9]{{1,32}}):6443(?=[ \t]*\r?$)")
+
+
+def published_port(container, docker_port=None):
+    """The 127.0.0.1 host port Docker publishes a lab AKS k3s container's API (6443) on, or None."""
+    try:
+        result = (docker_port or run)(["docker", "port", container, "6443"], capture_output=True, text=True, check=False)
+    except OSError as error:
+        raise SystemExit(f"Could not run docker ({error}).") from None
+    if result.returncode:
+        return None
+    for line in result.stdout.split():
+        host, _, port = line.rpartition(":")
+        if host == LOOPBACK and port.isdigit() and int(port) in K3S_PORTS["azure"]:
+            return int(port)
+    return None
+
+
+def aks_kubeconfig(args, docker_port=None):
+    """floci-az 0.17.0 gives AKS kubeconfigs (and the cluster's fqdn) its k3s container's name and in-network port,
+    https://floci-az-klotse793-aks-<id>:6443, which this computer cannot resolve and whose certificate does not name.
+    The certificate names localhost and the container publishes 6443 on 127.0.0.1, so rewrite each such server to
+    https://localhost:<published port>, keeping the CA. Only servers of this lab's floci-az containers change."""
+    path = Path(args.file).expanduser() if args.file else Path.home() / ".kube" / "klotse-cloud.klotse"
+    try:
+        text = path.read_bytes().decode()
+    except (OSError, UnicodeDecodeError) as error:
+        raise SystemExit(f"Could not read {path}: {error}") from None
+    missing, changed = [], []
+
+    def replace(match):
+        port = published_port(match.group(2), docker_port)
+        if port is None:
+            missing.append(match.group(2))
+            return match.group(0)
+        changed.append(f"{match.group(2)} -> localhost:{port}")
+        return f"{match.group(1)}https://localhost:{port}"
+
+    new = AKS_SERVER.sub(replace, text)
+    for item in changed:
+        log(f"AKS server {item}")
+    for name in missing:
+        log(f"WARNING: no running lab container {name} publishing 6443 on {LOOPBACK}; left unchanged (a cluster "
+            "from an earlier lab: import it again).")
+    if not changed:
+        log(f"No Floci AKS servers to change in {path}.")
+        return
+    mode = path.stat().st_mode & 0o777
+    temporary = path.with_name(path.name + ".lab-tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(new.encode())
+    os.replace(temporary, path)
+    log(f"Updated {path}; connect to the AKS clusters again in Klotse.")
+
+
 def env_command(args):
     host = args.host or LOOPBACK
     url_host(host)  # refuse anything that is not a host name or address before it reaches a URL
@@ -696,10 +754,13 @@ def main(argv=None):
     tunnel_parser.add_argument("-i", "--identity-file", help="SSH private key file")
     tunnel_parser.add_argument("--timeout", type=int, default=60, help="seconds to wait for the emulators through the tunnel")
     tunnel_parser.add_argument("--print", action="store_true", help="only print the ssh command")
+    aks_parser = commands.add_parser("aks-kubeconfig", parents=[common], help="point AKS clusters imported from Floci "
+                                     "at localhost:<published port> (run on the lab host, where Docker is)")
+    aks_parser.add_argument("file", nargs="?", help="kubeconfig to update (default: ~/.kube/klotse-cloud.klotse)")
     args = parser.parse_args(argv)
     VERBOSE = getattr(args, "verbose", False)
     debug(f"lab directory {HERE}; Python {sys.version.split()[0]}")
-    {"up": up, "down": down, "env": env_command, "tunnel": tunnel}[args.command](args)
+    {"up": up, "down": down, "env": env_command, "tunnel": tunnel, "aks-kubeconfig": aks_kubeconfig}[args.command](args)
 
 
 if __name__ == "__main__":
