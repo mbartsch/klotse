@@ -140,6 +140,8 @@ class Navigator(QTreeWidget):
         self.itemClicked.connect(self._on_click)
         self.itemDoubleClicked.connect(self._on_double_click)
         self.itemActivated.connect(self._on_activate)  # Enter on a row (#498: keyboard use of the navigator)
+        self._shown_views = {}  # context -> the view key its workspace shows, for a cluster expanded later (#825)
+        self.itemExpanded.connect(self._on_expanded)
 
     def _style_item(self, item, kind):
         """Give each navigation level a theme-aware cue while keeping leaf rows compact."""
@@ -512,7 +514,28 @@ class Navigator(QTreeWidget):
     def select_cluster(self, name):
         item = self._clusters.get(name)
         if item is not None:
+            self._select_quietly(item)
+
+    def _select_quietly(self, item):
+        """Make `item` current without QTreeView expanding its collapsed parents (a cluster group) to scroll to it (#825)."""
+        auto = self.hasAutoScroll()
+        self.setAutoScroll(False)
+        try:
             self.setCurrentItem(item)
+        finally:
+            self.setAutoScroll(auto)
+
+    def is_collapsed(self, name):
+        """True when the cluster's row is collapsed in the list (its views are hidden)."""
+        item = self._clusters.get(name)
+        return item is not None and not item.isExpanded()
+
+    def _on_expanded(self, item):
+        """Expanding a selected, collapsed cluster highlights the view its workspace shows (#825)."""
+        if item.data(0, self.ROLE_KIND) == "cluster" and self.currentItem() is item:
+            name = next((n for n, i in self._clusters.items() if i is item), None)
+            if name in self._shown_views:
+                self.select_view(name, self._shown_views[name])
 
     def reveal_cluster(self, name):
         """Select a cluster and scroll its row into view."""
@@ -540,6 +563,10 @@ class Navigator(QTreeWidget):
 
         item = self._clusters.get(name)
         if item:
+            self._shown_views[name] = key
+            if not item.isExpanded():  # a collapsed cluster stays collapsed: only its own row is selected (#825)
+                self._select_quietly(item)
+                return
             walk(item)
 
     @staticmethod
