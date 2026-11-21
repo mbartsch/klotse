@@ -1895,7 +1895,11 @@ class MainWindow(QMainWindow):
         if ws is None:
             return
         self._update_scope_title(ws)
-        if ws.tabs.count():
+        if self.nav.is_collapsed(ws.context) and "overview" in ws.views:
+            # a cluster collapsed in the list stays collapsed: its row is selected and its Overview comes to the front (#825)
+            self.nav.select_cluster(ws.context)
+            ws.open_view("overview")
+        elif ws.tabs.count():
             self.nav.select_view(ws.context, ws.tabs.currentWidget().view_key)
         else:
             self.nav.select_cluster(ws.context)
