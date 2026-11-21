@@ -58,6 +58,7 @@ STATE_FILES = ("terraform.tfstate", "terraform.tfstate.backup", ".terraform.tfst
 AZURE_CA_URL = f"http://{LOOPBACK}:4577/_floci/tls-cert"
 VERBOSE = False  # -v/--verbose/--debug: log each health attempt, command and prepared file
 HOST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})")
+AWS_KEY_VALUE = re.compile(r"[A-Za-z0-9/+=]{1,128}")  # an access key id or secret: no whitespace, quotes or shell syntax
 SSH_DESTINATION = re.compile(r"(?:[A-Za-z0-9._-]{1,64}@)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,252})")
 
 
@@ -139,13 +140,45 @@ def paths(local=LOCAL):
         "gcp_token": local / "gcp-token",
         "gcloud": local / "gcloud",
         "azure_config": local / "azure",
+        "aws_key": local / "aws-key.json",
     }
+
+
+def parse_aws_key(key):
+    """(id, secret) from {"id": ..., "secret": ...}, or None when either is missing or not a plain key value."""
+    if isinstance(key, dict) and all(isinstance(key.get(k), str) and AWS_KEY_VALUE.fullmatch(key[k]) for k in ("id", "secret")):
+        return key["id"], key["secret"]
+    return None
+
+
+def aws_key(path):
+    """(id, secret) of the lab IAM user's access key that `up` saved, or the public test pair before that. Only that
+    key signs EKS tokens Floci's webhook accepts; the test pair (the account root) gets 401 from the cluster APIs."""
+    try:
+        return parse_aws_key(json.loads(path.read_text())) or ("test", "test")
+    except (OSError, ValueError):
+        return "test", "test"
+
+
+def save_aws_key(env, local=None):
+    """Copy the lab IAM user's access key from the AWS root's Terraform output into .local/aws-key.json (private)."""
+    out = terraform("aws", "output", "-json", "klotse_access_key", env=env, capture=True).stdout
+    try:
+        key = parse_aws_key(json.loads(out))
+    except ValueError:
+        key = None
+    if not key:
+        raise SystemExit("AWS: the klotse_access_key output is not an access key id and secret.")
+    path = paths(private_dir(local or LOCAL))["aws_key"]
+    write_private(path, json.dumps({"id": key[0], "secret": key[1]}))
+    debug(f"saved the lab IAM user's access key {key[0]} to {path}")
 
 
 def environment(local=LOCAL, host=LOOPBACK):
     """The variables Terraform and the cloud CLIs need to reach the emulators (none are real credentials). `host` is where
     the emulators answer: this computer (also through `lab.py tunnel`), or another one with `env --host`."""
     p = paths(local)
+    key_id, key_secret = aws_key(p["aws_key"])  # the lab IAM user's key once `up` saved it (EKS tokens need it)
     gcp = base_url("gcp", "localhost" if is_loopback(host) else host)  # floci-gcp's documented form is localhost
     env = {}
     if p["roots"].is_file():  # written by `up`; never point a shell at a CA bundle that does not exist
@@ -161,8 +194,8 @@ def environment(local=LOCAL, host=LOOPBACK):
         "SUPPRESS_LABEL_WARNING": "True",
         # AWS CLI and SDKs.
         "AWS_ENDPOINT_URL": base_url("aws", host),
-        "AWS_ACCESS_KEY_ID": "test",
-        "AWS_SECRET_ACCESS_KEY": "test",
+        "AWS_ACCESS_KEY_ID": key_id,
+        "AWS_SECRET_ACCESS_KEY": key_secret,
         "AWS_DEFAULT_REGION": "us-east-1",
         # gcloud: a private config folder, the emulator's endpoints (floci-gcp docs/services/gke.md) and a fixture token.
         "CLOUDSDK_CONFIG": str(p["gcloud"]),
@@ -416,6 +449,8 @@ def up(args):
                 log("AWS failed; if it reported '409 Cluster already exists', follow 'AWS: recover a cluster created before "
                     "a conflict response' in README.md, then run up again with --providers for the rest.")
             raise SystemExit(f"terraform failed for {provider}; the emulators are still running (lab.py down stops them).")
+    if "aws" in providers:
+        save_aws_key(env)
     if args.identities:
         for provider in providers:
             if not (LOCAL / f"{provider}.kubeconfig").exists():
@@ -469,6 +504,7 @@ def purge():
         for name in STATE_FILES:
             (HERE / provider / name).unlink(missing_ok=True)
         (LOCAL / f"{provider}.kubeconfig").unlink(missing_ok=True)  # its credentials died with the clusters
+    paths()["aws_key"].unlink(missing_ok=True)  # so is the IAM user
     log("Purged: no lab containers, volumes or networks remain; Terraform state, plans and lab kubeconfigs deleted.")
 
 
@@ -495,6 +531,8 @@ def down(args):
             if (HERE / provider / ".terraform").is_dir():
                 log(f"terraform destroy: {provider}")
                 terraform(provider, "destroy", "-input=false", "-auto-approve", env=env)
+                if provider == "aws":
+                    paths()["aws_key"].unlink(missing_ok=True)  # the destroy removed its IAM user
         except subprocess.CalledProcessError:
             if provider not in failed:
                 failed.append(provider)
@@ -563,7 +601,8 @@ def tunnel(args, popen=subprocess.Popen):
         wait_healthy(providers, timeout=args.timeout, alive=alive)
         prepare(providers, need_openssl=False)
         log(f"Tunnel to {args.destination} is up. In another shell: eval \"$(python3 lab.py env)\". Copy the Klotse "
-            "kubeconfigs from the lab host's labs/floci/.local/<provider>.kubeconfig. Ctrl-C closes the tunnel.")
+            "kubeconfigs from the lab host's labs/floci/.local/<provider>.kubeconfig, and .local/aws-key.json for EKS imports. "
+            "Ctrl-C closes the tunnel.")
         process.wait()
     except KeyboardInterrupt:
         log("Closing the tunnel.")

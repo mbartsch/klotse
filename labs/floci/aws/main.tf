@@ -91,6 +91,22 @@ resource "aws_eks_node_group" "lab" {
   }
 }
 
+# The key Klotse's EKS kubeconfigs sign `aws eks get-token` with (lab.py env exports it). Floci's EKS token webhook
+# refuses the account root and the public test/test pair, which would be cluster-admin, and accepts a long-term
+# access key of an IAM user in the cluster's account. A lab fixture: it exists only in the emulator.
+resource "aws_iam_user" "klotse" {
+  name = "klotse-local"
+}
+
+resource "aws_iam_access_key" "klotse" {
+  user = aws_iam_user.klotse.name
+}
+
+output "klotse_access_key" {
+  value     = { id = aws_iam_access_key.klotse.id, secret = aws_iam_access_key.klotse.secret }
+  sensitive = true
+}
+
 output "clusters" {
   value = { for name, cluster in aws_eks_cluster.lab : name => {
     id       = cluster.id

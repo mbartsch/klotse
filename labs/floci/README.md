@@ -82,8 +82,12 @@ objects are the clusters): it runs `docker compose down --volumes --remove-orpha
 (never a broad prune), lists them again,
 and deletes the local Terraform state, plans and `.local/<provider>.kubeconfig` only when none remain (a
 listing Docker cannot answer counts as remaining). Provider
-plugins, lock files and the rest of `.local/` are kept. `env` prints the Terraform variables (OCI profile and override,
-the CA bundle once `up` wrote it) and the cloud CLI settings for the emulators: `AWS_ENDPOINT_URL` and test keys,
+plugins, lock files and the rest of `.local/` are kept (except `aws-key.json`, whose IAM user is gone too). `env` prints the Terraform variables (OCI profile and override,
+the CA bundle once `up` wrote it) and the cloud CLI settings for the emulators: `AWS_ENDPOINT_URL` and the access key
+of the lab IAM user `klotse-local` (the AWS root creates it; `up` copies the key to the private `.local/aws-key.json`,
+and `env` falls back to the `test`/`test` pair before that). Floci's EKS token webhook refuses tokens signed with
+`test`/`test` (the account root, which would be cluster-admin), so EKS clusters imported with "Add clusters from the
+cloud" only connect from a shell with the IAM user's key (`aws sts get-caller-identity` shows `user/klotse-local`). It also prints
 `OCI_CLI_CONFIG_FILE`/`OCI_CLI_ENDPOINT`, and for gcloud a private `CLOUDSDK_CONFIG`, the container endpoint
 override, project `klotse-local` and a fixture access-token file. `AZURE_CONFIG_DIR` is private too, but the
 `az` CLI still needs `az cloud register` for Floci (not done here). Use these variables only in the lab shell:
