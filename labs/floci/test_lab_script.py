@@ -148,6 +148,11 @@ class PrepareTest(unittest.TestCase):
 
 
 class UpDownTest(unittest.TestCase):
+    def setUp(self):
+        which = patch.object(lab.shutil, "which", side_effect=lambda tool: f"/bin/{tool}")  # docker, terraform, kubectl
+        which.start()
+        self.addCleanup(which.stop)
+
     def run_up(self, argv, fail=None, state="", show="{}"):
         calls = []
 
@@ -480,6 +485,21 @@ class UpDownTest(unittest.TestCase):
             self.assertEqual(wait.call_args.kwargs["host"], check)
             self.assertEqual(prepare.call_args.kwargs["host"], check)
             self.assertEqual("WARNING" in err.getvalue(), bool(bind))
+
+    def test_up_refuses_before_starting_when_a_tool_is_missing(self):
+        present = {"docker", "terraform"}
+        with patch.object(lab.shutil, "which", side_effect=lambda tool: tool in present and f"/bin/{tool}"), \
+                patch.object(lab.start, "main") as start, patch("sys.stderr", new_callable=io.StringIO):
+            lab.require_tools(False)
+            with self.assertRaises(SystemExit) as stop:
+                lab.main(["up", "--identities"])
+            self.assertIn("kubectl", str(stop.exception))
+            present.discard("terraform")
+            with self.assertRaises(SystemExit) as stop:
+                lab.main(["up"])
+            self.assertIn("terraform", str(stop.exception))
+            self.assertNotIn("kubectl", str(stop.exception))
+        start.assert_not_called()
 
     def test_bind_refuses_a_host_name(self):
         with self.assertRaises(SystemExit):

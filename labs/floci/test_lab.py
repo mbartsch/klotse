@@ -12,6 +12,17 @@ import identity
 import start
 
 
+class MissingToolTest(unittest.TestCase):
+    def test_missing_kubectl_or_docker_is_a_plain_message(self):
+        with patch.object(identity.subprocess, "run", side_effect=FileNotFoundError(2, "No such file")):
+            with self.assertRaises(SystemExit) as stop:
+                identity.kubectl("config", "get")
+            self.assertIn("kubectl is not on PATH", str(stop.exception))
+            with self.assertRaises(SystemExit) as stop:
+                identity.docker("ps")
+            self.assertIn("docker is not on PATH", str(stop.exception))
+
+
 class BootstrapTest(unittest.TestCase):
     def test_accepts_owned_loopback_api(self):
         api = {"server": "https://127.0.0.1:6443", "certificate-authority-data": "dummy"}
