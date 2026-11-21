@@ -598,6 +598,69 @@ class AzTest(unittest.TestCase):
             self.assertEqual(setup.called, expected)
 
 
+AKS_KUBECONFIG = """apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: Q0E=
+    server: https://floci-az-klotse793-aks-c0b69457:6443
+  name: klotse-aks-1
+- cluster:
+    certificate-authority-data: Q0E=
+    server: https://floci-az-klotse793-aks-0000dead:6443
+  name: klotse-aks-old
+- cluster:
+    server: https://floci-az-otherlab-aks-c0b69457:6443
+  name: not-this-lab
+- cluster:
+    server: https://localhost:16643
+  name: gke
+"""
+
+
+class AksKubeconfigTest(unittest.TestCase):
+    @staticmethod
+    def docker_port(argv, **kwargs):
+        ports = {"floci-az-klotse793-aks-c0b69457": "127.0.0.1:16544\n[::1]:16544\n"}
+        out = ports.get(argv[2])
+        return subprocess.CompletedProcess(argv, 0 if out else 1, stdout=out or "")
+
+    def test_rewrites_only_this_labs_running_aks_servers_and_keeps_the_rest(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp, "klotse-cloud.klotse")
+            path.write_text(AKS_KUBECONFIG)
+            with patch("sys.stderr", new_callable=io.StringIO) as err:
+                lab.aks_kubeconfig(MagicMock(file=str(path)), docker_port=self.docker_port)
+            text = path.read_text()
+        self.assertIn("    server: https://localhost:16544\n  name: klotse-aks-1", text)
+        self.assertIn("server: https://floci-az-klotse793-aks-0000dead:6443", text)  # gone container: unchanged
+        self.assertIn("server: https://floci-az-otherlab-aks-c0b69457:6443", text)  # another namespace
+        self.assertEqual(text.count("certificate-authority-data: Q0E="), 2)  # the CA stays (cert names localhost)
+        self.assertEqual(text.replace("https://localhost:16544", "https://floci-az-klotse793-aks-c0b69457:6443"),
+                         AKS_KUBECONFIG)
+        self.assertIn("left unchanged", err.getvalue())
+
+    def test_refuses_a_port_outside_the_azure_range_or_not_on_loopback(self):
+        for out in ("0.0.0.0:16544\n", "127.0.0.1:16643\n", "127.0.0.1:x\n"):
+            with self.subTest(out=out):
+                run = MagicMock(return_value=subprocess.CompletedProcess([], 0, stdout=out))
+                self.assertIsNone(lab.published_port("floci-az-klotse793-aks-c0b69457", run))
+
+    def test_nothing_to_change_leaves_the_file_alone(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp, "config")
+            path.write_text("clusters: []\n")
+            before = path.stat().st_mtime_ns
+            with patch("sys.stderr", new_callable=io.StringIO) as err:
+                lab.aks_kubeconfig(MagicMock(file=str(path)), docker_port=self.docker_port)
+            self.assertEqual(path.stat().st_mtime_ns, before)
+        self.assertIn("No Floci AKS servers", err.getvalue())
+
+    def test_main_parses_the_command(self):
+        with patch.object(lab, "aks_kubeconfig") as command:
+            lab.main(["aks-kubeconfig", "/tmp/k"])
+        self.assertEqual(command.call_args.args[0].file, "/tmp/k")
+
+
 class RemoteTest(unittest.TestCase):
     def test_compose_publishes_on_the_bind_address_defaulting_to_loopback(self):
         text = (Path(lab.HERE) / "compose.yaml").read_text()
