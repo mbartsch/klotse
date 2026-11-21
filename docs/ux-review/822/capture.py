@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 home = tempfile.mkdtemp()
@@ -39,6 +39,7 @@ def settle(seconds=0.5):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         app.processEvents()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)  # what the app's event loop does: replaced Details buttons go
 
 
 win = MainWindow(Service, label_settings=LabelSettings(QSettings(os.path.join(home, "k.ini"), QSettings.IniFormat)))
