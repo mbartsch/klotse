@@ -5,8 +5,35 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, Q
 from .dialog_sizing import resize_dialog
 
 
+def setting_rows(form, settings, saved):
+    """A text box (with its help below it) per Setting in `form`, filled from `saved`; returns {key: QLineEdit}."""
+    fields = {}
+    for setting in settings:
+        edit = QLineEdit(saved.get(setting.key, ""))
+        edit.setToolTip(setting.help)
+        fields[setting.key] = edit
+        form.addRow(setting.label, edit)
+        if setting.help:
+            hint = QLabel(setting.help)
+            hint.setWordWrap(True)
+            hint.setEnabled(False)
+            form.addRow("", hint)
+    return fields
+
+
+def invalid_value(settings, values):
+    """The message for the first value that does not match its Setting's pattern, else ""."""
+    for setting in settings:
+        value = values.get(setting.key, "")
+        if value and setting.pattern and not re.fullmatch(setting.pattern, value):
+            hint = setting.help or "it does not match the format this plugin expects"  # never the raw regular expression (#500)
+            return f"{setting.label}: “{value}” is not valid ({hint})"
+    return ""
+
+
 class ClusterSettingsDialog(QDialog):
-    """A plugin's settings for one cluster (the cluster list's menu -> "<plugin>: settings for this cluster…"): a text box per `Plugin.cluster_settings` entry.
+    """A plugin's settings for one cluster (the cluster list's menu -> "<plugin>: settings for this cluster…"): a text box
+    per `Plugin.cluster_settings` entry. A cloud's plugin (API 14 `Plugin.cloud`) uses CloudSettingsDialog instead.
 
     An empty box means "not set for this cluster": the plugin falls back to its general settings. Save writes through
     `PluginManager.set_cluster_settings`, which makes every open list ask the plugin again."""
@@ -22,18 +49,7 @@ class ClusterSettingsDialog(QDialog):
         layout.addWidget(intro)
         form = QFormLayout()
         layout.addLayout(form)
-        saved = manager.cluster_settings_for(plugin.id, context)
-        self.fields = {}
-        for setting in plugin.cluster_settings:
-            edit = QLineEdit(saved.get(setting.key, ""))
-            edit.setToolTip(setting.help)
-            self.fields[setting.key] = edit
-            form.addRow(setting.label, edit)
-            if setting.help:
-                hint = QLabel(setting.help)
-                hint.setWordWrap(True)
-                hint.setEnabled(False)
-                form.addRow("", hint)
+        self.fields = setting_rows(form, plugin.cluster_settings, manager.cluster_settings_for(plugin.id, context))
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
@@ -45,12 +61,10 @@ class ClusterSettingsDialog(QDialog):
 
     def save(self):
         values = self.values()
-        for setting in self.plugin.cluster_settings:
-            value = values[setting.key]
-            if value and setting.pattern and not re.fullmatch(setting.pattern, value):
-                hint = setting.help or "it does not match the format this plugin expects"  # never the raw regular expression (#500)
-                QMessageBox.warning(self, "Cannot save", f"{setting.label}: “{value}” is not valid ({hint})")
-                return
+        problem = invalid_value(self.plugin.cluster_settings, values)
+        if problem:
+            QMessageBox.warning(self, "Cannot save", problem)
+            return
         try:
             self.manager.set_cluster_settings(self.plugin.id, self.context, values)
         except OSError as error:

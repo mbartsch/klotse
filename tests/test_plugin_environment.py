@@ -55,7 +55,7 @@ def aws(**settings):
 
 
 def test_the_api_grew_and_passing_is_on_unless_turned_off():
-    assert API_VERSION == 13 and AwsPlugin.requires_api == 12
+    assert API_VERSION == 14 and AwsPlugin.requires_api == 14
     assert next(s for s in AwsPlugin.settings if s.key == "pass_environment").default is True
     assert aws() == {}  # nothing filled in: nothing is set
     assert aws(aws_profile="work") == {"AWS_PROFILE": "work"}
@@ -91,7 +91,7 @@ def test_extra_variables_are_added_even_when_passing_is_off_and_can_replace_a_va
 
 @pytest.mark.parametrize("cls", [GcpPlugin, OciPlugin, AzurePlugin])
 def test_the_other_clouds_take_extra_variables_too(cls):
-    assert cls.requires_api == 12 and [s.key for s in cls.settings][-1] == "extra_environment"
+    assert cls.requires_api == 14 and [s.key for s in cls.settings][-1] == "extra_environment"
     assert cls().process_environment("ctx", {"extra_environment": "CLOUD_X=1"}) == {"CLOUD_X": "1"}
     assert cls().process_environment("ctx", {}) == {}
 

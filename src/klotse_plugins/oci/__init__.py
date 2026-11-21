@@ -7,7 +7,6 @@ from klotse.plugins import Action, Message, Plugin, Setting, Terminal, parse_env
 from klotse.plugins.api import CloudError, SAFE_CLUSTER_VALUE, checked_value
 from . import clusters
 
-HELP_OCI = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; oci accepts this cluster's nodes without it."
 OCI_PROVIDER_PREFIXES = ("oci://", "ocid1.instance.")  # providerID of an OKE node
 REGION_LABEL = "topology.kubernetes.io/region"
 
@@ -36,13 +35,11 @@ class OciPlugin(Plugin):
     id = "oci"
     name = "Oracle Cloud (OKE) Plugin (WIP)"
     version = "0.1"
-    requires_api = 12
+    requires_api = 14  # Klotse passes the cluster's one Cloud setting as settings["cloud"] (#818)
+    cloud = "oci"
     description = "WIP: help appreciated. OKE CLI sign-in and cluster discovery. Browser authentication and reconnect require real OCI validation; node columns, pricing and cost cards are not implemented."
     actions = (
         Action("sign-in", "Sign in to Oracle Cloud for this cluster (oci session authenticate)…", kinds=("Node",)),
-    )
-    cluster_settings = (
-        Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|oci", help=HELP_OCI),
     )
     settings = (
         Setting("oci_profile", "OCI config profile", "DEFAULT",

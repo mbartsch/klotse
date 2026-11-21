@@ -14,6 +14,7 @@ from . import confirm, dialog_sizing, resource_table
 from .about import REPO_URL, AboutDialog
 from .shortcuts_dialog import ShortcutsDialog, shortcut_rows
 from .first_run import FirstRunPage
+from .cloud_settings_dialog import CloudSettingsDialog
 from .cluster_settings_dialog import ClusterSettingsDialog
 from .cluster_groups import ClusterGroups
 from .cluster_aliases import ClusterAliases
@@ -27,6 +28,7 @@ from .log_view import shutdown_all
 from .navigator import Navigator
 from ..k8s.process_env import set_app_proxy
 from ..k8s.proxy_settings import ProxySettings
+from ..k8s import cloud_detect
 from ..k8s.connect_help import auth_info
 from ..k8s.sign_in import sign_in_argv
 from ..k8s.timing import timings
@@ -467,8 +469,7 @@ class MainWindow(QMainWindow):
         self.nav.retry_pending = lambda ctx: ctx in self._connection_retries
         self.nav.reconnect_requested.connect(self.reconnect_cluster)
         self.nav.view_requested.connect(self._open_view)
-        self.nav.plugin_entries = lambda: [(p.id, f"{p.name or p.id}: settings for this cluster…")
-                                           for p in self.plugins.cluster_plugins()]
+        self.nav.plugin_entries = self.cluster_settings_entries
         self.nav.plugin_settings_requested.connect(self.open_cluster_settings)
         self.nav.alias_requested.connect(self.rename_cluster_alias)
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
@@ -1470,14 +1471,34 @@ class MainWindow(QMainWindow):
         self.open_preferences(metrics_add=context)
         return True
 
+    CLOUD_SETTINGS = "cloud"  # the cluster menu's one Cloud settings entry (#818), instead of a plugin id
+
+    def detected_cloud(self, context):
+        """(cloud id, reason) from the context's kubeconfig entry; ("", "") when it does not say (reads the file, no network)."""
+        return cloud_detect.detect(auth_info(self.context_file(context), context))
+
+    def cluster_settings_entries(self, context):
+        """The cluster menu's settings entries for a connected cluster: one "Cloud settings (<cloud>)…" while a cloud plugin
+        is enabled (#818), then "<plugin>: settings for this cluster…" for each other plugin with cluster settings."""
+        entries = [(p.id, f"{p.name or p.id}: settings for this cluster…")
+                   for p in self.plugins.cluster_plugins() if not getattr(p, "cloud", "")]
+        if self.plugins.cloud_plugins():
+            cloud = cloud_detect.effective(self.plugins.cluster_cloud(context), self.detected_cloud(context)[0])
+            name = cloud_detect.CLOUDS.get(cloud)
+            entries.insert(0, (self.CLOUD_SETTINGS, f"Cloud settings ({name})…" if name else "Cloud settings…"))
+        return entries
+
     def open_cluster_settings(self, plugin_id, context=None):
-        """Edit a plugin's settings for `context` (default: the cluster in front); False when there is no such open
-        cluster or the plugin is not enabled."""
+        """Edit a plugin's settings for `context` (default: the cluster in front), or with CLOUD_SETTINGS the cluster's
+        Cloud settings; False when there is no such open cluster or the plugin is not enabled."""
         ws = self.workspaces.get(context) if context else self.clusters.currentWidget()
-        plugin = next((p for p in self.plugins.cluster_plugins() if p.id == plugin_id), None)
-        if ws is None or plugin is None:
-            return False
-        dialog = ClusterSettingsDialog(self.plugins, plugin, ws.context, self)
+        if ws is not None and plugin_id == self.CLOUD_SETTINGS and self.plugins.cloud_plugins():
+            dialog = CloudSettingsDialog(self.plugins, ws.context, self.detected_cloud(ws.context), self)
+        else:
+            plugin = next((p for p in self.plugins.cluster_plugins() if p.id == plugin_id), None)
+            if ws is None or plugin is None:
+                return False
+            dialog = ClusterSettingsDialog(self.plugins, plugin, ws.context, self)
         accepted = dialog.exec() == QDialog.Accepted
         if accepted:
             self.apply_app_proxy()

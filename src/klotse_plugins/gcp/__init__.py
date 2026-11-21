@@ -6,7 +6,6 @@ from klotse.plugins import Action, Column, Message, OpenUrl, Plugin, Setting, Te
 from . import clusters
 from .nodeinfo import console_url, instance_ref, node_values
 
-HELP_GCP = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; gcp accepts this cluster's nodes without it."
 GCE_PREFIX = "gce://"  # the providerID of a node that runs on Compute Engine (GKE nodes do)
 
 
@@ -30,7 +29,8 @@ class GcpPlugin(Plugin):
     id = "gcp"
     name = "Google Cloud (GKE) Plugin (WIP)"
     version = "0.1"
-    requires_api = 12
+    requires_api = 14  # Klotse passes the cluster's one Cloud setting as settings["cloud"] (#818)
+    cloud = "gcp"
     description = ("WIP; help appreciated. Shows machine type, capacity and OS image from node metadata, "
                    "opens the Google Compute console and signs in with gcloud auth login. No pricing lookups.")
     columns = (
@@ -42,10 +42,6 @@ class GcpPlugin(Plugin):
         Action("console", "Open in the Google Compute console", kinds=("Node",)),
         Action("sign-in", "Sign in to Google Cloud for this cluster (gcloud auth login)…", kinds=("Node",)),
     )
-    cluster_settings = (
-        Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|gcp", help=HELP_GCP),
-    )
-
     settings = (
         Setting("extra_environment", "Extra variables for commands and terminals", "", kind="multiline",
                 section="Commands and terminals",

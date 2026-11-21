@@ -46,7 +46,7 @@ def node_row(name="n1"):
 
 # ---- the API --------------------------------------------------------------------------------------
 def test_api_version_and_valid_metric_sources_are_accepted():
-    assert API_VERSION == 13
+    assert API_VERSION >= 13
     plugin = _as_plugin(CloudMetrics)
     assert plugin.metric_sources == (SOURCE,) and Plugin().metric_sources == () and Plugin().metrics(None) == {}
 

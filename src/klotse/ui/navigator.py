@@ -128,7 +128,7 @@ class Navigator(QTreeWidget):
         self._aliases = {}
         self.groups = None  # a ClusterGroups, or None for a plain list
         self.retry_pending = lambda _ctx: False
-        self.plugin_entries = lambda: []  # () -> [(plugin id, menu text)] offered on connected clusters (set by the window)
+        self.plugin_entries = lambda context: []  # context -> [(entry key, menu text)] on connected clusters (set by the window)
         self.removable = None  # context -> bool: may "Remove from Klotse…" forget it (#815; set by the window)
         self._group_items = {}  # group path -> its folder item
         self._collapsed_clusters = None  # cluster name -> expanded before collapse_clusters, while collapsed
@@ -626,7 +626,7 @@ class Navigator(QTreeWidget):
         # 3. the cluster's settings, for a connected cluster
         if connected:
             group()
-            for plugin_id, text in self.plugin_entries():
+            for plugin_id, text in self.plugin_entries(name):
                 menu.addAction(text, lambda pid=plugin_id: self.plugin_settings_requested.emit(pid, name))
             menu.addAction("Metrics source…", lambda c=name: self.metrics_source_requested.emit(c))
             targets = self._auto_refresh_targets(cluster, name)

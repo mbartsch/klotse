@@ -38,7 +38,7 @@ Preferences -> Plugins. A problem (an exception) is shown to the user and, for c
 import re
 from dataclasses import dataclass, field
 
-API_VERSION = 13  # 13: metric sources (extra series in Usage history, read by metrics()). 12: process_environment (variables for the kubectl, helm and terminal processes of a cluster). 11: cluster sources (Add clusters from the cloud). 10: plugin column presets. 9: enrichment receives the cluster ApiClient factory. 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
+API_VERSION = 14  # 14: Plugin.cloud (one Cloud setting per cluster, owned by Klotse). 13: metric sources (extra series in Usage history, read by metrics()). 12: process_environment (variables for the kubectl, helm and terminal processes of a cluster). 11: cluster sources (Add clusters from the cloud). 10: plugin column presets. 9: enrichment receives the cluster ApiClient factory. 8: required manifests and deferred asynchronous loading. 7: password settings. 1: columns. 2: actions. 3: enrich() can warn, a cache folder. 4: multi-line settings. 5: Overview cards. 6: cluster settings.
 
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
@@ -393,6 +393,9 @@ class Plugin:
     settings = ()  # Setting objects
     cluster_settings = ()  # Setting objects (text only) the user sets for each cluster, from the cluster list's menu; they reach
     #                        `request.settings` for that cluster only, next to `settings`; empty = not set for the cluster
+    cloud = ""  # API 14: "aws", "azure", "gcp" or "oci" for a cloud's plugin. Its cluster settings then appear in the one
+    #             Cloud settings dialog, and `request.settings["cloud"]` for a cluster is the cloud the user chose for it
+    #             ("auto" when not chosen: check the nodes themselves, for example their providerID)
     refresh_s = None  # ask again for known resources after this many seconds; None = once per resource
     overview_refresh_s = 300  # compute the Overview cards again after this many seconds (the last values stay shown)
 
