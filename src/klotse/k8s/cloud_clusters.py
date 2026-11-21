@@ -110,6 +110,40 @@ def merge_into(target, source, backup=True):
     return added, skipped
 
 
+def remove_contexts(target, names, backup=True):
+    """Remove the contexts `names` from the kubeconfig `target` (#815), with the clusters and users that only those contexts
+    used; entries another context still names stay. A removed current-context moves to the first remaining context (or "").
+    Nothing is revoked anywhere: only the file changes. The file is first copied to `<target>.bak`, then written privately
+    in one step, as merge_into does. Returns the removed context names (empty, and the file untouched, when none is there)."""
+    target = Path(target)
+    current = _load(target)
+    if current is None:
+        return []
+    wanted = set(names)
+    contexts = current.get("contexts") or []
+    removed = [item for item in contexts if isinstance(item, dict) and item.get("name") in wanted]
+    if not removed:
+        return []
+    kept = [item for item in contexts if item not in removed]
+
+    def named(items, key):
+        return {item["context"].get(key) for item in items if isinstance(item, dict) and isinstance(item.get("context"), dict)}
+
+    for section, key in (("clusters", "cluster"), ("users", "user")):
+        unused = named(removed, key) - named(kept, key)
+        if section in current:
+            current[section] = [item for item in (current[section] or [])
+                                if not (isinstance(item, dict) and item.get("name") in unused)]
+    current["contexts"] = kept
+    if current.get("current-context") in wanted:
+        current["current-context"] = next((item.get("name") for item in kept if isinstance(item, dict) and item.get("name")), "")
+    content = yaml.safe_dump(current, sort_keys=False, allow_unicode=True).encode("utf-8")
+    if backup:
+        _private_replace(Path(f"{target}.bak"), target.read_bytes())
+    _private_replace(target, content)
+    return [item["name"] for item in removed]
+
+
 def _private_replace(target, content):
     """Write credentials through an exclusive private file, then atomically replace the destination.
 

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDoc
                                QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
 
-from . import dialog_sizing, resource_table
+from . import confirm, dialog_sizing, resource_table
 from .about import REPO_URL, AboutDialog
 from .shortcuts_dialog import ShortcutsDialog, shortcut_rows
 from .first_run import FirstRunPage
@@ -36,7 +36,7 @@ from .metrics_sources import ForwardDefaults, MetricsSources
 from .metric_query_settings import QueryDefaults
 from .preferences import DebugSettings, KubeconfigSettings, PreferencesDialog
 from .cloud_clusters_dialog import CloudClustersDialog
-from ..k8s.cloud_clusters import default_generated_path, main_kubeconfig_path
+from ..k8s.cloud_clusters import CloudError, default_generated_path, main_kubeconfig_path, remove_contexts
 from .big_clusters import NOTICE_TEXT, BigClusters
 from .multi_cluster import MultiClusterDialog
 from .palette import Entry
@@ -476,6 +476,8 @@ class MainWindow(QMainWindow):
         self.nav.metrics_source_requested.connect(self.open_metrics_source)
         self.nav.sign_in_requested.connect(self.sign_in)
         self.nav.config_requested.connect(self.show_context_entry)
+        self.nav.removable = self.is_removable_cloud_cluster
+        self.nav.remove_requested.connect(self.remove_cloud_clusters)
         self.nav.auto_refresh_requested.connect(self._navigator_auto_refresh)
         self.nav.auto_refresh_is_on = self._auto_refresh_is_on  # the cluster menu offers only the change that applies (#500)
         self.nav.auto_refresh_clusters_requested.connect(self._set_clusters_auto_refresh)
@@ -624,12 +626,62 @@ class MainWindow(QMainWindow):
                 self.kubeconfig_settings.add_extra(path)  # the generated file joins the kubeconfig list
             except (ValueError, OSError) as error:
                 QMessageBox.warning(self, "Cannot save preferences", str(error))
+        self._reload_cluster_list()
+        self.status.showMessage(f"Added {len(contexts)} cluster(s) to {path}")
+
+    def _reload_cluster_list(self):
         self.contexts = self._load_contexts()
         states = self.nav.state_snapshot()  # set_contexts rebuilds the rows; open clusters must stay Connected
         self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
         self.nav.restore_states(states)
         self._sync_cluster_picker()
-        self.status.showMessage(f"Added {len(contexts)} cluster(s) to {path}")
+
+    def is_removable_cloud_cluster(self, context):
+        """True for a context read from Klotse's own klotse-cloud.klotse (#815) that has no open tab. Contexts from the main
+        kubeconfig or any other file are never offered, even when "Add clusters from the cloud" wrote them there."""
+        path = self.context_files.get(context)
+        if not path or context in self.workspaces:
+            return False
+        try:
+            return Path(path).expanduser().resolve() == default_generated_path().resolve()
+        except OSError:
+            return False
+
+    def remove_cloud_clusters(self, contexts):
+        """Cluster list > Remove from Klotse… (#815): after a confirmation, forget clusters added from the cloud. Only the
+        kubeconfig entries in klotse-cloud.klotse go (a copy stays in .bak), with the alias and group Klotse kept for them;
+        nothing changes at the cloud provider. Returns True when entries were removed."""
+        contexts = [context for context in contexts if self.is_removable_cloud_cluster(context)]
+        if not contexts:
+            return False
+        path = default_generated_path()
+        try:
+            shown = str(Path("~") / path.relative_to(Path.home()))  # short, and wraps less than the full home folder
+        except ValueError:
+            shown = str(path)
+        listed = "\n".join(f"  {self.aliases.display(c)}" + (f"  ({c})" if self.aliases.display(c) != c else "") for c in contexts)
+        text = (f"Remove {len(contexts)} cluster(s) from Klotse?\n\n{listed}\n\nKlotse forgets their entries in {shown} and keeps "
+                f"the previous file as {path.name}.bak. Nothing changes in the cloud: the clusters keep running and can be added "
+                "again with File > Add clusters from the cloud.")
+        if confirm.verb_question(self, "Remove from Klotse", text, verb="Remove") != QMessageBox.Yes:
+            return False
+        try:
+            removed = remove_contexts(path, contexts)
+        except (CloudError, OSError) as error:
+            QMessageBox.warning(self, "Remove from Klotse", f"{path} could not be changed.\n\n{error}")
+            return False
+        if any(self.aliases.aliases.pop(context, None) is not None for context in removed):
+            try:
+                self.aliases.save()
+            except OSError as error:
+                QMessageBox.warning(self, "Cannot save cluster alias", str(error))
+        if any(self.groups.group_of(context) for context in removed):
+            for context in removed:
+                self.groups.assign(context, "")
+            self._save_groups()
+        self._reload_cluster_list()
+        self.status.showMessage(f"Removed {len(removed)} cluster(s) from {path}")
+        return bool(removed)
 
     def _no_contexts_message(self):
         path = self.kubeconfig_settings.path
