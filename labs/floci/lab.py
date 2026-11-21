@@ -270,8 +270,12 @@ def oci_fingerprint(key):
     return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
 
 
+AZ_SECRET_SLOT = "<floci-az test secret>"  # stands for AZ_SECRET in az_setup_steps, so logs never carry the value
+
+
 def az_setup_steps():
-    """The az commands that make the lab's private az folder use Floci: (argv, must succeed). The cloud is registered
+    """The az commands that make the lab's private az folder use Floci: (argv, must succeed); the password is
+    AZ_SECRET_SLOT, which setup_az replaces only in the command it runs. The cloud is registered
     again each time (unregister needs another active cloud first), with explicit endpoints: discovery alone gave an AD
     endpoint without the port. Instance discovery is off so MSAL does not ask login.microsoftonline.com about the
     authority (core.instance_discovery, for private clouds)."""
@@ -284,7 +288,7 @@ def az_setup_steps():
           "--endpoint-active-directory-resource-id", "https://management.core.windows.net/"], True),
         (["az", "cloud", "set", "--name", AZ_CLOUD], True),
         (["az", "config", "set", "core.instance_discovery=false"], True),
-        (["az", "login", "--service-principal", "--username", AZ_CLIENT, "--password", AZ_SECRET,
+        (["az", "login", "--service-principal", "--username", AZ_CLIENT, "--password", AZ_SECRET_SLOT,
           "--tenant", AZ_TENANT, "--output", "none"], True),
         (["az", "account", "set", "--subscription", AZ_SUBSCRIPTION], True),
     ]
@@ -297,7 +301,9 @@ def setup_az(env):
         log("az not found: skipped the Azure CLI sign-in (Klotse lists AKS clusters through az; README.md: Azure CLI).")
         return False
     for argv, required in az_setup_steps():
-        result = run(argv, env=env, capture_output=True, text=True, check=False)
+        debug("run: " + " ".join(shlex.quote(part) for part in argv))
+        command = [AZ_SECRET if part == AZ_SECRET_SLOT else part for part in argv]
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
         if result.returncode and required:
             log(f"WARNING: `{' '.join(argv[:3])}` failed (exit {result.returncode}); az is not signed in to Floci "
                 "Azure. README.md: Azure CLI has the commands to run by hand.")

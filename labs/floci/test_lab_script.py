@@ -557,8 +557,11 @@ class AzTest(unittest.TestCase):
     def test_setup_registers_floci_with_explicit_endpoints_and_signs_in(self):
         result = subprocess.CompletedProcess([], 0)
         with patch.object(lab.shutil, "which", return_value="/bin/az"), \
-                patch.object(lab, "run", return_value=result) as run, patch("sys.stderr", new_callable=io.StringIO):
+                patch.object(lab.subprocess, "run", return_value=result) as run, patch.object(lab, "VERBOSE", True), \
+                patch("sys.stderr", new_callable=io.StringIO) as err:
             self.assertTrue(lab.setup_az({"AZURE_CONFIG_DIR": "/lab/.local/azure"}))
+        self.assertNotIn(lab.AZ_SECRET, err.getvalue())  # verbose logs show the slot, never the value
+        self.assertIn(lab.AZ_SECRET, next(c.args[0] for c in run.call_args_list if c.args[0][1] == "login"))
         argvs = [c.args[0] for c in run.call_args_list]
         self.assertTrue(all(c.kwargs["env"] == {"AZURE_CONFIG_DIR": "/lab/.local/azure"} for c in run.call_args_list))
         register = next(a for a in argvs if a[1:3] == ["cloud", "register"])
@@ -572,14 +575,14 @@ class AzTest(unittest.TestCase):
         def run(argv, **kwargs):
             return subprocess.CompletedProcess(argv, 1 if argv[2] in ("unregister", "--service-principal") else 0)
 
-        with patch.object(lab.shutil, "which", return_value="/bin/az"), patch.object(lab, "run", side_effect=run), \
+        with patch.object(lab.shutil, "which", return_value="/bin/az"), patch.object(lab.subprocess, "run", side_effect=run), \
                 patch("sys.stderr", new_callable=io.StringIO) as err:
             self.assertFalse(lab.setup_az({}))
         self.assertIn("`az login --service-principal` failed", err.getvalue())
         self.assertNotIn("unregister", err.getvalue())
 
     def test_setup_without_az_only_warns(self):
-        with patch.object(lab.shutil, "which", return_value=None), patch.object(lab, "run") as run, \
+        with patch.object(lab.shutil, "which", return_value=None), patch.object(lab.subprocess, "run") as run, \
                 patch("sys.stderr", new_callable=io.StringIO) as err:
             self.assertFalse(lab.setup_az({}))
         run.assert_not_called()
