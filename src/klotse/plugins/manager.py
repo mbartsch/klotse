@@ -315,6 +315,8 @@ class PluginManager(QObject):
         if context is not None and item:
             mine = self.cluster_settings_for(plugin_id, context)
             values.update({s.key: mine.get(s.key, "") for s in (item.manifest or item.plugin).cluster_settings})
+            if getattr(item.plugin, "cloud", ""):  # API 14: the one Cloud setting of the cluster (#818)
+                values["cloud"] = self.cluster_cloud(context)
         return values
 
     def set_setting(self, plugin_id, key, value):
@@ -328,9 +330,63 @@ class PluginManager(QObject):
         """The enabled plugins that have settings to set for each cluster."""
         return [plugin for plugin in self.active() if plugin.cluster_settings]
 
+    def cloud_plugins(self):
+        """The enabled plugins of a cloud (API 14 `Plugin.cloud`): their cluster settings share one Cloud settings dialog."""
+        return [plugin for plugin in self.active() if getattr(plugin, "cloud", "")]
+
+    CLOUD_GROUP = "cluster_cloud"  # [cluster_cloud] context.N / cloud.N: the cloud the user chose for a cluster (#818)
+
+    def cluster_cloud(self, context):
+        """The cloud chosen for this cluster ("aws", "azure", "gcp", "oci"), else "auto". Before #818 GCP, Azure and OCI each
+        kept their own `cloud` cluster setting (auto or their id): such a value is still read until the cluster is saved."""
+        value = self._read_numbered(self.CLOUD_GROUP).get(context, {}).get("cloud", "").strip().lower()
+        if value:
+            return value
+        for group in self._legacy_cloud_groups():
+            legacy = self._read_numbered(group).get(context, {}).get("cloud", "").strip().lower()
+            if legacy and legacy == group[len("plugin_"):-len("_clusters")]:
+                return legacy
+        return "auto"
+
+    def set_cluster_cloud(self, context, cloud):
+        """Save the cloud of one cluster ("auto" or a cloud id) and drop the plugins' own pre-#818 `cloud` values for it.
+        Raises OSError if it cannot be saved."""
+        cloud = str(cloud or "auto").strip().lower()
+        every = self._read_numbered(self.CLOUD_GROUP)
+        if cloud == "auto":  # the default: nothing kept (the plugins' own values below go too)
+            every.pop(context, None)
+        else:
+            every[context] = {"cloud": cloud}
+        self._write_numbered(self.CLOUD_GROUP, every)
+        for group in self._legacy_cloud_groups():
+            clusters = self._read_numbered(group)
+            if clusters.get(context, {}).pop("cloud", None) is not None:
+                if not clusters[context]:
+                    clusters.pop(context)
+                self._write_numbered(group, clusters)
+        self._sync()
+        for plugin in self.cloud_plugins():
+            self.settings_changed.emit(plugin.id)
+        self.changed.emit()
+
+    def _legacy_cloud_groups(self):
+        return [group for group in self.store.childGroups()
+                if group.startswith("plugin_") and group.endswith("_clusters") and group != self.CLOUD_GROUP]
+
     def _read_clusters(self, plugin_id):
         """{context: {key: value}} saved for the plugin: numbered keys `context.N` and `<key>.N` in [plugin_<id>_clusters]."""
-        self.store.beginGroup(f"plugin_{plugin_id}_clusters")
+        return self._read_numbered(f"plugin_{plugin_id}_clusters")
+
+    def _write_numbered(self, group, every):
+        self.store.remove(group)
+        for number, (name, items) in enumerate(sorted(every.items())):
+            self.store.setValue(f"{group}/context.{number}", name)
+            for key, value in items.items():
+                self.store.setValue(f"{group}/{key}.{number}", value)
+
+    def _read_numbered(self, group):
+        """{context: {key: value}} from numbered keys `context.N` and `<key>.N` in [group]."""
+        self.store.beginGroup(group)
         try:
             raw = {key: self.store.value(key) for key in self.store.childKeys()}
         finally:
@@ -361,11 +417,7 @@ class PluginManager(QObject):
             every[context] = mine
         else:
             every.pop(context, None)
-        self.store.remove(f"plugin_{plugin_id}_clusters")
-        for number, (name, items) in enumerate(sorted(every.items())):
-            self.store.setValue(f"plugin_{plugin_id}_clusters/context.{number}", name)
-            for key, value in items.items():
-                self.store.setValue(f"plugin_{plugin_id}_clusters/{key}.{number}", value)
+        self._write_numbered(f"plugin_{plugin_id}_clusters", every)
         self._sync()
         self.settings_changed.emit(plugin_id)
         self.changed.emit()

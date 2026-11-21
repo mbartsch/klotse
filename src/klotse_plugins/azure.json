@@ -3,7 +3,7 @@
   "id": "azure",
   "name": "Azure (AKS) Plugin (WIP)",
   "version": "0.1",
-  "requires_api": 12,
+  "requires_api": 14,
   "description": "WIP: help appreciated. Node metadata, portal links, sign-in and cluster discovery. Pricing and cost cards are not implemented; real AKS verification is needed.",
   "columns": [
     {
@@ -83,16 +83,6 @@
       "help": "One NAME=value per line, added to the environment of the kubectl and helm commands, the terminals Klotse starts and Klotse's own connection for a cluster, for example AZURE_CONFIG_DIR=/path/to/dir. Saved as plain text in the settings file: do not put secrets here. Klotse's own connection to the cluster gets them too (the kubeconfig's sign-in helper), and they are never written to the kubeconfig or logs.",
       "pattern": "",
       "section": "Commands and terminals"
-    }
-  ],
-  "cluster_settings": [
-    {
-      "key": "cloud",
-      "label": "Cloud of this cluster",
-      "default": "auto",
-      "kind": "text",
-      "help": "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; azure accepts this cluster's nodes without it.",
-      "pattern": "auto|azure"
     }
   ]
 }

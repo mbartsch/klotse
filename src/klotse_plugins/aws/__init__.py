@@ -70,7 +70,8 @@ class AwsPlugin(Plugin):
     id = "aws"
     name = "AWS Plugin"
     version = "0.1"
-    requires_api = 12
+    requires_api = 14  # the AWS settings for one cluster sit in the Cloud settings dialog (#818)
+    cloud = "aws"
     cluster_sources = (clusters.SOURCE,)
     refresh_s = 1800  # spot prices move; the rest is cheap to ask again
     description = ("Instance ID, type, capacity, AMI, on-demand and spot price and launch time of AWS nodes. "

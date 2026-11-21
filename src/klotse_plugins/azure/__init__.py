@@ -7,7 +7,6 @@ from klotse.plugins import Action, Column, Message, OpenUrl, Plugin, Setting, Te
 from . import clusters
 from .metadata import node_values, portal_url
 
-HELP_AZURE = "Set this when the cluster's nodes do not report their cloud in the providerID (a local emulator, a custom node pool). auto uses the providerID check; azure accepts this cluster's nodes without it."
 AZURE_PROVIDER_PREFIX = "azure://"  # providerID of an AKS node: azure:///subscriptions/.../virtualMachines/...
 
 
@@ -36,7 +35,8 @@ class AzurePlugin(Plugin):
     id = "azure"
     name = "Azure (AKS) Plugin (WIP)"
     version = "0.1"
-    requires_api = 12
+    requires_api = 14  # Klotse passes the cluster's one Cloud setting as settings["cloud"] (#818)
+    cloud = "azure"
     description = "WIP: help appreciated. Node metadata, portal links, sign-in and cluster discovery. Pricing and cost cards are not implemented; real AKS verification is needed."
     columns = (
         Column("machine-type", "Azure VM size"),
@@ -47,9 +47,6 @@ class AzurePlugin(Plugin):
     actions = (
         Action("portal", "Open node in Azure portal…", kinds=("Node",)),
         Action("sign-in", "Sign in to Azure for this cluster (az login)…", kinds=("Node",)),
-    )
-    cluster_settings = (
-        Setting("cloud", "Cloud of this cluster", "auto", pattern=r"auto|azure", help=HELP_AZURE),
     )
     settings = (
         Setting("azure_tenant", "Azure tenant (optional)", "",

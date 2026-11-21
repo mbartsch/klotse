@@ -16,7 +16,7 @@ def navigator(qtbot, tmp_path=None):
     qtbot.addWidget(nav)
     groups = ClusterGroups(QSettings(str(tmp_path / "g.ini"), QSettings.IniFormat)) if tmp_path else None
     nav.set_contexts(["prod", "lab"], groups)
-    nav.plugin_entries = lambda: [("aws", "AWS Plugin: settings for this cluster…")]
+    nav.plugin_entries = lambda context: [("aws", "AWS Plugin: settings for this cluster…")]
     nav.auto_refresh_is_on = lambda context: True
     nav.removable = lambda context: context == "lab"
     return nav
@@ -42,7 +42,7 @@ def test_disconnected_cluster_menu_has_no_settings_group_and_ends_with_its_kubec
 
 def test_without_groups_or_plugins_there_are_no_empty_groups_or_doubled_separators(qtbot):
     nav = navigator(qtbot)
-    nav.plugin_entries = lambda: []
+    nav.plugin_entries = lambda context: []
     nav.set_state("prod", "connected")
     for name in ("prod", "lab"):
         entries = layout(nav.menu_for(nav._clusters[name]))
