@@ -589,51 +589,63 @@ class Navigator(QTreeWidget):
             cluster = item if kind == "cluster" else None
             if cluster is None:
                 return None
-            name = cluster.data(0, self.ROLE_KEY)
-            selected_disconnected = self._selected_disconnected_clusters() if item is cluster else []
-            if len(selected_disconnected) > 1 and self._states.get(name) not in ACTIVE_STATES:
-                names = tuple(c.data(0, self.ROLE_KEY) for c in selected_disconnected)
-                menu.addAction(f"Connect selected clusters ({len(names)})",
-                               lambda contexts=names: self._connect_selected(contexts))
-            else:
-                for label, signal in self.actions_for(name):
-                    menu.addAction(label, lambda sig=signal: sig.emit(name))
-            menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
-            if self._states.get(name) not in ACTIVE_STATES:
-                menu.addAction("Sign in with the helper…", lambda c=name: self.sign_in_requested.emit(c))
-            menu.addAction("Show kubeconfig entry…", lambda c=name: self.config_requested.emit(c))  # works before connecting
-            removable = self._removable_targets(cluster, name)
-            if removable:
-                suffix = f" ({len(removable)})" if len(removable) > 1 else ""
-                menu.addAction(f"Remove from Klotse{suffix}…", lambda t=removable: self.remove_requested.emit(t))
-            if self._states.get(name) in ACTIVE_STATES:
-                targets = self._auto_refresh_targets(cluster, name)
-                suffix = f" ({len(targets)})" if len(targets) > 1 else ""
-                # one entry per state: only the change that applies to the clicked cluster, both when it is not known (#500)
-                is_on = self.auto_refresh_is_on(name) if self.auto_refresh_is_on is not None else None
-                if is_on is not False:
-                    menu.addAction(f"Turn off auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
-                if is_on is not True:
-                    menu.addAction(f"Turn on auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
-            entries = self.plugin_entries() if self._states.get(name) in ACTIVE_STATES else []
-            if self._states.get(name) in ACTIVE_STATES:
-                menu.addSeparator()
-                menu.addAction("Metrics source…", lambda c=name: self.metrics_source_requested.emit(c))
-            if entries:
-                menu.addSeparator()
-                for plugin_id, text in entries:
-                    menu.addAction(text, lambda pid=plugin_id: self.plugin_settings_requested.emit(pid, name))
-            if self.groups is not None:
-                menu.addSeparator()
-                move = menu.addMenu("Move to group")
-                for path in self.groups.groups():
-                    move.addAction(path, lambda p=path: self.move_cluster(name, p))
-                if self.groups.groups():
-                    move.addSeparator()
-                move.addAction("New group…", lambda: self.create_group("", move=name))
-                if self._group_of(name):
-                    move.addAction("No group", lambda: self.move_cluster(name, ""))
+            self._fill_cluster_menu(menu, cluster, cluster.data(0, self.ROLE_KEY))
         return menu
+
+    def _fill_cluster_menu(self, menu, cluster, name):
+        """A cluster's menu in four groups (#817), a separator between groups that have entries: connection; name and
+        place (alias, group); the cluster's settings (plugins, metrics source, auto-refresh: connected only); its kubeconfig
+        entry (show, sign in, remove)."""
+        connected = self._states.get(name) in ACTIVE_STATES
+
+        def group():
+            actions = menu.actions()
+            if actions and not actions[-1].isSeparator():
+                menu.addSeparator()
+
+        # 1. connection
+        selected_disconnected = self._selected_disconnected_clusters()
+        if len(selected_disconnected) > 1 and not connected:
+            names = tuple(c.data(0, self.ROLE_KEY) for c in selected_disconnected)
+            menu.addAction(f"Connect selected clusters ({len(names)})", lambda contexts=names: self._connect_selected(contexts))
+        else:
+            for label, signal in self.actions_for(name):
+                menu.addAction(label, lambda sig=signal: sig.emit(name))
+        # 2. name and place
+        group()
+        menu.addAction("Rename alias…", lambda c=name: self.alias_requested.emit(c))
+        if self.groups is not None:
+            move = menu.addMenu("Move to group")
+            for path in self.groups.groups():
+                move.addAction(path, lambda p=path: self.move_cluster(name, p))
+            if self.groups.groups():
+                move.addSeparator()
+            move.addAction("New group…", lambda: self.create_group("", move=name))
+            if self._group_of(name):
+                move.addAction("No group", lambda: self.move_cluster(name, ""))
+        # 3. the cluster's settings, for a connected cluster
+        if connected:
+            group()
+            for plugin_id, text in self.plugin_entries():
+                menu.addAction(text, lambda pid=plugin_id: self.plugin_settings_requested.emit(pid, name))
+            menu.addAction("Metrics source…", lambda c=name: self.metrics_source_requested.emit(c))
+            targets = self._auto_refresh_targets(cluster, name)
+            suffix = f" ({len(targets)})" if len(targets) > 1 else ""
+            # one entry per state: only the change that applies to the clicked cluster, both when it is not known (#500)
+            is_on = self.auto_refresh_is_on(name) if self.auto_refresh_is_on is not None else None
+            if is_on is not False:
+                menu.addAction(f"Turn off auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, False))
+            if is_on is not True:
+                menu.addAction(f"Turn on auto-refresh{suffix}", lambda t=targets: self.auto_refresh_clusters_requested.emit(t, True))
+        # 4. the kubeconfig entry
+        group()
+        menu.addAction("Show kubeconfig entry…", lambda c=name: self.config_requested.emit(c))  # works before connecting
+        if not connected:
+            menu.addAction("Sign in with the helper…", lambda c=name: self.sign_in_requested.emit(c))
+        removable = self._removable_targets(cluster, name)
+        if removable:
+            suffix = f" ({len(removable)})" if len(removable) > 1 else ""
+            menu.addAction(f"Remove from Klotse{suffix}…", lambda t=removable: self.remove_requested.emit(t))
 
     def _auto_refresh_targets(self, item, name):
         """The connected clusters an auto-refresh menu entry acts on: the selected connected clusters when the clicked one is

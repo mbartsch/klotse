@@ -78,21 +78,20 @@ def test_the_dialog_saves_validates_and_cancels(qtbot, tmp_path, monkeypatch):
     assert reopened.values() == {"team": "blue", "acct": "123456789012"}
 
 
-def test_the_plugins_menu_needs_an_enabled_plugin_and_a_cluster_in_front(qtbot, tmp_path, monkeypatch):
+def cluster_menu_texts(win, context):
+    return [a.text() for a in win.nav.menu_for(win.nav._clusters[context]).actions() if not a.isSeparator()]
+
+
+def test_cluster_settings_come_from_the_cluster_menu_only_with_an_enabled_plugin_and_a_connection(qtbot, tmp_path, monkeypatch):
     win = MainWindow(FakeService, label_settings=LabelSettings(store(tmp_path)))
     qtbot.addWidget(win)
+    assert "&Plugins" not in [a.text() for a in win.menuBar().actions()]  # #817: no menu bar duplicate
     win.plugins.loaded = manager_with(tmp_path, Zoned(), enabled=False).loaded
-    win.plugins.set_enabled("zoned", False)
-    assert not win.plugins_menu.menuAction().isVisible()
     win.plugins.set_enabled("zoned", True)
-    assert win.plugins_menu.menuAction().isVisible()
-    win._fill_plugins_menu()
-    entries = [a for a in win.plugins_menu.actions() if not a.isSeparator()]
-    assert entries[0].text() == "Zoned: settings for this cluster…" and not entries[0].isEnabled()  # no cluster yet
+    assert "Zoned: settings for this cluster…" not in cluster_menu_texts(win, "ctx")  # not connected yet
     assert win.open_cluster_settings("zoned") is False
     open_active(win)
-    win._fill_plugins_menu()
-    assert win.plugins_menu.actions()[0].isEnabled()
+    assert "Zoned: settings for this cluster…" in cluster_menu_texts(win, "ctx")
     shown = {}
 
     def fake_exec(self):
@@ -105,7 +104,8 @@ def test_the_plugins_menu_needs_an_enabled_plugin_and_a_cluster_in_front(qtbot, 
     assert win.open_cluster_settings("zoned") is True
     assert shown["plugin"] == "zoned" and win.plugins.cluster_settings_for("zoned", shown["context"]) == {"team": "blue"}
     win.plugins.set_enabled("zoned", False)
-    assert win.open_cluster_settings("zoned") is False and not win.plugins_menu.menuAction().isVisible()
+    assert win.open_cluster_settings("zoned") is False
+    assert "Zoned: settings for this cluster…" not in cluster_menu_texts(win, "ctx")  # disabled plugin: entry gone
 
 
 def test_a_connected_cluster_offers_the_plugin_settings_on_right_click(qtbot, tmp_path, monkeypatch):

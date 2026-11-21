@@ -6,7 +6,7 @@ from .dialog_sizing import resize_dialog
 
 
 class ClusterSettingsDialog(QDialog):
-    """A plugin's settings for one cluster (Plugins menu -> the plugin): a text box per `Plugin.cluster_settings` entry.
+    """A plugin's settings for one cluster (the cluster list's menu -> "<plugin>: settings for this cluster…"): a text box per `Plugin.cluster_settings` entry.
 
     An empty box means "not set for this cluster": the plugin falls back to its general settings. Save writes through
     `PluginManager.set_cluster_settings`, which makes every open list ask the plugin again."""

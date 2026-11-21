@@ -114,7 +114,7 @@ is off until enabled in Preferences → Plugins.
 <img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/02-nodes-aws-columns.png" alt="Nodes list with invented AWS instance details and prices">
 
 **Node actions and per-cluster settings.** The plugin's node submenu includes instance and console actions.
-Open per-cluster settings from the Plugins menu or a connected cluster's right-click menu.
+Open per-cluster settings from a connected cluster's right-click menu in the cluster list.
 
 <img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/06-node-right-click-aws-actions.png" alt="Node context menu with the AWS plugin actions">
 <img src="https://raw.githubusercontent.com/mbartsch/klotse/master/screens/05-cluster-settings-dialog.png" alt="AWS plugin settings for one invented cluster">

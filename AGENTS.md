@@ -73,6 +73,8 @@ git diff --check
 - Documentation changes do not authorize deployment, cloud-instance termination, pushing branches or live Kubernetes mutations.
 - Pending, not merged at the time of writing: main menu grouping (#232), actionable load states (#234), manifest filter paths (#215; described above), optional All Clusters overview implementation (#531).
 
+- #817: a cluster's menu (`Navigator._fill_cluster_menu`) has four groups with one separator between non-empty groups: connection; Rename alias…/Move to group; the cluster's settings (plugin entries, Metrics source…, auto-refresh: connected only); Show kubeconfig entry…/Sign in…/Remove from Klotse…. There is no Plugins menu bar entry.
+
 - #815: Remove from Klotse… in the cluster menu forgets disconnected clusters read from `klotse-cloud.klotse` only (`MainWindow.is_removable_cloud_cluster`, `cloud_clusters.remove_contexts`: shared cluster/user entries stay, `.bak` kept); it never edits the main kubeconfig or touches the cloud.
 
 - #777: keep the optional All clusters page hidden until added to its workspace tab; an unmanaged visible child intercepts menu-bar mouse input.

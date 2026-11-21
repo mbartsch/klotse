@@ -333,10 +333,8 @@ class MainWindow(QMainWindow):
         self.clusters_panel_action.setToolTip("Show or hide the cluster navigator on the left")
         view_menu.addAction(self.clusters_panel_action)
         settings_menu.aboutToShow.connect(self._sync_big_action)
-        # Plugins: shown only while an enabled plugin has settings for each cluster; its entries need a cluster in front
-        self.plugins_menu = self.menuBar().addMenu("&Plugins")
-        self.plugins_menu.aboutToShow.connect(self._fill_plugins_menu)
-        self.plugins.changed.connect(self._update_plugins_menu)
+        # No Plugins menu (#817): it only repeated the cluster menu's "<plugin>: settings for this cluster…" entries for the
+        # cluster in front. Per-cluster plugin settings live in the cluster list's menu, plugin preferences in Preferences.
         self.about_action = QAction("About Klotse", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
@@ -505,7 +503,6 @@ class MainWindow(QMainWindow):
         self.contexts = self._load_contexts()
         self.nav.set_contexts(self.contexts, self.groups, self.aliases.aliases)
         self._sync_cluster_picker()
-        self._update_plugins_menu()
         self.nav.groups_changed.connect(self._save_groups)
         self.status.showMessage("Double-click a cluster on the left to connect" if self.contexts
                                 else self._no_contexts_message())
@@ -1082,10 +1079,7 @@ class MainWindow(QMainWindow):
         self.restore_auto_refresh_action.setEnabled(self._global_auto_snapshot is not None)
         self.enable_auto_refresh_all_action.setEnabled(bool(self.workspaces))
 
-    # ---- Plugins menu ---------------------------------------------------
-    def _update_plugins_menu(self):
-        self.plugins_menu.menuAction().setVisible(bool(self.plugins.cluster_plugins()))
-
+    # ---- plugin errors ---------------------------------------------------
     def _plugin_errors(self):
         found = {item.id: item for item in self.plugins.loaded}
         errors = dict(self.plugins.errors)
@@ -1110,18 +1104,6 @@ class MainWindow(QMainWindow):
         errors = self._plugin_errors()
         if errors:
             self.open_preferences(errors[0][0])
-
-    def _fill_plugins_menu(self):
-        """One entry per enabled plugin with cluster settings, for the cluster in front (disabled without one)."""
-        self.plugins_menu.clear()
-        ws = self.clusters.currentWidget()
-        for plugin in self.plugins.cluster_plugins():
-            action = self.plugins_menu.addAction(f"{plugin.name or plugin.id}: settings for this cluster…")
-            action.setEnabled(ws is not None)
-            action.triggered.connect(lambda _=False, p=plugin: self.open_cluster_settings(p.id))
-        if ws is None and self.plugins_menu.actions():
-            self.plugins_menu.addSeparator()
-            self.plugins_menu.addAction("Connect to a cluster first").setEnabled(False)
 
     def _sync_read_only_action(self):
         ws = self.clusters.currentWidget()

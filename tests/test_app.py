@@ -915,7 +915,7 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     assert clicks == [] and not (nav.topLevelItem(0).flags() & Qt.ItemIsSelectable)
     assert [label for label, _ in nav.actions_for("a")] == ["Connect"]
     menu = nav.menu_for(nav.cluster_item("a"))
-    assert [action.text() for action in menu.actions()[:2]] == ["Connect", "Rename alias…"]
+    assert [action.text() for action in menu.actions() if not action.isSeparator()][:2] == ["Connect", "Rename alias…"]
     next(action for action in menu.actions() if action.text() == "Connect").trigger()
     assert clicks == [("connect", "a")]
     clicks.clear()
@@ -926,7 +926,7 @@ def test_navigator_headers_are_inert_and_menu_actions(qtbot):
     nav.set_state("a", "connected")
     nav.show_views("a")
     connected_menu = nav.menu_for(nav.cluster_item("a"))
-    assert [action.text() for action in connected_menu.actions()[:3]] == ["Reconnect", "Disconnect", "Rename alias…"]
+    assert [action.text() for action in connected_menu.actions() if not action.isSeparator()][:3] == ["Reconnect", "Disconnect", "Rename alias…"]
     seen = []
     nav.disconnect_requested.connect(seen.append)
     dict(nav.actions_for("a"))["Disconnect"].emit("a")
