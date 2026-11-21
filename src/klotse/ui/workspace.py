@@ -378,7 +378,9 @@ class ClusterWorkspace(QMainWindow):
         close_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarCloseButton))
         close_button.setToolTip("Close Details panel")
         close_button.setAccessibleName("Close Details panel")
-        close_button.clicked.connect(self.detail_dock.hide)
+        close_button.clicked.connect(self._close_details)
+        self._details_auto_hidden = False  # Details hidden for the idle Overview, to come back on another tab (#822)
+        self.detail_dock.toggleViewAction().triggered.connect(self._details_chosen)
         detail_title_layout.addWidget(close_button)
         self.detail_dock.setTitleBarWidget(detail_titlebar)
         self.detail_dock.topLevelChanged.connect(self._sync_detail_dock_button)
@@ -854,13 +856,16 @@ class ClusterWorkspace(QMainWindow):
         if count > 1:  # several rows: no single-object actions in Details (#503)
             self._detail_row = None
             self.detail.show_many(count)
+            self._fit_details_to_tab(empty=False)
             return
         if row is None:
             self._detail_row = None
             self.detail.clear_row()
+            self._fit_details_to_tab(empty=True)
             return
         self._detail_row = row
         self.detail.show_row(row)
+        self._fit_details_to_tab(empty=False)
         self.detail.set_object_actions(table.row_actions(row))
         if table.kind == "Secret" and not getattr(row, "secret_loaded", True):
             # the list only had its metadata: show what is known, then the whole Secret once it is read (if still selected)
@@ -888,7 +893,34 @@ class ClusterWorkspace(QMainWindow):
             if row is not None:
                 self._show_detail_row(table, row)
                 return
+        node = self.overview.selected_node() if widget is self.overview else None
+        if node is not None:  # a node picked in the dashboard's node table
+            self._overview_node_selected(node)
+            return
         self.detail.clear_row()
+        self._fit_details_to_tab(empty=True)
+
+    def _details_chosen(self, *_):
+        """The user showed or hid Details themselves: that choice wins over the Overview's automatic hide (#822)."""
+        self._details_auto_hidden = False
+
+    def _close_details(self):
+        self._details_chosen()
+        self.detail_dock.hide()
+
+    def _fit_details_to_tab(self, empty):
+        """#822: the cluster Overview with nothing selected hides a docked Details panel, so the dashboard gets the width;
+        another tab or a selection brings it back. Only a hide made here is undone: a panel the user closed (its ×, Panes,
+        the dock menu) stays closed, and a floating one is left alone."""
+        dock = self.detail_dock
+        overview = getattr(self, "overview", None)  # tabs can change while the workspace is still being built
+        idle = empty and overview is not None and self.tabs.currentWidget() is overview and not dock.isFloating()
+        if idle and not dock.isHidden():
+            self._details_auto_hidden = True
+            dock.hide()
+        elif not idle and self._details_auto_hidden:
+            self._details_auto_hidden = False
+            dock.show()
 
     def _show_log_dock(self):
         """Reveal Logs/activity at a restrained default size once, then respect the user's sizing."""
@@ -976,6 +1008,7 @@ class ClusterWorkspace(QMainWindow):
             self._sync_watch()
         else:
             self.detail.clear_row()
+            self._fit_details_to_tab(empty=True)
 
     def open_view(self, key):
         if key.startswith("crd-group:") and key not in self.views:  # a navigator sub item: its tab is made on first use

@@ -631,6 +631,12 @@ class OverviewView(QWidget):
     def tables(self):
         return [self.events_table, self.pods_table, self.warnings_table]
 
+    def selected_node(self):
+        """The node row selected in the cluster dashboard's node table, or None (#822: Details shows it again on return)."""
+        table = getattr(self, "nodes_table", None)
+        items = [item for item in table.selectedItems() if item.column() == 0] if table is not None else []
+        return items[0].data(Qt.UserRole) if items else None
+
     def set_loading(self):
         """Show loading only in the recent-events area until the first cluster response arrives."""
         if self._data is not None or self._load_timer.isActive():
