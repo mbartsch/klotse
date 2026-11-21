@@ -377,8 +377,17 @@ def bind_address(value):
     return str(address), check
 
 
+def require_tools(identities):
+    """Refuse before anything starts when a command up runs is not on PATH (kubectl only with --identities, where
+    identity.py runs it after every Terraform root was applied)."""
+    missing = [tool for tool in ("docker", "terraform", *(("kubectl",) if identities else ())) if not shutil.which(tool)]
+    if missing:
+        raise SystemExit(f"Not found on PATH: {', '.join(missing)}. Install it (README.md: Prerequisites) and run up again.")
+
+
 def up(args):
     providers = selected(args.providers)
+    require_tools(args.identities)
     bind, check = bind_address(args.bind)
     os.environ["KLOTSE_LAB_BIND"] = bind  # compose.yaml: ${KLOTSE_LAB_BIND:-127.0.0.1}:<port>:<port>
     debug(f"providers: {', '.join(providers)}; bind {bind}; start.py checks the Docker engine and bridges, "

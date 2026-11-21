@@ -20,11 +20,14 @@ def kubectl(config, *args, manifest=None):
     for key in list(env):
         if key.lower().endswith("_proxy"):
             del env[key]
-    result = subprocess.run(
-        ["kubectl", "--kubeconfig", str(config), "--request-timeout=15s", *args],
-        input=json.dumps(manifest) if manifest is not None else None,
-        capture_output=True, text=True, env=env, check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["kubectl", "--kubeconfig", str(config), "--request-timeout=15s", *args],
+            input=json.dumps(manifest) if manifest is not None else None,
+            capture_output=True, text=True, env=env, check=False,
+        )
+    except FileNotFoundError:
+        raise SystemExit("kubectl is not on PATH; install it (README.md: Prerequisites) and run again.") from None
     if result.returncode:
         # Neither kubeconfig material nor server errors belong in the lab log.
         raise SystemExit(f"kubectl {args[0]} failed (exit {result.returncode}).")
@@ -32,7 +35,10 @@ def kubectl(config, *args, manifest=None):
 
 
 def docker(*args):
-    result = subprocess.run(["docker", *args], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["docker", *args], capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        raise SystemExit("docker is not on PATH; install it (README.md: Prerequisites) and run again.") from None
     if result.returncode:
         raise SystemExit(f"docker {args[0]} failed (exit {result.returncode}).")
     return result.stdout
