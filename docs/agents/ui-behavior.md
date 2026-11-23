@@ -32,6 +32,8 @@
 
 ### Tables, ages, and labels
 
+- **Fit columns** sizes the current resource table to its contents. New tables restore manually saved widths.
+
 - **Go to** (single row): Go to node X, Go to namespace Y (`goto_requested` -> `go_to`); new tables that want it must connect the signal.
 - Age sorting is numeric (`1d` before `8h` before `35m` oldest-first; unknown = `-1`), both directions; CPU/memory stay numeric with separate display. Keep display, edit/sort and search roles distinct.
 - Nodes filter across visible values plus label/annotation keys and values; `karpenter.sh/nodepool` shows as `NodePool` after Roles by default.
