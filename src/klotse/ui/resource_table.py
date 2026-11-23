@@ -692,7 +692,7 @@ class ResourceTable(QWidget):
             self.model.set_rows(rows)
             self._refresh_filter_completions()
             if rows and not self._sized_columns:
-                self.fit_columns()
+                self._fit_columns(restore_saved=True)
                 self._sized_columns = True
             self._restore_selection(*kept)
         finally:
@@ -836,18 +836,21 @@ class ResourceTable(QWidget):
         _save_widths(self.kind, self._saved_widths)
 
     def fit_columns(self):
-        """Fit visible columns, limiting long plugin values to a practical width."""
+        """Fit visible columns to the contents on request."""
+        self._fit_columns(restore_saved=False)
+
+    def _fit_columns(self, *, restore_saved):
         was_guarded, self._width_guard = self._width_guard, True
         try:
             self.view.resizeColumnsToContents()
             for index, column in enumerate(self.model.columns):
-                if column[1] in self._saved_widths:  # a width the user set wins over the fit (#501)
-                    self.view.setColumnWidth(index, self._saved_widths[column[1]])
+                attr = column[1]
+                if restore_saved and attr in self._saved_widths:
+                    self.view.setColumnWidth(index, self._saved_widths[attr])
+                elif attr.startswith("plugin:") and self.view.columnWidth(index) > 240:
+                    self.view.setColumnWidth(index, 240)
         finally:
             self._width_guard = was_guarded
-        for index, column in enumerate(self.model.columns):
-            if column[1].startswith("plugin:") and self.view.columnWidth(index) > 240:
-                self.view.setColumnWidth(index, 240)
 
     def set_plugin_presets(self, presets):
         if self.presets is None:

@@ -78,3 +78,40 @@ def test_empty_first_load_waits_to_fit_columns_until_rows_arrive(qtbot):
     table.set_rows([NamespaceRow("a-much-longer-resource-name-than-the-heading", "Active", "1d", "", {})])
     assert table._sized_columns
     assert table.view.columnWidth(0) > 100
+
+
+def test_fit_button_resizes_a_saved_event_column(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from klotse.k8s.resources import SPECS, Row
+    from klotse.ui import resource_table
+
+    settings = QSettings(str(tmp_path / "klotse.ini"), QSettings.IniFormat)
+    monkeypatch.setattr(resource_table, "_settings", settings)
+    spec = next(spec for spec in SPECS if spec.key == "events")
+    event = Row("pod-scheduled", "default", {}, type="Normal", reason="Scheduled",
+                object="Pod/example", message="Successfully assigned default/example to worker",
+                count=1, last_seen="1m")
+    message = next(i for i, (_, attr) in enumerate(spec.columns) if attr == "message")
+
+    first = ResourceTable(spec.columns, spec.kind)
+    qtbot.addWidget(first)
+    first.set_rows([event])
+    fitted_width = first.view.columnWidth(message)
+    narrow_width = first.view.horizontalHeader().minimumSectionSize()
+    assert fitted_width > narrow_width
+    first.view.setColumnWidth(message, narrow_width)
+
+    reopened = ResourceTable(spec.columns, spec.kind)
+    qtbot.addWidget(reopened)
+    reopened.set_rows([event])
+    assert reopened.view.columnWidth(message) == narrow_width
+    reopened.fit_button.click()
+    assert reopened.view.columnWidth(message) == fitted_width
+    reopened.set_rows([event])
+    assert reopened.view.columnWidth(message) == fitted_width
+
+    another = ResourceTable(spec.columns, spec.kind)
+    qtbot.addWidget(another)
+    another.set_rows([event])
+    assert another.view.columnWidth(message) == narrow_width
