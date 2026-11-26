@@ -1144,7 +1144,7 @@ class ResourceTable(QWidget):
             add("delete", "Delete…", lambda: self.action_requested.emit("delete", row), dangerous=True, permission="delete")
         return actions
 
-    def _goto_menu(self, menu, row, owner):
+    def _goto_menu(self, menu, row, owner=None):
         """Group navigation to the controller, node and namespace when available."""
         node = getattr(row, "node", "") if self.kind == "Pod" else ""
         namespace = getattr(row, "namespace", "") if self.kind not in ("Namespace", "Node") else ""
