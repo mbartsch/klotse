@@ -27,6 +27,8 @@ Separate, also not built: GCP and Azure plugins like the AWS one (see "Not built
 
 Table field actions (#203): right-click any cell to copy its value or use it as an exact column filter, including Nodes and Pods. Generated filters use readable equality for ordinary values; wildcard characters and complex quoting keep an escaped exact regex. Checked with offscreen tests; no manual display check.
 
+Workload navigation (#829) adds one-step owner and child actions in resource menus and Details for Pods, Deployments, ReplicaSets, DaemonSets, StatefulSets, Jobs and CronJobs. Results open in the same cluster and pin the namespace. Upward navigation selects the UID-verified owner, and downward navigation lists all direct children.
+
 ## More ideas (second investigation)
 
 Resource table context menus (#233, implemented locally; pending review): row and bulk menus group inspection, workload operations, navigation/connectivity, and list controls with separators; delete, terminate, force terminate, node deletion and Helm uninstall actions sit in a final destructive section. Permission hints, read-only availability, and existing confirmations are preserved. Focused offscreen menu ordering checks are in `tests/test_bulk.py` and `tests/test_table_cells.py`.
