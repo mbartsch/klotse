@@ -112,7 +112,7 @@ def test_menu_opens_selected_owner_and_browses_back_to_children(qtbot, monkeypat
 
         class Menu(QMenu):
             def exec(self, *_):
-                labels.extend(action.text() for action in self.actions())
+                labels.extend(None if action.isSeparator() else action.text() for action in self.actions())
                 action = next((action for action in self.actions() if action.text() == title), None)
                 if action is not None:
                     action.trigger()
@@ -121,8 +121,13 @@ def test_menu_opens_selected_owner_and_browses_back_to_children(qtbot, monkeypat
         index = table.proxy.index(0, 0)
         table._context_menu(table.view.visualRect(index).center())
         assert title in labels
+        return labels
 
-    click_menu(ws.pod_table, "Go to ReplicaSet web")
+    labels = click_menu(ws.pod_table, "Go to ReplicaSet web")
+    owner_index = labels.index("Go to ReplicaSet web")
+    assert labels[owner_index - 1:owner_index + 4] == [
+        None, "Go to ReplicaSet web", "Go to node node", "Go to namespace shop", None,
+    ]
     owner_key = ws.foreground_key()
     assert owner_key.startswith("workload-navigation:owner:")
     owner_table = ws.views[owner_key][0]

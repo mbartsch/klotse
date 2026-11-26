@@ -1144,14 +1144,16 @@ class ResourceTable(QWidget):
             add("delete", "Delete…", lambda: self.action_requested.emit("delete", row), dangerous=True, permission="delete")
         return actions
 
-    def _goto_menu(self, menu, row):
-        """'Go to node ...' for a pod that has one, 'Go to namespace ...' for any namespaced object (a Namespace's own list
-        has its Show pods entry instead). Navigation only: it never changes anything, so it is also offered read-only."""
+    def _goto_menu(self, menu, row, owner):
+        """Group navigation to the controller, node and namespace when available."""
         node = getattr(row, "node", "") if self.kind == "Pod" else ""
         namespace = getattr(row, "namespace", "") if self.kind not in ("Namespace", "Node") else ""
-        if not node and not namespace:
+        if owner is None and not node and not namespace:
             return
-        menu.addSeparator()
+        if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
+            menu.addSeparator()
+        if owner is not None:
+            menu.addAction(owner.title, owner.callback)
         if node:
             menu.addAction(f"Go to node {node}", lambda: self.goto_requested.emit("node", node))
         if namespace:
@@ -1295,12 +1297,10 @@ class ResourceTable(QWidget):
                 add_shared("force-terminate", destructive)
                 if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
                     add_shared("remove-debug", destructive)
-            if "workload-owner" in shared or "workload-children" in shared:
+            if "workload-children" in shared:
                 section()
-                add_shared("workload-owner")
                 add_shared("workload-children")
-        if idx.isValid():
-            self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
+            self._goto_menu(menu, row, shared.get("workload-owner"))
         if self.kind == "CustomResourceDefinition" and idx.isValid():
             add_shared("crd-instances")
         if self.context_actions is not None:

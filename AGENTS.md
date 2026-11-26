@@ -73,7 +73,7 @@ git diff --check
 - Documentation changes do not authorize deployment, cloud-instance termination, pushing branches or live Kubernetes mutations.
 - Pending, not merged at the time of writing: main menu grouping (#232), actionable load states (#234), manifest filter paths (#215; described above), optional All Clusters overview implementation (#531).
 
-- #829 (workload-navigation): resource row menus and Details offer Go to the immediate workload controller and Show owned children. Workspace tabs pin the source namespace. The service matches owner references and UIDs, with a named read upward and a paginated child list downward.
+- #829 (workload-navigation): resource row menus and Details offer Go to the immediate workload controller and Show owned children. Row menus group Go to the controller, node and namespace between the same separators. Workspace tabs pin the source namespace. The service matches owner references and UIDs, with a named read upward and a paginated child list downward.
 
 - #825: `Navigator.select_view` on a collapsed cluster selects only the cluster row (`_select_quietly`: auto-scroll off, so QTreeView does not expand parents) and remembers the view in `_shown_views`; `_on_expanded` highlights it when the selected cluster is expanded. `MainWindow._on_cluster_changed` brings a collapsed cluster's Overview to the front.
 
