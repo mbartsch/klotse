@@ -54,7 +54,7 @@ from .security_dialog import SecurityDialog
 from .trivy_dialog import ReportDialog, TrivyDialog
 from .rbac_dialog import RbacDialog
 from .rightsizing_dialog import RightSizingDialog
-from ..k8s import health, metrics_history, pod_security, prometheus, schema as schema_help, trivy, unused
+from ..k8s import health, metrics_history, pod_security, prometheus, schema as schema_help, trivy, unused, workload_navigation
 from .customizations import LabelSettings
 from .helm_dialog import HelmReleaseDialog
 from .detail_panel import DetailPanel
@@ -342,7 +342,7 @@ class ClusterWorkspace(QMainWindow):
         self.tabs.setTabBar(ScrollableTabBar())
         self.tabs.setTabsClosable(True)
         self.tabs.setDocumentMode(True)
-        self.tabs.tabCloseRequested.connect(self.tabs.removeTab)
+        self.tabs.tabCloseRequested.connect(self._close_view)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.setCentralWidget(self.tabs)
 
@@ -404,6 +404,7 @@ class ClusterWorkspace(QMainWindow):
         for widget, _ in self.views.values():
             tables = widget.tables() if isinstance(widget, OverviewView) else [widget]
             for t in tables:
+                self._wire_workload_navigation(t)
                 t.selected.connect(lambda row, table=t: self._show_detail_row(table, row))
             if isinstance(widget, OverviewView):  # pending/failed pods listed on an overview behave like the Pods tab
                 widget.pods_table.edit_requested.connect(self.edit_resource)
@@ -422,28 +423,7 @@ class ClusterWorkspace(QMainWindow):
                 if widget is self.pod_table:
                     widget.more_requested.connect(self.load_more_pods)
                     self._watch_pod_input(widget)
-                widget.bulk_requested.connect(self.bulk_action)
-                widget.edit_requested.connect(self.edit_resource)
-                widget.scale_requested.connect(self.scale_resource)
-                widget.restart_requested.connect(self.restart_resource)
-                widget.history_requested.connect(self.show_rollout_history)
-                widget.compare_requested.connect(self.compare_objects)
-                widget.metrics_requested.connect(self.show_metrics)
-                widget.metrics_query_requested.connect(self.show_metrics_query)
-                widget.metrics_many_requested.connect(self.show_metrics_many)
-                widget.duplicate_requested.connect(self.copy_resource)
-                widget.multi_logs_requested.connect(self.multi_logs)
-                widget.rbac_requested.connect(lambda kind, row: self.show_rbac(subject=("ServiceAccount", row.name, row.namespace)))
-                widget.goto_requested.connect(self.go_to)
-                widget.port_forward_requested.connect(self.start_port_forward)
-                widget.copy_files_requested.connect(self.copy_files)
-                widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
-                                                 "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
-                                                 "HelmRelease": self._helm_action, "CronJob": self._cronjob_action,
-                                                 "PersistentVolumeClaim": lambda _action, row: self.browse_claim(row),
-                                                 **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
-                                                    for k in DELETABLE_KINDS if k != "CustomResourceDefinition"}}.get(
-                                                     widget.kind, self.pod_action))  # CRDs: their own action (open, delete)
+                self._wire_table_actions(widget)
         self.ns_table.new_requested.connect(self.new_namespace)
         self.node_table.visible_changed.connect(self._update_node_pods)
 
@@ -833,6 +813,35 @@ class ClusterWorkspace(QMainWindow):
         self.overview.set_plugin_cards(self.plugin_host.overview_cards())
         self.overview.set_plugin_values(self.plugin_host.overview_values())
 
+    def _wire_table_actions(self, widget):
+        widget.bulk_requested.connect(self.bulk_action)
+        widget.edit_requested.connect(self.edit_resource)
+        widget.scale_requested.connect(self.scale_resource)
+        widget.restart_requested.connect(self.restart_resource)
+        widget.history_requested.connect(self.show_rollout_history)
+        widget.compare_requested.connect(self.compare_objects)
+        widget.metrics_requested.connect(self.show_metrics)
+        widget.metrics_query_requested.connect(self.show_metrics_query)
+        widget.metrics_many_requested.connect(self.show_metrics_many)
+        widget.duplicate_requested.connect(self.copy_resource)
+        widget.multi_logs_requested.connect(self.multi_logs)
+        widget.rbac_requested.connect(lambda kind, row: self.show_rbac(subject=("ServiceAccount", row.name, row.namespace)))
+        widget.goto_requested.connect(self.go_to)
+        widget.port_forward_requested.connect(self.start_port_forward)
+        widget.copy_files_requested.connect(self.copy_files)
+        widget.action_requested.connect({"Node": self.node_action, "Namespace": self._namespace_action,
+                                         "CustomResourceDefinition": self._crd_action, "CRDGroup": self._crd_action,
+                                         "HelmRelease": self._helm_action, "CronJob": self._cronjob_action,
+                                         "PersistentVolumeClaim": lambda _action, row: self.browse_claim(row),
+                                         **{k: (lambda _action, row, k=k: self.delete_resource(k, row))
+                                            for k in DELETABLE_KINDS if k != "CustomResourceDefinition"}}.get(
+                                             widget.kind, self.pod_action))  # CRDs: their own action (open, delete)
+
+    def _wire_workload_navigation(self, table):
+        if table.kind == "Pod" or table.kind in workload_navigation.CHILD_KIND:
+            table.workload_navigation_enabled = True
+            table.workload_navigation_requested.connect(self.open_workload_navigation)
+
     def _hook_table(self, table):
         table.selection_count_changed.connect(lambda count, t=table: self._show_detail_row(t, None) if count > 1 else None)
         self._hook_table_plugins(table)
@@ -988,6 +997,21 @@ class ClusterWorkspace(QMainWindow):
         self.tabs.setCurrentIndex(idx)
         self.view_opened.emit(key)
 
+    def _close_view(self, index):
+        widget = self.tabs.widget(index)
+        self.tabs.removeTab(index)
+        key = getattr(widget, "view_key", "")
+        if key.startswith("workload-navigation:"):
+            self.views.pop(key)
+            self.loaders.pop(key)
+            self._loads.pop(key, None)
+            self._load_serial.pop(key, None)
+            self._last_load.pop(key, None)
+            self._last_done.pop(key, None)
+            self._loading.discard(key)
+            self._pending_loads.discard(key)
+            widget.deleteLater()
+
     def _sync_ns_selector(self):
         """Show the namespace selector only while the foreground view is scoped by namespace."""
         key = self.foreground_key()
@@ -1010,7 +1034,7 @@ class ClusterWorkspace(QMainWindow):
             self.detail.clear_row()
             self._fit_details_to_tab(empty=True)
 
-    def open_view(self, key):
+    def open_view(self, key, *, reload=False):
         if key.startswith("crd-group:") and key not in self.views:  # a navigator sub item: its tab is made on first use
             self.open_crd_group(key.partition(":")[2])
             return
@@ -1019,7 +1043,7 @@ class ClusterWorkspace(QMainWindow):
             self._show_view(key)
         finally:
             self._opening = False
-        if not (self.is_manual(key) and key in self._last_load and not self._stale_scope(key)):  # a manual list loads on first open
+        if reload or not (self.is_manual(key) and key in self._last_load and not self._stale_scope(key)):
             self.load_view(key)
 
     def static_view_keys(self):
@@ -1037,7 +1061,7 @@ class ClusterWorkspace(QMainWindow):
         comes to the front; the toolbar Refresh and the list's right-click Refresh still work."""
         if key == "pods" and self.big and self.huge and "pods" not in self.refresh_settings.overrides():
             return True  # reloading would throw away the pages the user loaded
-        return is_manual(key, self.refresh_settings.overrides())
+        return key.startswith("workload-navigation:") or is_manual(key, self.refresh_settings.overrides())
 
     def _wire_pod_list_extras(self, table):
         """The usage, log and compare entries of a Pod list (node pods tab, pending pods on the overview)."""
@@ -1461,7 +1485,9 @@ class ClusterWorkspace(QMainWindow):
             return
         fetch, scoped, sink = self.loaders[key]
         widget = self.views[key][0]
-        api_options = widget.api_filter_options() if isinstance(widget, ResourceTable) else {}
+        api_options = {}
+        if isinstance(widget, ResourceTable) and not key.startswith("workload-navigation:"):
+            api_options = widget.api_filter_options()
         if api_options:
             fetch = lambda ns, f=fetch, options=api_options: f(ns, **options)
         chosen = self.namespaces()
@@ -1494,7 +1520,7 @@ class ClusterWorkspace(QMainWindow):
         self.message.emit(f"{self.cluster_label()} / {title}: Loading…")
 
         def finished(data, error=False):
-            if self._load_serial.get(key) != serial:  # abandoned by a newer load of this view: ignore it entirely
+            if self._load_serial.get(key) != serial or self.views[key][0] is not widget:
                 return
             self._loading.discard(key)
             if self._closed:
@@ -1508,7 +1534,7 @@ class ClusterWorkspace(QMainWindow):
                 timer.start(int(self._refresh_gap(key) * 1000) + 100)  # restarted by every finished load
             if self._loads[key] == namespace:
                 if error:
-                    data = explain(data, title)
+                    data = describe(data)[1] if key.startswith("workload-navigation:owner:") else explain(data, title)
                     if table is not None:
                         table.set_error(data)
                     self.message.emit(f"{self.cluster_label()} / {title}: {data.splitlines()[0] if data else ''}")
@@ -2812,7 +2838,8 @@ class ClusterWorkspace(QMainWindow):
     def show_permissions(self):
         """View > My permissions…: the user's own permissions in the namespace in front, and a Can I? check. Non-modal, one per
         workspace (#499: it was modal and opened after a background read, interrupting whatever came next)."""
-        ns = DEFAULT_NS if self.namespace() == ALL_NS else self.namespace()
+        scope = getattr(self.tabs.currentWidget(), "fixed_namespace", self.namespace())
+        ns = DEFAULT_NS if scope == ALL_NS else scope
         self.message.emit(f"{self.cluster_label()}: reading your permissions in {ns}…")
         self._run(self.service.my_permissions, lambda perms: self._permissions_ready(ns, perms), ns)
 
@@ -2879,6 +2906,49 @@ class ClusterWorkspace(QMainWindow):
                   on_error=lambda msg, r=row: self.detail.show_related(r, error=msg))
 
     LIST_VIEWS = {"Pod": "pods", "Deployment": "deployments", "ReplicaSet": "replicasets", "StatefulSet": "statefulsets"}
+
+    def open_workload_navigation(self, target, children):
+        """Browse one ownership step in a list pinned to the source namespace."""
+        if self._closed:
+            return
+        direction = "children" if children else "owner"
+        key = f"workload-navigation:{direction}:{target.kind}:{target.namespace}:{target.name}:{target.uid}"
+        if key not in self.views:
+            kind = workload_navigation.CHILD_KIND[target.kind] if children else target.kind
+            template_key = self.LIST_VIEWS.get(kind) or SPEC_BY_KIND[kind].key
+            table = ResourceTable(self.views[template_key][0].core_columns, kind, customizable=False)
+            source = f"{target.kind} {target.namespace}/{target.name}"
+            title = f"{plural_label(kind)} owned by {source}" if children else source
+            table.view_key = key
+            table.fixed_namespace = target.namespace
+            table.set_page_title(title)
+            table.page_subtitle.hide()
+            table.filter.setPlaceholderText(f"Filter {plural_label(kind)} in {target.namespace}…")
+            table.refresh_requested.connect(lambda: self.load_view(key))
+            table.permissions_requested.connect(self.show_permissions)
+            table.permission_check = self.permission_for
+            table.selected.connect(lambda row: self._show_detail_row(table, row) if self.foreground_key() == key else None)
+            self._hook_table(table)
+            self._wire_workload_navigation(table)
+            self._wire_table_actions(table)
+
+            def fetch(_):
+                if children:
+                    return self.service.list_workload_children(target)
+                return self.service.read_workload_owner(target)
+
+            def loaded(rows):
+                table.set_rows(rows)
+                if not children:
+                    table.select_when_loaded(target.name, target.namespace)
+                if self.foreground_key() == key:
+                    self._sync_details_to_tab(table)
+
+            self.views[key] = (table, title)
+            self.loaders[key] = (fetch, False, loaded)
+        if not children:
+            self.views[key][0].filter.clear()
+        self.open_view(key, reload=True)
 
     def go_to_object(self, kind, namespace, name):
         """A link in the Related view: take the user to that object. A node opens its own tab and a namespace its pods (as Go to
@@ -3721,6 +3791,7 @@ class ClusterWorkspace(QMainWindow):
             table.set_label_columns(self.label_settings.labels("Pod"), self.label_settings.headers("Pod"),
                                     self.label_settings.layout("Pod"))
             self._hook_table(table)
+            self._wire_workload_navigation(table)
             table.enable_saved_filters(SavedFilters(self.label_settings.store), self.context)
             table.view_key = key
             table.filter.setPlaceholderText(f"Filter pods on {node} (all namespaces)…")

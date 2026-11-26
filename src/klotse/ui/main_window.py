@@ -722,7 +722,8 @@ class MainWindow(QMainWindow):
         view = ws.tabs.tabText(ws.tabs.currentIndex()) if ws.tabs.count() else "Overview"
         key = ws.foreground_key() if ws.tabs.count() else "overview"
         scoped = key in ws.loaders and ws.loaders[key][1]
-        namespace = ws.namespace() if scoped else "all namespaces"
+        widget = ws.tabs.currentWidget()
+        namespace = ws.namespace() if scoped else getattr(widget, "fixed_namespace", "all namespaces")
         title = f"{alias} ({ws.context}) — {view} — {namespace} — Klotse"
         window = self._detached.get(ws.context)
         if window is not None:

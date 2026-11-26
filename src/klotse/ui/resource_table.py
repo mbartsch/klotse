@@ -7,10 +7,11 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QCompleter, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                                QStackedWidget, QTableView, QToolButton, QVBoxLayout, QWidget)
 
+from ..k8s import workload_navigation
 from ..k8s.clone import COPYABLE
 from ..k8s.resources import DELETABLE_KINDS
 from ..k8s.timing import timings
-from .wording import counted
+from .wording import counted, plural_label
 from . import filter_expr, theme
 from .action_icons import action_icon
 from .customizations import ANNOTATION_KINDS
@@ -131,6 +132,7 @@ class ResourceTable(QWidget):
     refresh_mode_requested = Signal(bool)  # right-click > Refresh automatically (checked = True)
     port_forward_requested = Signal(str, object)  # a Pod or Service: forward one of its ports to this computer
     copy_files_requested = Signal(object)  # a Pod: copy files between this computer and a container
+    workload_navigation_requested = Signal(object, bool)  # resource identity, browse children
     goto_requested = Signal(str, str)  # "node" or "namespace", and its name: the row's right-click "Go to ..." entries
     action_requested = Signal(str, object)  # action name, row dataclass
     new_requested = Signal()
@@ -173,6 +175,7 @@ class ResourceTable(QWidget):
         self.base_columns = list(columns)
         self._label_args = None
         self.plugin_actions = None  # callable(kind, rows) -> [(plugin name, plugin id, [Action])], set by the workspace
+        self.workload_navigation_enabled = False
         self.context_actions = None  # optional (menu, selected rows) builder for views with their own supported actions
         self.model = TableModel(columns, search_metadata=kind == "Node")
         self.proxy = _FilterProxy(self)
@@ -1058,6 +1061,17 @@ class ResourceTable(QWidget):
             shown = self._hint(title, permission, row, kind=kind) if permission else title
             actions.append(RowAction(key, shown, callback, primary, dangerous))
 
+        if self.workload_navigation_enabled:
+            raw = getattr(row, "raw", None) or {}
+            owner = workload_navigation.controller(self.kind, raw)
+            if owner is not None:
+                add("workload-owner", f"Go to {owner.kind} {owner.name}",
+                    lambda: self.workload_navigation_requested.emit(owner, False))
+            child_kind = workload_navigation.CHILD_KIND.get(self.kind)
+            if child_kind and (source := workload_navigation.identity(self.kind, raw)) is not None:
+                title = f"Show owned {plural_label(child_kind)}"
+                add("workload-children", title, lambda: self.workload_navigation_requested.emit(source, True))
+
         if self.editable:
             add("edit", "Edit…", lambda: self.edit_requested.emit(self.kind, row), primary=self.kind != "Node", permission="edit")
         if self.kind in COPYABLE and self.editable:
@@ -1130,14 +1144,16 @@ class ResourceTable(QWidget):
             add("delete", "Delete…", lambda: self.action_requested.emit("delete", row), dangerous=True, permission="delete")
         return actions
 
-    def _goto_menu(self, menu, row):
-        """'Go to node ...' for a pod that has one, 'Go to namespace ...' for any namespaced object (a Namespace's own list
-        has its Show pods entry instead). Navigation only: it never changes anything, so it is also offered read-only."""
+    def _goto_menu(self, menu, row, owner=None):
+        """Group navigation to the controller, node and namespace when available."""
         node = getattr(row, "node", "") if self.kind == "Pod" else ""
         namespace = getattr(row, "namespace", "") if self.kind not in ("Namespace", "Node") else ""
-        if not node and not namespace:
+        if owner is None and not node and not namespace:
             return
-        menu.addSeparator()
+        if not menu.isEmpty() and not menu.actions()[-1].isSeparator():
+            menu.addSeparator()
+        if owner is not None:
+            menu.addAction(owner.title, owner.callback)
         if node:
             menu.addAction(f"Go to node {node}", lambda: self.goto_requested.emit("node", node))
         if namespace:
@@ -1281,8 +1297,10 @@ class ResourceTable(QWidget):
                 add_shared("force-terminate", destructive)
                 if ((getattr(row, "raw", None) or {}).get("spec") or {}).get("ephemeralContainers"):
                     add_shared("remove-debug", destructive)
-        if idx.isValid():
-            self._goto_menu(menu, self.model.rows[self.proxy.mapToSource(idx).row()])
+            if "workload-children" in shared:
+                section()
+                add_shared("workload-children")
+            self._goto_menu(menu, row, shared.get("workload-owner"))
         if self.kind == "CustomResourceDefinition" and idx.isValid():
             add_shared("crd-instances")
         if self.context_actions is not None:

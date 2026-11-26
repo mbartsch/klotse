@@ -21,7 +21,7 @@ from kubernetes.client.rest import should_bypass_proxies
 from kubernetes.utils import parse_quantity
 from urllib3.exceptions import MaxRetryError
 
-from . import connect_help, helm, metrics_history, preflight, prometheus, process_env, related, rollout, search, trivy
+from . import connect_help, helm, metrics_history, preflight, prometheus, process_env, related, rollout, search, trivy, workload_navigation
 from .timing import name_of, timings
 from .models import DeploymentRow, NamespaceRow, NodeRow, PodRow, ReplicaSetRow, StatefulSetRow
 from .api_index import ApiResource
@@ -982,6 +982,30 @@ class KubeService:
             return self._apis[api], snake, namespaced
         spec = SPEC_BY_KIND.get(kind)
         return (self._apis[spec.api], spec.snake, spec.namespaced) if spec is not None else None
+
+    def read_workload_owner(self, owner):
+        """Read the named owner in its namespace and reject a replacement with the same name."""
+        api, snake, _ = self._related_api(owner.kind)
+        reader = getattr(api, f"read_namespaced_{snake}")
+        try:
+            obj = reader(owner.name, owner.namespace, _request_timeout=15)
+        except ApiException as error:
+            if error.status != 404:
+                raise
+            raise ValueError(f"{owner.kind} {owner.name} no longer exists in {owner.namespace}.") from None
+        if workload_navigation.identity(owner.kind, {"metadata": _raw(obj.metadata)}) != owner:
+            raise ValueError(f"{owner.kind} {owner.name} in {owner.namespace} no longer has the referenced UID.")
+        mapper = {"Deployment": map_deployment, "ReplicaSet": map_replicaset, "StatefulSet": map_statefulset}.get(owner.kind)
+        return [mapper(obj) if mapper else SPEC_BY_KIND[owner.kind].mapper(obj)]
+
+    def list_workload_children(self, owner):
+        """List all direct children in the owner's namespace, including across rollout revisions."""
+        kind = workload_navigation.CHILD_KIND[owner.kind]
+        api, snake, _ = self._related_api(kind)
+        mapper = {"Pod": map_pod, "ReplicaSet": map_replicaset, "Job": SPEC_BY_KIND["Job"].mapper}[kind]
+        items = self._iter_list(getattr(api, f"list_namespaced_{snake}"), owner.namespace)
+        return [mapper(obj) for obj in items
+                if workload_navigation.directly_owned(kind, {"metadata": _raw(obj.metadata)}, owner)]
 
     def related_objects(self, kind, raw):
         """The objects related to one object (owners, what it owns, uses or is used by; see k8s.related), found by reading the
